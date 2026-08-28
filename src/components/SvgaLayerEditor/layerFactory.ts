@@ -77,7 +77,7 @@ export function createImageLayer(
     name: layerName,
     type: 'image',
     visible: true,
-    locked: false,
+    locked: true,
     thumbnailUrl: dataUrl,
     transform: {
       x,

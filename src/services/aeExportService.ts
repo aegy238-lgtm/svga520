@@ -469,12 +469,13 @@ if (!this.JSON) { this.JSON = {}; }
 })(this);
 `;
 
+    const baseName = (metadata?.name || "project").replace(/\.[^/.]+$/, "");
     const readmeContent = `SVGA to AEP Script Usage Guide (v7.0 ULTRA)
 ================================
 
 📁 Files Included
 -----------------
-- ${metadata.name.replace('.svga','')}.jsx - After Effects script file
+- ${baseName}.jsx - After Effects script file
 - manifest.json - Animation data file (DO NOT DELETE)
 - assets/ - Exported image and audio files
 - README.txt - This file
@@ -484,7 +485,7 @@ if (!this.JSON) { this.JSON = {}; }
 1. Extract the entire ZIP file to a folder.
 2. Open Adobe After Effects.
 3. Go to File > Scripts > Run Script File.
-4. Select ${metadata.name.replace('.svga','')}.jsx script file.
+4. Select ${baseName}.jsx script file.
 5. The script will automatically find manifest.json and assets/ in the same folder.
 
 ✅ Features (v7.0 Updates)
@@ -502,14 +503,13 @@ if (!this.JSON) { this.JSON = {}; }
 - Allow Scripts to Write Files and Access Network (Edit > Preferences > Scripting & Expressions).
 `;
 
-    const fileName = "eid mubarak";
-    zip.file(`${fileName}.jsx`, jsxContent);
+    zip.file(`${baseName}.jsx`, jsxContent);
     zip.file("README.txt", readmeContent);
     
     const blob = await zip.generateAsync({ type: "blob" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `${fileName}_AfterEffects_Project.zip`;
+    link.download = `${baseName}.zip`;
     link.click();
     setProgress(100);
 };

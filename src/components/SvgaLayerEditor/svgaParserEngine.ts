@@ -199,7 +199,7 @@ export async function parseSvgaToProject(file: File): Promise<{
       name: layerName,
       type: layerType,
       visible: true,
-      locked: false,
+      locked: true,
       thumbnailUrl: imagesMap[imageKey] || undefined,
       transform: {
         x: initialX,

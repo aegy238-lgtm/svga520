@@ -781,7 +781,13 @@ const App: React.FC = () => {
             {state === AppState.SVGA_LAYER_EDITOR && (
               <SvgaLayerEditor 
                 initialFile={layerEditorInitialFile || fileMetadata?.originalFile || undefined}
-                onClose={handleReset}
+                onClose={() => {
+                  if (fileMetadata) {
+                    setState(AppState.PROCESSING);
+                  } else {
+                    handleReset();
+                  }
+                }}
                 onOpenViewer={(exportedFile) => handleFileUpload([exportedFile])}
               />
             )}

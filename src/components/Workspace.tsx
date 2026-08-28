@@ -110,7 +110,7 @@ const cloneSvgaItem = (item: any) => {
   };
 };
 
-export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata, onCancel, settings, currentUser, onLoginRequired, onSubscriptionRequired, globalQuality: initialGlobalQuality = 'high', onFileReplace, mode = 'normal', onImageConverterOpen }) => {
+export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata, onCancel, settings, currentUser, onLoginRequired, onSubscriptionRequired, globalQuality: initialGlobalQuality = 'high', onFileReplace, mode = 'normal', onImageConverterOpen, onOpenLayerEditor }) => {
   const { checkAccess } = useAccessControl();
   const { t, dir } = useLanguage();
   const [metadata, setMetadata] = useState<FileMetadata>(initialMetadata);
@@ -121,6 +121,26 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const watermarkInputRef = useRef<HTMLInputElement>(null);
   const layerInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const handleGoToLayerEditor = async () => {
+    if (onOpenLayerEditor) {
+      if (metadata.originalFile) {
+        onOpenLayerEditor(metadata.originalFile);
+      } else if (metadata.fileUrl) {
+        try {
+          const res = await fetch(metadata.fileUrl);
+          const blob = await res.blob();
+          const file = new File([blob], metadata.name || 'project.svga', { type: 'application/octet-stream' });
+          onOpenLayerEditor(file);
+        } catch (err) {
+          console.error("Error loading project file for layer editor", err);
+          onOpenLayerEditor(undefined);
+        }
+      } else {
+        onOpenLayerEditor(undefined);
+      }
+    }
+  };
   
   const [isPlaying, setIsPlaying] = useState(true);
   const [pauseOnManipulate, setPauseOnManipulate] = useState(true);
@@ -4034,13 +4054,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       }
 
       const blob = await zip.generateAsync({ type: "blob" });
+      const baseName = (metadata?.name || 'project').replace(/\.[^/.]+$/, '');
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = `${metadata.name.replace('.svga','')}_Sequence.zip`;
+      link.download = `${baseName}.zip`;
       link.click();
       
       if (currentUser) {
-        logActivity(currentUser, 'export', `Exported Image Sequence: ${metadata.name}_Sequence.zip`);
+        logActivity(currentUser, 'export', `Exported Image Sequence: ${baseName}.zip`);
       }
 
       svgaInstance.stepToFrame(originalFrame, true);
@@ -4154,13 +4175,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         });
 
         gif.on('finished', (blob: Blob) => {
+            const baseName = (metadata?.name || 'project').replace(/\.[^/.]+$/, '');
             const link = document.createElement("a");
             link.href = URL.createObjectURL(blob);
-            link.download = `${metadata.name.replace('.svga', '')}_Transparent.gif`;
+            link.download = `${baseName}.gif`;
             link.click();
             
             if (currentUser) {
-              logActivity(currentUser, 'export', `Exported Transparent GIF: ${metadata.name}.gif`);
+              logActivity(currentUser, 'export', `Exported Transparent GIF: ${baseName}.gif`);
             }
 
             setIsExporting(false);
@@ -4400,9 +4422,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         }
 
         const url = URL.createObjectURL(blob);
+        const baseName = (metadata?.name || 'project').replace(/\.[^/.]+$/, '');
         setExportResult({
             url,
-            filename: `${metadata.name.replace('.svga', '')}_Animated.webm`
+            filename: `${baseName}.webm`
         });
 
         setIsExporting(false);
@@ -4633,9 +4656,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           logActivity(currentUser, 'export', `Exported Animated WebP: ${metadata.name}.webp`);
         }
 
+        const baseName = (metadata?.name || 'project').replace(/\.[^/.]+$/, '');
         setExportResult({
             url,
-            filename: `${metadata.name.replace('.svga', '')}_Animated.webp`
+            filename: `${baseName}.webp`
         });
 
         setIsExporting(false);
@@ -4824,12 +4848,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${metadata.name}-animated.svg`;
+        const baseName = (metadata?.name || 'project').replace(/\.[^/.]+$/, '');
+        a.download = `${baseName}.svg`;
         a.click();
         URL.revokeObjectURL(url);
         
         if (currentUser) {
-            logActivity(currentUser, 'export', `Exported Animated SVG: ${metadata.name}-animated.svg`);
+            logActivity(currentUser, 'export', `Exported Animated SVG: ${baseName}.svg`);
         }
         
         svgaInstance.stepToFrame(originalFrame, isPlaying);
@@ -4915,13 +4940,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         const apngBuffer = UPNG.encode(framesData, tempCanvas.width, tempCanvas.height, cnum, delays);
         
         const blob = new Blob([apngBuffer], { type: 'image/png' });
+        const baseName = (metadata?.name || 'project').replace(/\.[^/.]+$/, '');
         const link = document.createElement("a");
         link.href = URL.createObjectURL(blob);
-        link.download = `${metadata.name.replace('.svga', '')}_Animation.png`;
+        link.download = `${baseName}.png`;
         link.click();
 
         if (currentUser) {
-          logActivity(currentUser, 'export', `Exported Animated PNG: ${metadata.name}.png`);
+          logActivity(currentUser, 'export', `Exported Animated PNG: ${baseName}.png`);
         }
 
         setIsExporting(false);
@@ -5035,7 +5061,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     });
 
     const link = document.createElement('a');
-    link.download = `${metadata.name.replace('.svga', '')}_frame_${currentFrame}.png`;
+    const baseName = (metadata?.name || 'project').replace(/\.[^/.]+$/, '');
+    link.download = `${baseName}.png`;
     link.href = compCanvas.toDataURL('image/png');
     link.click();
   };
@@ -5387,11 +5414,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${metadata.name.replace('.svga', '')}_Recording.${extension}`;
+        const baseName = (metadata?.name || 'project').replace(/\.[^/.]+$/, '');
+        a.download = `${baseName}.${extension}`;
         a.click();
 
         if (currentUser) {
-          logActivity(currentUser, 'export', `Exported ${extension.toUpperCase()} Video: ${metadata.name}.${extension}`);
+          logActivity(currentUser, 'export', `Exported ${extension.toUpperCase()} Video: ${baseName}.${extension}`);
         }
 
         svgaInstance.stepToFrame(originalFrame, true);
@@ -5860,8 +5888,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         const checksum = await calculateChecksum(buffer);
         
         // Download Files
-        const timestamp = new Date().getTime();
-        const baseName = `vap_export_${timestamp}`;
+        const baseName = (metadata?.name || 'project').replace(/\.[^/.]+$/, '');
         
         // 1. Video (with embedded vapc)
         const videoBlob = new Blob([buffer], { type: 'video/mp4' });
@@ -6576,11 +6603,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             
             const a = document.createElement('a');
             a.href = url;
-            a.download = `${metadata.name.replace('.svga', '')}_${currentFormat === 'SVGA → YYEVA' ? 'YYEVA' : 'VAP'}.mp4`;
+            const baseName = (metadata?.name || 'project').replace(/\.[^/.]+$/, '');
+            a.download = `${baseName}.mp4`;
             a.click();
             
             if (currentUser) {
-              logActivity(currentUser, 'export', `Exported ${currentFormat === 'SVGA → YYEVA' ? 'YYEVA' : 'VAP (MP4)'}: ${metadata.name}_${currentFormat === 'SVGA → YYEVA' ? 'YYEVA' : 'VAP'}.mp4`);
+              logActivity(currentUser, 'export', `Exported ${currentFormat === 'SVGA → YYEVA' ? 'YYEVA' : 'VAP (MP4)'}: ${baseName}.mp4`);
             }
             
             svgaInstance.stepToFrame(originalFrame, true);
@@ -6981,9 +7009,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 const bufferOut = MovieEntity.encode(message).finish();
                 const compressedBuffer = pako.deflate(bufferOut);
                 
+                const baseName = (metadata?.name || 'project').replace(/\.[^/.]+$/, '');
                 const link = document.createElement("a");
                 link.href = URL.createObjectURL(new Blob([compressedBuffer]));
-                link.download = `${metadata.name.replace('.svga','')}_Quantum_${Math.round(exportScale*100)}.svga`;
+                link.download = `${baseName}.svga`;
                 link.click();
                 setProgress(100);
             } else {
@@ -7284,13 +7313,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 const buffer = MovieEntity.encode(MovieEntity.create(payload)).finish();
                 const compressedBuffer = pako.deflate(buffer);
                 
+                const baseName = (metadata?.name || 'project').replace(/\.[^/.]+$/, '');
                 const link = document.createElement("a");
                 link.href = URL.createObjectURL(new Blob([compressedBuffer]));
-                link.download = `${metadata.name.replace('.svga','')}_Quantum_${Math.round(exportScale*100)}.svga`;
+                link.download = `${baseName}.svga`;
                 link.click();
                 
                 if (currentUser) {
-                  logActivity(currentUser, 'export', `Exported SVGA 2.0: ${metadata.name}_Quantum_${Math.round(exportScale*100)}.svga`);
+                  logActivity(currentUser, 'export', `Exported SVGA 2.0: ${baseName}.svga`);
                 }
                 
                 setProgress(100);
@@ -7364,6 +7394,31 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             </div>
           </div>
         </div>
+
+        {/* زر الانتقال إلى استوديو ومحرر الطبقات (الصفحة الثانية بنفس المشروع) */}
+        <div className="flex items-center justify-center my-2 lg:my-0">
+          <button
+            onClick={handleGoToLayerEditor}
+            className="group/studio px-4 sm:px-6 py-2.5 sm:py-3.5 bg-gradient-to-r from-emerald-500/15 via-teal-500/15 to-cyan-500/15 hover:from-emerald-500/25 hover:via-teal-500/25 hover:to-cyan-500/25 text-white rounded-xl sm:rounded-[2rem] border border-emerald-500/30 hover:border-teal-400/60 shadow-lg shadow-emerald-500/10 hover:shadow-teal-500/25 transition-all duration-300 active:scale-95 flex items-center gap-3 cursor-pointer"
+            title="الانتقال إلى محرر الطبقات والتايم لاين المتقدم (الصفحة الثانية لنفس المشروع)"
+          >
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-slate-950 font-black shadow-md shadow-emerald-500/20 group-hover/studio:scale-105 transition-transform">
+              <Layers className="w-4 h-4 sm:w-5 sm:h-5 text-slate-950" />
+            </div>
+            <div className="text-right">
+              <div className="flex items-center gap-2">
+                <span className="text-xs sm:text-sm font-black tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-200">
+                  محرر الطبقات (الصفحة الثانية)
+                </span>
+                <span className="px-2 py-0.5 text-[8px] sm:text-[9px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full animate-pulse">
+                  Layer Studio
+                </span>
+              </div>
+              <p className="text-[9px] sm:text-[10px] text-slate-400 font-medium">فتح المشروع بالكامل في استوديو الطبقات والتايم لاين</p>
+            </div>
+          </button>
+        </div>
+
         <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full lg:w-auto">
             <button onClick={() => replaceSvgaInputRef.current?.click()} className="flex-1 lg:flex-none px-4 sm:px-6 py-3 sm:py-5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 hover:text-sky-300 rounded-xl sm:rounded-[2rem] border border-sky-500/20 transition-all font-black uppercase text-[8px] sm:text-[10px] tracking-widest active:scale-95 flex items-center justify-center gap-2">
                 <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
@@ -8807,7 +8862,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                           تسجيل فيديو (Screen Record)
                        </button>
                        {originalAudioUrl && (
-                           <button onClick={() => { const link = document.createElement('a'); link.href = originalAudioUrl; link.download = `${metadata.name.replace('.svga', '')}_audio.mp3`; link.click(); }} className="py-4 bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 rounded-2xl text-[10px] font-black uppercase">تنزيل الصوت الأصلي</button>
+                           <button onClick={() => { const link = document.createElement('a'); link.href = originalAudioUrl; const baseName = (metadata?.name || 'project').replace(/\.[^/.]+$/, ''); link.download = `${baseName}.mp3`; link.click(); }} className="py-4 bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 rounded-2xl text-[10px] font-black uppercase">تنزيل الصوت الأصلي</button>
                        )}
                     </div>
 
@@ -9214,7 +9269,7 @@ class _MyAppState extends State<MyApp> {
                             </div>
                             <a 
                                 href={exportedVapUrl} 
-                                download={`${metadata.name.replace('.svga', '')}_VAP.mp4`}
+                                download={`${(metadata?.name || 'project').replace(/\.[^/.]+$/, '')}.mp4`}
                                 className="block w-full py-3 bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded-xl text-center text-[10px] font-black uppercase hover:bg-sky-500/30 transition-colors"
                             >
                                 تحميل الفيديو مرة أخرى

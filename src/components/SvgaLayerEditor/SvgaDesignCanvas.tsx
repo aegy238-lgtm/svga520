@@ -410,7 +410,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         const normalY = topVectorX / topLen;
         const rotHandle = { x: midTop.x + normalX * 28, y: midTop.y + normalY * 28 };
 
-        // Draw Bounding Polygon
+        // Draw Bounding Polygon & Transform Handles for Selected Layer
         ctx.beginPath();
         ctx.moveTo(p0.x, p0.y);
         ctx.lineTo(p1.x, p1.y);
@@ -468,7 +468,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
         ctx.restore();
       }
-    }
+    };
   }, [project, layers, selectedLayer, currentFrame, bgColor, showGrid, showGuides, activeGuides, computeLayerMatrix, getLayerFrameState]);
 
   useEffect(() => {
@@ -590,6 +590,9 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     return null;
   }, [selectedLayer, currentFrame, computeLayerMatrix, hitTestLayer]);
 
+  // Dynamic Hover Cursor
+  const [canvasCursor, setCanvasCursor] = useState<string>('default');
+
   // Mouse Down Event Handler
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button === 1 || activeTool === 'hand') {
@@ -616,10 +619,10 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       if (clickedId) {
         onSelectLayer(clickedId);
         const targetLayer = layers.find(l => l.id === clickedId);
-        setIsInteracting(true);
-        setDragHandle('move');
-        setDragStart(coords);
         if (targetLayer) {
+          setIsInteracting(true);
+          setDragHandle('move');
+          setDragStart(coords);
           setInitialTransform({ ...targetLayer.transform });
         }
       } else {
@@ -630,7 +633,32 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
   // Mouse Move Event Handler
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isInteracting) return;
+    if (!isInteracting) {
+      if (activeTool === 'hand') {
+        setCanvasCursor('grab');
+        return;
+      }
+      const coords = clientToCanvasCoords(e.clientX, e.clientY);
+      const handle = getHandleUnderMouse(coords.x, coords.y);
+
+      if (handle) {
+        if (handle === 'rot') setCanvasCursor('crosshair');
+        else if (handle === 'nw' || handle === 'se') setCanvasCursor('nwse-resize');
+        else if (handle === 'ne' || handle === 'sw') setCanvasCursor('nesw-resize');
+        else if (handle === 'n' || handle === 's') setCanvasCursor('ns-resize');
+        else if (handle === 'e' || handle === 'w') setCanvasCursor('ew-resize');
+        else if (handle === 'move') setCanvasCursor('move');
+        else setCanvasCursor('default');
+      } else {
+        const hoverId = hitTestLayer(coords.x, coords.y);
+        if (hoverId) {
+          setCanvasCursor('move');
+        } else {
+          setCanvasCursor('default');
+        }
+      }
+      return;
+    }
 
     if (dragHandle === 'pan') {
       const dx = e.clientX - dragStart.x;
@@ -749,7 +777,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
       onWheel={handleWheel}
-      style={{ cursor: activeTool === 'hand' || dragHandle === 'pan' ? 'grab' : 'default' }}
+      style={{ cursor: activeTool === 'hand' || dragHandle === 'pan' ? 'grab' : canvasCursor }}
     >
       {/* Floating Canvas Viewport Info Pill & Preset Quick Zoom */}
       <div className="absolute top-4 left-4 z-20 flex items-center gap-2 bg-slate-900/90 backdrop-blur-md border border-white/10 px-3 py-1.5 rounded-2xl shadow-xl">
@@ -879,12 +907,18 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
       {/* Active Selected Layer Banner */}
       {selectedLayer && (
-        <div className="absolute top-4 right-4 z-20 flex items-center gap-2 bg-indigo-950/80 backdrop-blur-md border border-indigo-500/30 px-3 py-1.5 rounded-2xl shadow-xl text-xs" dir="rtl">
-          <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+        <div className={`absolute top-4 right-4 z-20 flex items-center gap-2 ${selectedLayer.locked ? 'bg-amber-950/80 border-amber-500/40 text-amber-300' : 'bg-indigo-950/80 border-indigo-500/30 text-indigo-300'} backdrop-blur-md border px-3 py-1.5 rounded-2xl shadow-xl text-xs`} dir="rtl">
+          <span className={`w-2 h-2 rounded-full ${selectedLayer.locked ? 'bg-amber-400' : 'bg-indigo-400 animate-pulse'}`} />
           <span className="font-bold text-white max-w-[180px] truncate">{selectedLayer.name}</span>
-          <span className="text-[10px] font-mono text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded-md">
-            X:{Math.round(selectedLayer.transform.x)} Y:{Math.round(selectedLayer.transform.y)}
-          </span>
+          {selectedLayer.locked ? (
+            <span className="text-[10px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-md border border-amber-500/30">
+              🔒 مقفلة (ثابتة)
+            </span>
+          ) : (
+            <span className="text-[10px] font-mono text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded-md">
+              X:{Math.round(selectedLayer.transform.x)} Y:{Math.round(selectedLayer.transform.y)}
+            </span>
+          )}
         </div>
       )}
 

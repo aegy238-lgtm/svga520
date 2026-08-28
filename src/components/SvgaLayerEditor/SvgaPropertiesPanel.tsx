@@ -5,7 +5,7 @@ import {
   AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter,
   AlignLeft, AlignRight, AlignCenter, ArrowUp, ArrowDown,
   Upload, Image as ImageIcon, Sparkles, RefreshCw, Eye,
-  Film, FlipHorizontal, FlipVertical, Clock
+  Film, FlipHorizontal, FlipVertical, Clock, Lock
 } from 'lucide-react';
 
 interface SvgaPropertiesPanelProps {
@@ -148,7 +148,7 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
       {/* Header Info */}
       <div className="flex items-center justify-between border-b border-white/10 pb-3">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+          <div className="w-7 h-7 rounded-lg bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 border flex items-center justify-center">
             <Sliders size={14} />
           </div>
           <div>
@@ -159,7 +159,7 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
 
         <button
           onClick={onResetTransform}
-          className="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg transition-colors"
+          className="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
           title="إعادة تعيين للموضع الأصلي"
         >
           <RotateCcw size={13} />

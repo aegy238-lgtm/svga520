@@ -529,7 +529,8 @@ export const handleSvgaExExport = async (params: {
     const compressedBuffer = pako.deflate(bufferOut);
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([compressedBuffer]));
-    link.download = `${metadata.name.replace(".svga", "")}_Quantum_EX.svga`;
+    const baseName = (metadata?.name || "project").replace(/\.[^/.]+$/, "");
+    link.download = `${baseName}.svga`;
     link.click();
     setProgress(100);
   } catch (e) {
