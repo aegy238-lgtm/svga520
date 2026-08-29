@@ -3,6 +3,7 @@ import protobuf from 'protobufjs';
 import { svgaSchema } from '../../svga-proto';
 import { EditableLayer, SVGAProjectData } from './types';
 import { getLayerAnimatedTransform } from './motionEngine';
+import { ensureMp3WithId3 } from '../../utils/mp3Encoder';
 
 const root = protobuf.parse(svgaSchema).root;
 const MovieEntity = root.lookupType("com.opensource.svga.MovieEntity");
@@ -28,6 +29,8 @@ export async function exportEditedSvga(
     for (const [key, bytes] of Object.entries(project.rawImages)) {
       if (bytes instanceof Uint8Array) {
         exportImages[key] = bytes;
+      } else if (bytes && (bytes as any).buffer instanceof ArrayBuffer) {
+        exportImages[key] = new Uint8Array((bytes as any).buffer);
       }
     }
   }
@@ -44,8 +47,57 @@ export async function exportEditedSvga(
         }
         exportImages[key] = bytes;
       }
+    } else if (dataUrl && dataUrl.startsWith('blob:')) {
+      try {
+        const res = await fetch(dataUrl);
+        const ab = await res.arrayBuffer();
+        exportImages[key] = new Uint8Array(ab);
+      } catch (e) {
+        console.warn('Could not fetch blob for key:', key, e);
+      }
     }
   }
+
+  // Ensure all embedded audio tracks have their binary bytes present in exportImages and are ID3 tagged
+  if (project.audios && Array.isArray(project.audios)) {
+    for (const track of project.audios) {
+      const key = track.audioKey;
+      let rawTrackBytes: Uint8Array | null = exportImages[key] || null;
+
+      if (!rawTrackBytes) {
+        if (project.rawImages && project.rawImages[key]) {
+          const raw = project.rawImages[key];
+          if (raw instanceof Uint8Array) {
+            rawTrackBytes = raw;
+          } else if ((raw as any)?.buffer instanceof ArrayBuffer) {
+            rawTrackBytes = new Uint8Array((raw as any).buffer);
+          }
+        } else if (project.imagesMap && project.imagesMap[key]) {
+          const src = project.imagesMap[key];
+          if (src.startsWith('data:')) {
+            const b64 = src.split(',')[1];
+            if (b64) {
+              const bin = atob(b64);
+              const b = new Uint8Array(bin.length);
+              for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i);
+              rawTrackBytes = b;
+            }
+          } else if (src.startsWith('blob:')) {
+            try {
+              const res = await fetch(src);
+              const ab = await res.arrayBuffer();
+              rawTrackBytes = new Uint8Array(ab);
+            } catch (e) {}
+          }
+        }
+      }
+
+      if (rawTrackBytes && rawTrackBytes.length > 0) {
+        exportImages[key] = ensureMp3WithId3(rawTrackBytes);
+      }
+    }
+  }
+
   exportMovie.images = exportImages;
 
   // 2. Prepare Sprites according to layers list
@@ -156,7 +208,13 @@ export async function exportEditedSvga(
   exportMovie.sprites = newSprites;
 
   // 3. Preserve Audios and Params precisely
-  exportMovie.audios = project.audios || [];
+  exportMovie.audios = (project.audios || []).map((a: any) => ({
+    audioKey: a.audioKey,
+    startFrame: Math.max(0, Math.round(a.startFrame || 0)),
+    endFrame: Math.max(Math.round(a.startFrame || 0) + 1, Math.round(a.endFrame || project.totalFrames || 60)),
+    startTime: Math.max(0, Math.round(a.startTime || 0)),
+    totalTime: Math.max(10, Math.round(a.totalTime || ((project.totalFrames || 60) / (project.fps || 30)) * 1000))
+  }));
   exportMovie.params = {
     viewBoxWidth: project.width,
     viewBoxHeight: project.height,

@@ -11,12 +11,14 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@ffmpeg/core": "0.12.6",
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
     "@fingerprintjs/fingerprintjs": "^5.0.1",
     "@google/genai": "^1.45.0",
+    "@mediapipe/selfie_segmentation": "^0.1.1675465747",
     "@types/pako": "^2.0.4",
     "agora-rtc-sdk-ng": "^4.24.3",
     "browser-image-compression": "^2.0.2",

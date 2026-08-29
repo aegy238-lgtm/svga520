@@ -6,7 +6,7 @@ import {
   Search, Layers, Image as ImageIcon, Box, Shapes, Edit2, Check,
   Plus, Upload, Sparkles, Type, Circle, Square, Star, Award, SlidersHorizontal,
   GripVertical, Maximize2, Minimize2, Move, ArrowUpDown, Diamond, Package,
-  CheckSquare, Square as UncheckedSquare, CheckCheck, X
+  CheckSquare, Square as UncheckedSquare, CheckCheck, X, Music
 } from 'lucide-react';
 
 interface SvgaLayersListProps {
@@ -29,6 +29,7 @@ interface SvgaLayersListProps {
   onAddImageLayer: (file: File) => void;
   onAddShapeLayer: (shapeType: 'rect' | 'circle' | 'star' | 'badge' | 'text', customText?: string) => void;
   onMergeSvga?: () => void;
+  onOpenAudioStudio?: () => void;
 }
 
 type FilterTab = 'all' | 'active' | 'images' | 'shapes' | 'bundles';
@@ -52,7 +53,8 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
   onRenameLayer,
   onAddImageLayer,
   onAddShapeLayer,
-  onMergeSvga
+  onMergeSvga,
+  onOpenAudioStudio
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
@@ -297,6 +299,25 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
                     <div>
                       <span className="font-bold block text-xs text-purple-200">استدعاء ودمج ملف SVGA آخر</span>
                       <span className="text-[10px] text-purple-300/70 block">دمج طبقات وحركات أنيميشن كاملة</span>
+                    </div>
+                  </button>
+                )}
+
+                {/* Audio Studio Option */}
+                {onOpenAudioStudio && (
+                  <button
+                    onClick={() => {
+                      setShowAddMenu(false);
+                      onOpenAudioStudio();
+                    }}
+                    className="w-full px-3 py-2.5 bg-gradient-to-r from-indigo-950/80 to-purple-950/80 hover:from-indigo-900 hover:to-purple-900 border border-indigo-500/30 text-white rounded-xl text-xs flex items-center gap-2.5 transition-colors text-right cursor-pointer"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-indigo-500/30 border border-indigo-400/40 flex items-center justify-center text-indigo-300 shrink-0">
+                      <Music size={14} />
+                    </div>
+                    <div>
+                      <span className="font-bold block text-xs text-indigo-200">قص ودمج مسار صوتي (Audio)</span>
+                      <span className="text-[10px] text-indigo-300/70 block">إضافة MP3/WAV مع استوديو القص والترددات</span>
                     </div>
                   </button>
                 )}

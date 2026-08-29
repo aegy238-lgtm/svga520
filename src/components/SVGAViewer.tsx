@@ -45,6 +45,7 @@ import { svgaSchema } from '../svga-proto';
 import { SVGAFileInfo, PlayerStatus } from '../types';
 import * as Mp4Muxer from 'mp4-muxer';
 import JSZip from 'jszip';
+import { ensureMp3WithId3 } from '../utils/svgaAudio';
 
 interface SVGAViewerProps {
   file: SVGAFileInfo;
@@ -565,13 +566,15 @@ export const SVGAViewer: React.FC<SVGAViewerProps> = ({
               const bin = window.atob(base64Data);
               const bytes = new Uint8Array(bin.length);
               for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-              message.images[audio.id] = bytes;
+              message.images[audio.id] = ensureMp3WithId3(bytes);
+              const framesCount = message.params?.frames || totalFrames || 60;
+              const fpsVal = message.params?.fps || 30;
               message.audios.push({
                 audioKey: audio.id,
                 startFrame: 0,
-                endFrame: message.params?.frames || totalFrames,
+                endFrame: framesCount,
                 startTime: 0,
-                totalTime: 0
+                totalTime: Math.floor((framesCount / fpsVal) * 1000)
               });
             }
           });

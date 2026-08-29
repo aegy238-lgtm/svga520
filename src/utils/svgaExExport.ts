@@ -1,6 +1,8 @@
 import pako from "pako";
 import { svgaSchema } from "../svga-proto";
 import { ensureMp3WithId3, isAudioKey } from "./svgaAudio";
+import { decodeAudioSource } from "./svgaAudioTrimmer";
+import { audioBufferToMp3 } from "./mp3Encoder";
 
 /**
  * SVGA 2.0 EX Export Logic
@@ -489,22 +491,60 @@ export const handleSvgaExExport = async (params: {
     if (audioUrl) {
       const audioKey = "quantum_audio_ex.mp3"; // Force .mp3 extension for official platform compatibility
       let bytes: Uint8Array | null = null;
-      if (audioFile) {
-        bytes = new Uint8Array(await audioFile.arrayBuffer());
-      } else if (audioUrl) {
-        try {
-          const res = await fetch(audioUrl);
-          if (res.ok) {
-            bytes = new Uint8Array(await res.arrayBuffer());
+      try {
+        const source = audioFile || audioUrl;
+        if (source) {
+          const decoded = await decodeAudioSource(source);
+          const encoded = audioBufferToMp3(decoded.audioBuffer, 192);
+          bytes = encoded.mp3Bytes;
+        }
+      } catch (err) {
+        console.warn("Could not encode audio with mp3Encoder in EX export, falling back to raw bytes:", err);
+        if (audioFile) {
+          bytes = ensureMp3WithId3(new Uint8Array(await audioFile.arrayBuffer()));
+        } else if (audioUrl) {
+          try {
+            const res = await fetch(audioUrl);
+            if (res.ok) {
+              bytes = ensureMp3WithId3(new Uint8Array(await res.arrayBuffer()));
+            }
+          } catch (fetchErr) {
+            console.warn("Could not fetch audioUrl in EX export:", fetchErr);
           }
-        } catch (fetchErr) {
-          console.warn("Could not fetch audioUrl in EX export:", fetchErr);
         }
       }
 
-      if (bytes && bytes.length > 0) {
-        const taggedBytes = ensureMp3WithId3(bytes);
-        message.images[audioKey] = taggedBytes;
+      if (metadata.videoItem?.audios && metadata.videoItem.audios.length > 0) {
+        message.audios = metadata.videoItem.audios.map((a: any) => ({
+          audioKey: a.audioKey,
+          startFrame: Math.max(0, Math.round(a.startFrame || 0)),
+          endFrame: Math.max(Math.round(a.startFrame || 0) + 1, Math.round(a.endFrame || message.params.frames || 60)),
+          startTime: Math.max(0, Math.round(a.startTime || 0)),
+          totalTime: Math.max(10, Math.round(a.totalTime || ((message.params.frames || 60) / (message.params.fps || 30)) * 1000))
+        }));
+        for (const a of message.audios) {
+          const key = a.audioKey;
+          if (!message.images[key]) {
+            if (metadata.videoItem.images && metadata.videoItem.images[key]) {
+              const raw = metadata.videoItem.images[key];
+              if (raw instanceof Uint8Array) {
+                message.images[key] = ensureMp3WithId3(raw);
+              } else if (typeof raw === "string" && raw.startsWith("data:")) {
+                const b64 = raw.split(",")[1];
+                const bin = atob(b64);
+                const b = new Uint8Array(bin.length);
+                for (let k = 0; k < bin.length; k++) b[k] = bin.charCodeAt(k);
+                message.images[key] = ensureMp3WithId3(b);
+              }
+            } else if (bytes && bytes.length > 0) {
+              message.images[key] = ensureMp3WithId3(bytes);
+            }
+          } else {
+            message.images[key] = ensureMp3WithId3(message.images[key]);
+          }
+        }
+      } else if (bytes && bytes.length > 0) {
+        message.images[audioKey] = ensureMp3WithId3(bytes);
         message.audios = [
           {
             audioKey,
@@ -517,8 +557,6 @@ export const handleSvgaExExport = async (params: {
             ),
           },
         ];
-      } else if (metadata.videoItem?.audios && metadata.videoItem.audios.length > 0) {
-        message.audios = [...metadata.videoItem.audios];
       }
     } else {
       message.audios = [];

@@ -2,11 +2,13 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { FileMetadata, MaterialAsset, AppSettings, UserRecord, PresetBackground } from '../types';
-import { Layers, Download, Copy, Trash2, Lock, ListOrdered, Upload, CheckCircle2, Image as ImageIcon } from 'lucide-react';
+import { Layers, Download, Copy, Trash2, Lock, ListOrdered, Upload, CheckCircle2, Image as ImageIcon, Music, Scissors } from 'lucide-react';
 import { logActivity } from '../utils/logger';
 import * as Mp4Muxer from 'mp4-muxer';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
+import { SvgaAudioEditorModal } from './SvgaLayerEditor/SvgaAudioEditorModal';
+import { SVGAProjectData, SVGAAudioTrack } from './SvgaLayerEditor/types';
 
 declare var SVGA: any;
 declare var JSZip: any;
@@ -31,6 +33,10 @@ import { LottieViewer } from './LottieViewer';
 
 import { calculateSafeDimensions, getDefaultDimensions } from '../utils/dimensions';
 import { generateAEProject } from '../services/aeExportService';
+import { ErrorBoundary } from './ErrorBoundary';
+import { ensureMp3WithId3 } from '../utils/svgaAudio';
+import { decodeAudioSource } from '../utils/svgaAudioTrimmer';
+import { audioBufferToMp3 } from '../utils/mp3Encoder';
 
 interface WorkspaceProps {
   metadata: FileMetadata;
@@ -220,6 +226,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [originalAudioUrl, setOriginalAudioUrl] = useState<string | null>(null);
   const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [showAudioStudioModal, setShowAudioStudioModal] = useState<boolean>(false);
+  const [audioStudioToast, setAudioStudioToast] = useState<string | null>(null);
   const [fadeConfig, setFadeConfig] = useState({ top: 0, bottom: 0, left: 0, right: 0 });
   const [cropConfig, setCropConfig] = useState({ top: 0, bottom: 0, left: 0, right: 0 });
   const [cropFeather, setCropFeather] = useState({ top: 0, bottom: 0, left: 0, right: 0 }); // Percentages 0-50
@@ -974,6 +982,88 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
              setMetadata(newMetadata);
         }
     }
+  };
+
+  // Construct Project Data for the Audio Studio modal
+  const svgaProjectDataForAudio: SVGAProjectData = useMemo(() => {
+    const fps = metadata?.fps || metadata?.videoItem?.FPS || 30;
+    const totalFrames = metadata?.frames || metadata?.videoItem?.frames || 60;
+    const durationSec = totalFrames / (fps || 30);
+    const width = metadata?.dimensions?.width || metadata?.videoItem?.videoSize?.width || 750;
+    const height = metadata?.dimensions?.height || metadata?.videoItem?.videoSize?.height || 750;
+
+    let audios: SVGAAudioTrack[] = [];
+    if (metadata?.videoItem?.audios && metadata.videoItem.audios.length > 0) {
+      audios = metadata.videoItem.audios.map((a: any) => ({
+        audioKey: a.audioKey || 'quantum_audio_track',
+        startFrame: a.startFrame || 0,
+        endFrame: a.endFrame || totalFrames,
+        startTime: a.startTime || 0,
+        totalTime: a.totalTime || Math.floor(durationSec * 1000),
+        name: a.name || 'مسار صوتي',
+        dataUrl: audioUrl || undefined,
+        durationSec: durationSec
+      }));
+    } else if (audioUrl) {
+      audios = [{
+        audioKey: 'quantum_audio_track',
+        startFrame: 0,
+        endFrame: totalFrames,
+        startTime: 0,
+        totalTime: Math.floor(durationSec * 1000),
+        name: audioFile?.name || 'مسار صوتي مخصص',
+        dataUrl: audioUrl,
+        durationSec: durationSec
+      }];
+    }
+
+    return {
+      fileName: metadata?.name || 'animation.svga',
+      fileSize: (metadata as any)?.fileSize || (metadata as any)?.size || 0,
+      width,
+      height,
+      fps,
+      totalFrames,
+      durationSec,
+      imagesMap: layerImages || {},
+      rawImages: metadata?.videoItem?.images || {},
+      audios,
+      rawMovie: metadata?.videoItem || {}
+    };
+  }, [metadata, layerImages, audioUrl, audioFile]);
+
+  const handleUpdateProjectFromAudioStudio = (updatedProject: SVGAProjectData) => {
+    if (metadata.videoItem) {
+      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      newVideoItem.audios = updatedProject.audios || [];
+      if (updatedProject.rawImages) {
+        newVideoItem.images = {
+          ...(newVideoItem.images || {}),
+          ...updatedProject.rawImages
+        };
+      }
+      setMetadata({
+        ...metadata,
+        videoItem: newVideoItem
+      });
+    }
+
+    if (updatedProject.audios && updatedProject.audios.length > 0) {
+      const track = updatedProject.audios[0];
+      let url = updatedProject.imagesMap[track.audioKey];
+      if (!url && updatedProject.rawImages && updatedProject.rawImages[track.audioKey]) {
+        const blob = new Blob([updatedProject.rawImages[track.audioKey]], { type: 'audio/mp3' });
+        url = URL.createObjectURL(blob);
+      }
+      if (url) {
+        setAudioUrl(url);
+        setOriginalAudioUrl(url);
+      }
+    } else {
+      setAudioUrl(null);
+      setAudioFile(null);
+    }
+    setAudioStudioToast('تم تحديث وقص ودمج المسارات الصوتية بنجاح');
   };
 
   useEffect(() => {
@@ -6976,30 +7066,66 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 }
 
                 if (audioUrl) {
-                    const audioKey = "quantum_audio_track";
+                    const audioKey = "quantum_audio_track.mp3";
                     let bytes: Uint8Array | null = null;
-                    
-                    if (audioFile) {
-                        const arrayBuffer = await audioFile.arrayBuffer();
-                        bytes = new Uint8Array(arrayBuffer);
-                    } else if (audioUrl === originalAudioUrl) {
-                         bytes = null;
-                    } else {
-                        try {
-                            const response = await fetch(audioUrl);
-                            const arrayBuffer = await response.arrayBuffer();
-                            bytes = new Uint8Array(arrayBuffer);
-                        } catch (e) { console.error("Failed to fetch audio", e); }
+                    try {
+                        const src = audioFile || audioUrl;
+                        if (src) {
+                            const decoded = await decodeAudioSource(src);
+                            const encoded = audioBufferToMp3(decoded.audioBuffer, 192);
+                            bytes = encoded.mp3Bytes;
+                        }
+                    } catch (e) {
+                        console.warn("Could not encode audio with mp3Encoder, falling back to raw buffer:", e);
+                        if (audioFile) {
+                            const arrayBuffer = await audioFile.arrayBuffer();
+                            bytes = ensureMp3WithId3(new Uint8Array(arrayBuffer));
+                        } else if (audioUrl) {
+                            try {
+                                const response = await fetch(audioUrl);
+                                const arrayBuffer = await response.arrayBuffer();
+                                bytes = ensureMp3WithId3(new Uint8Array(arrayBuffer));
+                            } catch (err) { console.error("Failed to fetch audio", err); }
+                        }
                     }
 
-                    if (bytes) {
-                        message.images[audioKey] = bytes; 
+                    if (metadata?.videoItem?.audios && metadata.videoItem.audios.length > 0) {
+                        message.audios = metadata.videoItem.audios.map((a: any) => ({
+                            audioKey: a.audioKey,
+                            startFrame: Math.max(0, Math.round(a.startFrame || 0)),
+                            endFrame: Math.max(Math.round(a.startFrame || 0) + 1, Math.round(a.endFrame || message.params?.frames || 60)),
+                            startTime: Math.max(0, Math.round(a.startTime || 0)),
+                            totalTime: Math.max(10, Math.round(a.totalTime || ((message.params?.frames || 60) / (message.params?.fps || 30)) * 1000))
+                        }));
+                        for (const a of message.audios) {
+                            const key = a.audioKey;
+                            if (!message.images[key]) {
+                                if (metadata.videoItem.images && metadata.videoItem.images[key]) {
+                                    const raw = metadata.videoItem.images[key];
+                                    if (raw instanceof Uint8Array) {
+                                        message.images[key] = ensureMp3WithId3(raw);
+                                    } else if (typeof raw === 'string' && raw.startsWith('data:')) {
+                                        const b64 = raw.split(',')[1];
+                                        const bin = atob(b64);
+                                        const b = new Uint8Array(bin.length);
+                                        for (let k = 0; k < bin.length; k++) b[k] = bin.charCodeAt(k);
+                                        message.images[key] = ensureMp3WithId3(b);
+                                    }
+                                } else if (bytes && bytes.length > 0) {
+                                    message.images[key] = ensureMp3WithId3(bytes);
+                                }
+                            } else {
+                                message.images[key] = ensureMp3WithId3(message.images[key]);
+                            }
+                        }
+                    } else if (bytes && bytes.length > 0) {
+                        message.images[audioKey] = ensureMp3WithId3(bytes); 
                         message.audios = [{
                             audioKey: audioKey,
                             startFrame: 0,
-                            endFrame: message.params.frames || 0,
+                            endFrame: message.params?.frames || metadata.frames || 60,
                             startTime: 0,
-                            totalTime: Math.floor(((message.params.frames || 0) / (message.params.fps || 30)) * 1000)
+                            totalTime: Math.floor(((message.params?.frames || metadata.frames || 60) / (message.params?.fps || metadata.fps || 30)) * 1000)
                         }];
                     }
                 } else {
@@ -7262,39 +7388,72 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 }
 
                 if (audioUrl) {
-                    const audioKey = "quantum_audio_track";
+                    const audioKey = "quantum_audio_track.mp3";
                     let bytes: Uint8Array | null = null;
-                    
-                    if (audioFile) {
-                        const arrayBuffer = await audioFile.arrayBuffer();
-                        bytes = new Uint8Array(arrayBuffer);
-                    } 
-                    else if (audioUrl === originalAudioUrl) {
-                         try {
-                            const response = await fetch(audioUrl);
-                            const arrayBuffer = await response.arrayBuffer();
-                            bytes = new Uint8Array(arrayBuffer);
-                         } catch (e) { console.error("Failed to fetch audio blob", e); }
-                    }
-                    else {
-                        try {
-                            const response = await fetch(audioUrl);
-                            const arrayBuffer = await response.arrayBuffer();
-                            bytes = new Uint8Array(arrayBuffer);
-                        } catch (e) { console.error("Failed to fetch audio", e); }
+                    try {
+                        const src = audioFile || audioUrl;
+                        if (src) {
+                            const decoded = await decodeAudioSource(src);
+                            const encoded = audioBufferToMp3(decoded.audioBuffer, 192);
+                            bytes = encoded.mp3Bytes;
+                        }
+                    } catch (e) {
+                        console.warn("Could not encode audio with mp3Encoder in branch 2:", e);
+                        if (audioFile) {
+                            const arrayBuffer = await audioFile.arrayBuffer();
+                            bytes = ensureMp3WithId3(new Uint8Array(arrayBuffer));
+                        } else if (audioUrl) {
+                            try {
+                                const response = await fetch(audioUrl);
+                                const arrayBuffer = await response.arrayBuffer();
+                                bytes = ensureMp3WithId3(new Uint8Array(arrayBuffer));
+                            } catch (err) { console.error("Failed to fetch audio", err); }
+                        }
                     }
 
-                    if (bytes) {
-                        imagesData[audioKey] = bytes; 
+                    if (metadata?.videoItem?.audios && metadata.videoItem.audios.length > 0) {
+                        audioList.length = 0;
+                        for (const a of metadata.videoItem.audios) {
+                            audioList.push({
+                                audioKey: a.audioKey,
+                                startFrame: Math.max(0, Math.round(a.startFrame || 0)),
+                                endFrame: Math.max(Math.round(a.startFrame || 0) + 1, Math.round(a.endFrame || metadata.frames || 60)),
+                                startTime: Math.max(0, Math.round(a.startTime || 0)),
+                                totalTime: Math.max(10, Math.round(a.totalTime || ((metadata.frames || 60) / (metadata.fps || 30)) * 1000))
+                            });
+                            const key = a.audioKey;
+                            if (!imagesData[key]) {
+                                if (metadata.videoItem.images && metadata.videoItem.images[key]) {
+                                    const raw = metadata.videoItem.images[key];
+                                    if (raw instanceof Uint8Array) {
+                                        imagesData[key] = ensureMp3WithId3(raw);
+                                    } else if (typeof raw === 'string' && raw.startsWith('data:')) {
+                                        const b64 = raw.split(',')[1];
+                                        const bin = atob(b64);
+                                        const b = new Uint8Array(bin.length);
+                                        for (let k = 0; k < bin.length; k++) b[k] = bin.charCodeAt(k);
+                                        imagesData[key] = ensureMp3WithId3(b);
+                                    }
+                                } else if (bytes && bytes.length > 0) {
+                                    imagesData[key] = ensureMp3WithId3(bytes);
+                                }
+                            } else {
+                                imagesData[key] = ensureMp3WithId3(imagesData[key]);
+                            }
+                        }
+                    } else if (bytes && bytes.length > 0) {
+                        imagesData[audioKey] = ensureMp3WithId3(bytes); 
                         audioList.length = 0; 
                         audioList.push({
                             audioKey: audioKey,
                             startFrame: 0,
-                            endFrame: metadata.frames || 0,
+                            endFrame: metadata.frames || 60,
                             startTime: 0,
-                            totalTime: Math.floor(((metadata.frames || 0) / (metadata.fps || 30)) * 1000)
+                            totalTime: Math.floor(((metadata.frames || 60) / (metadata.fps || 30)) * 1000)
                         });
                     }
+                } else {
+                    audioList.length = 0;
                 }
 
                 const payload = { 
@@ -8841,9 +9000,20 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                        <button onClick={() => bgInputRef.current?.click()} className="py-4 bg-white/5 border border-white/5 rounded-2xl text-[10px] text-white font-black uppercase">رفع خلفية</button>
                        <button onClick={() => watermarkInputRef.current?.click()} className="py-4 bg-white/5 border border-white/5 rounded-2xl text-[10px] text-white font-black uppercase">رفع علامة</button>
                        <div className="flex gap-2 col-span-1">
-                           <button onClick={() => audioInputRef.current?.click()} className={`flex-1 py-4 border border-white/5 rounded-2xl text-[10px] font-black uppercase ${audioUrl ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-white'}`}>{audioUrl ? 'تغيير الصوت' : 'رفع صوت'}</button>
+                           <button 
+                               onClick={() => setShowAudioStudioModal(true)} 
+                               className={`flex-1 py-4 border border-white/5 rounded-2xl text-[10px] font-black uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                                 audioUrl 
+                                   ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/30 shadow-lg shadow-emerald-500/10' 
+                                   : 'bg-gradient-to-r from-indigo-500/20 to-purple-500/20 text-indigo-300 border-indigo-500/30 hover:from-indigo-500/30 hover:to-purple-500/30'
+                               }`}
+                               title="فتح استوديو وقص ومزامنة الصوت"
+                           >
+                               <Music className="w-3.5 h-3.5" />
+                               <span>{audioUrl ? 'استوديو الصوت' : 'رفع وقص صوت'}</span>
+                           </button>
                            {audioUrl && (
-                               <button onClick={handleRemoveAudio} className="w-12 flex items-center justify-center bg-red-500/20 border border-red-500/30 rounded-2xl text-red-400 hover:bg-red-500/30 transition-all" title="إزالة الصوت">
+                               <button onClick={handleRemoveAudio} className="w-12 flex items-center justify-center bg-red-500/20 border border-red-500/30 rounded-2xl text-red-400 hover:bg-red-500/30 transition-all cursor-pointer" title="إزالة الصوت">
                                    <Trash2 className="w-4 h-4" />
                                </button>
                            )}
@@ -8897,7 +9067,17 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                     {audioUrl && (
                         <div className="space-y-4 pt-4 border-t border-white/5">
                             <div className="flex items-center justify-between">
-                                <h4 className="text-white font-black text-xs uppercase tracking-widest text-emerald-400">التحكم بالصوت</h4>
+                                <div className="flex items-center gap-2">
+                                    <h4 className="text-white font-black text-xs uppercase tracking-widest text-emerald-400">التحكم بالصوت</h4>
+                                    <button 
+                                        onClick={() => setShowAudioStudioModal(true)} 
+                                        className="px-2.5 py-1 bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-indigo-300 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer"
+                                        title="فتح استوديو وقص الصوت"
+                                    >
+                                        <Scissors className="w-3 h-3" />
+                                        <span>قص وتعديل</span>
+                                    </button>
+                                </div>
                                 <button onClick={() => setIsMuted(!isMuted)} className={`text-[10px] font-black uppercase ${isMuted ? 'text-red-500' : 'text-emerald-400'}`}>{isMuted ? 'تم كتم الصوت' : 'مفعل'}</button>
                             </div>
                             <TransformControl label="مستوى الصوت" value={volume * 100} min={0} max={100} step={1} onChange={v => setVolume(v / 100)} />
@@ -9998,6 +10178,37 @@ class _MyAppState extends State<MyApp> {
             onClose={() => setLottiePreviewData(null)} 
             fileName={`${metadata.name.replace('.svga', '')}.json`}
           />
+        )}
+      </AnimatePresence>
+
+      {/* SVGA Audio Editor Studio Modal */}
+      {showAudioStudioModal && (
+        <ErrorBoundary fallbackTitle="حدث خطأ أثناء فتح استوديو الصوت" onReset={() => setShowAudioStudioModal(false)}>
+          <SvgaAudioEditorModal
+            isOpen={showAudioStudioModal}
+            project={svgaProjectDataForAudio}
+            onClose={() => setShowAudioStudioModal(false)}
+            onUpdateProject={handleUpdateProjectFromAudioStudio}
+            onShowToast={(msg) => setAudioStudioToast(msg)}
+          />
+        </ErrorBoundary>
+      )}
+
+      {/* Audio Studio Success Toast Notification */}
+      <AnimatePresence>
+        {audioStudioToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.9 }}
+            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[9999] bg-slate-900/95 border border-emerald-500/40 text-white px-6 py-3.5 rounded-2xl shadow-2xl backdrop-blur-xl flex items-center gap-3 text-sm font-bold pointer-events-none"
+            dir="rtl"
+          >
+            <div className="w-7 h-7 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+            <span>{audioStudioToast}</span>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

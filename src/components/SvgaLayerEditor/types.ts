@@ -75,6 +75,17 @@ export interface EditableLayer {
   keyframeSummary: SVGAKeyframeSummary;
 }
 
+export interface SVGAAudioTrack {
+  audioKey: string;
+  startFrame: number;
+  endFrame: number;
+  startTime: number; // in ms
+  totalTime: number; // in ms
+  name?: string;
+  dataUrl?: string;
+  durationSec?: number;
+}
+
 export interface SVGAProjectData {
   fileName: string;
   fileSize: number;
@@ -85,7 +96,7 @@ export interface SVGAProjectData {
   durationSec: number;
   imagesMap: Record<string, string>; // key -> DataURL
   rawImages: Record<string, Uint8Array>; // key -> bytes
-  audios: any[];
+  audios: SVGAAudioTrack[];
   rawMovie: any; // Raw protobuf object
 }
 

@@ -21,6 +21,7 @@ const categories = [
     borderColor: 'border-emerald-500/30',
     textColor: 'text-emerald-400',
     tools: [
+      { id: 'ai-video-matting', label: 'AI Video Matting Studio', icon: <Sparkles className="w-8 h-8 text-cyan-400" />, actionKey: 'aiVideoMatting', descAr: 'نظام ذكي جداً لتحديد وقص الأشخاص والأجسام داخل الفيديو بدقة متناهية مع إزالة الحواف والبرومة بضغطة زر واحدة.', descEn: 'AI video segmentation, person cutout & background/chroma remover with zero edge fringe.', highlight: true },
       { id: 'image-enhancer', label: 'AI Image Enhancer', icon: <Sparkles className="w-8 h-8" />, actionKey: 'imageEnhancer', descAr: 'تحسين جودة الصور وترقيتها بالذكاء الاصطناعي مع الحفاظ على التفاصيل بشكل مذهل.', descEn: 'Enhance image quality using AI while preserving details amazingly.', highlight: true },
       { id: 'image-processor', label: 'Image Processor', icon: <Wand2 className="w-8 h-8" />, actionKey: 'imageProcessor', descAr: 'معالجة وتعديل ألوان وإضاءة الصور بدقة عالية مع أدوات تنقية حساسة.', descEn: 'Process and adjust colors/lighting of images accurately with fine-tuning tools.' },
       { id: 'image-editor', label: 'Image Editor', icon: <Scissors className="w-8 h-8" />, actionKey: 'imageEditor', descAr: 'محرر صور متكامل يوفر أدوات تعديل احترافية للطبقات والأشكال.', descEn: 'Comprehensive image editor offering professional tools for layers and shapes.' },

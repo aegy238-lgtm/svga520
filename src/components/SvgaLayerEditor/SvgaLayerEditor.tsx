@@ -17,6 +17,8 @@ import { SvgaDesignCanvas } from './SvgaDesignCanvas';
 import { SvgaLayersList } from './SvgaLayersList';
 import { SvgaPropertiesPanel } from './SvgaPropertiesPanel';
 import { SvgaMotionTimeline } from './SvgaMotionTimeline';
+import { SvgaAudioEditorModal } from './SvgaAudioEditorModal';
+import { ErrorBoundary } from '../ErrorBoundary';
 import { 
   Upload, Layers, Download, ArrowLeft, RotateCcw, 
   Sparkles, MousePointer, Hand, ZoomIn, Grid, Compass, 
@@ -68,6 +70,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState<boolean>(false);
+  const [showAudioStudioModal, setShowAudioStudioModal] = useState<boolean>(false);
   const [newProjectConfig, setNewProjectConfig] = useState({
     name: 'مشروع SVGA جديد',
     width: 750,
@@ -79,6 +82,56 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const [lastExportedBlob, setLastExportedBlob] = useState<{ blob: Blob; fileName: string } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
+
+  // Synchronized Audio Playback Cache & Nodes
+  const activeAudioMapRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+
+  // Clean and sync audio during animation playback
+  useEffect(() => {
+    if (!isPlaying || !project || !project.audios || project.audios.length === 0) {
+      activeAudioMapRef.current.forEach((audio) => {
+        audio.pause();
+        audio.currentTime = 0;
+      });
+      activeAudioMapRef.current.clear();
+      return;
+    }
+
+    const fps = project.fps || 30;
+    const currentSec = currentFrame / fps;
+
+    project.audios.forEach((track) => {
+      let audio = activeAudioMapRef.current.get(track.audioKey);
+      let src = project.imagesMap[track.audioKey];
+      if (!src && project.rawImages && project.rawImages[track.audioKey]) {
+        const blob = new Blob([project.rawImages[track.audioKey]], { type: 'audio/mp3' });
+        src = URL.createObjectURL(blob);
+      }
+
+      if (!src) return;
+
+      if (!audio) {
+        audio = new Audio(src);
+        activeAudioMapRef.current.set(track.audioKey, audio);
+      }
+
+      const startSec = (track.startFrame || 0) / fps;
+      const endSec = (track.endFrame || project.totalFrames) / fps;
+
+      if (currentSec >= startSec && currentSec <= endSec) {
+        if (audio.paused) {
+          const startOffset = (track.startTime ? track.startTime / 1000 : 0);
+          const offset = currentSec - startSec + startOffset;
+          audio.currentTime = Math.max(0, offset);
+          audio.play().catch(() => {});
+        }
+      } else {
+        if (!audio.paused) {
+          audio.pause();
+        }
+      }
+    });
+  }, [isPlaying, currentFrame, project]);
 
   // Push State to History
   const pushHistory = useCallback((newLayers: EditableLayer[]) => {
@@ -1094,6 +1147,22 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
 
           {project && (
             <button
+              onClick={() => setShowAudioStudioModal(true)}
+              className="flex items-center gap-1.5 text-xs font-bold text-indigo-200 hover:text-white bg-indigo-600/25 hover:bg-indigo-600/40 px-3.5 py-1.5 rounded-xl border border-indigo-500/40 transition-all cursor-pointer shadow-sm hover:scale-105"
+              title="استوديو قص وتعديل الصوت ودمجه في ملف SVGA"
+            >
+              <Music size={13} className="text-indigo-400" />
+              <span>قص ودمج الصوت</span>
+              {project.audios && project.audios.length > 0 && (
+                <span className="text-[10px] bg-indigo-500 text-white font-mono px-1.5 py-0.2 rounded-full">
+                  {project.audios.length}
+                </span>
+              )}
+            </button>
+          )}
+
+          {project && (
+            <button
               onClick={() => mergeFileInputRef.current?.click()}
               className="flex items-center gap-1.5 text-xs font-bold text-purple-200 hover:text-white bg-gradient-to-r from-purple-600/30 to-indigo-600/30 hover:from-purple-600/50 hover:to-indigo-600/50 px-3.5 py-1.5 rounded-xl border border-purple-500/40 transition-all cursor-pointer shadow-lg shadow-purple-900/20 hover:scale-105"
               title="استدعاء ملف SVGA آخر ودمجه فوق المشروع الحالي مع التحكم الجماعي الكامل في حركته ومقاساته"
@@ -1139,6 +1208,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               onAddImageLayer={handleAddImageLayer}
               onAddShapeLayer={handleAddShapeLayer}
               onMergeSvga={() => mergeFileInputRef.current?.click()}
+              onOpenAudioStudio={() => setShowAudioStudioModal(true)}
             />
           </aside>
 
@@ -1176,6 +1246,8 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               isLoop={isLoop}
               selectedLayer={selectedLayer}
               layers={layers}
+              projectAudios={project.audios}
+              onOpenAudioStudio={() => setShowAudioStudioModal(true)}
               onSelectLayer={(id) => handleSelectLayer(id, false)}
               onTogglePlay={() => setIsPlaying(!isPlaying)}
               onStepFrame={(delta) => {
@@ -1547,6 +1619,22 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
           </div>
         )}
       </AnimatePresence>
+
+      {/* Advanced SVGA Audio Studio & Waveform Trimmer Modal */}
+      {project && showAudioStudioModal && (
+        <ErrorBoundary fallbackTitle="حدث خطأ أثناء فتح استوديو الصوت" onReset={() => setShowAudioStudioModal(false)}>
+          <SvgaAudioEditorModal
+            isOpen={showAudioStudioModal}
+            project={project}
+            onClose={() => setShowAudioStudioModal(false)}
+            onUpdateProject={(updatedProj) => {
+              setProject(updatedProj);
+              setSuccessToast('تم تحديث المسارات الصوتية للمشروع بنجاح!');
+            }}
+            onShowToast={(msg) => setSuccessToast(msg)}
+          />
+        </ErrorBoundary>
+      )}
     </div>
   );
 };

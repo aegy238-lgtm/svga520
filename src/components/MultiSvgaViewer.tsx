@@ -978,7 +978,11 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             
             ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
             ctx.beginPath();
-            ctx.roundRect(x, y, scaledCardW, scaledCardH, 40 * Math.min(scaleX, scaleY));
+            if (ctx.roundRect) {
+              ctx.roundRect(x, y, scaledCardW, scaledCardH, 40 * Math.min(scaleX, scaleY));
+            } else {
+              ctx.rect(x, y, scaledCardW, scaledCardH);
+            }
             ctx.fill();
           }
 
@@ -1015,7 +1019,11 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             ctx.save();
             ctx.beginPath();
             if (activeItems.length > 1) {
-              ctx.roundRect(x, y, cardW * scaleX, cardH * scaleY, 40 * Math.min(scaleX, scaleY));
+              if (ctx.roundRect) {
+                ctx.roundRect(x, y, cardW * scaleX, cardH * scaleY, 40 * Math.min(scaleX, scaleY));
+              } else {
+                ctx.rect(x, y, cardW * scaleX, cardH * scaleY);
+              }
             } else {
               ctx.rect(x, y, canvas.width, canvas.height);
             }

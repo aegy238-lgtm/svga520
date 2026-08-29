@@ -25,6 +25,7 @@ import Name3DEditor from "./components/Name3DEditor/Name3DEditor";
 import { ImageMatcher } from './components/ImageMatcher';
 import { Store } from './components/Store';
 import { AudioExtractor } from './components/AudioExtractor';
+import { AIVideoMattingStudio } from './components/AIVideoMattingStudio';
 import { AdminPanel } from './components/AdminPanel';
 import { Login } from './components/Auth/Login';
 import { Signup } from './components/Auth/Signup';
@@ -657,6 +658,7 @@ const App: React.FC = () => {
         onPagConverterOpen={() => setShowPagConverter(true)}
         onName3DEditorOpen={() => handleFeatureAccess(AppState.NAME_3D_EDITOR, '3D Name Editor')}
         onAudioExtractorOpen={() => handleFeatureAccess(AppState.AUDIO_EXTRACTOR, 'Audio Extractor')}
+        onAiVideoMattingOpen={() => handleFeatureAccess(AppState.AI_VIDEO_MATTING, 'AI Video Matting Studio')}
         onSvgaBatchCompressorOpen={() => handleFeatureAccess(AppState.SVGA_BATCH_COMPRESSOR, 'SVGA Batch Compressor')}
         onSvgaLayerEditorOpen={() => {
           setLayerEditorInitialFile(fileMetadata?.originalFile || null);
@@ -666,6 +668,7 @@ const App: React.FC = () => {
         onLoginClick={() => {}}
         onProfileClick={() => {}}
         currentTab={
+          state === AppState.AI_VIDEO_MATTING ? 'ai-video-matting' :
           state === AppState.SVGA_LAYER_EDITOR ? 'svga-layer-editor' :
           state === AppState.SVGA_BATCH_COMPRESSOR ? 'svga-compressor' :
           state === AppState.BATCH_COMPRESSOR ? 'batch' : 
@@ -720,6 +723,7 @@ const App: React.FC = () => {
                   onUpload={handleFileUpload} 
                   onAction={(actionKey: string) => {
                      switch(actionKey) {
+                        case 'aiVideoMatting': handleFeatureAccess(AppState.AI_VIDEO_MATTING, 'AI Video Matting Studio'); break;
                         case 'videoConverter': handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter'); break;
                         case 'universalConverter': handleFeatureAccess(AppState.UNIVERSAL_CONVERTER, 'Universal Motion Tools'); break;
                         case 'multiSvga': handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview'); break;
@@ -888,6 +892,14 @@ const App: React.FC = () => {
                 currentUser={currentUser}
                 onCancel={handleReset}
                 onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+              />
+            )}
+            {state === AppState.AI_VIDEO_MATTING && (
+              <AIVideoMattingStudio 
+                currentUser={currentUser}
+                onCancel={handleReset}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                initialVideoFile={fileMetadata?.originalFile || null}
               />
             )}
             {state === AppState.ADMIN_PANEL && (currentUser?.role === 'admin' || currentUser?.role === 'moderator') && (

@@ -36,6 +36,7 @@ interface HeaderProps {
   onPagConverterOpen: () => void;
   onName3DEditorOpen: () => void;
   onAudioExtractorOpen: () => void;
+  onAiVideoMattingOpen?: () => void;
   onSvgaBatchCompressorOpen?: () => void;
   onSvgaLayerEditorOpen?: () => void;
   onBatchImageOpen: () => void;
@@ -85,6 +86,7 @@ const categories: CategoryDefinition[] = [
     icon: <Sparkles className="w-5 h-5" />,
     color: 'emerald',
     tools: [
+      { id: 'ai-video-matting', label: 'AI Video Matting Studio', icon: <Sparkles className="w-4 h-4 text-cyan-400" />, actionKey: 'onAiVideoMattingOpen' as any, descAr: 'نظام ذكي لتحديد وقص الأشخاص والأجسام داخل الفيديو بدقة فائقة مع إزالة الحواف والبرومة', descEn: 'High-precision AI video segmentation, person cutout & background/chroma remover with zero edge fringe.', highlight: true },
       { id: 'name-3d', label: '3D Name Editor', icon: <Sparkles className="w-4 h-4" />, actionKey: 'onName3DEditorOpen', descAr: 'محرر احترافي لإنشاء وتصميم أسماء 3D مع تحكم كامل بالخطوط والزخارف والإضاءة', descEn: 'Professional 3D Name Editor with full control over fonts, ornaments, and lighting.', highlight: true },
       { id: 'image-enhancer', label: 'AI Image Enhancer', icon: <Sparkles className="w-4 h-4" />, actionKey: 'onImageEnhancerOpen', descAr: 'تحسين جودة الصور وترقيتها بالذكاء الاصطناعي مع الحفاظ على التفاصيل بشكل مذهل', descEn: 'Enhance image quality using AI while preserving details amazingly.', highlight: true },
       { id: 'image-processor', label: 'Image Processor', icon: <Wand2 className="w-4 h-4" />, actionKey: 'onImageProcessorOpen', descAr: 'معالجة وتعديل ألوان وإضاءة الصور بدقة عالية مع أدوات تنقية حساسة', descEn: 'Process and adjust colors/lighting of images accurately with fine-tuning tools.' },

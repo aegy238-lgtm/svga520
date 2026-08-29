@@ -8,7 +8,7 @@ import {
   parseAnimationFile, convertPagToSvga, compressSvgaFile, PagMetadata, getPAG, 
   estimateOutputSize, calculateQualityForTarget, formatBytes 
 } from '../utils/pagEngine';
-import SVGAPlayer from './SVGAPlayer';
+import SVGAPlayer from './RawSvgaPlayer';
 
 interface PagToSvgaStudioProps {
   onClose: () => void;

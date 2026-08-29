@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { EditableLayer, LayerKeyframe, MotionTracksConfig } from './types';
+import { EditableLayer, LayerKeyframe, MotionTracksConfig, SVGAAudioTrack } from './types';
 import { 
   Play, Pause, SkipBack, SkipForward, RotateCcw, 
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ChevronRight as ChevronRightIcon,
   Plus, Diamond, Sliders, Trash2, Eye, Move, Maximize2, Minimize2, RotateCw, 
-  Sun, Clock, Film, Sparkles, SlidersHorizontal, Settings2, MoreVertical, ZoomIn, ZoomOut, Copy, ClipboardPaste
+  Sun, Clock, Film, Sparkles, SlidersHorizontal, Settings2, MoreVertical, ZoomIn, ZoomOut, Copy, ClipboardPaste, Music
 } from 'lucide-react';
 import { KeyframeEasingPanel } from './KeyframeEasingPanel';
 import { 
@@ -22,6 +22,8 @@ interface SvgaMotionTimelineProps {
   isLoop: boolean;
   selectedLayer: EditableLayer | null;
   layers: EditableLayer[];
+  projectAudios?: SVGAAudioTrack[];
+  onOpenAudioStudio?: () => void;
   onSelectLayer: (id: string) => void;
   onTogglePlay: () => void;
   onStepFrame: (delta: number) => void;
@@ -40,6 +42,8 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
   isLoop,
   selectedLayer,
   layers,
+  projectAudios = [],
+  onOpenAudioStudio,
   onSelectLayer,
   onTogglePlay,
   onStepFrame,
@@ -359,6 +363,23 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
           >
             <RotateCcw size={13} />
           </button>
+
+          {onOpenAudioStudio && (
+            <button
+              onClick={onOpenAudioStudio}
+              className={`p-1.5 rounded-lg border text-xs transition-all cursor-pointer flex items-center gap-1.5 font-bold ${
+                projectAudios.length > 0
+                  ? 'bg-purple-600/30 text-purple-200 border-purple-500/40 hover:bg-purple-600/50'
+                  : 'bg-white/5 text-slate-400 hover:text-white border-white/10'
+              }`}
+              title="استوديو قص وإضافة المسارات الصوتية للمشروع"
+            >
+              <Music size={13} className="text-purple-400" />
+              <span className="text-[10px] hidden sm:inline">
+                {projectAudios.length > 0 ? `الصوت (${projectAudios.length})` : 'إضافة صوت'}
+              </span>
+            </button>
+          )}
         </div>
 
         {/* Center: Active Layer Banner & Keyframe Shortcut */}
