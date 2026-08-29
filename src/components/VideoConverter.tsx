@@ -21,8 +21,13 @@ import {
   Clock,
   Scissors,
   X,
+  Pipette,
+  Sparkles,
+  Palette,
+  Crosshair,
 } from "lucide-react";
 import { logActivity } from "../utils/logger";
+import { ChromaStudioModal, ChromaSettings } from "./ChromaStudioModal";
 
 import * as Mp4Muxer from "mp4-muxer";
 
@@ -88,6 +93,17 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
   const [whiteTolerance, setWhiteTolerance] = useState(30);
   const [removeGreen, setRemoveGreen] = useState(false);
   const [removeBlue, setRemoveBlue] = useState(false);
+  const [customChroma, setCustomChroma] = useState<ChromaSettings>({
+    enabled: false,
+    color: "#00FF00",
+    r: 0,
+    g: 255,
+    b: 0,
+    tolerance: 35,
+    smoothness: 15,
+    despill: true,
+  });
+  const [showChromaStudio, setShowChromaStudio] = useState(false);
   const [showTrimmer, setShowTrimmer] = useState(false);
   const [trimmerThumbnails, setTrimmerThumbnails] = useState<string[]>([]);
   const [isGeneratingThumbnails, setIsGeneratingThumbnails] = useState(false);
@@ -291,6 +307,77 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     const data = imageData.data;
     const currentFade = configOverride || fadeConfig;
 
+    // Helper for Protection Masks
+    const masks = customChroma.protectionMasks || [];
+    const getProtectionFactor = (px: number, py: number): number => {
+      if (!masks || masks.length === 0) return 0;
+      let maxProtection = 0;
+
+      for (const m of masks) {
+        if (m.type === "circle") {
+          const cx = m.x * width;
+          const cy = m.y * height;
+          const rx = (m.radiusX || 0.05) * width;
+          const ry = (m.radiusY || 0.05) * height;
+          const r = Math.max(rx, ry);
+
+          const dx = px - cx;
+          const dy = py - cy;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist <= r) {
+            maxProtection = 1;
+            break;
+          } else if (m.feather > 0 && dist <= r + m.feather) {
+            const f = 1 - (dist - r) / m.feather;
+            if (f > maxProtection) maxProtection = f;
+          }
+        } else if (m.type === "rect") {
+          const cx = m.x * width;
+          const cy = m.y * height;
+          const w = (m.width || 0.1) * width;
+          const h = (m.height || 0.1) * height;
+          const left = cx - w / 2;
+          const top = cy - h / 2;
+          const right = cx + w / 2;
+          const bottom = cy + h / 2;
+
+          if (px >= left && px <= right && py >= top && py <= bottom) {
+            maxProtection = 1;
+            break;
+          } else if (m.feather > 0) {
+            const dx = Math.max(left - px, 0, px - right);
+            const dy = Math.max(top - py, 0, py - bottom);
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist <= m.feather) {
+              const f = 1 - dist / m.feather;
+              if (f > maxProtection) maxProtection = f;
+            }
+          }
+        } else if (m.type === "brush" && m.points && m.points.length > 0) {
+          const bRadius = m.brushRadius || 24;
+          for (const pt of m.points) {
+            const bx = pt.x * width;
+            const by = pt.y * height;
+            const dx = px - bx;
+            const dy = py - by;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist <= bRadius) {
+              maxProtection = 1;
+              break;
+            } else if (m.feather > 0 && dist <= bRadius + m.feather) {
+              const f = 1 - (dist - bRadius) / m.feather;
+              if (f > maxProtection) maxProtection = f;
+            }
+          }
+          if (maxProtection >= 1) break;
+        }
+      }
+
+      return maxProtection;
+    };
+
     const fadeTopLimit = (height * currentFade.top) / 100;
     const fadeBottomLimit = height - (height * currentFade.bottom) / 100;
     const fadeLeftLimit = (width * currentFade.left) / 100;
@@ -381,6 +468,63 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
             const factor = (dist - threshold) / softness;
             a = Math.min(a, 255 * factor);
           }
+        }
+      }
+
+      // 5. Custom Eyedropper / Chroma Studio Keying
+      if (customChroma.enabled) {
+        const targetList = [
+          { r: customChroma.r, g: customChroma.g, b: customChroma.b },
+          ...(customChroma.additionalColors || []),
+        ];
+        const tol = (customChroma.tolerance / 100) * 180;
+        const soft = (customChroma.smoothness / 100) * 60;
+
+        let minFactor = 1.0;
+        for (const target of targetList) {
+          const dr = r - target.r;
+          const dg = g - target.g;
+          const db = b - target.b;
+          const dist = Math.sqrt(0.299 * dr * dr + 0.587 * dg * dg + 0.114 * db * db);
+
+          let factor = 1.0;
+          if (dist < tol) {
+            factor = 0.0;
+          } else if (soft > 0 && dist < tol + soft) {
+            const t = (dist - tol) / soft;
+            factor = t * t * (3 - 2 * t);
+          }
+          if (factor < minFactor) {
+            minFactor = factor;
+          }
+        }
+
+        // Apply Protection Mask to custom chroma
+        const protectFactor = getProtectionFactor(x, y);
+        if (protectFactor > 0) {
+          minFactor = minFactor + (1.0 - minFactor) * protectFactor;
+        }
+
+        if (customChroma.despill && minFactor < 1.0 && protectFactor < 0.8) {
+          const maxTarget = Math.max(customChroma.r, customChroma.g, customChroma.b);
+          if (customChroma.g === maxTarget && customChroma.g > customChroma.r + 20) {
+            const maxOther = Math.max(r, b);
+            if (g > maxOther) g = maxOther;
+          } else if (customChroma.b === maxTarget && customChroma.b > customChroma.r + 20) {
+            const maxOther = Math.max(r, g);
+            if (b > maxOther) b = maxOther;
+          } else if (customChroma.r === maxTarget && customChroma.r > customChroma.g + 20) {
+            const maxOther = Math.max(g, b);
+            if (r > maxOther) r = maxOther;
+          }
+        }
+
+        a = Math.min(a, 255 * minFactor);
+      } else {
+        // If other background removal is active (like black or white), also respect protection masks
+        const protectFactor = getProtectionFactor(x, y);
+        if (protectFactor > 0 && a < 255) {
+          a = a + (255 - a) * protectFactor;
         }
       }
 
@@ -3122,7 +3266,130 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
                 </div>
               </div>
 
-              {/* Black Removal Toggle */}
+              {/* Custom Chroma Eyedropper Studio Card */}
+              <div className="p-5 rounded-3xl bg-gradient-to-br from-emerald-500/10 via-slate-900 to-teal-500/10 border border-emerald-500/30 relative overflow-hidden shadow-xl">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-slate-950 shadow-lg shadow-emerald-500/20">
+                      <Pipette className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-white font-black text-sm">
+                          قلم وقطارة تحديد لون الكروما من الفيديو
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                          PRO
+                        </span>
+                      </div>
+                      <p className="text-slate-400 text-xs mt-0.5">
+                        افتح الفيديو وحدد أي درجة لون بدقة لعزل الخلفية وتفريغها لأي صيغة
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowChromaStudio(true)}
+                      className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2 cursor-pointer active:scale-95"
+                    >
+                      <Pipette className="w-4 h-4" />
+                      فتح قلم سحب اللون 🎯
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCustomChroma((prev) => ({
+                          ...prev,
+                          enabled: !prev.enabled,
+                        }))
+                      }
+                      className={`w-12 h-6 rounded-full relative transition-colors cursor-pointer ${
+                        customChroma.enabled ? "bg-emerald-500" : "bg-slate-700"
+                      }`}
+                      title={customChroma.enabled ? "تعطيل العزل" : "تفعيل العزل"}
+                    >
+                      <div
+                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${
+                          customChroma.enabled ? "right-7" : "right-1"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Active Custom Chroma Info & Live Sliders */}
+                {customChroma.enabled && (
+                  <div className="mt-4 pt-4 border-t border-white/10 grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Active Color Swatch */}
+                    <div className="flex items-center gap-3 bg-black/30 p-3 rounded-2xl border border-white/5">
+                      <span
+                        className="w-8 h-8 rounded-xl border border-white/30 shadow-md flex-shrink-0"
+                        style={{ backgroundColor: customChroma.color }}
+                      />
+                      <div className="min-w-0">
+                        <div className="text-[10px] text-slate-400 font-bold">اللون المعزول:</div>
+                        <div className="text-xs font-mono font-black text-emerald-400 uppercase">
+                          {customChroma.color}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowChromaStudio(true)}
+                        className="mr-auto text-[10px] text-emerald-300 hover:text-white bg-white/5 hover:bg-white/10 px-2 py-1 rounded-lg transition-colors"
+                      >
+                        تعديل
+                      </button>
+                    </div>
+
+                    {/* Tolerance slider */}
+                    <div className="space-y-1 bg-black/30 p-3 rounded-2xl border border-white/5">
+                      <div className="flex justify-between text-[10px] font-black text-slate-400">
+                        <span>الحساسية (Tolerance)</span>
+                        <span className="text-emerald-400">{customChroma.tolerance}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="1"
+                        max="100"
+                        value={customChroma.tolerance}
+                        onChange={(e) =>
+                          setCustomChroma((prev) => ({
+                            ...prev,
+                            tolerance: parseInt(e.target.value),
+                          }))
+                        }
+                        className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                      />
+                    </div>
+
+                    {/* Smoothness slider */}
+                    <div className="space-y-1 bg-black/30 p-3 rounded-2xl border border-white/5">
+                      <div className="flex justify-between text-[10px] font-black text-slate-400">
+                        <span>النعومة (Smoothness)</span>
+                        <span className="text-emerald-400">{customChroma.smoothness}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="50"
+                        value={customChroma.smoothness}
+                        onChange={(e) =>
+                          setCustomChroma((prev) => ({
+                            ...prev,
+                            smoothness: parseInt(e.target.value),
+                          }))
+                        }
+                        className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Preset Chroma & Background Removal Buttons */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <button
                   onClick={() => setRemoveBlack(!removeBlack)}
@@ -3596,6 +3863,19 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
           </motion.div>
         </div>
       )}
+
+      {/* Chroma Studio Eyedropper Modal */}
+      <ChromaStudioModal
+        isOpen={showChromaStudio}
+        onClose={() => setShowChromaStudio(false)}
+        videoUrl={videoUrl}
+        videoFile={file}
+        initialSettings={customChroma}
+        onApply={(newSettings) => {
+          setCustomChroma(newSettings);
+        }}
+        isVapInput={isVapInput}
+      />
     </>
   );
 };
