@@ -5,14 +5,18 @@ import {
   ArrowUp, ArrowDown, ArrowUpToLine, ArrowDownToLine, 
   Search, Layers, Image as ImageIcon, Box, Shapes, Edit2, Check,
   Plus, Upload, Sparkles, Type, Circle, Square, Star, Award, SlidersHorizontal,
-  GripVertical, Maximize2, Minimize2, Move, ArrowUpDown, Diamond
+  GripVertical, Maximize2, Minimize2, Move, ArrowUpDown, Diamond, Package,
+  CheckSquare, Square as UncheckedSquare, CheckCheck, X
 } from 'lucide-react';
 
 interface SvgaLayersListProps {
   layers: EditableLayer[];
   selectedLayerId: string | null;
+  selectedLayerIds?: string[];
   currentFrame: number;
-  onSelectLayer: (id: string) => void;
+  onSelectLayer: (id: string, isMulti?: boolean, isRange?: boolean) => void;
+  onSelectAllLayers?: (select: boolean, filterScope?: 'all' | 'bundles' | 'base') => void;
+  onToggleLayerSelection?: (id: string) => void;
   onToggleVisibility: (id: string) => void;
   onToggleAllVisibility?: (makeVisible?: boolean) => void;
   onToggleLock: (id: string) => void;
@@ -24,15 +28,19 @@ interface SvgaLayersListProps {
   onRenameLayer: (id: string, newName: string) => void;
   onAddImageLayer: (file: File) => void;
   onAddShapeLayer: (shapeType: 'rect' | 'circle' | 'star' | 'badge' | 'text', customText?: string) => void;
+  onMergeSvga?: () => void;
 }
 
-type FilterTab = 'all' | 'active' | 'images' | 'shapes';
+type FilterTab = 'all' | 'active' | 'images' | 'shapes' | 'bundles';
 
 export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
   layers,
   selectedLayerId,
+  selectedLayerIds = [],
   currentFrame,
   onSelectLayer,
+  onSelectAllLayers,
+  onToggleLayerSelection,
   onToggleVisibility,
   onToggleAllVisibility,
   onToggleLock,
@@ -43,7 +51,8 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
   onDeleteLayer,
   onRenameLayer,
   onAddImageLayer,
-  onAddShapeLayer
+  onAddShapeLayer,
+  onMergeSvga
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
@@ -91,6 +100,9 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
     }
     if (activeTab === 'shapes') {
       return l.type === 'shape' || l.keyframeSummary.hasShapes;
+    }
+    if (activeTab === 'bundles') {
+      return !!l.groupId;
     }
     return true;
   });
@@ -270,6 +282,25 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
                   </div>
                 </button>
 
+                {/* Merge Another SVGA file */}
+                {onMergeSvga && (
+                  <button
+                    onClick={() => {
+                      setShowAddMenu(false);
+                      onMergeSvga();
+                    }}
+                    className="w-full px-3 py-2.5 bg-gradient-to-r from-purple-900/50 to-indigo-900/50 hover:from-purple-800/60 hover:to-indigo-800/60 border border-purple-500/30 text-white rounded-xl text-xs flex items-center gap-2.5 transition-colors text-right cursor-pointer"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-purple-500/30 border border-purple-400/40 flex items-center justify-center text-purple-300 shrink-0">
+                      <Sparkles size={14} />
+                    </div>
+                    <div>
+                      <span className="font-bold block text-xs text-purple-200">استدعاء ودمج ملف SVGA آخر</span>
+                      <span className="text-[10px] text-purple-300/70 block">دمج طبقات وحركات أنيميشن كاملة</span>
+                    </div>
+                  </button>
+                )}
+
                 {/* Shapes */}
                 <button
                   onClick={() => {
@@ -364,6 +395,19 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
         >
           الصور
         </button>
+        {layers.some(l => !!l.groupId) && (
+          <button
+            onClick={() => setActiveTab('bundles')}
+            className={`px-3 py-1 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
+              activeTab === 'bundles'
+                ? 'bg-purple-600 text-white shadow-sm'
+                : 'text-purple-300 hover:text-white hover:bg-purple-600/20'
+            }`}
+          >
+            <Package size={12} />
+            <span>الحزم المدمجة ({layers.filter(l => !!l.groupId).length})</span>
+          </button>
+        )}
       </div>
 
       {/* Search Input */}
@@ -380,78 +424,117 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
         </div>
       </div>
 
-      {/* Master Global Controls Bar: Lock All & Eye All */}
-      <div className="px-3 py-2 bg-slate-900/90 border-b border-white/10 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 text-xs text-slate-300 font-bold">
-          <SlidersHorizontal size={13} className="text-indigo-400" />
-          <span>تحكم جماعي:</span>
-        </div>
+      {/* Master Global Controls Bar: Multi-select All, Lock All & Eye All */}
+      <div className="px-3 py-2 bg-slate-900/90 border-b border-white/10 flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-xs text-slate-300 font-bold">
+            <SlidersHorizontal size={13} className="text-indigo-400" />
+            <span>تحكم جماعي:</span>
+            {selectedLayerIds.length > 0 && (
+              <span className="text-[10px] text-amber-300 bg-amber-500/20 border border-amber-500/30 px-1.5 py-0.5 rounded-full font-mono font-bold">
+                {selectedLayerIds.length} محددة
+              </span>
+            )}
+          </div>
 
-        <div className="flex items-center gap-1.5">
-          {/* Master Visibility Button */}
-          {(() => {
-            const allVisible = layers.length > 0 && layers.every(l => l.visible);
-            const noneVisible = layers.length > 0 && layers.every(l => !l.visible);
-
-            return (
+          <div className="flex items-center gap-1">
+            {/* Quick Multi-Select All / Clear */}
+            {onSelectAllLayers && (
               <button
                 type="button"
-                onClick={() => onToggleAllVisibility && onToggleAllVisibility(!allVisible)}
-                className={`px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
-                  allVisible
-                    ? 'bg-indigo-600/30 hover:bg-indigo-600/40 text-indigo-200 border-indigo-500/40 hover:scale-[1.02]'
-                    : noneVisible
-                    ? 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border-rose-500/40'
+                onClick={() => {
+                  const allSelected = selectedLayerIds.length === layers.length;
+                  onSelectAllLayers(!allSelected);
+                }}
+                className={`px-2 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1 border transition-all cursor-pointer ${
+                  selectedLayerIds.length === layers.length && layers.length > 0
+                    ? 'bg-amber-600 text-white border-amber-500 shadow-md shadow-amber-600/30'
+                    : selectedLayerIds.length > 0
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                     : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
                 }`}
-                title={allVisible ? 'إخفاء كل الطبقات (إغلاق العين للجميع)' : 'إظهار كل الطبقات (فتح العين للجميع)'}
+                title={selectedLayerIds.length === layers.length ? 'إلغاء تحديد الكل' : 'تحديد جميع الطبقات دفعة واحدة (Select All)'}
               >
-                {allVisible ? (
-                  <>
-                    <Eye size={13} className="text-indigo-300" />
-                    <span>إخفاء الكل</span>
-                  </>
-                ) : (
-                  <>
-                    <EyeOff size={13} className="text-slate-400" />
-                    <span>إظهار الكل</span>
-                  </>
-                )}
+                <CheckSquare size={12} className={selectedLayerIds.length > 0 ? 'text-amber-300' : 'text-slate-400'} />
+                <span>{selectedLayerIds.length === layers.length && layers.length > 0 ? 'إلغاء التحديد' : 'تحديد الكل'}</span>
               </button>
-            );
-          })()}
+            )}
 
-          {/* Master Lock Button */}
-          {(() => {
-            const allLocked = layers.length > 0 && layers.every(l => l.locked);
-            const noneLocked = layers.length > 0 && layers.every(l => !l.locked);
+            {/* Master Visibility Button */}
+            {(() => {
+              const allVisible = layers.length > 0 && layers.every(l => l.visible);
+              const noneVisible = layers.length > 0 && layers.every(l => !l.visible);
 
-            return (
-              <button
-                type="button"
-                onClick={() => onToggleAllLock && onToggleAllLock(!allLocked)}
-                className={`px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
-                  allLocked
-                    ? 'bg-amber-500/30 hover:bg-amber-500/40 text-amber-200 border-amber-500/40 hover:scale-[1.02]'
-                    : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
-                }`}
-                title={allLocked ? 'فتح قفل كل الطبقات (Unlock All)' : 'قفل كل الطبقات دفعة واحدة (Lock All)'}
-              >
-                {allLocked ? (
-                  <>
-                    <Lock size={13} className="text-amber-400" />
-                    <span>فتح الكل</span>
-                  </>
-                ) : (
-                  <>
-                    <Unlock size={13} className="text-slate-400" />
-                    <span>قفل الكل</span>
-                  </>
-                )}
-              </button>
-            );
-          })()}
+              return (
+                <button
+                  type="button"
+                  onClick={() => onToggleAllVisibility && onToggleAllVisibility(!allVisible)}
+                  className={`px-2 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1 border transition-all cursor-pointer ${
+                    allVisible
+                      ? 'bg-indigo-600/30 hover:bg-indigo-600/40 text-indigo-200 border-indigo-500/40'
+                      : noneVisible
+                      ? 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border-rose-500/40'
+                      : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                  }`}
+                  title={allVisible ? 'إخفاء كل الطبقات' : 'إظهار كل الطبقات'}
+                >
+                  {allVisible ? <Eye size={12} className="text-indigo-300" /> : <EyeOff size={12} className="text-slate-400" />}
+                </button>
+              );
+            })()}
+
+            {/* Master Lock Button */}
+            {(() => {
+              const allLocked = layers.length > 0 && layers.every(l => l.locked);
+              return (
+                <button
+                  type="button"
+                  onClick={() => onToggleAllLock && onToggleAllLock(!allLocked)}
+                  className={`px-2 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1 border transition-all cursor-pointer ${
+                    allLocked
+                      ? 'bg-amber-500/30 hover:bg-amber-500/40 text-amber-200 border-amber-500/40'
+                      : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                  }`}
+                  title={allLocked ? 'فتح قفل الكل' : 'قفل الكل'}
+                >
+                  {allLocked ? <Lock size={12} className="text-amber-400" /> : <Unlock size={12} className="text-slate-400" />}
+                </button>
+              );
+            })()}
+          </div>
         </div>
+
+        {/* Quick Selection Filter Chips for Base vs Merged SVGA */}
+        {layers.some(l => !!l.groupId || l.id.startsWith('mrg_') || l.imageKey.startsWith('mrg_') || (l.name && l.name.includes('(مدمج)'))) && onSelectAllLayers && (
+          <div className="flex items-center gap-1.5 pt-1 border-t border-white/10 flex-wrap">
+            <span className="text-[10px] text-slate-400 font-bold">تحديد سريع:</span>
+            <button
+              type="button"
+              onClick={() => onSelectAllLayers(true, 'base')}
+              className="px-2 py-0.5 bg-blue-500/15 hover:bg-blue-500/30 text-blue-300 border border-blue-500/25 rounded-lg text-[10px] font-bold transition-all cursor-pointer shadow-sm active:scale-95"
+              title="تحديد كافة طبقات الملف الأصلي الأساسي فقط"
+            >
+              الطبقات الأساسية ({layers.filter(l => !l.groupId && !l.id.startsWith('mrg_') && !l.imageKey.startsWith('mrg_') && !(l.name && l.name.includes('(مدمج)'))).length})
+            </button>
+            <button
+              type="button"
+              onClick={() => onSelectAllLayers(true, 'bundles')}
+              className="px-2.5 py-0.5 bg-purple-500/25 hover:bg-purple-600/40 text-purple-200 border border-purple-400/40 rounded-lg text-[10px] font-black transition-all cursor-pointer shadow-sm active:scale-95 flex items-center gap-1"
+              title="تحديد كافة طبقات ملف SVGA المدمج الثاني دفعة واحدة"
+            >
+              <Package size={11} className="text-purple-300" />
+              <span>الملف المدمج ({layers.filter(l => !!l.groupId || l.id.startsWith('mrg_') || l.imageKey.startsWith('mrg_') || (l.name && l.name.includes('(مدمج)'))).length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onSelectAllLayers(true, 'all')}
+              className="px-2 py-0.5 bg-indigo-500/15 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/25 rounded-lg text-[10px] font-bold transition-all cursor-pointer shadow-sm active:scale-95"
+              title="تحديد كلتا الطبقات من الملفين معاً"
+            >
+              كلا الملفين (الكل)
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Drag & Drop Instruction Hint */}
@@ -477,7 +560,7 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
       {/* Layer List Scroll Area */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-2.5 space-y-1.5">
         {filteredLayers.map((layer, index) => {
-          const isSelected = layer.id === selectedLayerId;
+          const isSelected = selectedLayerIds.includes(layer.id) || layer.id === selectedLayerId;
           const isEditing = editingId === layer.id;
           const isActiveNow = isLayerActiveAtFrame(layer);
           const isDragging = draggingLayerId === layer.id;
@@ -494,12 +577,16 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, layer.id)}
               onDragEnd={handleDragEnd}
-              onClick={() => onSelectLayer(layer.id)}
+              onClick={(e) => {
+                const isMulti = e.ctrlKey || e.metaKey;
+                const isRange = e.shiftKey;
+                onSelectLayer(layer.id, isMulti, isRange);
+              }}
               className={`group relative flex items-center justify-between rounded-2xl border transition-all cursor-pointer ${
                 isComfortable ? 'p-2.5 min-h-[64px]' : 'px-2 py-1.5 min-h-[44px]'
               } ${
                 isSelected
-                  ? 'bg-indigo-600/20 border-indigo-500 text-white shadow-lg shadow-indigo-600/15 ring-2 ring-indigo-500/40'
+                  ? 'bg-indigo-600/25 border-indigo-500 text-white shadow-lg shadow-indigo-600/20 ring-2 ring-indigo-500/50'
                   : 'bg-slate-900/60 hover:bg-white/10 border-white/10 text-slate-300'
               } ${isDragging ? 'opacity-40 scale-95 border-dashed border-indigo-400' : ''}`}
             >
@@ -521,8 +608,29 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
                 </div>
               )}
 
-              {/* Right Side: Drag Handle + Thumbnail + Info */}
-              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              {/* Right Side: Selection Checkbox + Drag Handle + Thumbnail + Info */}
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                {/* Selection Checkbox */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onToggleLayerSelection) {
+                      onToggleLayerSelection(layer.id);
+                    } else {
+                      onSelectLayer(layer.id, true);
+                    }
+                  }}
+                  className={`p-1 rounded-lg border transition-all shrink-0 cursor-pointer ${
+                    isSelected
+                      ? 'bg-indigo-600 text-white border-indigo-400'
+                      : 'bg-white/5 border-white/15 text-slate-600 hover:text-slate-300 hover:border-white/30'
+                  }`}
+                  title={isSelected ? 'إلغاء تحديد هذه الطبقة' : 'تحديد هذه الطبقة للتحكم الجماعي'}
+                >
+                  {isSelected ? <CheckSquare size={13} /> : <UncheckedSquare size={13} />}
+                </button>
+
                 {/* Drag Grip Handle */}
                 <div
                   className="cursor-grab active:cursor-grabbing text-slate-500 hover:text-indigo-400 p-0.5 shrink-0 transition-colors"
@@ -614,6 +722,12 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
                     <span className="text-[10px] text-indigo-400 font-bold bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20">
                       F{layer.keyframeSummary.startFrame}→{layer.keyframeSummary.endFrame}
                     </span>
+                    {layer.groupId && (
+                      <span className="text-[9px] text-purple-300 font-bold bg-purple-500/20 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1">
+                        <Package size={9} />
+                        <span>{layer.groupName || 'مدمج'}</span>
+                      </span>
+                    )}
                     {layer.keyframes && layer.keyframes.length > 0 && (
                       <span className="text-[9px] text-amber-300 font-bold bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 flex items-center gap-0.5">
                         <Diamond size={8} className="fill-amber-400" />
@@ -670,95 +784,129 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
       </div>
 
       {/* Layer Order Tools (Bottom) */}
-      {selectedLayerId && (
-        <div className="p-3 border-t border-white/10 bg-slate-900/90 backdrop-blur-md flex items-center justify-between gap-1 shadow-2xl">
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => onDuplicateLayer(selectedLayerId)}
-              className="p-2 hover:bg-white/10 text-slate-400 hover:text-indigo-300 rounded-xl transition-colors cursor-pointer"
-              title="تكرار الطبقة (Duplicate)"
-            >
-              <Copy size={15} />
-            </button>
-            <button
-              onClick={() => onDuplicateLayer(selectedLayerId, true)}
-              className="p-2 bg-indigo-600/20 border border-indigo-500/30 hover:bg-indigo-600/40 text-indigo-400 hover:text-indigo-200 rounded-xl transition-colors cursor-pointer"
-              title="تكرار وعكس الطبقة أفقياً (Duplicate & Mirror)"
-            >
-              <ArrowUpDown size={15} className="rotate-90" />
-            </button>
-            <button
-              onClick={() => onDeleteLayer(selectedLayerId)}
-              className="p-2 hover:bg-red-500/15 text-slate-400 hover:text-red-400 rounded-xl transition-colors cursor-pointer"
-              title="حذف الطبقة (Delete)"
-            >
-              <Trash2 size={15} />
-            </button>
-            <button
-              onClick={() => {
-                const otherLayer = layers.find(l => l.id !== selectedLayerId);
-                if (otherLayer) setQuickMoveTargetId(otherLayer.id);
-                setShowQuickMoveModal(true);
-              }}
-              className="p-2 hover:bg-indigo-600/20 text-slate-400 hover:text-indigo-300 rounded-xl transition-colors"
-              title="نقل وتنزيل تحت أي طبقة أخرى"
-            >
-              <ArrowUpDown size={15} />
-            </button>
-          </div>
+      {(selectedLayerId || selectedLayerIds.length > 0) && (
+        <div className="p-3 border-t border-white/10 bg-slate-900/95 backdrop-blur-md flex flex-col gap-2 shadow-2xl">
+          {selectedLayerIds.length > 1 && (
+            <div className="flex items-center justify-between px-2.5 py-1 text-[11px] text-amber-300 font-bold bg-amber-500/10 border border-amber-500/20 rounded-xl">
+              <span className="flex items-center gap-1.5">
+                <CheckCheck size={14} className="text-amber-400" />
+                <span>تحكم جماعي نشط ({selectedLayerIds.length} طبقات محددة معاً)</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => onSelectAllLayers && onSelectAllLayers(false)}
+                className="text-[10px] text-slate-400 hover:text-white underline cursor-pointer"
+              >
+                إلغاء التحديد
+              </button>
+            </div>
+          )}
 
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => onReorderLayer(selectedLayerId, 'top')}
-              className="p-2 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl transition-all"
-              title="إلى أعلى المقدمة (Top)"
-            >
-              <ArrowUpToLine size={15} />
-            </button>
-            <button
-              onClick={() => onReorderLayer(selectedLayerId, 'up')}
-              className="p-2 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl transition-all"
-              title="للأعلى خطوة واحدة (Up)"
-            >
-              <ArrowUp size={15} />
-            </button>
-            <button
-              onClick={() => onReorderLayer(selectedLayerId, 'down')}
-              className="p-2 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl transition-all"
-              title="للأسفل خطوة واحدة (Down)"
-            >
-              <ArrowDown size={15} />
-            </button>
-            <button
-              onClick={() => onReorderLayer(selectedLayerId, 'bottom')}
-              className="p-2 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl transition-all"
-              title="إلى أسفل الخلفية (Bottom)"
-            >
-              <ArrowDownToLine size={15} />
-            </button>
+          <div className="flex items-center justify-between gap-1">
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => onDuplicateLayer(selectedLayerId || selectedLayerIds[0])}
+                className="p-2 hover:bg-white/10 text-slate-400 hover:text-indigo-300 rounded-xl transition-colors cursor-pointer"
+                title={selectedLayerIds.length > 1 ? `تكرار كافة الطبقات المحددة (${selectedLayerIds.length})` : "تكرار الطبقة (Duplicate)"}
+              >
+                <Copy size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={() => onDuplicateLayer(selectedLayerId || selectedLayerIds[0], true)}
+                className="p-2 bg-indigo-600/20 border border-indigo-500/30 hover:bg-indigo-600/40 text-indigo-400 hover:text-indigo-200 rounded-xl transition-colors cursor-pointer"
+                title={selectedLayerIds.length > 1 ? `تكرار وعكس كافة الطبقات المحددة (${selectedLayerIds.length}) أفقياً` : "تكرار وعكس الطبقة أفقياً (Duplicate & Mirror)"}
+              >
+                <ArrowUpDown size={15} className="rotate-90" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onDeleteLayer(selectedLayerId || selectedLayerIds[0])}
+                className="p-2 hover:bg-red-500/15 text-slate-400 hover:text-red-400 rounded-xl transition-colors cursor-pointer"
+                title={selectedLayerIds.length > 1 ? `حذف كافة الطبقات المحددة (${selectedLayerIds.length})` : "حذف الطبقة (Delete)"}
+              >
+                <Trash2 size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const nonSelectedLayers = layers.filter(l => !selectedLayerIds.includes(l.id) && l.id !== selectedLayerId);
+                  if (nonSelectedLayers.length > 0) {
+                    setQuickMoveTargetId(nonSelectedLayers[0].id);
+                  }
+                  setShowQuickMoveModal(true);
+                }}
+                className="p-2 hover:bg-indigo-600/20 text-slate-400 hover:text-indigo-300 rounded-xl transition-colors cursor-pointer"
+                title={selectedLayerIds.length > 1 ? `نقل كافة الطبقات المحددة (${selectedLayerIds.length}) تحت أو فوق أي طبقة أخرى` : "نقل وتنزيل تحت أي طبقة أخرى"}
+              >
+                <ArrowUpDown size={15} />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => onReorderLayer(selectedLayerId || selectedLayerIds[0], 'top')}
+                className="p-2 bg-white/5 hover:bg-indigo-600/30 text-slate-300 hover:text-white rounded-xl transition-all border border-white/10 cursor-pointer"
+                title={selectedLayerIds.length > 1 ? `إلى أعلى المقدمة لجميع الطبقات المحددة (${selectedLayerIds.length})` : "إلى أعلى المقدمة (Top)"}
+              >
+                <ArrowUpToLine size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={() => onReorderLayer(selectedLayerId || selectedLayerIds[0], 'up')}
+                className="p-2 bg-white/5 hover:bg-indigo-600/30 text-slate-300 hover:text-white rounded-xl transition-all border border-white/10 cursor-pointer"
+                title={selectedLayerIds.length > 1 ? `رفع جميع الطبقات المحددة للأعلى خطوة (${selectedLayerIds.length})` : "للأعلى خطوة واحدة (Up)"}
+              >
+                <ArrowUp size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={() => onReorderLayer(selectedLayerId || selectedLayerIds[0], 'down')}
+                className="p-2 bg-white/5 hover:bg-indigo-600/30 text-slate-300 hover:text-white rounded-xl transition-all border border-white/10 cursor-pointer"
+                title={selectedLayerIds.length > 1 ? `إنزال جميع الطبقات المحددة للأسفل خطوة (${selectedLayerIds.length})` : "للأسفل خطوة واحدة (Down)"}
+              >
+                <ArrowDown size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={() => onReorderLayer(selectedLayerId || selectedLayerIds[0], 'bottom')}
+                className="p-2 bg-white/5 hover:bg-indigo-600/30 text-slate-300 hover:text-white rounded-xl transition-all border border-white/10 cursor-pointer"
+                title={selectedLayerIds.length > 1 ? `إلى أسفل الخلفية لجميع الطبقات المحددة (${selectedLayerIds.length})` : "إلى أسفل الخلفية (Bottom)"}
+              >
+                <ArrowDownToLine size={15} />
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {/* Quick Move Layer Modal */}
-      {showQuickMoveModal && selectedLayerId && (
+      {showQuickMoveModal && (selectedLayerId || selectedLayerIds.length > 0) && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-white/15 rounded-3xl p-5 max-w-md w-full space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <h4 className="text-white font-black text-sm flex items-center gap-2">
                 <ArrowUpDown size={16} className="text-indigo-400" />
-                <span>نقل الطبقة إلى موضع محدد</span>
+                <span>
+                  {selectedLayerIds.length > 1 
+                    ? `نقل ${selectedLayerIds.length} طبقة محددة إلى موضع محدد دفعة واحدة`
+                    : 'نقل الطبقة إلى موضع محدد'}
+                </span>
               </h4>
               <button
                 onClick={() => setShowQuickMoveModal(false)}
-                className="text-slate-400 hover:text-white text-xs"
+                className="text-slate-400 hover:text-white text-xs cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
             <p className="text-xs text-slate-300">
-              حدد الطبقة المستهدفة وموضع النقل:
+              {selectedLayerIds.length > 1 
+                ? `سيتم نقل كافة الطبقات المحددة (${selectedLayerIds.length} طبقة) معاً مع الحفاظ على ترتيبها الداخلي.` 
+                : 'حدد الطبقة المستهدفة وموضع النقل:'}
             </p>
 
             <div className="space-y-3">
@@ -767,9 +915,9 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
                 <select
                   value={quickMoveTargetId}
                   onChange={(e) => setQuickMoveTargetId(e.target.value)}
-                  className="w-full bg-slate-950 border border-white/15 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-indigo-500"
+                  className="w-full bg-slate-950 border border-white/15 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-indigo-500 cursor-pointer"
                 >
-                  {layers.filter(l => l.id !== selectedLayerId).map(l => (
+                  {layers.filter(l => !selectedLayerIds.includes(l.id) && l.id !== selectedLayerId).map(l => (
                     <option key={l.id} value={l.id}>
                       {l.name} ({l.imageKey})
                     </option>
@@ -783,7 +931,7 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
                   <button
                     type="button"
                     onClick={() => setQuickMovePosition('below')}
-                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all ${
+                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
                       quickMovePosition === 'below'
                         ? 'bg-indigo-600 text-white border-indigo-500 shadow-md'
                         : 'bg-white/5 text-slate-400 border-white/10 hover:bg-white/10'
@@ -794,7 +942,7 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
                   <button
                     type="button"
                     onClick={() => setQuickMovePosition('above')}
-                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all ${
+                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
                       quickMovePosition === 'above'
                         ? 'bg-indigo-600 text-white border-indigo-500 shadow-md'
                         : 'bg-white/5 text-slate-400 border-white/10 hover:bg-white/10'
@@ -809,15 +957,15 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/10">
               <button
                 onClick={() => setShowQuickMoveModal(false)}
-                className="px-4 py-2 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl text-xs font-bold"
+                className="px-4 py-2 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
               >
                 إلغاء
               </button>
               <button
                 onClick={handleExecuteQuickMove}
-                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black shadow-lg shadow-indigo-600/30"
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black shadow-lg shadow-indigo-600/30 cursor-pointer"
               >
-                تطبيق النقل
+                تطبيق النقل الجماعي
               </button>
             </div>
           </div>

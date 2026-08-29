@@ -48,6 +48,8 @@ export interface EditableLayer {
   visible: boolean;
   locked: boolean;
   thumbnailUrl?: string;
+  groupId?: string;
+  groupName?: string;
   
   // Transform properties
   transform: LayerTransform;

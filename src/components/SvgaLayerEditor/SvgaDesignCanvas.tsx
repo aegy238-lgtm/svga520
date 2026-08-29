@@ -3,13 +3,16 @@ import { EditableLayer, SVGAProjectData, CanvasTool, GuideLine } from './types';
 import { getLayerAnimatedTransform } from './motionEngine';
 import { 
   ZoomIn, ZoomOut, RefreshCw, Maximize2, 
-  Grid, Compass, Eye, Shield, RotateCcw
+  Grid, Compass, Eye, Shield, RotateCcw,
+  Focus, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
+  Move, Crosshair
 } from 'lucide-react';
 
 interface SvgaDesignCanvasProps {
   project: SVGAProjectData;
   layers: EditableLayer[];
   selectedLayerId: string | null;
+  selectedLayerIds?: string[];
   currentFrame: number;
   activeTool: CanvasTool;
   zoom: number;
@@ -18,8 +21,9 @@ interface SvgaDesignCanvasProps {
   showRulers: boolean;
   showGuides: boolean;
   bgColor: string;
-  onSelectLayer: (layerId: string | null) => void;
+  onSelectLayer: (layerId: string | null, isMulti?: boolean) => void;
   onUpdateLayerTransform: (layerId: string, transform: Partial<EditableLayer['transform']>) => void;
+  onBulkUpdateTransforms?: (updates: Array<{ id: string; transform: Partial<EditableLayer['transform']> }>) => void;
   onZoomChange: (zoom: number) => void;
   onPanChange: (offset: { x: number; y: number }) => void;
   onDeleteLayer?: (layerId: string) => void;
@@ -119,6 +123,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
   project,
   layers,
   selectedLayerId,
+  selectedLayerIds = [],
   currentFrame,
   activeTool,
   zoom,
@@ -129,6 +134,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
   bgColor,
   onSelectLayer,
   onUpdateLayerTransform,
+  onBulkUpdateTransforms,
   onZoomChange,
   onPanChange,
   onDeleteLayer
@@ -137,11 +143,20 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imagesCache = useRef<Record<string, HTMLImageElement>>({});
 
+  // Effective multi-selection IDs
+  const activeSelectedIds = useMemo(() => {
+    if (selectedLayerIds && selectedLayerIds.length > 0) {
+      return selectedLayerIds;
+    }
+    return selectedLayerId ? [selectedLayerId] : [];
+  }, [selectedLayerIds, selectedLayerId]);
+
   // Active Drag / Interaction State
   const [isInteracting, setIsInteracting] = useState(false);
   const [dragHandle, setDragHandle] = useState<DragHandleType | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [initialTransform, setInitialTransform] = useState<EditableLayer['transform'] | null>(null);
+  const [initialTransformsMap, setInitialTransformsMap] = useState<Record<string, EditableLayer['transform']>>({});
   const [activeGuides, setActiveGuides] = useState<GuideLine[]>([]);
 
   const selectedLayer = useMemo(() => {
@@ -226,6 +241,84 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     const frameAlpha = isActive ? (frame.alpha !== undefined ? frame.alpha : 1.0) : 0;
     return { isActive, frame, alpha: frameAlpha };
   }, []);
+
+  // Zoom to Selected Element (Centers and focuses tightly on the selected element)
+  const handleZoomToSelection = useCallback(() => {
+    if (!selectedLayer || !containerRef.current) return;
+    const { isActive, frame } = getLayerFrameState(selectedLayer, currentFrame);
+    if (!isActive || !frame) return;
+
+    const totalMatrix = computeLayerMatrix(selectedLayer, frame);
+    const cachedImg = imagesCache.current[selectedLayer.imageKey];
+    const localW = frame.layout?.width || cachedImg?.naturalWidth || selectedLayer.initialBounds.width || 50;
+    const localH = frame.layout?.height || cachedImg?.naturalHeight || selectedLayer.initialBounds.height || 50;
+    const localX = frame.layout?.x || 0;
+    const localY = frame.layout?.y || 0;
+
+    const p0 = transformPoint(totalMatrix, localX, localY);
+    const p2 = transformPoint(totalMatrix, localX + localW, localY + localH);
+    const centerLayerX = (p0.x + p2.x) / 2;
+    const centerLayerY = (p0.y + p2.y) / 2;
+    const layerW = Math.max(20, Math.abs(p2.x - p0.x));
+    const layerH = Math.max(20, Math.abs(p2.y - p0.y));
+
+    const cw = containerRef.current.clientWidth;
+    const ch = containerRef.current.clientHeight;
+
+    // Target zoom so the item is clearly visible (taking up around 200px - 350px on screen)
+    const targetZoom = Math.min(800, Math.max(150, Math.round(Math.min(cw / (layerW * 2.8), ch / (layerH * 2.8)) * 100)));
+    
+    // Canvas center
+    const canvasCenterX = project.width / 2;
+    const canvasCenterY = project.height / 2;
+    const scale = targetZoom / 100;
+    const panX = (canvasCenterX - centerLayerX) * scale;
+    const panY = (canvasCenterY - centerLayerY) * scale;
+
+    onZoomChange(targetZoom);
+    onPanChange({ x: Math.round(panX), y: Math.round(panY) });
+  }, [selectedLayer, currentFrame, getLayerFrameState, computeLayerMatrix, project, onZoomChange, onPanChange]);
+
+  // Directional Micro-Nudge Function
+  const handleMicroNudge = useCallback((dx: number, dy: number) => {
+    if (!selectedLayer) return;
+    const curX = selectedLayer.transform.x || 0;
+    const curY = selectedLayer.transform.y || 0;
+    onUpdateLayerTransform(selectedLayer.id, {
+      x: Number((curX + dx).toFixed(2)),
+      y: Number((curY + dy).toFixed(2))
+    });
+  }, [selectedLayer, onUpdateLayerTransform]);
+
+  // Global Keyboard Arrow Listener for Pixel-Perfect Movement
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!selectedLayer) return;
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable)) {
+        return;
+      }
+
+      let step = 1;
+      if (e.shiftKey) step = 10;
+      else if (e.altKey || e.ctrlKey || e.metaKey) step = 0.1;
+
+      let dx = 0;
+      let dy = 0;
+
+      if (e.key === 'ArrowUp') { dy = -step; }
+      else if (e.key === 'ArrowDown') { dy = step; }
+      else if (e.key === 'ArrowLeft') { dx = -step; }
+      else if (e.key === 'ArrowRight') { dx = step; }
+      else { return; }
+
+      e.preventDefault();
+      handleMicroNudge(dx, dy);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedLayer, handleMicroNudge]);
 
   // Render loop
   const drawScene = useCallback(() => {
@@ -365,19 +458,22 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       ctx.restore();
     }
 
-    // 5. Draw Selection Transform Box and Handles for Selected Layer
-    if (selectedLayer && selectedLayer.visible) {
-      const { isActive, frame } = getLayerFrameState(selectedLayer, currentFrame);
+    // 5. Draw Selection Transform Box and Handles for Selected Layers
+    const layersToHighlight = layers.filter(l => activeSelectedIds.includes(l.id) && l.visible);
+
+    for (const targetL of layersToHighlight) {
+      const isPrimary = targetL.id === selectedLayerId;
+      const { isActive, frame } = getLayerFrameState(targetL, currentFrame);
 
       if (isActive && frame) {
         ctx.save();
-        const totalMatrix = computeLayerMatrix(selectedLayer, frame);
-        const cachedImg = imagesCache.current[selectedLayer.imageKey];
+        const totalMatrix = computeLayerMatrix(targetL, frame);
+        const cachedImg = imagesCache.current[targetL.imageKey];
 
         let localX = 0;
         let localY = 0;
-        let localW = cachedImg?.naturalWidth || selectedLayer.initialBounds.width || 100;
-        let localH = cachedImg?.naturalHeight || selectedLayer.initialBounds.height || 100;
+        let localW = cachedImg?.naturalWidth || targetL.initialBounds.width || 100;
+        let localH = cachedImg?.naturalHeight || targetL.initialBounds.height || 100;
 
         if (frame.layout && frame.layout.width > 0 && frame.layout.height > 0) {
           localX = frame.layout.x || 0;
@@ -406,11 +502,20 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         const topVectorX = p1.x - p0.x;
         const topVectorY = p1.y - p0.y;
         const topLen = Math.hypot(topVectorX, topVectorY) || 1;
+        const leftVectorX = p3.x - p0.x;
+        const leftVectorY = p3.y - p0.y;
+        const leftLen = Math.hypot(leftVectorX, leftVectorY) || 1;
+
+        // Determine if element is visually small in design units
+        const isSmallElement = topLen < 55 || leftLen < 55;
+        const isTinyElement = topLen < 32 || leftLen < 32;
+
         const normalX = -topVectorY / topLen;
         const normalY = topVectorX / topLen;
-        const rotHandle = { x: midTop.x + normalX * 28, y: midTop.y + normalY * 28 };
+        const rotOffset = isTinyElement ? 36 : isSmallElement ? 32 : 28;
+        const rotHandle = { x: midTop.x + normalX * rotOffset, y: midTop.y + normalY * rotOffset };
 
-        // Draw Bounding Polygon & Transform Handles for Selected Layer
+        // Draw Bounding Polygon for layer
         ctx.beginPath();
         ctx.moveTo(p0.x, p0.y);
         ctx.lineTo(p1.x, p1.y);
@@ -418,8 +523,8 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         ctx.lineTo(p3.x, p3.y);
         ctx.closePath();
 
-        ctx.strokeStyle = '#6366f1'; // Indigo border
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = isPrimary ? '#6366f1' : '#f59e0b'; // Indigo for primary, Amber for co-selected
+        ctx.lineWidth = isPrimary ? 2 : 1.5;
         ctx.stroke();
 
         ctx.strokeStyle = '#ffffff';
@@ -428,48 +533,46 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Rotation stem
-        ctx.beginPath();
-        ctx.moveTo(midTop.x, midTop.y);
-        ctx.lineTo(rotHandle.x, rotHandle.y);
-        ctx.strokeStyle = '#6366f1';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-
-        // Rotation Handle circle
-        ctx.beginPath();
-        ctx.arc(rotHandle.x, rotHandle.y, 6, 0, Math.PI * 2);
-        ctx.fillStyle = '#a855f7'; // Purple rotation knob
-        ctx.fill();
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-
-        // Draw 8 Resize Handles
-        const handles = [
-          p0, midTop, p1, midRight, p2, midBottom, p3, midLeft
-        ];
-
-        handles.forEach(h => {
+        // Render Transform Handles (for primary layer, or when only 1 is selected)
+        if (isPrimary || activeSelectedIds.length === 1) {
+          // Rotation stem
           ctx.beginPath();
-          ctx.arc(h.x, h.y, 4.5, 0, Math.PI * 2);
-          ctx.fillStyle = '#ffffff';
-          ctx.fill();
-          ctx.strokeStyle = '#6366f1';
-          ctx.lineWidth = 2;
+          ctx.moveTo(midTop.x, midTop.y);
+          ctx.lineTo(rotHandle.x, rotHandle.y);
+          ctx.strokeStyle = isPrimary ? '#6366f1' : '#f59e0b';
+          ctx.lineWidth = 1.5;
           ctx.stroke();
-        });
 
-        // Center crosshair
-        ctx.beginPath();
-        ctx.arc(center.x, center.y, 3, 0, Math.PI * 2);
-        ctx.fillStyle = '#6366f1';
-        ctx.fill();
+          // Rotation Handle circle
+          ctx.beginPath();
+          ctx.arc(rotHandle.x, rotHandle.y, isTinyElement ? 5 : 6, 0, Math.PI * 2);
+          ctx.fillStyle = isPrimary ? '#a855f7' : '#f59e0b'; // Purple or Amber rotation knob
+          ctx.fill();
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          const handlesToDraw = isSmallElement
+            ? [p0, p1, p2, p3]
+            : [p0, midTop, p1, midRight, p2, midBottom, p3, midLeft];
+
+          const handleRadius = isTinyElement ? 3.5 : isSmallElement ? 4 : 4.5;
+
+          handlesToDraw.forEach(h => {
+            ctx.beginPath();
+            ctx.arc(h.x, h.y, handleRadius, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+            ctx.strokeStyle = isPrimary ? '#6366f1' : '#f59e0b';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+          });
+        }
 
         ctx.restore();
       }
-    };
-  }, [project, layers, selectedLayer, currentFrame, bgColor, showGrid, showGuides, activeGuides, computeLayerMatrix, getLayerFrameState]);
+    }
+  }, [project, layers, selectedLayer, activeSelectedIds, selectedLayerId, currentFrame, bgColor, showGrid, showGuides, activeGuides, computeLayerMatrix, getLayerFrameState]);
 
   useEffect(() => {
     drawScene();
@@ -518,11 +621,14 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       const localPointX = invA * cx + invC * cy + invTx;
       const localPointY = invB * cx + invD * cy + invTy;
 
+      // Generous hit tolerance for small layers so clicking near them easily grabs them
+      const hitMargin = (localW < 40 || localH < 40) ? 14 : 8;
+
       if (
-        localPointX >= localX - 8 &&
-        localPointX <= localX + localW + 8 &&
-        localPointY >= localY - 8 &&
-        localPointY <= localY + localH + 8
+        localPointX >= localX - hitMargin &&
+        localPointX <= localX + localW + hitMargin &&
+        localPointY >= localY - hitMargin &&
+        localPointY <= localY + localH + hitMargin
       ) {
         return layer.id;
       }
@@ -567,23 +673,38 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     const topVectorX = p1.x - p0.x;
     const topVectorY = p1.y - p0.y;
     const topLen = Math.hypot(topVectorX, topVectorY) || 1;
+    const leftVectorX = p3.x - p0.x;
+    const leftVectorY = p3.y - p0.y;
+    const leftLen = Math.hypot(leftVectorX, leftVectorY) || 1;
+
+    const isSmallElement = topLen < 55 || leftLen < 55;
+    const isTinyElement = topLen < 32 || leftLen < 32;
+
     const normalX = -topVectorY / topLen;
     const normalY = topVectorX / topLen;
-    const rotHandle = { x: midTop.x + normalX * 28, y: midTop.y + normalY * 28 };
+    const rotOffset = isTinyElement ? 36 : isSmallElement ? 32 : 28;
+    const rotHandle = { x: midTop.x + normalX * rotOffset, y: midTop.y + normalY * rotOffset };
 
-    const hitDist = 12;
+    // 1. Rotation knob test (tested first, outside the box)
+    if (Math.hypot(cx - rotHandle.x, cy - rotHandle.y) <= (isTinyElement ? 10 : 12)) return 'rot';
 
-    if (Math.hypot(cx - rotHandle.x, cy - rotHandle.y) <= hitDist + 4) return 'rot';
-    if (Math.hypot(cx - p0.x, cy - p0.y) <= hitDist) return 'nw';
-    if (Math.hypot(cx - p1.x, cy - p1.y) <= hitDist) return 'ne';
-    if (Math.hypot(cx - p2.x, cy - p2.y) <= hitDist) return 'se';
-    if (Math.hypot(cx - p3.x, cy - p3.y) <= hitDist) return 'sw';
-    if (Math.hypot(cx - midTop.x, cy - midTop.y) <= hitDist) return 'n';
-    if (Math.hypot(cx - midRight.x, cy - midRight.y) <= hitDist) return 'e';
-    if (Math.hypot(cx - midBottom.x, cy - midBottom.y) <= hitDist) return 's';
-    if (Math.hypot(cx - midLeft.x, cy - midLeft.y) <= hitDist) return 'w';
+    // 2. Corner resize handles test
+    const cornerHitDist = isTinyElement ? 5.5 : isSmallElement ? 7 : 10;
+    if (Math.hypot(cx - p0.x, cy - p0.y) <= cornerHitDist) return 'nw';
+    if (Math.hypot(cx - p1.x, cy - p1.y) <= cornerHitDist) return 'ne';
+    if (Math.hypot(cx - p2.x, cy - p2.y) <= cornerHitDist) return 'se';
+    if (Math.hypot(cx - p3.x, cy - p3.y) <= cornerHitDist) return 'sw';
 
-    // Check inside polygon for move
+    // 3. For large elements, test edge midpoints
+    if (!isSmallElement) {
+      const midHitDist = 8;
+      if (Math.hypot(cx - midTop.x, cy - midTop.y) <= midHitDist) return 'n';
+      if (Math.hypot(cx - midRight.x, cy - midRight.y) <= midHitDist) return 'e';
+      if (Math.hypot(cx - midBottom.x, cy - midBottom.y) <= midHitDist) return 's';
+      if (Math.hypot(cx - midLeft.x, cy - midLeft.y) <= midHitDist) return 'w';
+    }
+
+    // 4. Check inside polygon (or generous perimeter) for move
     const clickedLayerId = hitTestLayer(cx, cy);
     if (clickedLayerId === selectedLayer.id) return 'move';
 
@@ -604,6 +725,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
     if (e.button !== 0) return;
 
+    const isModifierKey = e.ctrlKey || e.metaKey || e.shiftKey;
     const coords = clientToCanvasCoords(e.clientX, e.clientY);
     const handle = getHandleUnderMouse(coords.x, coords.y);
 
@@ -611,13 +733,41 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       setIsInteracting(true);
       setDragHandle(handle);
       setDragStart(coords);
+
+      // Snapshot all selected layers transforms for simultaneous collective delta manipulation
+      const initialMap: Record<string, EditableLayer['transform']> = {};
+      layers.forEach(l => {
+        if (activeSelectedIds.includes(l.id)) {
+          initialMap[l.id] = { ...l.transform };
+        }
+      });
+      setInitialTransformsMap(initialMap);
+
       if (selectedLayer) {
         setInitialTransform({ ...selectedLayer.transform });
       }
     } else {
       const clickedId = hitTestLayer(coords.x, coords.y);
       if (clickedId) {
-        onSelectLayer(clickedId);
+        if (isModifierKey) {
+          onSelectLayer(clickedId, true);
+        } else {
+          // If clicking an unselected layer without Ctrl/Shift, select it
+          // If clicking one of the already selected multiple layers, keep selection to drag together
+          if (!activeSelectedIds.includes(clickedId)) {
+            onSelectLayer(clickedId, false);
+          }
+        }
+
+        const effectiveIds = activeSelectedIds.includes(clickedId) ? activeSelectedIds : [clickedId];
+        const initialMap: Record<string, EditableLayer['transform']> = {};
+        layers.forEach(l => {
+          if (effectiveIds.includes(l.id)) {
+            initialMap[l.id] = { ...l.transform };
+          }
+        });
+        setInitialTransformsMap(initialMap);
+
         const targetLayer = layers.find(l => l.id === clickedId);
         if (targetLayer) {
           setIsInteracting(true);
@@ -626,7 +776,9 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
           setInitialTransform({ ...targetLayer.transform });
         }
       } else {
-        onSelectLayer(null);
+        if (!isModifierKey) {
+          onSelectLayer(null, false);
+        }
       }
     }
   };
@@ -674,29 +826,48 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     const deltaX = coords.x - dragStart.x;
     const deltaY = coords.y - dragStart.y;
 
+    const isBulk = activeSelectedIds.length > 1 && onBulkUpdateTransforms;
+
     if (dragHandle === 'move') {
-      let newX = Math.round(initialTransform.x + deltaX);
-      let newY = Math.round(initialTransform.y + deltaY);
+      if (isBulk) {
+        // Bulk move all selected layers simultaneously
+        const updates = activeSelectedIds.map(id => {
+          const orig = initialTransformsMap[id] || layers.find(l => l.id === id)?.transform;
+          if (!orig) return null;
+          return {
+            id,
+            transform: {
+              x: Math.round(orig.x + deltaX),
+              y: Math.round(orig.y + deltaY)
+            }
+          };
+        }).filter(Boolean) as Array<{ id: string; transform: Partial<EditableLayer['transform']> }>;
 
-      // Smart Snapping to Canvas Center / Borders
-      const guides: GuideLine[] = [];
-      const cx = newX + selectedLayer.initialBounds.width / 2;
-      const cy = newY + selectedLayer.initialBounds.height / 2;
-      const snapThreshold = 6;
+        onBulkUpdateTransforms(updates);
+      } else {
+        let newX = Math.round(initialTransform.x + deltaX);
+        let newY = Math.round(initialTransform.y + deltaY);
 
-      // Horizontal Center snap
-      if (Math.abs(cx - project.width / 2) <= snapThreshold) {
-        newX = Math.round(project.width / 2 - selectedLayer.initialBounds.width / 2);
-        guides.push({ type: 'vertical', position: project.width / 2 });
+        // Smart Snapping to Canvas Center / Borders
+        const guides: GuideLine[] = [];
+        const cx = newX + selectedLayer.initialBounds.width / 2;
+        const cy = newY + selectedLayer.initialBounds.height / 2;
+        const snapThreshold = 6;
+
+        // Horizontal Center snap
+        if (Math.abs(cx - project.width / 2) <= snapThreshold) {
+          newX = Math.round(project.width / 2 - selectedLayer.initialBounds.width / 2);
+          guides.push({ type: 'vertical', position: project.width / 2 });
+        }
+        // Vertical Center snap
+        if (Math.abs(cy - project.height / 2) <= snapThreshold) {
+          newY = Math.round(project.height / 2 - selectedLayer.initialBounds.height / 2);
+          guides.push({ type: 'horizontal', position: project.height / 2 });
+        }
+
+        setActiveGuides(guides);
+        onUpdateLayerTransform(selectedLayer.id, { x: newX, y: newY });
       }
-      // Vertical Center snap
-      if (Math.abs(cy - project.height / 2) <= snapThreshold) {
-        newY = Math.round(project.height / 2 - selectedLayer.initialBounds.height / 2);
-        guides.push({ type: 'horizontal', position: project.height / 2 });
-      }
-
-      setActiveGuides(guides);
-      onUpdateLayerTransform(selectedLayer.id, { x: newX, y: newY });
     } else if (dragHandle === 'rot') {
       // Rotation Handle Dragging
       const pivotX = selectedLayer.initialBounds.x + selectedLayer.initialBounds.width / 2;
@@ -714,7 +885,23 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         angleDeg = Math.round(angleDeg / 45) * 45;
       }
 
-      onUpdateLayerTransform(selectedLayer.id, { rotation: angleDeg });
+      if (isBulk) {
+        const rotDelta = angleDeg - initialTransform.rotation;
+        const updates = activeSelectedIds.map(id => {
+          const orig = initialTransformsMap[id] || layers.find(l => l.id === id)?.transform;
+          if (!orig) return null;
+          return {
+            id,
+            transform: {
+              rotation: Math.round((orig.rotation + rotDelta) % 360)
+            }
+          };
+        }).filter(Boolean) as Array<{ id: string; transform: Partial<EditableLayer['transform']> }>;
+
+        onBulkUpdateTransforms(updates);
+      } else {
+        onUpdateLayerTransform(selectedLayer.id, { rotation: angleDeg });
+      }
     } else if (['nw', 'ne', 'se', 'sw', 'n', 's', 'e', 'w'].includes(dragHandle || '')) {
       // Scaling Resize Handles
       const initW = Math.max(10, selectedLayer.initialBounds.width);
@@ -733,15 +920,41 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         factorY = factor;
       }
 
-      const newScaleX = Math.max(0.05, Math.min(10, initialTransform.scaleX * factorX));
-      const newScaleY = Math.max(0.05, Math.min(10, initialTransform.scaleY * factorY));
+      const multX = Math.max(0.05, factorX);
+      const multY = Math.max(0.05, factorY);
 
-      onUpdateLayerTransform(selectedLayer.id, {
-        scaleX: parseFloat(newScaleX.toFixed(3)),
-        scaleY: parseFloat(newScaleY.toFixed(3)),
-        width: Math.round(initW * newScaleX),
-        height: Math.round(initH * newScaleY)
-      });
+      if (isBulk) {
+        const updates = activeSelectedIds.map(id => {
+          const orig = initialTransformsMap[id] || layers.find(l => l.id === id)?.transform;
+          const targetL = layers.find(l => l.id === id);
+          if (!orig || !targetL) return null;
+          const targetInitW = Math.max(10, targetL.initialBounds.width);
+          const targetInitH = Math.max(10, targetL.initialBounds.height);
+          const newSX = Math.max(0.05, Math.min(10, orig.scaleX * multX));
+          const newSY = Math.max(0.05, Math.min(10, orig.scaleY * multY));
+          return {
+            id,
+            transform: {
+              scaleX: parseFloat(newSX.toFixed(3)),
+              scaleY: parseFloat(newSY.toFixed(3)),
+              width: Math.round(targetInitW * newSX),
+              height: Math.round(targetInitH * newSY)
+            }
+          };
+        }).filter(Boolean) as Array<{ id: string; transform: Partial<EditableLayer['transform']> }>;
+
+        onBulkUpdateTransforms(updates);
+      } else {
+        const newScaleX = Math.max(0.05, Math.min(10, initialTransform.scaleX * multX));
+        const newScaleY = Math.max(0.05, Math.min(10, initialTransform.scaleY * multY));
+
+        onUpdateLayerTransform(selectedLayer.id, {
+          scaleX: parseFloat(newScaleX.toFixed(3)),
+          scaleY: parseFloat(newScaleY.toFixed(3)),
+          width: Math.round(initW * newScaleX),
+          height: Math.round(initH * newScaleY)
+        });
+      }
     }
   };
 
@@ -791,62 +1004,38 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
         {/* Quick presets */}
         <div className="flex items-center gap-1">
-          <button
-            onClick={() => onZoomChange(25)}
-            className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold transition-colors ${
-              zoom === 25 ? 'bg-indigo-600 text-white' : 'bg-white/5 text-slate-400 hover:text-white'
-            }`}
-            title="تصغير أقصى 25%"
-          >
-            25%
-          </button>
-          <button
-            onClick={() => onZoomChange(50)}
-            className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold transition-colors ${
-              zoom === 50 ? 'bg-indigo-600 text-white' : 'bg-white/5 text-slate-400 hover:text-white'
-            }`}
-            title="تصغير 50%"
-          >
-            50%
-          </button>
-          <button
-            onClick={() => onZoomChange(100)}
-            className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold transition-colors ${
-              zoom === 100 ? 'bg-indigo-600 text-white' : 'bg-white/5 text-slate-400 hover:text-white'
-            }`}
-            title="حجم أصلي 100%"
-          >
-            100%
-          </button>
-          <button
-            onClick={() => onZoomChange(200)}
-            className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold transition-colors ${
-              zoom === 200 ? 'bg-indigo-600 text-white' : 'bg-white/5 text-slate-400 hover:text-white'
-            }`}
-            title="تكبير 200%"
-          >
-            200%
-          </button>
+          {[25, 50, 100, 200, 400, 800].map(pz => (
+            <button
+              key={pz}
+              onClick={() => onZoomChange(pz)}
+              className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold transition-colors cursor-pointer ${
+                zoom === pz ? 'bg-indigo-600 text-white' : 'bg-white/5 text-slate-400 hover:text-white'
+              }`}
+              title={`مستوى التكبير ${pz}%`}
+            >
+              {pz}%
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Floating Zoom & Reset Toolbar with Slider and Fit */}
+      {/* Floating Zoom & Reset Toolbar with Slider, Focus on Selection and Fit */}
       <div className="absolute bottom-4 right-4 z-20 flex items-center gap-2 bg-slate-900/90 backdrop-blur-md border border-white/10 p-1.5 px-2.5 rounded-2xl shadow-xl">
         <button
-          onClick={() => onZoomChange(Math.max(10, zoom - 20))}
+          onClick={() => onZoomChange(Math.max(10, zoom - 25))}
           className="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-xl transition-colors cursor-pointer"
           title="تصغير (Zoom Out)"
         >
           <ZoomOut size={14} />
         </button>
 
-        {/* Live Smooth Zoom Slider */}
+        {/* Live Smooth Zoom Slider up to 800% */}
         <div className="flex items-center gap-1.5 w-24">
           <input
             type="range"
             min={10}
-            max={400}
-            step={5}
+            max={800}
+            step={10}
             value={zoom}
             onChange={(e) => onZoomChange(parseInt(e.target.value) || 100)}
             className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
@@ -866,7 +1055,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         </button>
 
         <button
-          onClick={() => onZoomChange(Math.min(500, zoom + 20))}
+          onClick={() => onZoomChange(Math.min(800, zoom + 25))}
           className="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-xl transition-colors cursor-pointer"
           title="تكبير (Zoom In)"
         >
@@ -874,6 +1063,18 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         </button>
 
         <div className="h-3 w-px bg-white/10 mx-0.5" />
+
+        {/* Focus / Zoom to Selected Layer */}
+        {selectedLayer && (
+          <button
+            onClick={handleZoomToSelection}
+            className="px-2 py-1 bg-purple-600/30 hover:bg-purple-600/50 text-[10px] font-bold text-purple-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1 border border-purple-500/30"
+            title="تكبير والتركيز على الطبقة المحددة (Focus Selected Layer)"
+          >
+            <Focus size={12} />
+            <span>تكبير على العنصر</span>
+          </button>
+        )}
 
         {/* Auto Fit to Screen Button */}
         <button
@@ -884,7 +1085,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
             if (cw > 0 && ch > 0 && project.width > 0 && project.height > 0) {
               const sw = cw / project.width;
               const sh = ch / project.height;
-              const fit = Math.max(10, Math.min(300, Math.round(Math.min(sw, sh) * 100)));
+              const fit = Math.max(10, Math.min(400, Math.round(Math.min(sw, sh) * 100)));
               onZoomChange(fit);
               onPanChange({ x: 0, y: 0 });
             }
@@ -907,18 +1108,20 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
       {/* Active Selected Layer Banner */}
       {selectedLayer && (
-        <div className={`absolute top-4 right-4 z-20 flex items-center gap-2 ${selectedLayer.locked ? 'bg-amber-950/80 border-amber-500/40 text-amber-300' : 'bg-indigo-950/80 border-indigo-500/30 text-indigo-300'} backdrop-blur-md border px-3 py-1.5 rounded-2xl shadow-xl text-xs`} dir="rtl">
-          <span className={`w-2 h-2 rounded-full ${selectedLayer.locked ? 'bg-amber-400' : 'bg-indigo-400 animate-pulse'}`} />
+        <div className="absolute top-4 right-4 z-20 flex items-center gap-2 bg-slate-900/90 border border-indigo-500/30 text-indigo-300 backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-xl text-xs" dir="rtl">
+          <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
           <span className="font-bold text-white max-w-[180px] truncate">{selectedLayer.name}</span>
-          {selectedLayer.locked ? (
-            <span className="text-[10px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-md border border-amber-500/30">
-              🔒 مقفلة (ثابتة)
-            </span>
-          ) : (
-            <span className="text-[10px] font-mono text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded-md">
-              X:{Math.round(selectedLayer.transform.x)} Y:{Math.round(selectedLayer.transform.y)}
-            </span>
-          )}
+          <span className="text-[10px] font-mono text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded-md">
+            X:{Math.round(selectedLayer.transform.x)} Y:{Math.round(selectedLayer.transform.y)}
+          </span>
+          <button
+            onClick={handleZoomToSelection}
+            className="px-2 py-0.5 bg-indigo-600/30 hover:bg-indigo-600 text-[10px] font-bold text-indigo-200 hover:text-white rounded-md transition-colors flex items-center gap-1 cursor-pointer"
+            title="تكبير الكانفاس على العنصر"
+          >
+            <Focus size={10} />
+            <span>تكبير</span>
+          </button>
         </div>
       )}
 

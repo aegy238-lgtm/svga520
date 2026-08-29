@@ -4,6 +4,14 @@ import {
 } from './types';
 import { parseSvgaToProject, createNewSvgaProject } from './svgaParserEngine';
 import { exportEditedSvga } from './svgaExportEngine';
+import { mergeSvgaFileIntoProject, transformLayerGroup } from './svgaMergeEngine';
+import { 
+  transformSelectedLayers, 
+  reorderSelectedLayers, 
+  moveSelectedLayersToTarget, 
+  duplicateSelectedLayers, 
+  deleteSelectedLayers 
+} from './svgaMultiSelectEngine';
 import { fileToImageBuffer, createImageLayer, createShapeLayer } from './layerFactory';
 import { SvgaDesignCanvas } from './SvgaDesignCanvas';
 import { SvgaLayersList } from './SvgaLayersList';
@@ -13,7 +21,7 @@ import {
   Upload, Layers, Download, ArrowLeft, RotateCcw, 
   Sparkles, MousePointer, Hand, ZoomIn, Grid, Compass, 
   FileCode, Check, AlertCircle, RefreshCw, X, Shield, Eye,
-  Sliders, Play, Film, CheckCircle2, Music, Plus, FilePlus
+  Sliders, Play, Film, CheckCircle2, Music, Plus, FilePlus, Package
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -29,11 +37,13 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   onOpenViewer
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mergeFileInputRef = useRef<HTMLInputElement>(null);
 
   // Project Data & Layers
   const [project, setProject] = useState<SVGAProjectData | null>(null);
   const [layers, setLayers] = useState<EditableLayer[]>([]);
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
+  const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([]);
 
   // Undo / Redo History Stack
   const [history, setHistory] = useState<EditableLayer[][]>([]);
@@ -163,6 +173,139 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     }));
   }, []);
 
+  // Bulk Transforms Handler (e.g. from Canvas mouse drag or Properties Panel)
+  const handleBulkUpdateTransforms = useCallback((updates: Array<{ id: string; transform: Partial<EditableLayer['transform']> }>) => {
+    const updatesMap = new Map(updates.map(u => [u.id, u.transform]));
+    setLayers(prev => prev.map(l => {
+      const delta = updatesMap.get(l.id);
+      if (delta) {
+        return {
+          ...l,
+          transform: {
+            ...l.transform,
+            ...delta
+          }
+        };
+      }
+      return l;
+    }));
+  }, []);
+
+  // Multi-Selection Bulk Math Transformer
+  const handleBulkTransform = useCallback((deltas: {
+    dx?: number;
+    dy?: number;
+    scaleMultiplier?: number;
+    scaleMultiplierX?: number;
+    scaleMultiplierY?: number;
+    flipHorizontally?: boolean;
+    flipVertically?: boolean;
+    rotationDelta?: number;
+    setRotation?: number;
+    opacityDelta?: number;
+    setOpacity?: number;
+    alignToCanvas?: 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom' | 'centerAll';
+    canvasWidth?: number;
+    canvasHeight?: number;
+  }) => {
+    if (selectedLayerIds.length === 0) return;
+    setLayers(prev => {
+      const fullDeltas = {
+        ...deltas,
+        canvasWidth: deltas.canvasWidth || project?.width || 500,
+        canvasHeight: deltas.canvasHeight || project?.height || 500
+      };
+      const updated = transformSelectedLayers(prev, selectedLayerIds, fullDeltas);
+      pushHistory(updated);
+      return updated;
+    });
+  }, [selectedLayerIds, pushHistory, project?.width, project?.height]);
+
+  // Select Single or Multi Layer Handler
+  const handleSelectLayer = useCallback((layerId: string | null, isMulti?: boolean) => {
+    if (!layerId) {
+      if (!isMulti) {
+        setSelectedLayerId(null);
+        setSelectedLayerIds([]);
+      }
+      return;
+    }
+
+    if (isMulti) {
+      setSelectedLayerIds(prev => {
+        if (prev.includes(layerId)) {
+          const filtered = prev.filter(id => id !== layerId);
+          setSelectedLayerId(filtered[0] || null);
+          return filtered;
+        } else {
+          setSelectedLayerId(layerId);
+          return [...prev, layerId];
+        }
+      });
+    } else {
+      setSelectedLayerId(layerId);
+      setSelectedLayerIds([layerId]);
+    }
+  }, []);
+
+  // Toggle specific layer selection
+  const handleToggleLayerSelection = useCallback((layerId: string) => {
+    setSelectedLayerIds(prev => {
+      if (prev.includes(layerId)) {
+        const filtered = prev.filter(id => id !== layerId);
+        if (selectedLayerId === layerId) {
+          setSelectedLayerId(filtered[0] || null);
+        }
+        return filtered;
+      } else {
+        setSelectedLayerId(layerId);
+        return [...prev, layerId];
+      }
+    });
+  }, [selectedLayerId]);
+
+  // Select All, Range, or Subsets of Layers (e.g. Merged File or Base Layers)
+  const handleSelectAllLayers = useCallback((allSelected: boolean, filterScope?: 'all' | 'bundles' | 'base' | string[]) => {
+    if (!allSelected) {
+      setSelectedLayerIds([]);
+      setSelectedLayerId(null);
+      setSuccessToast('تم إلغاء التحديد الجماعي');
+      return;
+    }
+
+    let targetIds: string[] = [];
+
+    if (Array.isArray(filterScope)) {
+      targetIds = filterScope;
+    } else if (filterScope === 'bundles') {
+      targetIds = layers
+        .filter(l => Boolean(l.groupId || l.id.startsWith('mrg_') || l.imageKey.startsWith('mrg_') || (l.name && l.name.includes('(مدمج)'))))
+        .map(l => l.id);
+    } else if (filterScope === 'base') {
+      targetIds = layers
+        .filter(l => !l.groupId && !l.id.startsWith('mrg_') && !l.imageKey.startsWith('mrg_') && !(l.name && l.name.includes('(مدمج)')))
+        .map(l => l.id);
+    } else {
+      // 'all' or undefined
+      targetIds = layers.map(l => l.id);
+    }
+
+    if (targetIds.length > 0) {
+      setSelectedLayerIds(targetIds);
+      setSelectedLayerId(targetIds[0]);
+      if (filterScope === 'bundles') {
+        setSuccessToast(`تم تحديد جميع طبقات الملف المدمج (${targetIds.length} طبقة) للتحكم الجماعي`);
+      } else if (filterScope === 'base') {
+        setSuccessToast(`تم تحديد جميع طبقات الملف الأساسي (${targetIds.length} طبقة) للتحكم الجماعي`);
+      } else {
+        setSuccessToast(`تم تحديد كافة الطبقات (${targetIds.length} طبقة) للتحكم الجماعي`);
+      }
+    } else {
+      setSelectedLayerIds([]);
+      setSelectedLayerId(null);
+    }
+  }, [layers]);
+
   // Keyframes Update Handler
   const handleUpdateLayerKeyframes = useCallback((layerId: string, keyframes: LayerKeyframe[]) => {
     setLayers(prev => prev.map(l => {
@@ -243,55 +386,65 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
 
   const handleReorderLayer = useCallback((layerId: string, direction: 'up' | 'down' | 'top' | 'bottom') => {
     setLayers(prev => {
-      const idx = prev.findIndex(l => l.id === layerId);
-      if (idx === -1) return prev;
+      const activeIds = selectedLayerIds.length > 1 && selectedLayerIds.includes(layerId)
+        ? selectedLayerIds
+        : [layerId];
 
-      const newLayers = [...prev];
-      const [moved] = newLayers.splice(idx, 1);
+      const newLayers = reorderSelectedLayers(prev, activeIds, direction);
+      pushHistory(newLayers);
 
-      if (direction === 'up' && idx > 0) {
-        newLayers.splice(idx - 1, 0, moved);
-      } else if (direction === 'down' && idx < prev.length - 1) {
-        newLayers.splice(idx + 1, 0, moved);
-      } else if (direction === 'top') {
-        newLayers.unshift(moved);
-      } else if (direction === 'bottom') {
-        newLayers.push(moved);
-      } else {
-        newLayers.splice(idx, 0, moved);
+      const directionLabels = {
+        top: 'إلى أعلى المقدمة',
+        bottom: 'إلى أسفل الخلفية',
+        up: 'للأعلى خطوة',
+        down: 'للأسفل خطوة'
+      };
+
+      if (activeIds.length > 1) {
+        setSuccessToast(`تم نقل ${activeIds.length} طبقة ${directionLabels[direction]} معاً`);
       }
 
-      pushHistory(newLayers);
       return newLayers;
     });
-  }, [pushHistory]);
+  }, [selectedLayerIds, pushHistory]);
 
   // Direct move / Drag and drop layer above or below any target layer
   const handleMoveLayer = useCallback((sourceId: string, targetId: string, position: 'above' | 'below') => {
     setLayers(prev => {
-      const sourceIndex = prev.findIndex(l => l.id === sourceId);
-      if (sourceIndex === -1) return prev;
-      const targetIndex = prev.findIndex(l => l.id === targetId);
-      if (targetIndex === -1 || sourceIndex === targetIndex) return prev;
+      const activeIds = selectedLayerIds.length > 1 && selectedLayerIds.includes(sourceId)
+        ? selectedLayerIds
+        : [sourceId];
 
-      const newLayers = [...prev];
-      const [moved] = newLayers.splice(sourceIndex, 1);
-
-      // Find new target index after removing source
-      const newTargetIndex = newLayers.findIndex(l => l.id === targetId);
-      if (newTargetIndex === -1) return prev;
-
-      const insertIndex = position === 'above' ? newTargetIndex : newTargetIndex + 1;
-      newLayers.splice(insertIndex, 0, moved);
-
+      const newLayers = moveSelectedLayersToTarget(prev, activeIds, targetId, position);
       pushHistory(newLayers);
-      setSuccessToast(`تم نقل الطبقة "${moved.name}" ${position === 'above' ? 'فوق' : 'تحت'} "${newLayers[newTargetIndex]?.name}"`);
+
+      const targetLayer = prev.find(l => l.id === targetId);
+      if (activeIds.length > 1) {
+        setSuccessToast(`تم نقل ${activeIds.length} طبقة محددة معاً ${position === 'above' ? 'فوق' : 'تحت'} "${targetLayer?.name || 'الطبقة المستهدفة'}"`);
+      } else {
+        const movedLayer = prev.find(l => l.id === sourceId);
+        setSuccessToast(`تم نقل الطبقة "${movedLayer?.name || ''}" ${position === 'above' ? 'فوق' : 'تحت'} "${targetLayer?.name || ''}"`);
+      }
+
       return newLayers;
     });
-  }, [pushHistory]);
+  }, [selectedLayerIds, pushHistory]);
 
   const handleDuplicateLayer = useCallback((layerId: string, mirror: boolean = false) => {
     setLayers(prev => {
+      const activeIds = selectedLayerIds.length > 1 && selectedLayerIds.includes(layerId)
+        ? selectedLayerIds
+        : [layerId];
+
+      if (activeIds.length > 1) {
+        const { updatedLayers, newSelectedIds } = duplicateSelectedLayers(prev, activeIds, mirror, project?.width || 500);
+        setSelectedLayerIds(newSelectedIds);
+        setSelectedLayerId(newSelectedIds[0] || null);
+        pushHistory(updatedLayers);
+        setSuccessToast(mirror ? `تم تكرار وعكس ${activeIds.length} طبقة أفقياً معاً` : `تم تكرار ${activeIds.length} طبقة معاً`);
+        return updatedLayers;
+      }
+
       const target = prev.find(l => l.id === layerId);
       if (!target) return prev;
 
@@ -330,23 +483,38 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
 
       const updated = [cloned, ...prev];
       setSelectedLayerId(newId);
+      setSelectedLayerIds([newId]);
       pushHistory(updated);
       setSuccessToast(mirror ? `تم تكرار الطبقة وعكسها أفقياً` : `تم تكرار الطبقة: ${target.name}`);
       return updated;
     });
-  }, [pushHistory, project]);
+  }, [selectedLayerIds, pushHistory, project]);
 
   const handleDeleteLayer = useCallback((layerId: string) => {
     setLayers(prev => {
+      const activeIds = selectedLayerIds.length > 1 && selectedLayerIds.includes(layerId)
+        ? selectedLayerIds
+        : [layerId];
+
+      if (activeIds.length > 1) {
+        const updated = deleteSelectedLayers(prev, activeIds);
+        setSelectedLayerId(updated[0]?.id || null);
+        setSelectedLayerIds(updated[0]?.id ? [updated[0].id] : []);
+        pushHistory(updated);
+        setSuccessToast(`تم حذف ${activeIds.length} طبقة محددة معاً بنجاح`);
+        return updated;
+      }
+
       const updated = prev.filter(l => l.id !== layerId);
       if (selectedLayerId === layerId) {
         setSelectedLayerId(updated[0]?.id || null);
+        setSelectedLayerIds(updated[0]?.id ? [updated[0].id] : []);
       }
       pushHistory(updated);
       setSuccessToast('تم حذف الطبقة بنجاح');
       return updated;
     });
-  }, [selectedLayerId, pushHistory]);
+  }, [selectedLayerIds, selectedLayerId, pushHistory]);
 
   const handleRenameLayer = useCallback((layerId: string, newName: string) => {
     setLayers(prev => {
@@ -509,6 +677,119 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     }
   }, [project, pushHistory]);
 
+  // Merge another SVGA animation into the current project
+  const handleMergeSvgaFile = useCallback(async (file: File) => {
+    if (!project) {
+      // If no project is open, just open this file as the main project
+      loadSvgaFile(file);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const result = await mergeSvgaFileIntoProject(file, project, layers, {
+        placement: 'center',
+        scaleMode: 'fit',
+        loopFrames: true,
+        layerPosition: 'top'
+      });
+
+      setProject(result.updatedProject);
+      setLayers(result.updatedLayers);
+      pushHistory(result.updatedLayers);
+
+      const firstMergedLayer = result.updatedLayers.find(l => l.groupId === result.importedGroupId);
+      if (firstMergedLayer) {
+        setSelectedLayerId(firstMergedLayer.id);
+      }
+
+      setSuccessToast(`تم دمج أنيميشن "${file.name}" بنجاح (${result.importedLayersCount} طبقة مدمجة كحزمة موحدة)`);
+    } catch (err: any) {
+      console.error("Failed to merge SVGA file:", err);
+      alert(`فشل دمج ملف SVGA: ${err.message || 'خطأ غير معروف'}`);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [project, layers, pushHistory, loadSvgaFile]);
+
+  // Group / Bundle Collective Transformations
+  const handleTransformGroup = useCallback((
+    groupId: string,
+    deltas: {
+      dx?: number;
+      dy?: number;
+      scaleMultiplier?: number;
+      rotationDelta?: number;
+      opacityDelta?: number;
+      setOpacity?: number;
+    }
+  ) => {
+    if (!project) return;
+    setLayers(prev => {
+      const updated = transformLayerGroup(prev, groupId, deltas);
+      pushHistory(updated);
+      return updated;
+    });
+  }, [project, pushHistory]);
+
+  // Ungroup bundle into independent regular layers
+  const handleUngroup = useCallback((groupId: string) => {
+    setLayers(prev => {
+      const updated = prev.map(l => {
+        if (l.groupId === groupId) {
+          return {
+            ...l,
+            groupId: undefined,
+            groupName: undefined
+          };
+        }
+        return l;
+      });
+      pushHistory(updated);
+      setSuccessToast('تم فك ارتباط حزمة الطبقات لتصبح طبقات عادية مستقلة');
+      return updated;
+    });
+  }, [pushHistory]);
+
+  // Delete all layers in group
+  const handleDeleteGroup = useCallback((groupId: string) => {
+    setLayers(prev => {
+      const updated = prev.filter(l => l.groupId !== groupId);
+      if (selectedLayerId && prev.find(l => l.id === selectedLayerId)?.groupId === groupId) {
+        setSelectedLayerId(updated[0]?.id || null);
+      }
+      pushHistory(updated);
+      setSuccessToast('تم حذف حزمة SVGA المدمجة بالكامل');
+      return updated;
+    });
+  }, [selectedLayerId, pushHistory]);
+
+  // Toggle lock for all layers in group
+  const handleToggleGroupLock = useCallback((groupId: string) => {
+    setLayers(prev => {
+      const groupLayers = prev.filter(l => l.groupId === groupId);
+      const allLocked = groupLayers.every(l => l.locked);
+      const targetState = !allLocked;
+      const updated = prev.map(l => l.groupId === groupId ? { ...l, locked: targetState } : l);
+      pushHistory(updated);
+      setSuccessToast(targetState ? 'تم قفل كامل حزمة SVGA' : 'تم فتح قفل كامل حزمة SVGA');
+      return updated;
+    });
+  }, [pushHistory]);
+
+  // Toggle visibility for all layers in group
+  const handleToggleGroupVisibility = useCallback((groupId: string) => {
+    setLayers(prev => {
+      const groupLayers = prev.filter(l => l.groupId === groupId);
+      const allVisible = groupLayers.every(l => l.visible);
+      const targetState = !allVisible;
+      const updated = prev.map(l => l.groupId === groupId ? { ...l, visible: targetState } : l);
+      pushHistory(updated);
+      setSuccessToast(targetState ? 'تم إظهار حزمة SVGA' : 'تم إخفاء حزمة SVGA');
+      return updated;
+    });
+  }, [pushHistory]);
+
   // Update Layer Active Frame Range
   const handleUpdateFrameRange = useCallback((startFrame: number, endFrame: number) => {
     if (!selectedLayerId || !project) return;
@@ -642,6 +923,19 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         onChange={(e) => {
           const f = e.target.files?.[0];
           if (f) loadSvgaFile(f);
+          e.target.value = '';
+        }}
+      />
+
+      <input
+        type="file"
+        ref={mergeFileInputRef}
+        accept=".svga"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) handleMergeSvgaFile(f);
+          e.target.value = '';
         }}
       />
 
@@ -800,6 +1094,16 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
 
           {project && (
             <button
+              onClick={() => mergeFileInputRef.current?.click()}
+              className="flex items-center gap-1.5 text-xs font-bold text-purple-200 hover:text-white bg-gradient-to-r from-purple-600/30 to-indigo-600/30 hover:from-purple-600/50 hover:to-indigo-600/50 px-3.5 py-1.5 rounded-xl border border-purple-500/40 transition-all cursor-pointer shadow-lg shadow-purple-900/20 hover:scale-105"
+              title="استدعاء ملف SVGA آخر ودمجه فوق المشروع الحالي مع التحكم الجماعي الكامل في حركته ومقاساته"
+            >
+              <Sparkles size={13} className="text-purple-300" /> دمج SVGA +
+            </button>
+          )}
+
+          {project && (
+            <button
               onClick={() => setShowExportModal(true)}
               disabled={isExporting}
               className="flex items-center gap-1.5 text-xs font-black text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 px-4 py-1.5 rounded-xl shadow-lg shadow-indigo-600/30 transition-all cursor-pointer hover:scale-105"
@@ -818,8 +1122,11 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             <SvgaLayersList
               layers={layers}
               selectedLayerId={selectedLayerId}
+              selectedLayerIds={selectedLayerIds}
               currentFrame={currentFrame}
-              onSelectLayer={setSelectedLayerId}
+              onSelectLayer={(id, isMulti) => handleSelectLayer(id, isMulti)}
+              onToggleLayerSelection={handleToggleLayerSelection}
+              onSelectAllLayers={handleSelectAllLayers}
               onToggleVisibility={handleToggleVisibility}
               onToggleAllVisibility={handleToggleAllVisibility}
               onToggleLock={handleToggleLock}
@@ -831,6 +1138,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               onRenameLayer={handleRenameLayer}
               onAddImageLayer={handleAddImageLayer}
               onAddShapeLayer={handleAddShapeLayer}
+              onMergeSvga={() => mergeFileInputRef.current?.click()}
             />
           </aside>
 
@@ -841,6 +1149,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                 project={project}
                 layers={layers}
                 selectedLayerId={selectedLayerId}
+                selectedLayerIds={selectedLayerIds}
                 currentFrame={currentFrame}
                 activeTool={activeTool}
                 zoom={zoom}
@@ -849,8 +1158,9 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                 showRulers={showRulers}
                 showGuides={showGuides}
                 bgColor={bgColor}
-                onSelectLayer={setSelectedLayerId}
+                onSelectLayer={handleSelectLayer}
                 onUpdateLayerTransform={handleUpdateLayerTransform}
+                onBulkUpdateTransforms={handleBulkUpdateTransforms}
                 onZoomChange={setZoom}
                 onPanChange={setPanOffset}
                 onDeleteLayer={handleDeleteLayer}
@@ -866,7 +1176,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               isLoop={isLoop}
               selectedLayer={selectedLayer}
               layers={layers}
-              onSelectLayer={setSelectedLayerId}
+              onSelectLayer={(id) => handleSelectLayer(id, false)}
               onTogglePlay={() => setIsPlaying(!isPlaying)}
               onStepFrame={(delta) => {
                 setIsPlaying(false);
@@ -888,12 +1198,21 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             <SvgaPropertiesPanel
               project={project}
               layer={selectedLayer}
+              selectedLayers={layers.filter(l => selectedLayerIds.includes(l.id))}
+              selectedLayerIds={selectedLayerIds}
               currentFrame={currentFrame}
               onUpdateTransform={(t) => selectedLayerId && handleUpdateLayerTransform(selectedLayerId, t)}
+              onBulkTransform={handleBulkTransform}
               onToggleAspectLock={handleToggleAspectLock}
               onReplaceAsset={handleReplaceAsset}
               onResetTransform={handleResetTransform}
               onUpdateFrameRange={handleUpdateFrameRange}
+              onTransformGroup={handleTransformGroup}
+              onUngroup={handleUngroup}
+              onDeleteGroup={handleDeleteGroup}
+              onToggleGroupLock={handleToggleGroupLock}
+              onToggleGroupVisibility={handleToggleGroupVisibility}
+              groupLayersCount={selectedLayer?.groupId ? layers.filter(l => l.groupId === selectedLayer.groupId).length : 0}
             />
           </aside>
         </div>

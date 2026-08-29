@@ -779,17 +779,19 @@ const App: React.FC = () => {
               />
             )}
             {state === AppState.SVGA_LAYER_EDITOR && (
-              <SvgaLayerEditor 
-                initialFile={layerEditorInitialFile || fileMetadata?.originalFile || undefined}
-                onClose={() => {
-                  if (fileMetadata) {
-                    setState(AppState.PROCESSING);
-                  } else {
-                    handleReset();
-                  }
-                }}
-                onOpenViewer={(exportedFile) => handleFileUpload([exportedFile])}
-              />
+              <ErrorBoundary fallbackTitle="حدث خطأ في محرر طبقات SVGA" onReset={handleReset}>
+                <SvgaLayerEditor 
+                  initialFile={layerEditorInitialFile || fileMetadata?.originalFile || undefined}
+                  onClose={() => {
+                    if (fileMetadata) {
+                      setState(AppState.PROCESSING);
+                    } else {
+                      handleReset();
+                    }
+                  }}
+                  onOpenViewer={(exportedFile) => handleFileUpload([exportedFile])}
+                />
+              </ErrorBoundary>
             )}
             {state === AppState.STORE && (
               <Store currentUser={currentUser} onLoginRequired={() => {}} />
