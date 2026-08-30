@@ -1020,7 +1020,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
               sourceFile,
               file,
               {
-                duration: videoDuration > 0 ? videoDuration : undefined,
+                duration: (vapConfig?.info?.f && (vapConfig?.info?.fps || 24)) ? (vapConfig.info.f / (vapConfig.info.fps || 24)) : (videoDuration > 0 ? videoDuration : undefined),
                 vapConfig: vapConfig,
                 vapCompression: vapCompressionEnabled,
                 onProgress: (p) => setAudioProcessProgress(p)
@@ -1478,7 +1478,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
         sourceFile,
         isMuted ? null : targetAudioFile,
         {
-          duration: videoDuration > 0 ? videoDuration : undefined,
+          duration: (vapConfig?.info?.f && (vapConfig?.info?.fps || 24)) ? (vapConfig.info.f / (vapConfig.info.fps || 24)) : (videoDuration > 0 ? videoDuration : undefined),
           vapConfig: vapConfig,
           volume: newVolume,
           startTime: start,
@@ -1697,7 +1697,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             sourceFile, 
             audioToUse, 
             {
-              duration: videoDuration > 0 ? videoDuration : undefined,
+              duration: (vapConfig?.info?.f && (vapConfig?.info?.fps || 24)) ? (vapConfig.info.f / (vapConfig.info.fps || 24)) : (videoDuration > 0 ? videoDuration : undefined),
               vapConfig: vapConfig,
               onProgress: (progress) => {
                 setExportProgress(progress);
@@ -1783,7 +1783,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             sourceFile,
             audioToUse,
             {
-              duration: videoDuration > 0 ? videoDuration : undefined,
+              duration: (vapConfig?.info?.f && (vapConfig?.info?.fps || 24)) ? (vapConfig.info.f / (vapConfig.info.fps || 24)) : (videoDuration > 0 ? videoDuration : undefined),
               vapConfig: vapConfig,
               volume: audioVolume,
               mute: muteOriginalAudio && !hasCustomAudio,
@@ -3186,7 +3186,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                           sourceFile,
                           audioToUse,
                           {
-                            duration: videoDuration > 0 ? videoDuration : undefined,
+                            duration: (vapConfig?.info?.f && (vapConfig?.info?.fps || 24)) ? (vapConfig.info.f / (vapConfig.info.fps || 24)) : (videoDuration > 0 ? videoDuration : undefined),
                             vapConfig: vapConfig,
                             mute: nextMute && !hasCustomAudio,
                             onProgress: (p) => setAudioProcessProgress(p)
