@@ -5985,7 +5985,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         const videoUrl = URL.createObjectURL(videoBlob);
         const videoLink = document.createElement('a');
         videoLink.href = videoUrl;
-        videoLink.download = `${baseName}.mp4`;
+        videoLink.download = `${baseName}.vap`;
         videoLink.click();
         
         if (currentUser) {
@@ -6694,7 +6694,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             const a = document.createElement('a');
             a.href = url;
             const baseName = (metadata?.name || 'project').replace(/\.[^/.]+$/, '');
-            a.download = `${baseName}.mp4`;
+            a.download = currentFormat === "SVGA → YYEVA" ? `${baseName}.mp4` : `${baseName}.vap`;
             a.click();
             
             if (currentUser) {

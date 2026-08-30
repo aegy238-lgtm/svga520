@@ -166,7 +166,7 @@ export const VapHub: React.FC = () => {
                 setExportSuccess(true);
 
                 // Auto download with appropriate extension
-                const extension = selectedFormat.includes('.vap') ? '.vap' : '.vap.mp4';
+                const extension = selectedFormat.includes('.vap') ? '.vap' : '.vap';
                 const audioSuffix = isAudioMuted ? '_silent' : (customAudioFile ? '_with_audio' : '_vap');
                 const downloadName = `${baseName}${audioSuffix}${extension.startsWith('.') ? extension : '.' + extension}`;
 
@@ -245,7 +245,7 @@ export const VapHub: React.FC = () => {
 
                 const a = document.createElement('a');
                 a.href = URL.createObjectURL(finalBlob);
-                a.download = `${baseName}_export.mp4`;
+                a.download = `${baseName}_export.vap`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);

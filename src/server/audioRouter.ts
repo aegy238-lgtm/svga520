@@ -566,7 +566,7 @@ router.post('/replace-vap-audio', upload.fields([
     const finalBuffer = Buffer.concat([generatedMp4Buffer, vapBox]);
 
     res.setHeader('Content-Type', 'video/mp4');
-    res.setHeader('Content-Disposition', `attachment; filename="replaced_vap.mp4"`);
+    res.setHeader('Content-Disposition', `attachment; filename="replaced_vap.vap"`);
     res.setHeader('Content-Length', finalBuffer.length.toString());
     res.end(finalBuffer);
   } catch (error: any) {
