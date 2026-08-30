@@ -136,6 +136,9 @@ export const fastReplaceAudioInVap = async (
       vapConfig?: any;
       mute?: boolean;
       vapCompression?: boolean;
+      volume?: number;
+      startTime?: number;
+      endTime?: number;
       onProgress?: (progress: number) => void;
       onStatus?: (status: string) => void;
     }
@@ -152,6 +155,15 @@ export const fastReplaceAudioInVap = async (
       }
       if (options?.mute) {
         formData.append('mute', 'true');
+      }
+      if (options?.volume !== undefined) {
+        formData.append('volume', options.volume.toString());
+      }
+      if (options?.startTime !== undefined && options.startTime > 0) {
+        formData.append('startTime', options.startTime.toString());
+      }
+      if (options?.endTime !== undefined && options.endTime > 0) {
+        formData.append('endTime', options.endTime.toString());
       }
       if (options?.duration && options.duration > 0) {
         formData.append('duration', options.duration.toString());
@@ -177,11 +189,11 @@ export const fastReplaceAudioInVap = async (
         };
 
         xhr.onload = async () => {
-          if (xhr.status >= 200 && xhr.status < 300 && xhr.response && xhr.response.size > 0) {
+          if (xhr.status >= 200 && xhr.status < 300 && xhr.response && (xhr.response as Blob).size > 10000) {
             options?.onProgress?.(95);
             resolve(xhr.response as Blob);
           } else {
-            reject(new Error(`Server response status: ${xhr.status}`));
+            reject(new Error(`Server response invalid or too small. Status: ${xhr.status}`));
           }
         };
 
@@ -202,9 +214,14 @@ export const fastReplaceAudioInVap = async (
       options?.onStatus?.('جاري معالجة الصوت المباشر محلياً...');
       options?.onProgress?.(25);
 
-      const ff = await getFFmpeg((log) => {
+      const ffPromise = getFFmpeg((log) => {
         console.log("[VAP Audio Engine]", log);
       });
+      // Safety timeout of 10s for WASM loading
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('WASM engine load timeout')), 10000)
+      );
+      const ff = await Promise.race([ffPromise, timeoutPromise]);
 
       const videoName = 'input_video.mp4';
       const audioName = 'input_audio.media';
@@ -217,26 +234,32 @@ export const fastReplaceAudioInVap = async (
       if (audioFile && !options?.mute) {
           await ff.writeFile(audioName, await fetchFile(audioFile));
           if (options?.duration && options.duration > 0) {
-            args.push('-t', options.duration.toFixed(3));
+            args.push('-t', (options.duration + 0.5).toFixed(3));
           }
           args.push('-i', audioName);
           args.push('-map', '0:v:0');
-          args.push('-map', '1:a:0?');
+          args.push('-map', '1:a:0');
           args.push('-c:v', 'copy');
           args.push('-c:a', 'aac');
-          args.push('-b:a', '128k');
+          if (options?.volume !== undefined && options.volume !== 1.0) {
+            args.push('-af', `volume=${Math.max(0, Math.min(options.volume, 5.0)).toFixed(2)}`);
+          }
+          args.push('-b:a', '192k');
           args.push('-ar', '44100');
           args.push('-ac', '2');
           args.push('-shortest');
+          args.push('-movflags', '+faststart');
       } else if (options?.mute) {
           args.push('-map', '0:v:0');
           args.push('-c:v', 'copy');
           args.push('-an');
+          args.push('-movflags', '+faststart');
       } else {
           args.push('-map', '0:v:0');
           args.push('-map', '0:a:0?');
           args.push('-c:v', 'copy');
           args.push('-c:a', 'copy');
+          args.push('-movflags', '+faststart');
       }
 
       args.push(outputName);

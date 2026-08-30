@@ -171,11 +171,12 @@ export class WebGLVapRenderer {
   uThreshold: WebGLUniformLocation | null;
   uUnmultiply: WebGLUniformLocation | null;
 
-  constructor(width: number, height: number) {
-    this.canvas = document.createElement('canvas');
+  constructor(width: number, height: number, existingCanvas?: HTMLCanvasElement) {
+    this.canvas = existingCanvas || document.createElement('canvas');
     this.canvas.width = Math.max(2, width);
     this.canvas.height = Math.max(2, height);
-    const gl = this.canvas.getContext('webgl', { premultipliedAlpha: false, preserveDrawingBuffer: true });
+    const gl = this.canvas.getContext('webgl', { alpha: true, premultipliedAlpha: false, preserveDrawingBuffer: true }) || 
+               (this.canvas.getContext('experimental-webgl', { alpha: true, premultipliedAlpha: false, preserveDrawingBuffer: true }) as WebGLRenderingContext);
     if (!gl) throw new Error('WebGL not supported');
     this.gl = gl;
 
@@ -277,6 +278,8 @@ export class WebGLVapRenderer {
     const vh = video.videoHeight || 1;
 
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.clearColor(0.0, 0.0, 0.0, 0.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(this.program);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);

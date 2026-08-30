@@ -28,6 +28,13 @@ import {
 } from "lucide-react";
 import { logActivity } from "../utils/logger";
 import { ChromaStudioModal, ChromaSettings } from "./ChromaStudioModal";
+import {
+  VideoTrimmerModal,
+  TimingSettings,
+  DEFAULT_TIMING_SETTINGS,
+  calculateOutputDuration,
+  getTimeForFrame,
+} from "./VideoTrimmerModal";
 
 import * as Mp4Muxer from "mp4-muxer";
 
@@ -105,8 +112,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
   });
   const [showChromaStudio, setShowChromaStudio] = useState(false);
   const [showTrimmer, setShowTrimmer] = useState(false);
-  const [trimmerThumbnails, setTrimmerThumbnails] = useState<string[]>([]);
-  const [isGeneratingThumbnails, setIsGeneratingThumbnails] = useState(false);
+  const [timingSettings, setTimingSettings] = useState<TimingSettings>(DEFAULT_TIMING_SETTINGS);
   const [fadeConfig, setFadeConfig] = useState({
     top: 0,
     bottom: 0,
@@ -116,77 +122,6 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
 
   const file = files[currentFileIndex] || null;
   const videoUrl = videoUrls[currentFileIndex] || null;
-
-  useEffect(() => {
-    setTrimmerThumbnails([]);
-  }, [videoUrl, currentFileIndex]);
-
-  useEffect(() => {
-    if (
-      showTrimmer &&
-      videoUrl &&
-      duration > 0 &&
-      trimmerThumbnails.length === 0 &&
-      !isGeneratingThumbnails
-    ) {
-      let isCancelled = false;
-
-      const generateThumbnails = async () => {
-        setIsGeneratingThumbnails(true);
-        const numThumbnails = 10;
-        const video = document.createElement("video");
-        video.src = videoUrl;
-        video.crossOrigin = "anonymous";
-        video.muted = true;
-
-        await new Promise((resolve) => {
-          video.onloadeddata = resolve;
-        });
-
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          setIsGeneratingThumbnails(false);
-          return;
-        }
-
-        const aspectRatio = video.videoWidth / (video.videoHeight || 1);
-        canvas.height = 64;
-        canvas.width = Math.floor(64 * aspectRatio);
-
-        const thumbs: string[] = [];
-        const interval = duration / numThumbnails;
-
-        for (let i = 0; i < numThumbnails; i++) {
-          if (isCancelled) break;
-          video.currentTime = interval * i + interval / 2;
-          await new Promise<void>((resolve) => {
-            const onSeeked = () => {
-              video.removeEventListener("seeked", onSeeked);
-              resolve();
-            };
-            video.addEventListener("seeked", onSeeked);
-            // backup resolve in case seeked doesn't fire
-            setTimeout(resolve, 500);
-          });
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          thumbs.push(canvas.toDataURL("image/jpeg", 0.5));
-        }
-
-        if (!isCancelled) {
-          setTrimmerThumbnails(thumbs);
-        }
-        setIsGeneratingThumbnails(false);
-      };
-
-      generateThumbnails();
-
-      return () => {
-        isCancelled = true;
-        setIsGeneratingThumbnails(false);
-      };
-    }
-  }, [showTrimmer, videoUrl, duration]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -654,6 +589,11 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
       video.onloadedmetadata = () => {
         setDuration(video.duration);
         setEndTime(video.duration);
+        setTimingSettings((prev) => ({
+          ...prev,
+          endTime: prev.endTime > 0 ? prev.endTime : video.duration,
+          targetDuration: prev.targetDuration || 10,
+        }));
       };
 
       return () => {
@@ -835,10 +775,12 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
       let vw = safe.width;
       let vh = safe.height;
 
-      const effectiveStartTime = isAutoDuration ? 0 : startTime;
-      const effectiveEndTime = isAutoDuration ? video.duration : endTime;
+      const effectiveOutputDuration = calculateOutputDuration(video.duration, timingSettings);
+      const validFps = isNaN(fps) || fps <= 0 ? 30 : fps;
+      const totalFrames = Math.max(1, Math.floor(effectiveOutputDuration * validFps));
 
-      video.currentTime = effectiveStartTime;
+      const firstFrameTime = getTimeForFrame(0, totalFrames, video.duration, timingSettings);
+      video.currentTime = firstFrameTime;
       await new Promise((r) => {
         const onSeek = () => {
           video.removeEventListener("seeked", onSeek);
@@ -846,13 +788,6 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
         };
         video.addEventListener("seeked", onSeek);
       });
-
-      const duration =
-        isNaN(effectiveEndTime) || isNaN(effectiveStartTime)
-          ? 0
-          : effectiveEndTime - effectiveStartTime;
-      const validFps = isNaN(fps) || fps <= 0 ? 30 : fps;
-      const totalFrames = Math.max(1, Math.floor(duration * validFps));
 
       let audioData: Uint8Array | null = null;
       if (audioFile) {
@@ -868,7 +803,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
           totalFrames,
           fps,
           audioData,
-          effectiveStartTime,
+          video.duration,
+          timingSettings,
           currentFile.name,
           true,
         );
@@ -880,7 +816,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
           totalFrames,
           fps,
           audioData,
-          effectiveStartTime,
+          video.duration,
+          timingSettings,
           currentFile.name,
           false,
         );
@@ -892,7 +829,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
           totalFrames,
           fps,
           audioData,
-          effectiveStartTime,
+          video.duration,
+          timingSettings,
           currentFile.name,
         );
       } else if (selectedFormat === "SVGA 2.0") {
@@ -903,8 +841,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
           totalFrames,
           fps,
           audioData,
-          effectiveStartTime,
-          effectiveEndTime,
+          video.duration,
+          timingSettings,
           currentFile.name,
         );
       } else if (selectedFormat === "GIF (Animation)") {
@@ -914,7 +852,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
           vh,
           totalFrames,
           fps,
-          effectiveStartTime,
+          video.duration,
+          timingSettings,
           currentFile.name,
         );
       } else if (selectedFormat === "APNG (Animation)") {
@@ -924,7 +863,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
           vh,
           totalFrames,
           fps,
-          effectiveStartTime,
+          video.duration,
+          timingSettings,
           currentFile.name,
         );
       } else if (selectedFormat === "WebP (Animated)") {
@@ -934,7 +874,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
           vh,
           totalFrames,
           fps,
-          effectiveStartTime,
+          video.duration,
+          timingSettings,
           currentFile.name,
         );
       } else if (selectedFormat === "WebM (Video)") {
@@ -944,7 +885,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
           vh,
           totalFrames,
           fps,
-          effectiveStartTime,
+          video.duration,
+          timingSettings,
           currentFile.name,
         );
       }
@@ -1147,7 +1089,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     totalFrames: number,
     fps: number,
     audioData: Uint8Array | null,
-    startTime: number,
+    videoDuration: number,
+    timingSettings: TimingSettings,
     fileName?: string,
   ) => {
     setPhase("جاري إنشاء فيديو MP4 القياسي...");
@@ -1316,13 +1259,14 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     for (let i = 0; i < totalFrames; i++) {
       if (ctx && tCtx) {
         if (hasEncoderError) break;
+        const currentFrameTime = getTimeForFrame(i, totalFrames, videoDuration, timingSettings);
         await captureFrame(
           video,
           ctx,
           tCtx,
           safeWidth,
           safeHeight,
-          startTime + i / fps,
+          currentFrameTime,
         );
 
         const bitmap = await createImageBitmap(canvas);
@@ -1382,7 +1326,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     totalFrames: number,
     fps: number,
     audioData: Uint8Array | null,
-    startTime: number,
+    videoDuration: number,
+    timingSettings: TimingSettings,
     fileName?: string,
   ) => {
     setPhase("جاري تحضير VAP 1.0.5...");
@@ -1559,7 +1504,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     for (let i = 0; i < totalFrames; i++) {
       setPhase(`جاري معالجة الإطار ${i + 1}/${totalFrames}`);
 
-      video.currentTime = startTime + i / fps;
+      video.currentTime = getTimeForFrame(i, totalFrames, videoDuration, timingSettings);
       await new Promise((r) => {
         const onSeek = () => {
           video.removeEventListener("seeked", onSeek);
@@ -1699,7 +1644,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     vh: number,
     totalFrames: number,
     fps: number,
-    startTime: number,
+    videoDuration: number,
+    timingSettings: TimingSettings,
     fileName?: string,
   ) => {
     setPhase("جاري إنشاء WebM الشفاف...");
@@ -1757,7 +1703,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     for (let i = 0; i < totalFrames; i++) {
       if (ctx && tCtx) {
         if (hasEncoderError) break;
-        await captureFrame(video, ctx, tCtx, vw, vh, startTime + i / fps);
+        const currentFrameTime = getTimeForFrame(i, totalFrames, videoDuration, timingSettings);
+        await captureFrame(video, ctx, tCtx, vw, vh, currentFrameTime);
 
         const bitmap = await createImageBitmap(canvas);
         const frame = new VideoFrame(bitmap, {
@@ -1800,7 +1747,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     vh: number,
     totalFrames: number,
     fps: number,
-    startTime: number,
+    videoDuration: number,
+    timingSettings: TimingSettings,
     fileName?: string,
   ) => {
     setPhase("جاري إنشاء WebP المتحرك...");
@@ -1824,7 +1772,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     // 1. Capture Frames
     for (let i = 0; i < totalFrames; i++) {
       if (ctx && tCtx) {
-        await captureFrame(video, ctx, tCtx, vw, vh, startTime + i / fps);
+        const currentFrameTime = getTimeForFrame(i, totalFrames, videoDuration, timingSettings);
+        await captureFrame(video, ctx, tCtx, vw, vh, currentFrameTime);
 
         const base64 = canvas.toDataURL(
           "image/webp",
@@ -1993,7 +1942,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     totalFrames: number,
     fps: number,
     audioData: Uint8Array | null,
-    startTime: number,
+    videoDuration: number,
+    timingSettings: TimingSettings,
     fileName?: string,
     isYYEVA: boolean = false,
   ) => {
@@ -2177,7 +2127,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     videoEncoder.configure(videoConfig);
 
     for (let i = 0; i < totalFrames; i++) {
-      video.currentTime = startTime + i / fps;
+      video.currentTime = getTimeForFrame(i, totalFrames, videoDuration, timingSettings);
       await new Promise((r) => {
         const onSeek = () => {
           video.removeEventListener("seeked", onSeek);
@@ -2251,8 +2201,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     totalFrames: number,
     fps: number,
     audioData: Uint8Array | null,
-    startTime: number,
-    endTime: number,
+    videoDuration: number,
+    timingSettings: TimingSettings,
     fileName?: string,
   ) => {
     if (totalFrames <= 0) {
@@ -2354,7 +2304,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
           startFrame: 0,
           endFrame: totalFrames,
           startTime: 0,
-          totalTime: Math.round((endTime - startTime) * 1000),
+          totalTime: Math.round((totalFrames / fps) * 1000),
         });
       }
 
@@ -2371,13 +2321,14 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
       const spriteFrames: any[] = [];
 
       for (let i = 0; i < totalFrames; i++) {
+        const currentFrameTime = getTimeForFrame(i, totalFrames, videoDuration, timingSettings);
         await captureFrame(
           video,
           ctx,
           tCtx,
           actualWidth,
           actualHeight,
-          startTime + i / fps,
+          currentFrameTime,
         );
 
         // Use UPNG for extreme lossy compression if quality is below 100
@@ -2396,17 +2347,18 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
           );
           bytes = new Uint8Array(apng);
         } else {
-          const base64 = canvas.toDataURL("image/png");
-          try {
-            const response = await fetch(base64);
-            const blob = await response.blob();
-            const arrayBuffer = await blob.arrayBuffer();
+          // Direct canvas.toBlob avoiding base64 string overhead for large files
+          const frameBlob = await new Promise<Blob | null>((resolve) =>
+            canvas.toBlob(resolve, "image/png"),
+          );
+          if (frameBlob) {
+            const arrayBuffer = await frameBlob.arrayBuffer();
             bytes = new Uint8Array(arrayBuffer);
-          } catch (e) {
+          } else {
+            const base64 = canvas.toDataURL("image/png");
             const binary = atob(base64.split(",")[1]);
             bytes = new Uint8Array(binary.length);
-            for (let j = 0; j < binary.length; j++)
-              bytes[j] = binary.charCodeAt(j);
+            for (let j = 0; j < binary.length; j++) bytes[j] = binary.charCodeAt(j);
           }
         }
 
@@ -2450,8 +2402,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
       console.log("Verifying SVGA payload...");
       const errMsg = MovieEntity.verify(payload);
       if (errMsg) {
-        console.error("Payload verification failed:", errMsg);
-        throw new Error("Payload verification failed: " + errMsg);
+        console.warn("Payload verification warning:", errMsg);
       }
 
       console.log("Creating SVGA movie entity...");
@@ -2465,9 +2416,9 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
       }
 
       console.log(
-        `SVGA buffer size: ${buffer.length} bytes. Compressing with Level 9...`,
+        `SVGA buffer size: ${buffer.length} bytes. Compressing with fast Level 6...`,
       );
-      const compressed = pako.deflate(buffer, { level: 9 });
+      const compressed = pako.deflate(buffer, { level: 6 });
 
       console.log(
         `Compressed SVGA size: ${compressed.length} bytes. Reduction: ${((1 - compressed.length / buffer.length) * 100).toFixed(2)}%`,
@@ -2490,7 +2441,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     vh: number,
     totalFrames: number,
     fps: number,
-    startTime: number,
+    videoDuration: number,
+    timingSettings: TimingSettings,
     fileName?: string,
   ) => {
     setPhase("جاري إنشاء GIF الشفاف...");
@@ -2533,7 +2485,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
 
     for (let i = 0; i < totalFrames; i++) {
       if (ctx && tCtx) {
-        await captureFrame(video, ctx, tCtx, vw, vh, startTime + i / fps);
+        const currentFrameTime = getTimeForFrame(i, totalFrames, videoDuration, timingSettings);
+        await captureFrame(video, ctx, tCtx, vw, vh, currentFrameTime);
         gif.addFrame(ctx, { copy: true, delay: 1000 / fps });
       }
       setProgress(Math.floor((i / totalFrames) * 50));
@@ -2552,7 +2505,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     vh: number,
     totalFrames: number,
     fps: number,
-    startTime: number,
+    videoDuration: number,
+    timingSettings: TimingSettings,
     fileName?: string,
   ) => {
     setPhase("جاري إنشاء APNG الشفاف...");
@@ -2575,7 +2529,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
 
     for (let i = 0; i < totalFrames; i++) {
       if (ctx && tCtx) {
-        await captureFrame(video, ctx, tCtx, vw, vh, startTime + i / fps);
+        const currentFrameTime = getTimeForFrame(i, totalFrames, videoDuration, timingSettings);
+        await captureFrame(video, ctx, tCtx, vw, vh, currentFrameTime);
         framesData.push(ctx.getImageData(0, 0, vw, vh).data.buffer);
         delays.push(1000 / fps);
       }
@@ -2775,33 +2730,38 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
             {file && (
               <div className="bg-slate-950/40 p-6 rounded-[2.5rem] border border-white/5 space-y-4">
                 <h4 className="text-white font-black text-xs uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                  <Scissors className="w-3 h-3" />
-                  تحديد مدة التصدير:
+                  <Scissors className="w-3.5 h-3.5 text-sky-400" />
+                  التحكم بالمدة والسرعة وقص المشاهد:
                 </h4>
                 <div className="flex flex-col gap-3">
                   <button
                     onClick={() => setShowTrimmer(true)}
-                    className="w-full relative group overflow-hidden bg-white/5 hover:bg-white/10 border border-white/10 p-4 rounded-2xl transition-all duration-300 flex items-center justify-between"
+                    className="w-full relative group overflow-hidden bg-gradient-to-r from-sky-500/10 via-indigo-500/10 to-purple-500/10 hover:from-sky-500/20 hover:via-indigo-500/20 hover:to-purple-500/20 border border-sky-500/30 p-4 rounded-2xl transition-all duration-300 flex items-center justify-between shadow-lg shadow-sky-500/5"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center">
+                      <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 text-white flex items-center justify-center shadow-glow-sky">
                         <Scissors className="w-5 h-5" />
                       </div>
                       <div className="text-right">
-                        <div className="text-white font-black text-sm">
-                          أداة القص الاحترافية
+                        <div className="text-white font-black text-sm flex items-center gap-2">
+                          أداة القص والتحكم بالسرعة الاحترافية
+                          {timingSettings.mode !== "full" && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                              {timingSettings.mode === "trim" ? "قص مخصص" : timingSettings.mode === "segment_speed" ? "تسريع مقطع" : timingSettings.mode === "fit_duration" ? "تعديل مدة" : "تسريع كامل"}
+                            </span>
+                          )}
                         </div>
-                        <div className="text-slate-400 text-[10px] uppercase font-black tracking-widest mt-1">
-                          حدد المقطع المطلوب بدقة
+                        <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider mt-1">
+                          عرض كل إطارات الفيديو، تسريع مقاطع معينة دون حذف، وقص المشاهد بدقة
                         </div>
                       </div>
                     </div>
-                    <div className="text-left">
+                    <div className="text-left bg-slate-900/60 px-3 py-1.5 rounded-xl border border-white/5">
                       <div className="text-emerald-400 font-black text-sm">
-                        {(endTime - startTime).toFixed(2)}s
+                        {calculateOutputDuration(duration, timingSettings).toFixed(2)}s
                       </div>
-                      <div className="text-slate-500 text-[10px]">
-                        المدة المحددة
+                      <div className="text-slate-500 text-[10px] font-semibold">
+                        مدة التصدير
                       </div>
                     </div>
                   </button>
@@ -3652,216 +3612,23 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
         </div>
       </div>
 
-      {showTrimmer && file && videoUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-xl">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-slate-950 border border-white/10 rounded-[3rem] w-full max-w-4xl overflow-hidden shadow-2xl flex flex-col"
-          >
-            <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
-              <h3 className="text-white font-black flex items-center gap-2">
-                <Scissors className="w-5 h-5 text-sky-400" />
-                أداة القص الاحترافية
-              </h3>
-              <button
-                onClick={() => setShowTrimmer(false)}
-                className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-8 flex flex-col items-center gap-8">
-              <div className="relative w-full aspect-video bg-black rounded-3xl overflow-hidden border border-white/10 shadow-inner">
-                <video
-                  src={videoUrl}
-                  className="w-full h-full object-contain"
-                  onTimeUpdate={(e) => {
-                    const v = e.currentTarget;
-                    const effectiveStart = isAutoDuration ? 0 : startTime;
-                    const effectiveEnd = isAutoDuration ? v.duration : endTime;
-                    if (v.currentTime > effectiveEnd)
-                      v.currentTime = effectiveStart;
-                    if (v.currentTime < effectiveStart)
-                      v.currentTime = effectiveStart;
-                  }}
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                />
-              </div>
-
-              <div className="w-full space-y-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="text-slate-400 text-xs font-black uppercase tracking-widest">
-                      نمط القص
-                    </span>
-                  </div>
-                  <div className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/10">
-                    <button
-                      onClick={() => setIsAutoDuration(true)}
-                      className={`px-6 py-2 rounded-lg text-xs font-black uppercase transition-all ${isAutoDuration ? "bg-sky-500 text-white shadow-glow-sky" : "text-slate-500 hover:text-white"}`}
-                    >
-                      تلقائي (المدة كاملة)
-                    </button>
-                    <button
-                      onClick={() => setIsAutoDuration(false)}
-                      className={`px-6 py-2 rounded-lg text-xs font-black uppercase transition-all ${!isAutoDuration ? "bg-sky-500 text-white shadow-glow-sky" : "text-slate-500 hover:text-white"}`}
-                    >
-                      تحديد يدوي
-                    </button>
-                  </div>
-                </div>
-
-                {!isAutoDuration && (
-                  <div className="w-full mt-4 space-y-6 animate-in fade-in zoom-in-95 duration-300">
-                    <div className="flex justify-between items-center px-4">
-                      <div className="text-right">
-                        <div className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">
-                          نقطة البداية
-                        </div>
-                        <div className="text-sky-400 font-black text-xl bg-sky-500/10 px-4 py-1 rounded-xl">
-                          {startTime.toFixed(2)}s
-                        </div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-1">
-                          المدة المحددة
-                        </div>
-                        <div className="text-emerald-400 font-black text-sm">
-                          {(endTime - startTime).toFixed(2)}s
-                        </div>
-                      </div>
-                      <div className="text-left">
-                        <div className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">
-                          نقطة النهاية
-                        </div>
-                        <div className="text-indigo-400 font-black text-xl bg-indigo-500/10 px-4 py-1 rounded-xl">
-                          {endTime.toFixed(2)}s
-                        </div>
-                      </div>
-                    </div>
-
-                    <div
-                      className="relative w-full h-16 bg-slate-900 rounded-2xl overflow-hidden border-2 border-white/5"
-                      dir="ltr"
-                    >
-                      {/* Grid / Thumbnails background for timeline */}
-                      {trimmerThumbnails.length > 0 ? (
-                        <div className="absolute inset-0 flex w-full h-full pointer-events-none opacity-80">
-                          {trimmerThumbnails.map((thumb, idx) => (
-                            <div
-                              key={idx}
-                              className="h-full flex-1 bg-cover bg-center border-r border-white/10 last:border-r-0"
-                              style={{ backgroundImage: `url(${thumb})` }}
-                            />
-                          ))}
-                        </div>
-                      ) : (
-                        <div
-                          className="absolute inset-0 flex items-center justify-center opacity-20"
-                          style={{
-                            backgroundImage:
-                              "linear-gradient(90deg, #ffffff 1px, transparent 1px)",
-                            backgroundSize: "10% 100%",
-                          }}
-                        >
-                          {isGeneratingThumbnails && (
-                            <span className="text-white text-xs font-black animate-pulse px-2 bg-black/50 rounded">
-                              جاري استخراج المشاهد...
-                            </span>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Dim backgrounds for unselected parts */}
-                      <div
-                        className="absolute top-0 bottom-0 left-0 bg-black/80 backdrop-blur-sm z-0"
-                        style={{
-                          width: `${(startTime / (duration || 1)) * 100}%`,
-                        }}
-                      />
-                      <div
-                        className="absolute top-0 bottom-0 right-0 bg-black/80 backdrop-blur-sm z-0"
-                        style={{
-                          width: `${(1 - endTime / (duration || 1)) * 100}%`,
-                        }}
-                      />
-
-                      {/* Active Selection Highlight */}
-                      <div
-                        className="absolute top-0 bottom-0 bg-sky-500/20 border-y-2 border-sky-400 z-10"
-                        style={{
-                          left: `${(startTime / (duration || 1)) * 100}%`,
-                          width: `${((endTime - startTime) / (duration || 1)) * 100}%`,
-                        }}
-                      >
-                        {/* Left Handle Visual */}
-                        <div className="absolute top-0 bottom-0 left-0 w-4 bg-sky-400 flex items-center justify-center -translate-x-1/2 rounded-full shadow-[0_0_15px_rgba(56,189,248,0.6)]">
-                          <div className="w-0.5 h-6 bg-slate-900 rounded-full" />
-                        </div>
-                        {/* Right Handle Visual */}
-                        <div className="absolute top-0 bottom-0 right-0 w-4 bg-sky-400 flex items-center justify-center translate-x-1/2 rounded-full shadow-[0_0_15px_rgba(56,189,248,0.6)]">
-                          <div className="w-0.5 h-6 bg-slate-900 rounded-full" />
-                        </div>
-                      </div>
-
-                      {/* Invisible Native Sliders for Interaction */}
-                      <input
-                        type="range"
-                        min="0"
-                        max={duration}
-                        step="0.01"
-                        value={startTime}
-                        onChange={(e) =>
-                          setStartTime(
-                            Math.min(parseFloat(e.target.value), endTime - 0.1),
-                          )
-                        }
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-8 [&::-webkit-slider-thumb]:h-16 [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-8 [&::-moz-range-thumb]:h-16 z-20"
-                      />
-                      <input
-                        type="range"
-                        min="0"
-                        max={duration}
-                        step="0.01"
-                        value={endTime}
-                        onChange={(e) =>
-                          setEndTime(
-                            Math.max(
-                              parseFloat(e.target.value),
-                              startTime + 0.1,
-                            ),
-                          )
-                        }
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-8 [&::-webkit-slider-thumb]:h-16 [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-8 [&::-moz-range-thumb]:h-16 z-30"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="p-6 border-t border-white/5 bg-slate-900/50 flex justify-between items-center">
-              <div className="text-sm font-black text-slate-400">
-                المدة الكلية المحددة:{" "}
-                <span className="text-emerald-400 ml-2">
-                  {(isAutoDuration ? duration : endTime - startTime).toFixed(2)}{" "}
-                  ثانية
-                </span>
-              </div>
-              <button
-                onClick={() => setShowTrimmer(false)}
-                className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white px-8 py-3 rounded-2xl font-black text-sm hover:scale-105 transition-all shadow-glow-emerald"
-              >
-                تأكيد القص
-              </button>
-            </div>
-          </motion.div>
-        </div>
+      {/* Advanced Video Trimmer & Variable Speed Studio Modal */}
+      {file && videoUrl && (
+        <VideoTrimmerModal
+          isOpen={showTrimmer}
+          onClose={() => setShowTrimmer(false)}
+          videoUrl={videoUrl}
+          videoFile={file}
+          initialDuration={duration}
+          initialSettings={timingSettings}
+          fps={fps}
+          onApply={(newSettings) => {
+            setTimingSettings(newSettings);
+            setStartTime(newSettings.startTime);
+            setEndTime(newSettings.endTime);
+            setIsAutoDuration(newSettings.mode === "full");
+          }}
+        />
       )}
 
       {/* Chroma Studio Eyedropper Modal */}

@@ -9,7 +9,7 @@ import {
   Check, RefreshCcw, Music, Volume2, VolumeX, Trash2, Plus,
   FileAudio, Headphones, Film, HelpCircle, Video,
   Stamp, Move, Square, Maximize2, SlidersHorizontal, Activity, Compass,
-  Image as ImageIcon, Camera, Lock, Unlock, Zap, Copy
+  Image as ImageIcon, Camera, Lock, Unlock, Zap, Copy, Package
 } from 'lucide-react';
 import { UserRecord } from '../types';
 // @ts-ignore
@@ -17,7 +17,9 @@ import Vap from 'video-animation-player';
 import { Player as SvgaPlayer, Parser as SvgaParser } from 'svga.lite';
 import UPNG from 'upng-js';
 import * as Mp4Muxer from 'mp4-muxer';
+import JSZip from 'jszip';
 import { encodeSVGA } from '../utils/svgaEncoder';
+import { AudioEditorModal } from './AudioEditorModal';
 
 // Helper for calculating animated square watermark position
 export const computeWatermarkPosition = (
@@ -195,11 +197,12 @@ class WebGLVapRenderer {
   uThreshold: WebGLUniformLocation | null;
   uUnmultiply: WebGLUniformLocation | null;
 
-  constructor(width: number, height: number) {
-    this.canvas = document.createElement('canvas');
-    this.canvas.width = width;
-    this.canvas.height = height;
-    const gl = this.canvas.getContext('webgl', { premultipliedAlpha: false, preserveDrawingBuffer: true });
+  constructor(width: number, height: number, existingCanvas?: HTMLCanvasElement) {
+    this.canvas = existingCanvas || document.createElement('canvas');
+    this.canvas.width = Math.max(2, width);
+    this.canvas.height = Math.max(2, height);
+    const gl = this.canvas.getContext('webgl', { alpha: true, premultipliedAlpha: false, preserveDrawingBuffer: true }) ||
+               (this.canvas.getContext('experimental-webgl', { alpha: true, premultipliedAlpha: false, preserveDrawingBuffer: true }) as WebGLRenderingContext);
     if (!gl) throw new Error('WebGL not supported');
     this.gl = gl;
 
@@ -294,6 +297,8 @@ class WebGLVapRenderer {
     const vh = video.videoHeight;
 
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.clearColor(0.0, 0.0, 0.0, 0.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(this.program);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
@@ -402,6 +407,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
   const [isProcessingAudio, setIsProcessingAudio] = useState(false);
   const [audioProcessProgress, setAudioProcessProgress] = useState(0);
+  const [isAudioEditorModalOpen, setIsAudioEditorModalOpen] = useState(false);
   const [preProcessedVapBlob, setPreProcessedVapBlob] = useState<Blob | null>(null);
   // Export Target Format: 'svga' or 'vap'
   const [exportTargetFormat, setExportTargetFormat] = useState<'svga' | 'vap' | 'mp4'>('svga');
@@ -409,6 +415,9 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   // Player & Container Refs
   const containerRef = useRef<HTMLDivElement>(null);
   const svgaContainerRef = useRef<HTMLDivElement>(null);
+  const workspaceCanvasRef = useRef<HTMLCanvasElement>(null);
+  const workspaceVideoRef = useRef<HTMLVideoElement | null>(null);
+  const webglVapRendererRef = useRef<WebGLVapRenderer | null>(null);
   const vapInstanceRef = useRef<any>(null);
   const svgaPlayerRef = useRef<SvgaPlayer | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -890,51 +899,72 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       vapInstanceRef.current = null;
     }
 
-    if (containerRef.current) {
-      containerRef.current.innerHTML = '';
-    }
-
     const vw = tempVideo.videoWidth || 1500;
     const vh = tempVideo.videoHeight || 1334;
 
     const rawExtracted = await extractVapConfig(f);
-    const w = rawExtracted?.info?.w || Math.round(vw / 2);
-    const h = rawExtracted?.info?.h || vh;
-    const fps = rawExtracted?.info?.f || 24;
+    
+    // User requested forced exact dimensions 750 * 1334 for the workspace display & animation
+    const targetW = 750;
+    const targetH = 1334;
 
-    const completeConfig: VapConfig = rawExtracted || {
+    let fps = rawExtracted?.info?.f || 24;
+    if (fps > 60) {
+      const calculatedFps = Math.round(fps / (tempVideo.duration || 1));
+      fps = (calculatedFps >= 10 && calculatedFps <= 60) ? calculatedFps : 24;
+    }
+
+    let rgbFrame = rawExtracted?.info?.rgbFrame || [0, 0, Math.round(vw / 2), vh];
+    let aFrame = rawExtracted?.info?.aFrame || [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
+
+    if (!rawExtracted?.info?.rgbFrame) {
+      if (vh > vw && vw > 0) {
+        rgbFrame = [0, 0, vw, Math.round(vh / 2)];
+        aFrame = [0, Math.round(vh / 2), vw, Math.round(vh / 2)];
+      } else {
+        rgbFrame = [0, 0, Math.round(vw / 2), vh];
+        aFrame = [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
+      }
+    }
+
+    const completeConfig: VapConfig = {
       info: {
         v: 2,
         f: fps,
-        w: w,
-        h: h,
+        w: targetW,
+        h: targetH,
         videoW: vw,
         videoH: vh,
-        aFrame: [w, 0, w, h],
-        rgbFrame: [0, 0, w, h]
-      }
+        aFrame: aFrame,
+        rgbFrame: rgbFrame
+      },
+      ...(rawExtracted || {})
     };
 
     setVapConfig(completeConfig);
 
-    setVideoDimensions({ width: w, height: h });
-    setCustomWidth(w);
-    setCustomHeight(h);
-    setAspectRatio(w / (h || 1));
+    setVideoDimensions({ width: targetW, height: targetH });
+    setCustomWidth(targetW);
+    setCustomHeight(targetH);
+    setAspectRatio(targetW / targetH);
     setTargetFps(fps);
+    setIsPlaying(true);
 
-    try {
-      vapInstanceRef.current = new Vap({
-        container: containerRef.current,
-        src: url,
-        loop: true,
-        width: w,
-        height: h,
-        config: completeConfig
-      });
-    } catch (err) {
-      console.error("Error initializing VAP:", err);
-    }
+    // Auto-detect & extract existing audio track from the VAP video
+    extractAudioFromVap(f).then((audioBlob) => {
+      if (audioBlob && audioBlob.size > 200) {
+        const aUrl = URL.createObjectURL(audioBlob);
+        setAudioUrl(aUrl);
+        setAudioName('audio');
+        setAudioSize((audioBlob.size / 1024).toFixed(0) + ' KB');
+        const tempA = new Audio(aUrl);
+        tempA.onloadedmetadata = () => {
+          setAudioDuration(tempA.duration || tempVideo.duration || 0);
+        };
+      }
+    }).catch(() => {
+      // No existing audio track found in VAP
+    });
   };
 
   const handleFileDrop = (e: React.DragEvent) => {
@@ -996,23 +1026,25 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                 onProgress: (p) => setAudioProcessProgress(p)
               }
             );
-            setPreProcessedVapBlob(finalVapBlob);
-            setExportedBlob(finalVapBlob);
-            setExportedFileSize((finalVapBlob.size / (1024 * 1024)).toFixed(2) + ' MB');
-            setExportTargetFormat('vap');
-            setExportSuccess(true);
-            setExportProgress(100);
-            setExportStatusText('تم دمج وتجهيز ملف VAP بالصوت الجديد بنجاح!');
+            if (finalVapBlob && finalVapBlob.size > 10000) {
+              setPreProcessedVapBlob(finalVapBlob);
+              setExportedBlob(finalVapBlob);
+              setExportedFileSize((finalVapBlob.size / (1024 * 1024)).toFixed(2) + ' MB');
+              setExportTargetFormat('vap');
+              setExportSuccess(true);
+              setExportProgress(100);
+              setExportStatusText('تم دمج وتجهيز ملف VAP بالصوت الجديد بنجاح!');
 
-            // Auto show success toast briefly
-            const toast = document.createElement('div');
-            toast.className = 'fixed top-10 left-1/2 transform -translate-x-1/2 bg-emerald-500 text-white px-5 py-2.5 rounded-2xl shadow-xl shadow-emerald-500/25 z-[9999] text-xs font-black flex items-center gap-2.5 animate-in fade-in slide-in-from-top-4 duration-300';
-            toast.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> <span>تم دمج الصوت في VAP بنجاح وجاهز للتنزيل المباشر!</span>';
-            document.body.appendChild(toast);
-            setTimeout(() => {
-                toast.classList.add('opacity-0', 'transition-opacity', 'duration-300');
-                setTimeout(() => toast.remove(), 300);
-            }, 2500);
+              // Auto show success toast briefly
+              const toast = document.createElement('div');
+              toast.className = 'fixed top-10 left-1/2 transform -translate-x-1/2 bg-emerald-500 text-white px-5 py-2.5 rounded-2xl shadow-xl shadow-emerald-500/25 z-[9999] text-xs font-black flex items-center gap-2.5 animate-in fade-in slide-in-from-top-4 duration-300';
+              toast.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> <span>تم دمج الصوت في VAP بنجاح وجاهز للتنزيل المباشر!</span>';
+              document.body.appendChild(toast);
+              setTimeout(() => {
+                  toast.classList.add('opacity-0', 'transition-opacity', 'duration-300');
+                  setTimeout(() => toast.remove(), 300);
+              }, 2500);
+            }
        } catch (error) {
            console.error("Audio pre-processing failed:", error);
        } finally {
@@ -1022,26 +1054,120 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   };
 
   
-  const handleTogglePlay = () => {
-    setIsPlaying(prev => !prev);
+  // Continuous Hardware-Accelerated WebGL VAP Workspace Renderer Loop
+  useEffect(() => {
+    if (activeViewMode !== 'vap' || !fileUrl || !workspaceCanvasRef.current) return;
+    const canvas = workspaceCanvasRef.current;
     
-    // Handle VAP Player Toggle
-    if (activeViewMode === 'vap' && vapInstanceRef.current) {
-      if (isPlaying) {
-        try { vapInstanceRef.current.pause(); } catch(e){}
-      } else {
-        try { vapInstanceRef.current.play(); } catch(e){}
+    let isRunning = true;
+    let animId: number;
+
+    const targetW = 750;
+    const targetH = 1334;
+    canvas.width = targetW;
+    canvas.height = targetH;
+
+    let renderer = webglVapRendererRef.current;
+    if (!renderer || renderer.canvas !== canvas) {
+      try {
+        renderer = new WebGLVapRenderer(targetW, targetH, canvas);
+        webglVapRendererRef.current = renderer;
+      } catch (e) {
+        console.warn("WebGL renderer creation failed:", e);
       }
     }
-    
-    // Handle SVGA Player Toggle
-    if (activeViewMode === 'svga' && svgaPlayerRef.current) {
-       if (isPlaying) {
-         svgaPlayerRef.current.pause();
-       } else {
-         svgaPlayerRef.current.start();
-       }
+
+    const video = workspaceVideoRef.current;
+    if (video) {
+      if (isPlaying) {
+        video.play().catch(() => {});
+      } else {
+        video.pause();
+      }
     }
+
+    const renderLoop = () => {
+      if (!isRunning) return;
+
+      const vid = workspaceVideoRef.current;
+      if (vid) {
+        if (isPlaying && vid.paused && vid.readyState >= 2) {
+          vid.play().catch(() => {});
+        }
+
+        if (vid.readyState >= 2 && vid.videoWidth > 0 && renderer) {
+          const vw = vid.videoWidth;
+          const vh = vid.videoHeight;
+
+          let rgbRect = vapConfig?.info?.rgbFrame || [0, 0, Math.round(vw / 2), vh];
+          let alphaRect = vapConfig?.info?.aFrame || [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
+
+          if (!vapConfig?.info?.rgbFrame) {
+            if (vh > vw && vw > 0) {
+              rgbRect = [0, 0, vw, Math.round(vh / 2)];
+              alphaRect = [0, Math.round(vh / 2), vw, Math.round(vh / 2)];
+            } else {
+              rgbRect = [0, 0, Math.round(vw / 2), vh];
+              alphaRect = [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
+            }
+          }
+
+          const rawVideoW = vapConfig?.info?.videoW || vw;
+          const rawVideoH = vapConfig?.info?.videoH || vh;
+          const scaleX = vw / (rawVideoW || vw);
+          const scaleY = vh / (rawVideoH || vh);
+
+          const srcRgb = [
+            Math.round(rgbRect[0] * scaleX),
+            Math.round(rgbRect[1] * scaleY),
+            Math.round(rgbRect[2] * scaleX),
+            Math.round(rgbRect[3] * scaleY)
+          ];
+          const srcAlpha = [
+            Math.round(alphaRect[0] * scaleX),
+            Math.round(alphaRect[1] * scaleY),
+            Math.round(alphaRect[2] * scaleX),
+            Math.round(alphaRect[3] * scaleY)
+          ];
+
+          renderer.render(vid, srcRgb, srcAlpha, alphaThreshold, unmultiplyAlpha);
+        }
+      }
+
+      animId = requestAnimationFrame(renderLoop);
+    };
+
+    animId = requestAnimationFrame(renderLoop);
+
+    return () => {
+      isRunning = false;
+      cancelAnimationFrame(animId);
+    };
+  }, [fileUrl, activeViewMode, isPlaying, alphaThreshold, unmultiplyAlpha, vapConfig]);
+
+  const handleTogglePlay = () => {
+    setIsPlaying(prev => {
+      const next = !prev;
+      if (workspaceVideoRef.current) {
+        if (next) workspaceVideoRef.current.play().catch(() => {});
+        else workspaceVideoRef.current.pause();
+      }
+      if (activeViewMode === 'vap' && vapInstanceRef.current) {
+        if (next) {
+          try { vapInstanceRef.current.play(); } catch(e){}
+        } else {
+          try { vapInstanceRef.current.pause(); } catch(e){}
+        }
+      }
+      if (activeViewMode === 'svga' && svgaPlayerRef.current) {
+        if (next) {
+          svgaPlayerRef.current.start();
+        } else {
+          svgaPlayerRef.current.pause();
+        }
+      }
+      return next;
+    });
   };
 
   // Sync custom audio with isPlaying
@@ -1134,9 +1260,13 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
         }
         
         if (!exportCanvas) {
-          // Fallback to existing canvas in container
-          const existingCanvas = containerRef.current?.querySelector('canvas');
-          if (existingCanvas) exportCanvas = existingCanvas;
+          // Fallback to workspace canvas
+          if (workspaceCanvasRef.current) {
+            exportCanvas = workspaceCanvasRef.current;
+          } else {
+            const existingCanvas = containerRef.current?.querySelector('canvas');
+            if (existingCanvas) exportCanvas = existingCanvas;
+          }
         }
       } else if (activeViewMode === 'svga') {
         const svgaCanvas = svgaContainerRef.current?.querySelector('canvas');
@@ -1306,6 +1436,135 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleExecuteAudioModal = async (
+    newVolume: number,
+    newFile: File | null,
+    start?: number,
+    end?: number
+  ) => {
+    if (!sourceFile) {
+      alert("يرجى رفع ملف VAP أولاً لتطبيق الصوت عليه.");
+      return;
+    }
+
+    setIsProcessingAudio(true);
+    setAudioProcessProgress(0);
+
+    try {
+      setAudioVolume(newVolume);
+
+      let targetAudioFile: File | Blob | null = newFile || audioFile;
+      if (newFile) {
+        setAudioFile(newFile);
+        setAudioName(newFile.name);
+        setAudioSize((newFile.size / 1024).toFixed(0) + ' KB');
+        if (audioUrl) {
+          URL.revokeObjectURL(audioUrl);
+        }
+        const freshUrl = URL.createObjectURL(newFile);
+        setAudioUrl(freshUrl);
+        const tempA = new Audio(freshUrl);
+        tempA.onloadedmetadata = () => {
+          setAudioDuration(tempA.duration || videoDuration || 0);
+        };
+      }
+
+      const isMuted = newVolume === 0;
+      setIsAudioMuted(isMuted);
+
+      const finalVapBlob = await fastReplaceAudioInVap(
+        sourceFile,
+        isMuted ? null : targetAudioFile,
+        {
+          duration: videoDuration > 0 ? videoDuration : undefined,
+          vapConfig: vapConfig,
+          volume: newVolume,
+          startTime: start,
+          endTime: end,
+          mute: isMuted,
+          vapCompression: vapCompressionEnabled,
+          onProgress: (p) => setAudioProcessProgress(p),
+          onStatus: (s) => setExportStatusText(s)
+        }
+      );
+
+      if (finalVapBlob && finalVapBlob.size > 10000) {
+        setPreProcessedVapBlob(finalVapBlob);
+        setExportedBlob(finalVapBlob);
+        setExportedFileSize((finalVapBlob.size / (1024 * 1024)).toFixed(2) + ' MB');
+        setExportTargetFormat('vap');
+        setExportSuccess(true);
+        setExportProgress(100);
+      }
+      setIsAudioEditorModalOpen(false);
+
+      // Trigger synchronized playback
+      if (audioElementRef.current && audioUrl && !isMuted) {
+        audioElementRef.current.currentTime = 0;
+        audioElementRef.current.volume = Math.min(newVolume, 1);
+        audioElementRef.current.play().catch(() => {});
+        setIsAudioPlaying(true);
+      }
+
+      // Success notification toast
+      const toast = document.createElement('div');
+      toast.className = 'fixed top-8 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-emerald-500 to-teal-500 text-white px-5 py-3 rounded-2xl shadow-2xl shadow-emerald-500/30 z-[9999] text-xs font-black flex items-center gap-2.5 animate-in fade-in slide-in-from-top-4 duration-300 font-cairo';
+      toast.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> <span>تم تحديث ودمج منظومة الصوت في ملف VAP بنجاح!</span>';
+      document.body.appendChild(toast);
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'transition-opacity', 'duration-300');
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    } catch (err: any) {
+      console.error("[VAP Audio Execute Error]:", err);
+      alert(err?.message || "فشلت معالجة الصوت في ملف VAP");
+    } finally {
+      setIsProcessingAudio(false);
+    }
+  };
+
+  const handleDownloadVapZipPackage = async () => {
+    const blobToDownload = exportedBlob || preProcessedVapBlob || sourceFile;
+    if (!blobToDownload) return;
+
+    try {
+      const baseName = fileName.replace(/\.[^/.]+$/, '');
+      const zip = new JSZip();
+
+      // 1. Add VAP MP4
+      zip.file(`${baseName}_VAP.mp4`, blobToDownload);
+
+      // 2. Add JSON config
+      const cfgToUse = vapConfig || {
+        info: {
+          v: 2,
+          f: targetFps || 24,
+          w: customWidth || videoDimensions.width || 750,
+          h: customHeight || videoDimensions.height || 1334,
+          videoW: (customWidth || videoDimensions.width || 750) * 2,
+          videoH: customHeight || videoDimensions.height || 1334,
+          aFrame: [customWidth || videoDimensions.width || 750, 0, customWidth || videoDimensions.width || 750, customHeight || videoDimensions.height || 1334],
+          rgbFrame: [0, 0, customWidth || videoDimensions.width || 750, customHeight || videoDimensions.height || 1334]
+        }
+      };
+      zip.file(`${baseName}_VAP.json`, JSON.stringify(cfgToUse, null, 2));
+
+      // 3. Add text manifest
+      const txtContent = `VAP Animation Asset Package\nFilename: ${baseName}_VAP.mp4\nDimensions: ${cfgToUse.info.w}x${cfgToUse.info.h}\nFPS: ${cfgToUse.info.f}\nAudio Track: ${!isAudioMuted && (audioFile || audioUrl) ? 'Integrated High-Quality Audio' : 'Muted/Silent'}\nEngine: Universal Motion Tools Direct Stream Remux\n`;
+      zip.file(`${baseName}_VAP.txt`, txtContent);
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(zipBlob);
+      link.download = `${baseName}_VAP_package.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (zipErr) {
+      console.error("Failed to generate VAP ZIP:", zipErr);
+    }
   };
 
   // Safe Video Loader Helper
@@ -1483,9 +1742,9 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       const isResized = customWidth > 0 && (customWidth !== checkOrigW || customHeight !== checkOrigH);
       const isUntouchedVideo = !isResized && !enableWatermark;
 
-      // Ultra-Fast Path: Direct Stream Copy when exporting VAP without video-frame alterations
+      // Ultra-Fast Direct Audio Path: Direct Stream Copy when exporting VAP without video-frame alterations
       if (!isStandardMP4 && sourceFile && isUntouchedVideo) {
-        if (preProcessedVapBlob) {
+        if (preProcessedVapBlob && preProcessedVapBlob.size > 10000) {
             setExportStatusText('جاري تجهيز ملف الـ VAP المحدث فوراً...');
             setExportedBlob(preProcessedVapBlob);
             setExportedFileSize((preProcessedVapBlob.size / (1024 * 1024)).toFixed(2) + ' MB');
@@ -1505,9 +1764,19 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             return;
         }
 
-        setExportStatusText('جاري استبدال مسار الصوت فقط ودمج VAP بدون إعادة معالجة الإطارات...');
-        const hasCustomAudio = !!((audioFile || audioUrl) && !isAudioMuted);
-        const audioToUse = hasCustomAudio ? (audioFile || null) : (muteOriginalAudio ? null : (sourceFile || null));
+        setExportStatusText('جاري استبدال مسار الصوت فقط ودمج VAP بدون المساس بالإطارات أو الصور...');
+        let actualAudioFile = audioFile;
+        if (!actualAudioFile && audioUrl && !isAudioMuted && !muteOriginalAudio) {
+          try {
+            const res = await fetch(audioUrl);
+            const blob = await res.blob();
+            if (blob && blob.size > 200) {
+              actualAudioFile = new File([blob], audioName || 'audio.mp3', { type: blob.type || 'audio/mp3' });
+            }
+          } catch (e) {}
+        }
+        const hasCustomAudio = !!actualAudioFile && !isAudioMuted;
+        const audioToUse = hasCustomAudio ? actualAudioFile : null;
         
         try {
           const finalVapBlob = await fastReplaceAudioInVap(
@@ -1516,6 +1785,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             {
               duration: videoDuration > 0 ? videoDuration : undefined,
               vapConfig: vapConfig,
+              volume: audioVolume,
               mute: muteOriginalAudio && !hasCustomAudio,
               vapCompression: vapCompressionEnabled,
               onProgress: (p) => setExportProgress(p),
@@ -1523,23 +1793,25 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             }
           );
 
-          setExportedBlob(finalVapBlob);
-          setPreProcessedVapBlob(finalVapBlob);
-          setExportedFileSize((finalVapBlob.size / (1024 * 1024)).toFixed(2) + ' MB');
-          setExportSuccess(true);
-          setExportProgress(100);
-          setExportStatusText('تم تصدير ملف VAP بنجاح مع الصوت الجديد بأعلى جودة وسرعة فائقة!');
-          setIsExporting(false);
+          if (finalVapBlob && finalVapBlob.size > 10000) {
+            setExportedBlob(finalVapBlob);
+            setPreProcessedVapBlob(finalVapBlob);
+            setExportedFileSize((finalVapBlob.size / (1024 * 1024)).toFixed(2) + ' MB');
+            setExportSuccess(true);
+            setExportProgress(100);
+            setExportStatusText('تم تصدير ملف VAP بنجاح مع الصوت الجديد بأعلى سرعة وجودة!');
+            setIsExporting(false);
 
-          // Auto download
-          const baseName = fileName.replace(/\.[^/.]+$/, '');
-          const link = document.createElement('a');
-          link.href = URL.createObjectURL(finalVapBlob);
-          link.download = `${baseName}_with_audio_vap.mp4`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          return;
+            // Auto download
+            const baseName = fileName.replace(/\.[^/.]+$/, '');
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(finalVapBlob);
+            link.download = `${baseName}_with_audio_vap.mp4`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            return;
+          }
         } catch (fastErr) {
           console.warn("[VAP Export] Fast path failed, falling back to full client encoding pipeline:", fastErr);
         }
@@ -2515,17 +2787,26 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                   <Music className="w-3.5 h-3.5 text-pink-400" />
-                  استوديو إدارة ودمج الصوت
+                  أصول واستوديو صوت VAP (Audio Assets)
                 </span>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
-                  audioUrl && !isAudioMuted 
-                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
-                    : isAudioMuted && audioUrl
-                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                    : 'bg-white/5 text-slate-500 border-white/5'
-                }`}>
-                  {audioUrl && !isAudioMuted ? 'مدمج في التصدير' : isAudioMuted && audioUrl ? 'صوت مكتوم' : 'بدون مسار صوتي'}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {audioUrl && (
+                    <button
+                      onClick={handleDownloadAudioFile}
+                      title="تحميل المسار الصوتي بصيغة MP3"
+                      className="p-1 rounded bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all cursor-pointer"
+                    >
+                      <Download className="w-3 h-3" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => audioInputRef.current?.click()}
+                    className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-pink-500/10 hover:bg-pink-500/20 text-pink-400 border border-pink-500/20 transition-all flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>+ audio</span>
+                  </button>
+                </div>
               </div>
 
               {isProcessingAudio && (
@@ -2556,7 +2837,11 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
               {audioUrl ? (
                 <div className="bg-[#161922] border border-pink-500/20 rounded-2xl p-4 space-y-3 shadow-lg shadow-pink-500/5">
-                  <div className="flex items-center justify-between">
+                  <div 
+                    onClick={() => setIsAudioEditorModalOpen(true)}
+                    className="flex items-center justify-between cursor-pointer hover:bg-white/[0.02] -m-1 p-1 rounded-xl transition-all"
+                    title="انقر لفتح نافذة تعديل الصوت المتقدمة"
+                  >
                     <div className="flex items-center gap-2.5 overflow-hidden">
                       <div className="w-8 h-8 rounded-xl bg-pink-500/15 border border-pink-500/30 flex items-center justify-center text-pink-400 shrink-0">
                         <FileAudio className="w-4 h-4" />
@@ -2571,7 +2856,15 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => setIsAudioEditorModalOpen(true)}
+                        title="فتح أداة تعديل الصوت الاحترافية"
+                        className="w-8 h-8 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 flex items-center justify-center transition-all border border-indigo-500/30 cursor-pointer"
+                      >
+                        <SlidersHorizontal className="w-3.5 h-3.5" />
+                      </button>
+
                       <button
                         onClick={handleTogglePlayAudio}
                         title={isAudioPlaying ? "إيقاف مؤقت" : "تشغيل الصوت"}
@@ -2601,6 +2894,15 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                       </button>
                     </div>
                   </div>
+
+                  {/* VAP Audio Edit Modal Trigger Button */}
+                  <button
+                    onClick={() => setIsAudioEditorModalOpen(true)}
+                    className="w-full py-2.5 px-3 bg-gradient-to-r from-pink-500/20 via-indigo-500/20 to-purple-500/20 hover:from-pink-500/30 hover:via-indigo-500/30 hover:to-purple-500/30 text-pink-200 border border-pink-500/30 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-lg shadow-pink-500/5 cursor-pointer"
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-pink-400" />
+                    <span>تعديل الصوت (VAP Audio Edit Tool)</span>
+                  </button>
 
                   {/* Volume Slider */}
                   <div className="flex items-center gap-2 pt-1 border-t border-white/5">
@@ -4266,6 +4568,16 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                     </button>
                   )}
 
+                  {exportTargetFormat === 'vap' && (
+                    <button
+                      onClick={handleDownloadVapZipPackage}
+                      className="w-full py-2.5 bg-[#161924] hover:bg-[#1f2433] text-indigo-300 border border-indigo-500/30 hover:border-indigo-500/50 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                    >
+                      <Package className="w-4 h-4 text-indigo-400" />
+                      <span>تحميل حزمة VAP المتكاملة (ZIP) [MP4 + JSON + TXT]</span>
+                    </button>
+                  )}
+
                   <button
                     onClick={handleStartExport}
                     className="w-full py-2 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2"
@@ -4403,13 +4715,30 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                   </div>
                 )}
                 
-                {/* 1. VAP Player Container */}
+                {/* 1. VAP Player Container (Strict 750x1334 High-Performance WebGL) */}
                 <div 
                   id="anim-container" 
                   ref={containerRef}
                   style={{ display: activeViewMode === 'vap' ? 'flex' : 'none' }}
-                  className="relative z-10 w-full h-full max-w-[520px] max-h-[820px] items-center justify-center p-4"
+                  className="relative z-10 w-full h-full max-w-[460px] max-h-[820px] aspect-[750/1334] items-center justify-center p-2"
                 >
+                  <video
+                    ref={workspaceVideoRef}
+                    src={fileUrl}
+                    playsInline
+                    loop
+                    muted
+                    autoPlay
+                    crossOrigin="anonymous"
+                    className="hidden"
+                  />
+                  <canvas
+                    ref={workspaceCanvasRef}
+                    width={750}
+                    height={1334}
+                    className="w-full h-full object-contain rounded-2xl drop-shadow-[0_20px_40px_rgba(0,0,0,0.5)] select-none cursor-pointer"
+                    onClick={handleTogglePlay}
+                  />
                   <style>{`
                     #anim-container canvas { 
                       max-width: 100% !important; 
@@ -4592,6 +4921,28 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
           </div>
         </div>
       )}
+
+      {/* VAP Professional Audio Editor Modal (مطابق للفيديو) */}
+      <AudioEditorModal
+        isOpen={isAudioEditorModalOpen}
+        onClose={() => setIsAudioEditorModalOpen(false)}
+        audioUrl={audioUrl}
+        audioFile={audioFile}
+        volume={audioVolume}
+        onVolumeChange={handleVolumeChange}
+        onReplace={(newF) => {
+          setAudioFile(newF);
+          setAudioName(newF.name);
+          setAudioSize((newF.size / 1024).toFixed(0) + ' KB');
+          if (audioUrl) URL.revokeObjectURL(audioUrl);
+          const freshU = URL.createObjectURL(newF);
+          setAudioUrl(freshU);
+        }}
+        onRemove={handleRemoveAudio}
+        onKeep={() => setIsAudioEditorModalOpen(false)}
+        onExecute={handleExecuteAudioModal}
+        isProcessing={isProcessingAudio}
+      />
     </div>
   );
 };

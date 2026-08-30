@@ -4,6 +4,7 @@
  */
 import * as Mp4Muxer from 'mp4-muxer';
 import { buildVapBoxFromJson, extractRawVapBox } from './vapFFmpeg';
+import { audioBufferToMp3 } from './mp3Encoder';
 
 /**
  * Convert AudioBuffer to 16-bit PCM WAV Blob (pure JavaScript, ~10ms execution)
@@ -128,6 +129,128 @@ export async function extractAudioInBrowser(
       throw new Error('لم يتم العثور على مسار صوتي داخل الملف أو تعذر فك تشفيره محلياً');
     }
   }
+}
+
+export interface ClientAudioProcessOptions {
+  format?: string; // 'mp3' | 'wav' | etc.
+  bitrateKbps?: number; // e.g. 128, 192, 256, 320
+  startTime?: number; // seconds
+  endTime?: number; // seconds
+  duration?: number; // seconds
+  volume?: number; // 0 to 2
+  fadeIn?: number; // seconds
+  fadeOut?: number; // seconds
+  normalize?: boolean;
+}
+
+/**
+ * Extract, trim, apply volume/filters, and encode audio into true MP3/WAV 100% in-browser
+ */
+export async function extractAndProcessAudio(
+  source: Blob | File | string,
+  options: ClientAudioProcessOptions = {}
+): Promise<{
+  blob: Blob;
+  format: string;
+  ext: string;
+  duration: number;
+  audioBuffer: AudioBuffer;
+  previewUrl: string;
+  dataUrl?: string;
+}> {
+  const { audioBuffer: originalBuffer, duration: originalDuration } = await extractAudioInBrowser(source);
+  
+  const sampleRate = originalBuffer.sampleRate;
+  const numChannels = originalBuffer.numberOfChannels;
+  
+  const startTime = Math.max(0, Math.min(originalDuration - 0.01, options.startTime || 0));
+  const effectiveEnd = options.duration && options.duration > 0 
+    ? startTime + options.duration 
+    : (options.endTime && options.endTime > startTime ? options.endTime : originalDuration);
+  const endTime = Math.max(startTime + 0.02, Math.min(originalDuration, effectiveEnd));
+  const sliceDuration = endTime - startTime;
+
+  const startSample = Math.floor(startTime * sampleRate);
+  const endSample = Math.min(originalBuffer.length, Math.floor(endTime * sampleRate));
+  const targetLength = Math.max(1, endSample - startSample);
+
+  // Render via OfflineAudioContext with volume and fade curves
+  const offlineCtx = new OfflineAudioContext(numChannels, targetLength, sampleRate);
+  const sourceNode = offlineCtx.createBufferSource();
+  sourceNode.buffer = originalBuffer;
+
+  const gainNode = offlineCtx.createGain();
+  const volumeMultiplier = options.volume !== undefined ? Math.max(0, Math.min(3, options.volume)) : 1;
+  gainNode.gain.setValueAtTime(volumeMultiplier, 0);
+
+  // Fade In curve
+  const fadeInSec = Math.max(0, Math.min(sliceDuration / 2, options.fadeIn || 0));
+  if (fadeInSec > 0) {
+    gainNode.gain.setValueAtTime(0, 0);
+    gainNode.gain.linearRampToValueAtTime(volumeMultiplier, fadeInSec);
+  }
+
+  // Fade Out curve
+  const fadeOutSec = Math.max(0, Math.min(sliceDuration / 2, options.fadeOut || 0));
+  if (fadeOutSec > 0) {
+    const fadeOutStart = sliceDuration - fadeOutSec;
+    gainNode.gain.setValueAtTime(volumeMultiplier, Math.max(0, fadeOutStart));
+    gainNode.gain.linearRampToValueAtTime(0, sliceDuration);
+  }
+
+  sourceNode.connect(gainNode);
+  gainNode.connect(offlineCtx.destination);
+
+  sourceNode.start(0, startTime, sliceDuration);
+  let renderedBuffer = await offlineCtx.startRendering();
+
+  // Peak Normalization
+  if (options.normalize) {
+    let maxPeak = 0;
+    for (let c = 0; c < numChannels; c++) {
+      const data = renderedBuffer.getChannelData(c);
+      for (let i = 0; i < data.length; i++) {
+        const abs = Math.abs(data[i]);
+        if (abs > maxPeak) maxPeak = abs;
+      }
+    }
+    if (maxPeak > 0.001 && maxPeak < 0.98) {
+      const scale = 0.98 / maxPeak;
+      for (let c = 0; c < numChannels; c++) {
+        const data = renderedBuffer.getChannelData(c);
+        for (let i = 0; i < data.length; i++) {
+          data[i] = data[i] * scale;
+        }
+      }
+    }
+  }
+
+  const reqFormat = (options.format || 'mp3').toLowerCase();
+  const bitrate = options.bitrateKbps || 192;
+
+  if (reqFormat === 'wav') {
+    const wavBlob = audioBufferToWav(renderedBuffer);
+    return {
+      blob: wavBlob,
+      format: 'wav',
+      ext: 'wav',
+      duration: sliceDuration,
+      audioBuffer: renderedBuffer,
+      previewUrl: URL.createObjectURL(wavBlob)
+    };
+  }
+
+  // Default to True MP3 Encoding with ID3 tags
+  const { mp3Blob, dataUrl } = audioBufferToMp3(renderedBuffer, bitrate);
+  return {
+    blob: mp3Blob,
+    format: 'mp3',
+    ext: reqFormat === 'mp3' ? 'mp3' : 'mp3', // If unsupported format requested client-side, fallback to standard MP3
+    duration: sliceDuration,
+    audioBuffer: renderedBuffer,
+    previewUrl: URL.createObjectURL(mp3Blob),
+    dataUrl
+  };
 }
 
 /**

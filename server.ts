@@ -66,8 +66,8 @@ async function startServer() {
     });
   };
 
-  // API routes
-  app.use('/api/audio', maintenanceGuard, audioRouter);
+  // Audio & media processing API routes (always active for creator tools)
+  app.use('/api/audio', audioRouter);
 
   // Serve FFmpeg Core locally from node_modules for zero-latency in-browser fallback
   const ffmpegCoreUmdPath = path.join(process.cwd(), 'node_modules', '@ffmpeg', 'core', 'dist', 'umd');

@@ -40,16 +40,9 @@ function extractRawVapBoxFromBuffer(buffer: Buffer): Buffer | null {
           if (boxSize >= 8 && (idx - 4 + boxSize) <= buffer.length) {
             const rawPayload = buffer.subarray(idx + 4, idx - 4 + boxSize);
             const str = rawPayload.toString('utf-8');
-            const start = str.indexOf('{');
-            const end = str.lastIndexOf('}');
-            if (start !== -1 && end !== -1 && end > start) {
-              try {
-                const jsonStr = str.substring(start, end + 1);
-                const parsed = JSON.parse(jsonStr);
-                if (parsed && (parsed.info || parsed.descript || parsed.v !== undefined || parsed.rgbFrame || parsed.w || parsed.width)) {
-                  return buildVapBoxFromJsonServer(parsed);
-                }
-              } catch {}
+            const parsed = extractJsonFromText(str);
+            if (parsed && (parsed.info || parsed.descript || parsed.v !== undefined || parsed.rgbFrame || parsed.w || parsed.width)) {
+              return buildVapBoxFromJsonServer(parsed);
             }
           }
         }
@@ -57,16 +50,9 @@ function extractRawVapBoxFromBuffer(buffer: Buffer): Buffer | null {
         // Check if raw JSON follows the tag anywhere in the slice
         const rawPayload = buffer.subarray(idx + 4, Math.min(buffer.length, idx + 4 + 65536));
         const str = rawPayload.toString('utf-8');
-        const start = str.indexOf('{');
-        const end = str.lastIndexOf('}');
-        if (start !== -1 && end !== -1 && end > start) {
-          try {
-            const jsonStr = str.substring(start, end + 1);
-            const parsed = JSON.parse(jsonStr);
-            if (parsed && (parsed.info || parsed.descript || parsed.v !== undefined || parsed.rgbFrame || parsed.w || parsed.width)) {
-              return buildVapBoxFromJsonServer(parsed);
-            }
-          } catch {}
+        const parsed = extractJsonFromText(str);
+        if (parsed && (parsed.info || parsed.descript || parsed.v !== undefined || parsed.rgbFrame || parsed.w || parsed.width)) {
+          return buildVapBoxFromJsonServer(parsed);
         }
 
         idx = buffer.indexOf(tag, idx + 1);
@@ -78,17 +64,35 @@ function extractRawVapBoxFromBuffer(buffer: Buffer): Buffer | null {
     const rgbIdx = fullText.indexOf('rgbFrame');
     if (rgbIdx !== -1) {
       const start = fullText.lastIndexOf('{', rgbIdx);
-      const end = fullText.indexOf('}', rgbIdx);
-      if (start !== -1 && end !== -1) {
-        const jsonStr = fullText.substring(start, fullText.indexOf('}', end) + 1);
-        try {
-          const parsed = JSON.parse(jsonStr);
+      if (start !== -1) {
+        const parsed = extractJsonFromText(fullText.substring(start));
+        if (parsed) {
           return buildVapBoxFromJsonServer(parsed);
-        } catch {}
+        }
       }
     }
   } catch (e) {
     console.warn('[Audio Server] Failed to extract raw VAP box in server:', e);
+  }
+  return null;
+}
+
+function extractJsonFromText(str: string): any {
+  const start = str.indexOf('{');
+  if (start === -1) return null;
+  let depth = 0;
+  for (let i = start; i < str.length; i++) {
+    if (str[i] === '{') depth++;
+    else if (str[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        try {
+          return JSON.parse(str.substring(start, i + 1));
+        } catch {
+          // keep searching
+        }
+      }
+    }
   }
   return null;
 }
@@ -222,8 +226,16 @@ router.post('/extract', upload.single('video'), async (req, res) => {
   }
 
   const file = req.file;
-  const format = req.body.format || 'mp3';
+  const format = (req.body.format || 'mp3').toLowerCase();
   const quality = req.body.quality || '192k';
+  const startTime = req.body.startTime !== undefined && req.body.startTime !== '' ? parseFloat(req.body.startTime) : 0;
+  const endTime = req.body.endTime !== undefined && req.body.endTime !== '' ? parseFloat(req.body.endTime) : 0;
+  const duration = req.body.duration !== undefined && req.body.duration !== '' ? parseFloat(req.body.duration) : 0;
+  const volume = req.body.volume !== undefined && req.body.volume !== '' ? parseFloat(req.body.volume) : 1;
+  const speed = req.body.speed !== undefined && req.body.speed !== '' ? parseFloat(req.body.speed) : 1;
+  const fadeIn = req.body.fadeIn !== undefined && req.body.fadeIn !== '' ? parseFloat(req.body.fadeIn) : 0;
+  const fadeOut = req.body.fadeOut !== undefined && req.body.fadeOut !== '' ? parseFloat(req.body.fadeOut) : 0;
+  const normalize = req.body.normalize === 'true' || req.body.normalize === true;
 
   const jobId = crypto.randomUUID();
   const outputFileName = `audio-${jobId}.${format}`;
@@ -242,14 +254,53 @@ router.post('/extract', upload.single('video'), async (req, res) => {
 
   jobs.set(jobId, newJob);
 
-  res.json({ jobId, message: 'بدأت عملية الاستخراج' });
+  res.json({ jobId, message: 'بدأت عملية الاستخراج والتعديل' });
 
-  // Process video in background with execFile
+  // Process video/audio in background with execFile
   (async () => {
     try {
-      const args: string[] = ['-y', '-i', file.path, '-vn'];
+      const args: string[] = ['-y'];
+
+      // Add fast seek start time if specified
+      if (startTime > 0) {
+        args.push('-ss', startTime.toFixed(3));
+      }
+
+      args.push('-i', file.path);
+
+      // Add duration/end time if specified
+      const effectiveDuration = duration > 0 ? duration : (endTime > startTime ? endTime - startTime : 0);
+      if (effectiveDuration > 0) {
+        args.push('-t', effectiveDuration.toFixed(3));
+      }
+
+      args.push('-vn');
+
+      // Build audio filters (volume, speed, fade in/out, normalization)
+      const audioFilters: string[] = [];
+      if (volume !== 1 && volume >= 0) {
+        audioFilters.push(`volume=${volume.toFixed(2)}`);
+      }
+      if (speed !== 1 && speed >= 0.5 && speed <= 2.0) {
+        audioFilters.push(`atempo=${speed.toFixed(2)}`);
+      }
+      if (fadeIn > 0) {
+        audioFilters.push(`afade=t=in:ss=0:d=${fadeIn.toFixed(2)}`);
+      }
+      if (fadeOut > 0 && effectiveDuration > fadeOut) {
+        audioFilters.push(`afade=t=out:st=${(effectiveDuration - fadeOut).toFixed(2)}:d=${fadeOut.toFixed(2)}`);
+      }
+      if (normalize) {
+        audioFilters.push('loudnorm');
+      }
+
+      if (audioFilters.length > 0) {
+        args.push('-filter:a', audioFilters.join(','));
+      }
+
+      // Codec and format settings
       if (format === 'mp3') {
-        args.push('-c:a', 'libmp3lame', '-b:a', quality);
+        args.push('-c:a', 'libmp3lame', '-b:a', quality, '-id3v2_version', '3', '-write_xing', '1');
       } else if (format === 'wav') {
         args.push('-c:a', 'pcm_s16le');
       } else if (format === 'aac') {
@@ -263,10 +314,12 @@ router.post('/extract', upload.single('video'), async (req, res) => {
       } else if (format === 'opus') {
         args.push('-c:a', 'libopus', '-b:a', quality);
       } else {
-        args.push('-c:a', 'aac', '-b:a', quality);
+        args.push('-c:a', 'libmp3lame', '-b:a', quality);
       }
+
       args.push(outputPath);
 
+      console.log('[Audio Server] Extracting audio with FFmpeg args:', args.join(' '));
       await execFilePromise(resolvedFfmpegPath, args);
       const job = jobs.get(jobId);
       if (job) {
@@ -279,7 +332,7 @@ router.post('/extract', upload.single('video'), async (req, res) => {
       const job = jobs.get(jobId);
       if (job) {
         job.status = 'failed';
-        job.error = err.message || 'فشل استخراج الصوت';
+        job.error = err.message || 'فشل استخراج ومعالجة الصوت';
       }
     } finally {
       if (fs.existsSync(file.path)) {
@@ -365,12 +418,15 @@ router.post('/replace-vap-audio', upload.fields([
   const vapConfigJson = req.body.vapConfig ? req.body.vapConfig : undefined;
   const isMute = req.body.mute === 'true' || req.body.mute === '1';
   const vapCompressionEnabled = req.body.vapCompressionEnabled === 'true' || req.body.vapCompressionEnabled === '1';
+  const volume = req.body.volume ? parseFloat(req.body.volume) : 1.0;
+  const startTime = req.body.startTime ? parseFloat(req.body.startTime) : 0;
+  const endTime = req.body.endTime ? parseFloat(req.body.endTime) : 0;
 
   try {
-    // 1. Probe exact video duration to ensure added audio is trimmed to exact video length
+    // 1. Probe exact video duration
     let exactDuration: number | undefined = rawDuration && rawDuration > 0 ? rawDuration : undefined;
     try {
-      const { stdout } = await execFilePromise('/usr/bin/ffprobe', [
+      const { stdout } = await execFilePromise(resolvedFfprobePath, [
         '-v', 'error',
         '-show_entries', 'format=duration',
         '-of', 'default=noprint_wrappers=1:nokey=1',
@@ -384,11 +440,16 @@ router.post('/replace-vap-audio', upload.fields([
       console.warn('[Audio Server] ffprobe duration probe warning:', probeErr);
     }
 
-    const args: string[] = ['-y', '-threads', '0', '-i', videoFile.path];
+    let args: string[] = ['-y', '-threads', '0', '-i', videoFile.path];
 
-    if (audioFile && !isMute) {
-      if (exactDuration && exactDuration > 0) {
-        args.push('-t', exactDuration.toFixed(4));
+    if (audioFile && !isMute && volume > 0) {
+      if (startTime > 0) {
+        args.push('-ss', startTime.toFixed(3));
+      }
+      if (endTime > 0 && endTime > startTime) {
+        args.push('-to', endTime.toFixed(3));
+      } else if (exactDuration && exactDuration > 0) {
+        args.push('-t', (exactDuration + 0.5).toFixed(3));
       }
       args.push('-i', audioFile.path);
       args.push('-map', '0:v:0');
@@ -396,44 +457,92 @@ router.post('/replace-vap-audio', upload.fields([
       
       // If VAP compression is enabled, compress the video stream
       if (vapCompressionEnabled) {
-          args.push('-c:v', 'libx264', '-crf', '28', '-preset', 'veryfast');
+          args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '28', '-preset', 'veryfast');
       } else {
           args.push('-c:v', 'copy');
       }
       
       args.push('-c:a', 'aac');
-      args.push('-b:a', '128k');
+      if (volume !== 1.0 && !isNaN(volume)) {
+        args.push('-af', `volume=${Math.max(0, Math.min(volume, 5.0)).toFixed(2)}`);
+      }
+      args.push('-b:a', '192k');
       args.push('-ar', '44100');
       args.push('-ac', '2');
       args.push('-shortest');
-    } else if (isMute) {
+      args.push('-movflags', '+faststart');
+    } else if (isMute || volume === 0) {
       args.push('-map', '0:v:0');
-      // If VAP compression is enabled, compress the video stream
       if (vapCompressionEnabled) {
-          args.push('-c:v', 'libx264', '-crf', '28', '-preset', 'veryfast');
+          args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '28', '-preset', 'veryfast');
       } else {
           args.push('-c:v', 'copy');
       }
       args.push('-an');
+      args.push('-movflags', '+faststart');
     } else {
       args.push('-map', '0:v:0');
-      args.push('-map', '0:a:0?');
-      // If VAP compression is enabled, compress the video stream
+      args.push('-map', '0:a?');
       if (vapCompressionEnabled) {
-          args.push('-c:v', 'libx264', '-crf', '28', '-preset', 'veryfast');
+          args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '28', '-preset', 'veryfast');
       } else {
           args.push('-c:v', 'copy');
       }
-      args.push('-c:a', 'copy');
+      if (volume !== 1.0 && !isNaN(volume)) {
+        args.push('-c:a', 'aac', '-af', `volume=${Math.max(0, Math.min(volume, 5.0)).toFixed(2)}`, '-b:a', '192k');
+      } else {
+        args.push('-c:a', 'copy');
+      }
+      args.push('-movflags', '+faststart');
     }
 
     args.push(outputPath);
 
-    console.log('[Audio Server] Running ultra-fast remux with args:', args.join(' '));
-    await execFilePromise(resolvedFfmpegPath, args);
+    console.log('[Audio Server] Running remux with args:', args.join(' '));
+    try {
+      await execFilePromise(resolvedFfmpegPath, args);
+    } catch (remuxErr) {
+      console.warn('[Audio Server] Direct copy failed, attempting full re-encode fallback:', remuxErr);
+      // Fallback: re-encode with libx264 + aac
+      const fallbackArgs: string[] = ['-y', '-i', videoFile.path];
+      if (audioFile && !isMute) {
+        if (startTime > 0) fallbackArgs.push('-ss', startTime.toFixed(3));
+        if (endTime > 0 && endTime > startTime) {
+          fallbackArgs.push('-to', endTime.toFixed(3));
+        } else if (exactDuration && exactDuration > 0) {
+          fallbackArgs.push('-t', (exactDuration + 0.5).toFixed(3));
+        }
+        fallbackArgs.push('-i', audioFile.path);
+        fallbackArgs.push(
+          '-map', '0:v:0',
+          '-map', '1:a:0',
+          '-c:v', 'libx264',
+          '-pix_fmt', 'yuv420p',
+          '-preset', 'veryfast',
+          '-crf', '18',
+          '-c:a', 'aac',
+          '-b:a', '192k',
+          '-ar', '44100',
+          '-ac', '2',
+          '-shortest',
+          '-movflags', '+faststart'
+        );
+      } else if (isMute) {
+        fallbackArgs.push('-map', '0:v:0', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'veryfast', '-crf', '18', '-an', '-movflags', '+faststart');
+      } else {
+        fallbackArgs.push('-map', '0:v:0', '-map', '0:a?', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'veryfast', '-crf', '18', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart');
+      }
+      fallbackArgs.push(outputPath);
+      await execFilePromise(resolvedFfmpegPath, fallbackArgs);
+    }
 
     if (!fs.existsSync(outputPath)) {
       throw new Error('فشل إنشاء ملف الفيديو الجديد');
+    }
+
+    const fileStat = await fs.promises.stat(outputPath);
+    if (fileStat.size < 1000) {
+      throw new Error('حجم ملف الفيديو الناتج غير صالح');
     }
 
     // Read generated mp4

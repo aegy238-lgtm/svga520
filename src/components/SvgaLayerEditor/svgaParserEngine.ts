@@ -6,6 +6,29 @@ import { EditableLayer, SVGAProjectData } from './types';
 const root = protobuf.parse(svgaSchema).root;
 const MovieEntity = root.lookupType("com.opensource.svga.MovieEntity");
 
+// Memory-safe Uint8Array <-> Base64 helpers with chunking to prevent stack/memory crash on large files
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const len = bytes.byteLength;
+  const chunkSize = 0x8000; // 32KB chunks
+  for (let i = 0; i < len; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+    binary += String.fromCharCode.apply(null, chunk as any);
+  }
+  return btoa(binary);
+}
+
+function base64ToUint8Array(base64: string): Uint8Array {
+  const cleanB64 = base64.includes(',') ? base64.split(',')[1] : base64;
+  const binary = atob(cleanB64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
 // Helper to get natural dimensions of an image from dataURL
 function getImageDimensions(dataUrl: string): Promise<{ width: number; height: number }> {
   return new Promise((resolve) => {
@@ -72,19 +95,11 @@ export async function parseSvgaToProject(file: File): Promise<{
       if (typeof val === 'string') {
         const url = (val as string).startsWith('data:') ? (val as string) : `data:image/png;base64,${val}`;
         imagesMap[key] = url;
-        const b64 = url.split(',')[1] || url;
-        const bin = atob(b64);
-        const b = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i);
-        rawImages[key] = b;
+        rawImages[key] = base64ToUint8Array(url);
       } else if (val instanceof Uint8Array || Array.isArray(val)) {
         const bytes = val instanceof Uint8Array ? val : new Uint8Array(val);
         rawImages[key] = bytes;
-        let binary = '';
-        for (let i = 0; i < bytes.byteLength; i++) {
-          binary += String.fromCharCode(bytes[i]);
-        }
-        imagesMap[key] = `data:image/png;base64,${btoa(binary)}`;
+        imagesMap[key] = `data:image/png;base64,${uint8ArrayToBase64(bytes)}`;
       }
     }
 

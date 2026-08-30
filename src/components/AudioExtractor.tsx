@@ -1,12 +1,14 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Upload, X, Music, Settings, Download, Trash2, Loader2, FileAudio, 
-  AlertCircle, Video, CheckCircle, Play, Pause, Volume2, VolumeX, RotateCcw, Sparkles 
+  AlertCircle, Video, CheckCircle, Play, Pause, Volume2, VolumeX, RotateCcw, 
+  Sparkles, Scissors, FastForward, Sliders, Waves, Clock, Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserRecord } from '../types';
 import { logActivity } from '../utils/logger';
-import { extractAudioInBrowser } from '../utils/clientAudio';
+import { extractAudioInBrowser, extractAndProcessAudio } from '../utils/clientAudio';
+import { audioBufferToMp3 } from '../utils/mp3Encoder';
 
 interface AudioExtractorProps {
   currentUser: UserRecord | null;
@@ -17,6 +19,13 @@ interface AudioExtractorProps {
 interface ExportSettings {
   format: string;
   bitrate: string;
+  startTime: number;
+  endTime: number;
+  volume: number; // 0 - 200%
+  speed: number;  // 0.5 - 2.0x
+  fadeIn: number; // seconds
+  fadeOut: number;// seconds
+  normalize: boolean;
 }
 
 interface AudioFileItem {
@@ -29,12 +38,14 @@ interface AudioFileItem {
   jobId?: string;
   error?: string;
   settings: ExportSettings;
+  duration?: number;
   localBlob?: Blob;
   previewUrl?: string;
 }
 
 const AUDIO_FORMATS = ['mp3', 'wav', 'aac', 'm4a', 'ogg', 'flac', 'opus'];
 const BITRATES = ['48k', '64k', '96k', '128k', '160k', '192k', '256k', '320k'];
+const SPEED_OPTIONS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 
 export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onCancel }) => {
   const [files, setFiles] = useState<AudioFileItem[]>([]);
@@ -51,57 +62,109 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
   const [audioVolume, setAudioVolume] = useState(1);
   const [isAudioMuted, setIsAudioMuted] = useState(false);
 
-  const handleFileUpload = (newFiles: FileList | File[]) => {
+  // Active file probing metadata
+  const probeAudioMetadata = async (file: File): Promise<number> => {
+    try {
+      const url = URL.createObjectURL(file);
+      const audio = new Audio(url);
+      return new Promise<number>((resolve) => {
+        audio.onloadedmetadata = () => {
+          const dur = audio.duration || 0;
+          URL.revokeObjectURL(url);
+          resolve(dur);
+        };
+        audio.onerror = () => {
+          URL.revokeObjectURL(url);
+          resolve(0);
+        };
+        setTimeout(() => {
+          URL.revokeObjectURL(url);
+          resolve(0);
+        }, 3000);
+      });
+    } catch {
+      return 0;
+    }
+  };
+
+  const handleFileUpload = async (newFiles: FileList | File[]) => {
     const validExtensions = /\.(mp4|mov|mkv|avi|webm|flv|wmv|3gp|mp3|wav|aac|m4a|ogg|flac|opus|wma|aiff|alac)$/i;
-    const newItems: AudioFileItem[] = Array.from(newFiles)
-      .filter(f => f.type.startsWith('video/') || f.type.startsWith('audio/') || f.name.match(validExtensions))
-      .map(file => ({
+    const rawList = Array.from(newFiles).filter(
+      f => f.type.startsWith('video/') || f.type.startsWith('audio/') || f.name.match(validExtensions)
+    );
+
+    if (rawList.length === 0) {
+      alert("الرجاء رفع ملف صوتي أو فيديو صالح (MP3, WAV, AAC, M4A, FLAC, OGG, MP4, MOV, MKV, AVI).");
+      return;
+    }
+
+    const newItems: AudioFileItem[] = [];
+    for (const file of rawList) {
+      const duration = await probeAudioMetadata(file);
+      const safeDuration = duration > 0 ? parseFloat(duration.toFixed(2)) : 0;
+      newItems.push({
         id: Math.random().toString(36).substring(2, 9),
         originalName: file.name,
         videoFile: file,
         status: 'pending',
         progress: 0,
+        duration: safeDuration,
         settings: {
           format: 'mp3',
-          bitrate: '192k'
+          bitrate: '192k',
+          startTime: 0,
+          endTime: safeDuration > 0 ? safeDuration : 0,
+          volume: 100,
+          speed: 1.0,
+          fadeIn: 0,
+          fadeOut: 0,
+          normalize: false
         }
-      }));
-      
-    if (newItems.length > 0) {
-      setFiles(prev => [...prev, ...newItems]);
-      if (!activeFileId) {
-        setActiveFileId(newItems[0].id);
-      }
-    } else {
-      alert("الرجاء رفع ملف صوتي أو فيديو صالح (MP3, WAV, AAC, M4A, FLAC, OGG, MP4, MOV, MKV, AVI).");
+      });
+    }
+
+    setFiles(prev => [...prev, ...newItems]);
+    if (!activeFileId && newItems.length > 0) {
+      setActiveFileId(newItems[0].id);
     }
   };
 
   const extractClientSideFallback = async (fileItem: AudioFileItem) => {
     updateFile(fileItem.id, { 
       status: 'processing', 
-      progress: 30, 
+      progress: 25, 
       error: undefined 
     });
 
     try {
-      updateFile(fileItem.id, { progress: 60 });
-      const { wavBlob, duration } = await extractAudioInBrowser(fileItem.videoFile);
-      const previewUrl = URL.createObjectURL(wavBlob);
+      updateFile(fileItem.id, { progress: 50 });
+      const bitrateNum = parseInt(fileItem.settings.bitrate.replace(/\D/g, '')) || 192;
       
+      const result = await extractAndProcessAudio(fileItem.videoFile, {
+        format: fileItem.settings.format,
+        bitrateKbps: bitrateNum,
+        startTime: fileItem.settings.startTime,
+        endTime: fileItem.settings.endTime > fileItem.settings.startTime ? fileItem.settings.endTime : undefined,
+        volume: fileItem.settings.volume / 100,
+        fadeIn: fileItem.settings.fadeIn,
+        fadeOut: fileItem.settings.fadeOut,
+        normalize: fileItem.settings.normalize
+      });
+
       updateFile(fileItem.id, { 
         status: 'completed', 
         progress: 100, 
-        finalExt: 'wav',
-        localBlob: wavBlob,
-        previewUrl: previewUrl
+        finalExt: result.ext,
+        localBlob: result.blob,
+        previewUrl: result.previewUrl,
+        duration: result.duration
       });
-      logActivity(currentUser, 'feature_usage', `Audio Extracted (Client): ${fileItem.originalName}`);
+      logActivity(currentUser, 'feature_usage', `Audio Extracted & Edited (Client): ${fileItem.originalName}`);
     } catch (e: any) {
       console.error("Client side audio extraction failed:", e);
       updateFile(fileItem.id, { 
         status: 'error', 
-        error: e.message || 'فشل استخراج الصوت من هذا الملف.' 
+        error: e.message || 'فشل استخراج ومعالجة الصوت من هذا الملف.' 
       });
     }
   };
@@ -120,14 +183,18 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
     const formData = new FormData();
     formData.append('video', fileItem.videoFile);
     formData.append('format', fileItem.settings.format);
-    if (fileItem.settings.format === 'mp3' || fileItem.settings.format === 'aac' || fileItem.settings.format === 'm4a' || fileItem.settings.format === 'opus' || fileItem.settings.format === 'ogg') {
-      formData.append('quality', fileItem.settings.bitrate);
-    }
+    formData.append('quality', fileItem.settings.bitrate);
+    formData.append('startTime', fileItem.settings.startTime.toString());
+    formData.append('endTime', fileItem.settings.endTime.toString());
+    formData.append('volume', (fileItem.settings.volume / 100).toString());
+    formData.append('speed', fileItem.settings.speed.toString());
+    formData.append('fadeIn', fileItem.settings.fadeIn.toString());
+    formData.append('fadeOut', fileItem.settings.fadeOut.toString());
+    formData.append('normalize', fileItem.settings.normalize ? 'true' : 'false');
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/audio/extract', true);
 
-    // Pass authentication & bypass headers if available
     if (currentUser?.email) {
       xhr.setRequestHeader('x-user-email', currentUser.email);
     }
@@ -139,7 +206,7 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) {
         const percentComplete = Math.round((e.loaded / e.total) * 100);
-        updateFile(id, { progress: Math.min(95, percentComplete) });
+        updateFile(id, { progress: Math.min(90, percentComplete) });
       }
     };
 
@@ -147,20 +214,20 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
       if (xhr.status === 200) {
         try {
           const response = JSON.parse(xhr.responseText);
-          updateFile(id, { status: 'processing', progress: 10, jobId: response.jobId });
+          updateFile(id, { status: 'processing', progress: 20, jobId: response.jobId });
           pollStatus(id, response.jobId, fileItem);
           logActivity(currentUser, 'feature_usage', `Audio Extracted: ${fileItem.originalName}`);
         } catch {
           extractClientSideFallback(fileItem);
         }
       } else {
-        console.warn("Server returned error, using fast in-browser audio engine...");
+        console.warn("Server returned non-200, switching to fast client-side MP3 processor...");
         extractClientSideFallback(fileItem);
       }
     };
 
     xhr.onerror = () => {
-      console.warn("Server connection failed, using in-browser audio engine...");
+      console.warn("Server connection failed, running client-side MP3 processor...");
       extractClientSideFallback(fileItem);
     };
 
@@ -181,7 +248,7 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
         if (!res.ok) throw new Error('Failed to fetch status');
         const job = await res.json();
 
-        updateFile(fileId, { progress: Math.max(15, job.progress || 15) });
+        updateFile(fileId, { progress: Math.max(25, job.progress || 25) });
 
         if (job.status === 'completed') {
           clearInterval(pollIntervalRefs.current[fileId]);
@@ -193,7 +260,6 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
           });
         } else if (job.status === 'failed') {
           clearInterval(pollIntervalRefs.current[fileId]);
-          // Attempt client fallback on failure
           extractClientSideFallback(fileItem);
         }
       } catch (e) {
@@ -224,7 +290,7 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
       const url = URL.createObjectURL(fileItem.localBlob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${baseName}.${ext}`;
+      link.download = `${baseName}_edited.${ext}`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -232,7 +298,7 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
     } else if (fileItem.jobId) {
       const link = document.createElement('a');
       link.href = `/api/audio/download/${fileItem.jobId}`;
-      link.download = `${baseName}.${ext}`;
+      link.download = `${baseName}_edited.${ext}`;
       link.target = '_blank';
       document.body.appendChild(link);
       link.click();
@@ -295,7 +361,8 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
     if (isNaN(sec) || sec < 0) return '00:00';
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    const ms = Math.floor((sec % 1) * 10);
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms}`;
   };
 
   useEffect(() => {
@@ -332,12 +399,12 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
             </div>
             <div>
               <h1 className="text-3xl font-black text-white tracking-wide bg-gradient-to-l from-white to-slate-400 bg-clip-text text-transparent flex items-center gap-3">
-                استوديو الصوت الذكي
+                استوديو تعديل واستخراج MP3 الذكي
                 <span className="text-xs px-3 py-1 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-400 rounded-full border border-emerald-500/30 font-mono">
-                  Engine Ready
+                  MP3 Pro Studio
                 </span>
               </h1>
-              <p className="text-sm text-slate-400 mt-1">نظام سحابي ومحلي متطور لاستخراج الصوتيات ومعالجتها وتصديرها بجميع الصيغ العالمية.</p>
+              <p className="text-sm text-slate-400 mt-1">قص وتعديل الصوت، تضخيم النقاء، التحكم بالسرعة ومستوى الصوت، وتصدير MP3 بدقة أصلية 100%.</p>
             </div>
           </div>
           <button 
@@ -379,10 +446,10 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                 <div className="w-20 h-20 mb-4 bg-gradient-to-br from-fuchsia-500/20 to-blue-500/20 rounded-full flex items-center justify-center border border-white/5 shadow-inner group-hover:shadow-[0_0_20px_rgba(217,70,239,0.3)] transition-all">
                   <Upload className="w-10 h-10 text-fuchsia-400 group-hover:-translate-y-1 transition-transform" />
                 </div>
-                <h3 className="text-xl font-bold text-white mb-2">ارفع ملفات الصوت أو الفيديو هنا</h3>
-                <p className="text-sm text-slate-400">سحب وإفلات أو اضغط للاختيار لتحويل أو استخراج الصوت</p>
+                <h3 className="text-xl font-bold text-white mb-2">ارفع ملفات MP3 أو الصوتيات أو الفيديو هنا</h3>
+                <p className="text-sm text-slate-400">سحب وإفلات أو اضغط للاختيار لتعديل وقص وتحويل الصوت</p>
                 <div className="mt-3 text-xs text-slate-400 bg-white/5 px-3 py-1 rounded-full border border-white/5">
-                  أقصى حجم: 500MB | MP3, WAV, AAC, M4A, FLAC, MP4, MKV, AVI...
+                  MP3, WAV, AAC, M4A, FLAC, MP4, MOV, MKV, AVI
                 </div>
               </div>
             </div>
@@ -392,7 +459,7 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                 <div className="p-5 border-b border-white/10 flex justify-between items-center bg-white/5">
                   <h3 className="font-bold text-white flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-fuchsia-500 shadow-[0_0_10px_rgba(217,70,239,0.8)]" />
-                    قائمة المعالجة ({files.length})
+                    قائمة الملفات ({files.length})
                   </h3>
                   <div className="flex items-center gap-2">
                     {files.some(f => f.status === 'completed') && (
@@ -409,7 +476,7 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                       disabled={!files.some(f => f.status === 'pending' || f.status === 'error')}
                       className="px-4 py-2 bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-500 hover:to-purple-500 disabled:opacity-50 text-white rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg shadow-fuchsia-600/20"
                     >
-                      معالجة الكل
+                      معالجة وتعديل الكل
                     </button>
                   </div>
                 </div>
@@ -442,8 +509,11 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                           </div>
                           <div className="flex-grow min-w-0">
                             <p className="text-sm font-bold text-white truncate" dir="ltr" style={{ textAlign: 'right' }}>{file.originalName}</p>
-                            <p className="text-xs text-slate-400 mt-1 font-mono">
-                              {(file.videoFile.size / (1024 * 1024)).toFixed(2)} MB
+                            <p className="text-xs text-slate-400 mt-1 font-mono flex items-center gap-2">
+                              <span>{(file.videoFile.size / (1024 * 1024)).toFixed(2)} MB</span>
+                              {file.duration && file.duration > 0 ? (
+                                <span className="text-cyan-400 font-bold">({formatAudioTime(file.duration)})</span>
+                              ) : null}
                             </p>
                           </div>
                           <button 
@@ -465,10 +535,10 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                             )}
                             {file.status === 'processing' && (
                               <span className="text-xs text-fuchsia-400 px-2 py-1 bg-fuchsia-500/10 rounded-md border border-fuchsia-500/20 flex items-center gap-1">
-                                <Loader2 className="w-3 h-3 animate-spin" /> معالجة {file.progress}%
+                                <Loader2 className="w-3 h-3 animate-spin" /> معالجة MP3 {file.progress}%
                               </span>
                             )}
-                            {file.status === 'completed' && <span className="text-xs text-emerald-400 px-2 py-1 bg-emerald-500/10 rounded-md border border-emerald-500/20 flex items-center gap-1"><CheckCircle className="w-3 h-3" /> مكتمل ({file.finalExt?.toUpperCase() || 'AUDIO'})</span>}
+                            {file.status === 'completed' && <span className="text-xs text-emerald-400 px-2 py-1 bg-emerald-500/10 rounded-md border border-emerald-500/20 flex items-center gap-1"><CheckCircle className="w-3 h-3" /> مكتمل ({file.finalExt?.toUpperCase() || 'MP3'})</span>}
                             {file.status === 'error' && <span className="text-xs text-red-400 px-2 py-1 bg-red-500/10 rounded-md border border-red-500/20">خطأ</span>}
                           </div>
                           
@@ -477,7 +547,7 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                               onClick={(e) => { e.stopPropagation(); startExtraction(file.id); }}
                               className="text-xs font-bold px-4 py-1.5 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-lg transition-colors shadow-lg shadow-fuchsia-600/20"
                             >
-                              استخراج
+                              تعديل واستخراج
                             </button>
                           )}
                           {file.status === 'completed' && (
@@ -485,7 +555,7 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                               onClick={(e) => { e.stopPropagation(); handleDownloadSingle(file.id); }}
                               className="text-xs font-bold px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors shadow-lg shadow-emerald-600/20 flex items-center gap-1"
                             >
-                              <Download className="w-3.5 h-3.5" /> تحميل
+                              <Download className="w-3.5 h-3.5" /> تحميل MP3
                             </button>
                           )}
                         </div>
@@ -497,24 +567,21 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                           </div>
                         )}
                         
-                        {/* 3D Energy Progress Bar */}
+                        {/* Progress Bar */}
                         {(file.status === 'uploading' || file.status === 'processing') && (
                           <div className="mt-4 flex flex-col gap-2 relative z-10">
-                            <div className="w-full h-3 sm:h-4 bg-white/5 rounded-full overflow-hidden border border-white/10 shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)] backdrop-blur-md relative">
+                            <div className="w-full h-3 bg-white/5 rounded-full overflow-hidden border border-white/10 shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)] relative">
                               <motion.div 
-                                className="h-full bg-gradient-to-r from-[#4DA3FF] via-[#8B5CF6] to-[#22D3EE] bg-[length:200%_100%] animate-[colorGradient_2s_linear_infinite] shadow-[0_0_15px_rgba(77,163,255,0.6)] relative"
+                                className="h-full bg-gradient-to-r from-[#4DA3FF] via-[#8B5CF6] to-[#22D3EE] shadow-[0_0_15px_rgba(77,163,255,0.6)]"
                                 initial={{ width: 0 }}
                                 animate={{ width: `${file.progress}%` }}
-                              >
-                                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20 mix-blend-overlay"></div>
-                                <div className="absolute top-0 inset-x-0 h-[1px] bg-white/50"></div>
-                              </motion.div>
+                              />
                             </div>
                             <div className="flex justify-between items-center px-1">
-                              <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-widest">
-                                {file.status === 'uploading' ? 'Uploading Media...' : 'Processing Audio...'}
+                              <span className="text-[10px] font-bold text-slate-400">
+                                {file.status === 'uploading' ? 'جاري رفع الملف...' : 'جاري معالجة وتعديل MP3...'}
                               </span>
-                              <span className="text-[10px] sm:text-xs font-black text-[#4DA3FF] drop-shadow-[0_0_5px_rgba(77,163,255,0.5)]">
+                              <span className="text-[10px] font-black text-[#4DA3FF]">
                                 {file.progress}%
                               </span>
                             </div>
@@ -534,7 +601,7 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
               <div className="h-full min-h-[500px] flex flex-col justify-center items-center bg-[#0d1220]/50 rounded-3xl border border-white/5 backdrop-blur-xl relative overflow-hidden">
                 <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-fuchsia-900/10 via-[#0d1220]/0 to-transparent pointer-events-none" />
                 <Music className="w-20 h-20 text-white/5 mb-6 animate-pulse" />
-                <p className="text-xl text-slate-500 font-bold">اختر ملفاً من القائمة للإعدادات</p>
+                <p className="text-xl text-slate-500 font-bold">اختر ملفاً من القائمة لبدء التعديل والتخصيص</p>
                 <div className="mt-8 flex gap-4">
                   <div className="w-16 h-1 bg-gradient-to-r from-transparent via-fuchsia-500/30 to-transparent rounded-full" />
                   <div className="w-16 h-1 bg-gradient-to-r from-transparent via-blue-500/30 to-transparent rounded-full" />
@@ -556,10 +623,18 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                       <h2 className="text-3xl font-black text-white mb-2 truncate max-w-[300px] sm:max-w-[500px] drop-shadow-md" dir="ltr" style={{ textAlign: 'right' }}>
                         {activeFile.originalName}
                       </h2>
-                      <p className="text-sm text-fuchsia-400 font-mono flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-fuchsia-500 shadow-[0_0_8px_rgba(217,70,239,0.8)] animate-pulse" />
-                        الإعدادات النشطة
-                      </p>
+                      <div className="flex items-center gap-3 text-sm">
+                        <span className="text-fuchsia-400 font-mono flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-fuchsia-500 shadow-[0_0_8px_rgba(217,70,239,0.8)] animate-pulse" />
+                          إعدادات تعديل الصوت
+                        </span>
+                        {activeFile.duration && activeFile.duration > 0 ? (
+                          <span className="text-slate-400 text-xs bg-white/5 px-2.5 py-1 rounded-lg border border-white/10 flex items-center gap-1">
+                            <Clock className="w-3.5 h-3.5 text-cyan-400" />
+                            المدة الإجمالية: {formatAudioTime(activeFile.duration)}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
 
@@ -571,7 +646,7 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                       <div className="bg-black/20 p-6 rounded-2xl border border-white/5">
                         <h4 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
                           <Settings className="w-5 h-5 text-cyan-400" />
-                          صيغة التصدير
+                          صيغة الإخراج
                         </h4>
                         <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
                           {AUDIO_FORMATS.map(fmt => (
@@ -598,7 +673,7 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                       <div className={`bg-black/20 p-6 rounded-2xl border border-white/5 transition-opacity duration-300 ${['mp3', 'aac', 'm4a', 'opus', 'ogg'].includes(activeFile.settings.format) ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                         <h4 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
                           <Music className="w-5 h-5 text-fuchsia-400" />
-                          جودة الصوت (Bitrate)
+                          جودة وتشفير MP3 (Bitrate)
                         </h4>
                         <div className="grid grid-cols-2 gap-3">
                           {BITRATES.map(b => (
@@ -616,9 +691,211 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                             </button>
                           ))}
                         </div>
-                        <p className="text-xs text-slate-500 mt-4 leading-relaxed">
-                          جودة 128k تعتبر جيدة للاستماع العادي، 192k جودة عالية ممتازة، بينما 320k تقدم أعلى جودة ممكنة للمحترفين.
-                        </p>
+                      </div>
+
+                    </div>
+
+                    {/* PRO MP3 TRIMMING & SOUND EDITING STUDIO */}
+                    <div className="bg-gradient-to-br from-purple-900/20 via-black/40 to-blue-900/20 p-6 rounded-3xl border border-purple-500/20 flex flex-col gap-6 shadow-xl relative overflow-hidden">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2.5 bg-gradient-to-br from-fuchsia-500 to-purple-600 text-white rounded-xl shadow-md">
+                            <Scissors className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h3 className="text-base font-black text-white flex items-center gap-2">
+                              أدوات تعديل وقص ملف MP3 الذكية
+                              <span className="text-[10px] bg-fuchsia-500/20 text-fuchsia-300 px-2 py-0.5 rounded-full border border-fuchsia-500/30">
+                                MP3 Tuning
+                              </span>
+                            </h3>
+                            <p className="text-xs text-slate-400 mt-0.5">حدد بداية ونهاية المقطع، وضخّم الصوت، وعدّل السرعة والتلاشي.</p>
+                          </div>
+                        </div>
+
+                        {/* Quick Presets */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button
+                            onClick={() => {
+                              updateSettings(activeFile.id, {
+                                startTime: 0,
+                                endTime: activeFile.duration || 0
+                              });
+                            }}
+                            className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg text-xs font-medium border border-white/10 transition-colors"
+                          >
+                            كامل المقطع
+                          </button>
+                          <button
+                            onClick={() => {
+                              updateSettings(activeFile.id, {
+                                startTime: 0,
+                                endTime: Math.min(activeFile.duration || 15, 15)
+                              });
+                            }}
+                            className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg text-xs font-medium border border-white/10 transition-colors"
+                          >
+                            أول 15s
+                          </button>
+                          <button
+                            onClick={() => {
+                              updateSettings(activeFile.id, {
+                                startTime: 0,
+                                endTime: Math.min(activeFile.duration || 30, 30)
+                              });
+                            }}
+                            className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg text-xs font-medium border border-white/10 transition-colors"
+                          >
+                            أول 30s
+                          </button>
+                          <button
+                            onClick={() => {
+                              updateSettings(activeFile.id, {
+                                startTime: 0,
+                                endTime: Math.min(activeFile.duration || 60, 60)
+                              });
+                            }}
+                            className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg text-xs font-medium border border-white/10 transition-colors"
+                          >
+                            أول دقيقة
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Trimming Inputs Grid */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {/* Start Time */}
+                        <div className="bg-black/30 p-4 rounded-2xl border border-white/5 flex flex-col gap-2">
+                          <label className="text-xs font-bold text-slate-400 flex items-center justify-between">
+                            <span>وقت البداية (ثواني)</span>
+                            <span className="text-fuchsia-400 font-mono font-black">{formatAudioTime(activeFile.settings.startTime)}</span>
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            max={activeFile.settings.endTime || 9999}
+                            step="0.1"
+                            value={activeFile.settings.startTime}
+                            onChange={(e) => {
+                              const val = Math.max(0, parseFloat(e.target.value) || 0);
+                              updateSettings(activeFile.id, { startTime: val });
+                            }}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white font-mono text-sm focus:outline-none focus:border-fuchsia-500"
+                          />
+                        </div>
+
+                        {/* End Time */}
+                        <div className="bg-black/30 p-4 rounded-2xl border border-white/5 flex flex-col gap-2">
+                          <label className="text-xs font-bold text-slate-400 flex items-center justify-between">
+                            <span>وقت النهاية (ثواني)</span>
+                            <span className="text-cyan-400 font-mono font-black">
+                              {activeFile.settings.endTime > 0 ? formatAudioTime(activeFile.settings.endTime) : 'حتى النهاية'}
+                            </span>
+                          </label>
+                          <input
+                            type="number"
+                            min={activeFile.settings.startTime || 0}
+                            max={activeFile.duration || 9999}
+                            step="0.1"
+                            value={activeFile.settings.endTime}
+                            onChange={(e) => {
+                              const val = Math.max(activeFile.settings.startTime, parseFloat(e.target.value) || 0);
+                              updateSettings(activeFile.id, { endTime: val });
+                            }}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white font-mono text-sm focus:outline-none focus:border-cyan-500"
+                          />
+                        </div>
+
+                        {/* Volume Multiplier */}
+                        <div className="bg-black/30 p-4 rounded-2xl border border-white/5 flex flex-col gap-2">
+                          <label className="text-xs font-bold text-slate-400 flex items-center justify-between">
+                            <span>تضخيم الصوت (Volume)</span>
+                            <span className="text-emerald-400 font-mono font-black">{activeFile.settings.volume}%</span>
+                          </label>
+                          <input
+                            type="range"
+                            min="0"
+                            max="200"
+                            step="5"
+                            value={activeFile.settings.volume}
+                            onChange={(e) => updateSettings(activeFile.id, { volume: parseInt(e.target.value) || 100 })}
+                            className="w-full accent-emerald-400 h-2 bg-white/10 rounded-lg cursor-pointer mt-2"
+                            dir="ltr"
+                          />
+                        </div>
+
+                        {/* Speed / Tempo */}
+                        <div className="bg-black/30 p-4 rounded-2xl border border-white/5 flex flex-col gap-2">
+                          <label className="text-xs font-bold text-slate-400 flex items-center justify-between">
+                            <span>سرعة التشغيل</span>
+                            <span className="text-amber-400 font-mono font-black">{activeFile.settings.speed}x</span>
+                          </label>
+                          <div className="grid grid-cols-3 gap-1.5 mt-1">
+                            {SPEED_OPTIONS.map(spd => (
+                              <button
+                                key={spd}
+                                onClick={() => updateSettings(activeFile.id, { speed: spd })}
+                                className={`py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                                  activeFile.settings.speed === spd 
+                                    ? 'bg-amber-500 text-black font-black' 
+                                    : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white'
+                                }`}
+                              >
+                                {spd}x
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Fade and Normalization Row */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-white/5">
+                        {/* Fade In */}
+                        <div className="flex items-center justify-between bg-black/20 p-3 rounded-xl border border-white/5">
+                          <span className="text-xs text-slate-300 font-medium">تلاشي الدخول (Fade In)</span>
+                          <select
+                            value={activeFile.settings.fadeIn}
+                            onChange={(e) => updateSettings(activeFile.id, { fadeIn: parseFloat(e.target.value) || 0 })}
+                            className="bg-black/50 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-white"
+                          >
+                            <option value="0">بدون تلاشي (0s)</option>
+                            <option value="0.5">0.5 ثانية</option>
+                            <option value="1">1 ثانية</option>
+                            <option value="2">2 ثانية</option>
+                            <option value="3">3 ثواني</option>
+                          </select>
+                        </div>
+
+                        {/* Fade Out */}
+                        <div className="flex items-center justify-between bg-black/20 p-3 rounded-xl border border-white/5">
+                          <span className="text-xs text-slate-300 font-medium">تلاشي الخروج (Fade Out)</span>
+                          <select
+                            value={activeFile.settings.fadeOut}
+                            onChange={(e) => updateSettings(activeFile.id, { fadeOut: parseFloat(e.target.value) || 0 })}
+                            className="bg-black/50 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-white"
+                          >
+                            <option value="0">بدون تلاشي (0s)</option>
+                            <option value="0.5">0.5 ثانية</option>
+                            <option value="1">1 ثانية</option>
+                            <option value="2">2 ثانية</option>
+                            <option value="3">3 ثواني</option>
+                          </select>
+                        </div>
+
+                        {/* Peak Normalization */}
+                        <div className="flex items-center justify-between bg-black/20 p-3 rounded-xl border border-white/5">
+                          <span className="text-xs text-slate-300 font-medium">موازنة وتضخيم النقاء</span>
+                          <button
+                            onClick={() => updateSettings(activeFile.id, { normalize: !activeFile.settings.normalize })}
+                            className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors ${
+                              activeFile.settings.normalize 
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' 
+                                : 'bg-white/5 text-slate-400 border border-white/10'
+                            }`}
+                          >
+                            {activeFile.settings.normalize ? 'مفعل (Normalizing)' : 'معطل'}
+                          </button>
+                        </div>
                       </div>
 
                     </div>
@@ -652,7 +929,7 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                             <div className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
                             <span className="text-sm font-black text-emerald-300 flex items-center gap-1.5">
                               <Sparkles className="w-4 h-4 text-emerald-400" />
-                              معاينة الصوت المستخرج جاهز للاستماع
+                              معاينة ملف MP3 المعدل والمستخرج
                             </span>
                           </div>
                           <span className="text-xs font-mono text-emerald-400/80 bg-emerald-950/60 px-3 py-1 rounded-full border border-emerald-500/20">
@@ -716,22 +993,30 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                       
                       <div className="text-sm text-slate-400 flex items-center gap-3 w-full md:w-auto">
                         <div className="p-3 bg-black/30 rounded-xl border border-white/5">
-                          الحجم الأصلي: <span className="text-white font-mono ml-1">{(activeFile.videoFile.size / (1024 * 1024)).toFixed(2)} MB</span>
+                          الحجم: <span className="text-white font-mono ml-1">{(activeFile.videoFile.size / (1024 * 1024)).toFixed(2)} MB</span>
                         </div>
                         <div className="p-3 bg-black/30 rounded-xl border border-white/5 hidden sm:block">
-                          الصيغة الناتجة: <span className="text-fuchsia-400 font-black ml-1 uppercase">{activeFile.finalExt || activeFile.settings.format}</span>
+                          الصيغة: <span className="text-fuchsia-400 font-black ml-1 uppercase">{activeFile.finalExt || activeFile.settings.format} ({activeFile.settings.bitrate})</span>
                         </div>
                       </div>
 
                       <div className="w-full md:w-auto flex gap-3">
                         {activeFile.status === 'completed' ? (
-                          <button 
-                            onClick={() => handleDownloadSingle(activeFile.id)}
-                            className="w-full md:w-auto px-8 py-4 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-black rounded-2xl shadow-[0_0_30px_rgba(16,185,129,0.3)] transition-all hover:scale-105 flex items-center justify-center gap-3 group"
-                          >
-                            <Download className="w-6 h-6 group-hover:-translate-y-1 transition-transform" />
-                            تحميل الملف الصوتي ({activeFile.finalExt?.toUpperCase() || activeFile.settings.format.toUpperCase()})
-                          </button>
+                          <div className="flex items-center gap-3 w-full md:w-auto">
+                            <button
+                              onClick={() => startExtraction(activeFile.id)}
+                              className="px-6 py-4 bg-white/10 hover:bg-white/20 text-white font-bold rounded-2xl transition-all flex items-center justify-center gap-2"
+                            >
+                              <RotateCcw className="w-5 h-5" /> إعادة المعالجة
+                            </button>
+                            <button 
+                              onClick={() => handleDownloadSingle(activeFile.id)}
+                              className="flex-grow md:flex-grow-0 px-8 py-4 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-black rounded-2xl shadow-[0_0_30px_rgba(16,185,129,0.3)] transition-all hover:scale-105 flex items-center justify-center gap-3 group"
+                            >
+                              <Download className="w-6 h-6 group-hover:-translate-y-1 transition-transform" />
+                              تحميل MP3 المعدل ({activeFile.finalExt?.toUpperCase() || activeFile.settings.format.toUpperCase()})
+                            </button>
+                          </div>
                         ) : (
                           <button 
                             onClick={() => startExtraction(activeFile.id)}
@@ -739,9 +1024,9 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                             className="w-full md:w-auto px-10 py-4 bg-gradient-to-r from-fuchsia-600 to-blue-600 hover:from-fuchsia-500 hover:to-blue-500 disabled:opacity-50 disabled:grayscale text-white font-black rounded-2xl shadow-[0_0_30px_rgba(217,70,239,0.3)] transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-3 group"
                           >
                             {(activeFile.status === 'uploading' || activeFile.status === 'processing') ? (
-                              <><Loader2 className="w-6 h-6 animate-spin" /> جاري المعالجة والاستخراج {activeFile.progress}%</>
+                              <><Loader2 className="w-6 h-6 animate-spin" /> جاري تطبيق التعديلات ومعالجة MP3 {activeFile.progress}%</>
                             ) : (
-                              <><Settings className="w-6 h-6 group-hover:rotate-90 transition-transform duration-500" /> استخراج ومعالجة الصوت</>
+                              <><Scissors className="w-6 h-6 group-hover:rotate-12 transition-transform duration-300" /> تطبيق التعديلات وتصدير MP3</>
                             )}
                           </button>
                         )}

@@ -1,0 +1,3 @@
+  const [isProcessingAudio, setIsProcessingAudio] = useState(false);
+  const [audioProcessProgress, setAudioProcessProgress] = useState(0);
+  const [preProcessedVapBlob, setPreProcessedVapBlob] = useState<Blob | null>(null);
