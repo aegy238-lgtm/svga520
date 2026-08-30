@@ -370,67 +370,7 @@ export async function compressVapFile(
   let headers: { [key: string]: string } = {};
 
   try {
-    // 3. Execute compression with server acceleration
-    const xhr = new XMLHttpRequest();
-    const serverResult = await new Promise<{ blob: Blob; headers: { [key: string]: string } }>((resolve, reject) => {
-      xhr.open('POST', '/api/audio/compress-vap');
-      xhr.responseType = 'blob';
-
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          const uploadPercent = Math.round((e.loaded / e.total) * 35);
-          onProgress?.(20 + uploadPercent, `رفع ومعالجة البيانات (${Math.round(e.loaded / 1024)} KB)...`);
-        }
-      };
-
-      let serverProcessTimer: any = null;
-      let simProgress = 60;
-      serverProcessTimer = setInterval(() => {
-        if (simProgress < 90) {
-          simProgress += 3;
-          onProgress?.(simProgress, isVap ? 'معالجة فريمات الأنيميشن وحفظ الصوت والشفافية...' : 'ضغط إطارات الفيديو وحفظ الصوت...');
-        }
-      }, 400);
-
-      xhr.onload = async () => {
-        clearInterval(serverProcessTimer);
-        if (xhr.status >= 200 && xhr.status < 300) {
-          onProgress?.(95, `التحقق النهائي من سلامة ملف ${isVap ? 'VAP' : 'MP4'} المضغوط...`);
-          const resHeaders: { [key: string]: string } = {};
-          const headerStr = xhr.getAllResponseHeaders();
-          const headerPairs = headerStr.split('\u000d\u000a');
-          for (const pair of headerPairs) {
-            const idx = pair.indexOf('\u003a\u0020');
-            if (idx > 0) {
-              const key = pair.substring(0, idx).toLowerCase();
-              const val = pair.substring(idx + 2);
-              resHeaders[key] = val;
-            }
-          }
-          resolve({ blob: xhr.response, headers: resHeaders });
-        } else {
-          let errorMsg = `فشل الخادم (رمز الخطأ: ${xhr.status})`;
-          try {
-            if (xhr.response instanceof Blob) {
-              const errText = await xhr.response.text();
-              const errJson = JSON.parse(errText);
-              if (errJson.error) errorMsg = errJson.error;
-            }
-          } catch {}
-          reject(new Error(errorMsg));
-        }
-      };
-
-      xhr.onerror = () => {
-        clearInterval(serverProcessTimer);
-        reject(new Error('تعذر الاتصال بالخادم'));
-      };
-
-      xhr.send(formData);
-    });
-
-    compressedBlob = serverResult.blob;
-    headers = serverResult.headers;
+    throw new Error("Skipping server intentionally");
   } catch (serverErr: any) {
     console.warn('[VAP Compressor] Server engine failed or unreachable, switching to in-browser fallback:', serverErr);
     onProgress?.(30, 'التحويل التلقائي لمحرك الضغط الداخلي لضمان إتمام العملية...');

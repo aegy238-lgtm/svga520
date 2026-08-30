@@ -192,46 +192,7 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
     formData.append('fadeOut', fileItem.settings.fadeOut.toString());
     formData.append('normalize', fileItem.settings.normalize ? 'true' : 'false');
 
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/audio/extract', true);
-
-    if (currentUser?.email) {
-      xhr.setRequestHeader('x-user-email', currentUser.email);
-    }
-    if (currentUser?.role) {
-      xhr.setRequestHeader('x-user-role', currentUser.role);
-    }
-    xhr.setRequestHeader('x-admin-key', 'super_admin_bypass');
-
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) {
-        const percentComplete = Math.round((e.loaded / e.total) * 100);
-        updateFile(id, { progress: Math.min(90, percentComplete) });
-      }
-    };
-
-    xhr.onload = () => {
-      if (xhr.status === 200) {
-        try {
-          const response = JSON.parse(xhr.responseText);
-          updateFile(id, { status: 'processing', progress: 20, jobId: response.jobId });
-          pollStatus(id, response.jobId, fileItem);
-          logActivity(currentUser, 'feature_usage', `Audio Extracted: ${fileItem.originalName}`);
-        } catch {
-          extractClientSideFallback(fileItem);
-        }
-      } else {
-        console.warn("Server returned non-200, switching to fast client-side MP3 processor...");
-        extractClientSideFallback(fileItem);
-      }
-    };
-
-    xhr.onerror = () => {
-      console.warn("Server connection failed, running client-side MP3 processor...");
-      extractClientSideFallback(fileItem);
-    };
-
-    xhr.send(formData);
+    extractClientSideFallback(fileItem);
   };
 
   const pollStatus = (fileId: string, jobId: string, fileItem: AudioFileItem) => {
