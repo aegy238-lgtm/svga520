@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   Upload, Download, Trash2, Play, Pause, RefreshCw, CheckCircle2, 
   AlertCircle, Sparkles, SlidersHorizontal, Settings2, FileArchive, 

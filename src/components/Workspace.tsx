@@ -37,6 +37,7 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { ensureMp3WithId3 } from '../utils/svgaAudio';
 import { decodeAudioSource } from '../utils/svgaAudioTrimmer';
 import { audioBufferToMp3 } from '../utils/mp3Encoder';
+import { downloadDesignerInfoFile } from '../utils/designerInfo';
 
 interface WorkspaceProps {
   metadata: FileMetadata;
@@ -4150,6 +4151,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       link.download = `${baseName}.zip`;
       link.click();
       
+      // Companion Designer & Platform Info File
+      downloadDesignerInfoFile(`${baseName}.zip`, {
+        appName: settings?.appName,
+        format: 'Image Sequence (ZIP)',
+        fps: metadata.fps,
+        frames: metadata.frames
+      });
+      
       if (currentUser) {
         logActivity(currentUser, 'export', `Exported Image Sequence: ${baseName}.zip`);
       }
@@ -4270,6 +4279,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             link.href = URL.createObjectURL(blob);
             link.download = `${baseName}.gif`;
             link.click();
+            
+            // Companion Designer & Platform Info File
+            downloadDesignerInfoFile(`${baseName}.gif`, {
+              appName: settings?.appName,
+              format: 'Transparent GIF',
+              fps: metadata.fps,
+              frames: metadata.frames
+            });
             
             if (currentUser) {
               logActivity(currentUser, 'export', `Exported Transparent GIF: ${baseName}.gif`);
@@ -5508,6 +5525,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         a.download = `${baseName}.${extension}`;
         a.click();
 
+        // Companion Designer & Platform Info File
+        downloadDesignerInfoFile(`${baseName}.${extension}`, {
+          appName: settings?.appName,
+          format: `${extension.toUpperCase()} Video`,
+          fps: Math.round(fps),
+          frames: totalFrames
+        });
+
         if (currentUser) {
           logActivity(currentUser, 'export', `Exported ${extension.toUpperCase()} Video: ${baseName}.${extension}`);
         }
@@ -5987,6 +6012,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         videoLink.href = videoUrl;
         videoLink.download = `${baseName}.mp4`;
         videoLink.click();
+        
+        // Companion Designer & Platform Info File
+        downloadDesignerInfoFile(`${baseName}.mp4`, {
+          appName: settings?.appName,
+          format: 'VAP 1.0.5 (MP4)',
+          dimensions: `${width}x${height}`,
+          fps: Math.round(fps),
+          frames: totalFrames
+        });
         
         if (currentUser) {
           logActivity(currentUser, 'export', `Exported VAP 1.0.5: ${baseName}.mp4`);
@@ -6739,6 +6773,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             a.download = `${baseName}.mp4`;
             a.click();
             
+            // Companion Designer & Platform Info File
+            downloadDesignerInfoFile(`${baseName}.mp4`, {
+              appName: settings?.appName,
+              format: currentFormat === 'SVGA → YYEVA' ? 'YYEVA (MP4)' : 'VAP (MP4)',
+              dimensions: `${safeWidth}x${safeHeight}`,
+              fps: Math.round(fps),
+              frames: totalFrames
+            });
+            
             if (currentUser) {
               logActivity(currentUser, 'export', `Exported ${currentFormat === 'SVGA → YYEVA' ? 'YYEVA' : 'VAP (MP4)'}: ${baseName}.mp4`);
             }
@@ -7182,6 +7225,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 link.href = URL.createObjectURL(new Blob([compressedBuffer]));
                 link.download = `${baseName}.svga`;
                 link.click();
+                
+                // Companion Designer & Platform Info File
+                downloadDesignerInfoFile(`${baseName}.svga`, {
+                  appName: settings?.appName,
+                  format: 'SVGA 2.0 (Custom)',
+                  fps: metadata.fps,
+                  frames: metadata.frames
+                });
+                
                 setProgress(100);
             } else {
                 const root = protobuf.parse(svgaSchema).root;
@@ -7519,6 +7571,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 link.href = URL.createObjectURL(new Blob([compressedBuffer]));
                 link.download = `${baseName}.svga`;
                 link.click();
+                
+                // Companion Designer & Platform Info File
+                downloadDesignerInfoFile(`${baseName}.svga`, {
+                  appName: settings?.appName,
+                  format: 'SVGA 2.0',
+                  fps: metadata.fps,
+                  frames: metadata.frames
+                });
                 
                 if (currentUser) {
                   logActivity(currentUser, 'export', `Exported SVGA 2.0: ${baseName}.svga`);

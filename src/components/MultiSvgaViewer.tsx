@@ -15,6 +15,7 @@ import { getPAG, convertPagToSvga } from '../utils/pagEngine';
 import { ensureMp3WithId3, extractAudioFromSvga } from '../utils/svgaAudio';
 import Vap from 'video-animation-player';
 import { extractVapConfigFromBlob, convertVapToMp4, WebGLVapRenderer, seekVideoToFrame, VapConfig } from '../utils/vapEngine';
+import { downloadDesignerInfoFile } from '../utils/designerInfo';
 
 const decodeDataToBytes = (data: any): Uint8Array | null => {
   if (!data) return null;
@@ -2449,6 +2450,11 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     a.download = downloadName;
     a.click();
     URL.revokeObjectURL(url);
+    downloadDesignerInfoFile(downloadName, {
+      format: item.type?.toUpperCase() || 'SVGA',
+      fps: item.fps,
+      dimensions: item.dimensions ? `${item.dimensions.width}x${item.dimensions.height}` : undefined
+    });
   };
 
   const evaluateFrameQuality = (canvas: HTMLCanvasElement): number => {
@@ -2927,6 +2933,10 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
       if (streamZip) {
         await streamZip.close();
+        downloadDesignerInfoFile(`Gift_Bundles.zip`, {
+          format: 'Gift Bundles Batch (ZIP)',
+          frames: activeItems.length
+        });
       } else {
         const zip = new JSZip();
         for (const cf of capturedFiles) {
@@ -2936,9 +2946,14 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         const url = URL.createObjectURL(zipBlob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `Gift_Bundles_${Date.now()}.zip`;
+        const zipName = `Gift_Bundles_${Date.now()}.zip`;
+        a.download = zipName;
         a.click();
         URL.revokeObjectURL(url);
+        downloadDesignerInfoFile(zipName, {
+          format: 'Gift Bundles Batch (ZIP)',
+          frames: activeItems.length
+        });
       }
     } catch (err: any) {
       console.error("Batch Gift Bundle export failed:", err);

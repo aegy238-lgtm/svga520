@@ -37,6 +37,7 @@ import {
 } from "./VideoTrimmerModal";
 
 import * as Mp4Muxer from "mp4-muxer";
+import { downloadDesignerInfoFile } from "../utils/designerInfo";
 
 declare var SVGA: any;
 declare var protobuf: any;
@@ -2545,6 +2546,15 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     link.href = URL.createObjectURL(blob);
     link.download = name;
     link.click();
+    
+    // Auto companion info file
+    if (!name.endsWith('.sha256') && !name.endsWith('_Info.txt')) {
+      downloadDesignerInfoFile(name, {
+        format: selectedFormat,
+        fps: fps,
+        dimensions: (customWidth && customHeight) ? `${customWidth}x${customHeight}` : undefined
+      });
+    }
   };
 
   const calculateChecksum = async (buffer: ArrayBuffer): Promise<string> => {

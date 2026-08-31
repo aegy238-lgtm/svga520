@@ -140,6 +140,11 @@ export interface AppSettings {
   maintenanceTitle?: string; // عنوان شاشة التحديث
   maintenanceEstimatedTime?: string; // الوقت المقدر للانتهاء
   defaultAllowedVersion?: string; // الإصدار الافتراضي للحسابات الجديدة (e.g. 'v3.0.0')
+  isDesignerInfoDownloadEnabled?: boolean; // تفعيل إمكانية تنزيل ملف التعريف في لوحة التحكم
+  designerInfoName?: string;
+  designerInfoPhone?: string;
+  designerInfoType?: string;
+  designerInfoDesc?: string;
   costs: {
     svgaProcess: number;
     batchCompress: number;

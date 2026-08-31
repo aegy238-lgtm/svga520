@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { X, ChevronRight, ChevronLeft, Globe, Zap, Image, Video, Layers, ShoppingBag, Upload } from 'lucide-react';
 
 interface OnboardingModalProps {

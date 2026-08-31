@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { downloadDesignerInfoFile } from '../utils/designerInfo';
 
 /**
  * After Effects Export Service (v7.0 ULTRA)
@@ -511,5 +512,10 @@ if (!this.JSON) { this.JSON = {}; }
     link.href = URL.createObjectURL(blob);
     link.download = `${baseName}.zip`;
     link.click();
+    downloadDesignerInfoFile(`${baseName}.zip`, {
+      format: 'Adobe After Effects Project (ZIP)',
+      fps: metadata?.fps,
+      frames: metadata?.frames
+    });
     setProgress(100);
 };

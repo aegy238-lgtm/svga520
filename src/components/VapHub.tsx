@@ -11,6 +11,7 @@ import { parseVapMetadata } from '../utils/vapParser';
 import { extractAudioFromVap, fastReplaceAudioInVap } from '../utils/vapFFmpeg';
 import { convertVapToSvga } from '../utils/svgaExporter';
 import { convertVapToMp4 } from '../utils/vapEngine';
+import { downloadDesignerInfoFile } from '../utils/designerInfo';
 
 export const VapHub: React.FC = () => {
     const [files, setFiles] = useState<{file: File, url: string, metadata: any, status: string}[]>([]);
@@ -176,6 +177,7 @@ export const VapHub: React.FC = () => {
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
+                downloadDesignerInfoFile(downloadName, { format: 'VAP 1.0.5' });
                 setIsExporting(false);
             } else if (selectedFormat.includes('MP4')) {
                 setExportPhase("جاري تصدير فيديو MP4 عالي الجودة مع دمج الصوت...");
@@ -193,10 +195,12 @@ export const VapHub: React.FC = () => {
 
                 const a = document.createElement('a');
                 a.href = URL.createObjectURL(mp4Blob);
-                a.download = `${baseName}_converted.mp4`;
+                const dlMp4 = `${baseName}_converted.mp4`;
+                a.download = dlMp4;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
+                downloadDesignerInfoFile(dlMp4, { format: 'MP4 Video' });
                 setExportSuccess(true);
                 setIsExporting(false);
             } else if (selectedFormat === 'SVGA 2.0') {
@@ -219,10 +223,12 @@ export const VapHub: React.FC = () => {
                 
                 const a = document.createElement('a');
                 a.href = URL.createObjectURL(svgaBlob);
-                a.download = baseName + '.svga';
+                const dlSvga = baseName + '.svga';
+                a.download = dlSvga;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
+                downloadDesignerInfoFile(dlSvga, { format: 'SVGA 2.0', fps, frames: totalFrames, dimensions: `${vw}x${vh}` });
                 setExportSuccess(true);
                 setIsExporting(false);
             } else {
@@ -245,10 +251,12 @@ export const VapHub: React.FC = () => {
 
                 const a = document.createElement('a');
                 a.href = URL.createObjectURL(finalBlob);
-                a.download = `${baseName}_export.mp4`;
+                const dlFallback = `${baseName}_export.mp4`;
+                a.download = dlFallback;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
+                downloadDesignerInfoFile(dlFallback, { format: 'MP4 / VAP' });
                 setExportSuccess(true);
                 setIsExporting(false);
             }

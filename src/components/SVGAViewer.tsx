@@ -46,6 +46,7 @@ import { SVGAFileInfo, PlayerStatus } from '../types';
 import * as Mp4Muxer from 'mp4-muxer';
 import JSZip from 'jszip';
 import { ensureMp3WithId3 } from '../utils/svgaAudio';
+import { downloadDesignerInfoFile } from '../utils/designerInfo';
 
 interface SVGAViewerProps {
   file: SVGAFileInfo;
@@ -419,9 +420,11 @@ export const SVGAViewer: React.FC<SVGAViewerProps> = ({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${file.name.replace('.svga', '')}_Assets.zip`;
+      const dlName = `${file.name.replace('.svga', '')}_Assets.zip`;
+      a.download = dlName;
       a.click();
       URL.revokeObjectURL(url);
+      downloadDesignerInfoFile(dlName, { format: 'SVGA Assets (ZIP)', fps: currentFps, frames: totalFrames });
       setExporting(false);
     } catch (err) {
       console.error(err);
@@ -591,9 +594,11 @@ export const SVGAViewer: React.FC<SVGAViewerProps> = ({
       const url = URL.createObjectURL(finalBlob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${file.name.replace('.svga', '')}_converted.svga`;
+      const dlSvga = `${file.name.replace('.svga', '')}_converted.svga`;
+      a.download = dlSvga;
       a.click();
       URL.revokeObjectURL(url);
+      downloadDesignerInfoFile(dlSvga, { format: 'SVGA 2.0', fps: currentFps, frames: totalFrames });
       setExporting(false);
     } catch (err) {
       console.error(err);
@@ -651,8 +656,10 @@ export const SVGAViewer: React.FC<SVGAViewerProps> = ({
       const content = await zip.generateAsync({ type: 'blob' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(content);
-      link.download = `${file.name.replace('.svga', '')}_Sequence.zip`;
+      const dlSeq = `${file.name.replace('.svga', '')}_Sequence.zip`;
+      link.download = dlSeq;
       link.click();
+      downloadDesignerInfoFile(dlSeq, { format: 'PNG Sequence (ZIP)', fps: currentFps, frames: totalFrames });
 
       document.body.removeChild(exportContainer);
       exportPlayer.clear();
@@ -728,8 +735,10 @@ export const SVGAViewer: React.FC<SVGAViewerProps> = ({
       const content = await zip.generateAsync({ type: 'blob' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(content);
-      link.download = `${file.name.replace('.svga', '')}_AE_Project.zip`;
+      const dlAe = `${file.name.replace('.svga', '')}_AE_Project.zip`;
+      link.download = dlAe;
       link.click();
+      downloadDesignerInfoFile(dlAe, { format: 'Adobe After Effects Project (ZIP)', fps: currentFps, frames: totalFrames });
       setExporting(false);
     } catch (err) {
       console.error(err);
@@ -814,9 +823,11 @@ export const SVGAViewer: React.FC<SVGAViewerProps> = ({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${file.name.replace('.svga', '')}.${format}`;
+      const dlVid = `${file.name.replace('.svga', '')}.${format}`;
+      a.download = dlVid;
       a.click();
       URL.revokeObjectURL(url);
+      downloadDesignerInfoFile(dlVid, { format: format.toUpperCase(), fps: currentFps, frames: totalFrames });
 
       document.body.removeChild(tempContainer);
       exportPlayer.clear();

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { Header } from './components/Header';
 import { FeaturesGuideModal } from './components/FeaturesGuideModal';
 import { WelcomeGuideModal } from './components/WelcomeGuideModal';
@@ -74,7 +74,7 @@ const App: React.FC = () => {
   const [initialLottieFile, setInitialLottieFile] = useState<File | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
-  const [showSplash, setShowSplash] = useState(true);
+  const [showSplash, setShowSplash] = useState(false);
 
   // Server-Enforced Version Control State
   const [versionBlockedState, setVersionBlockedState] = useState<{
@@ -166,10 +166,10 @@ const App: React.FC = () => {
   }, [currentUser?.id, currentUser?.role, currentUser?.allowedVersion, settings?.defaultAllowedVersion]);
 
   useEffect(() => {
-    // Hide splash screen after 2.5 seconds
+    // Hide splash screen after 1.5 seconds
     const timer = setTimeout(() => {
       setShowSplash(false);
-    }, 2500);
+    }, 1500);
     return () => clearTimeout(timer);
   }, []);
 

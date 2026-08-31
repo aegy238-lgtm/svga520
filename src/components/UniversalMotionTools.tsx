@@ -20,6 +20,7 @@ import * as Mp4Muxer from 'mp4-muxer';
 import JSZip from 'jszip';
 import { encodeSVGA } from '../utils/svgaEncoder';
 import { AudioEditorModal } from './AudioEditorModal';
+import { downloadDesignerInfoFile } from '../utils/designerInfo';
 
 // Helper for calculating animated square watermark position
 export const computeWatermarkPosition = (
@@ -1020,7 +1021,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
               sourceFile,
               file,
               {
-                duration: (vapConfig?.info?.f && (vapConfig?.info?.fps || 24)) ? (vapConfig.info.f / (vapConfig.info.fps || 24)) : (videoDuration > 0 ? videoDuration : undefined),
+                duration: (vapConfig?.info?.f && ((vapConfig?.info as any)?.fps || 24)) ? (vapConfig.info.f / ((vapConfig?.info as any)?.fps || 24)) : (videoDuration > 0 ? videoDuration : undefined),
                 vapConfig: vapConfig,
                 vapCompression: vapCompressionEnabled,
                 onProgress: (p) => setAudioProcessProgress(p)
@@ -1478,7 +1479,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
         sourceFile,
         isMuted ? null : targetAudioFile,
         {
-          duration: (vapConfig?.info?.f && (vapConfig?.info?.fps || 24)) ? (vapConfig.info.f / (vapConfig.info.fps || 24)) : (videoDuration > 0 ? videoDuration : undefined),
+          duration: (vapConfig?.info?.f && ((vapConfig?.info as any)?.fps || 24)) ? (vapConfig.info.f / ((vapConfig?.info as any)?.fps || 24)) : (videoDuration > 0 ? videoDuration : undefined),
           vapConfig: vapConfig,
           volume: newVolume,
           startTime: start,
@@ -1697,7 +1698,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             sourceFile, 
             audioToUse, 
             {
-              duration: (vapConfig?.info?.f && (vapConfig?.info?.fps || 24)) ? (vapConfig.info.f / (vapConfig.info.fps || 24)) : (videoDuration > 0 ? videoDuration : undefined),
+              duration: (vapConfig?.info?.f && ((vapConfig?.info as any)?.fps || 24)) ? (vapConfig.info.f / ((vapConfig?.info as any)?.fps || 24)) : (videoDuration > 0 ? videoDuration : undefined),
               vapConfig: vapConfig,
               onProgress: (progress) => {
                 setExportProgress(progress);
@@ -1761,6 +1762,12 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+
+            // Auto companion info file
+            downloadDesignerInfoFile(`${baseName}_with_audio.mp4`, {
+              format: 'VAP 1.0.5 (MP4)',
+              duration: videoDuration
+            });
             return;
         }
 
@@ -1783,7 +1790,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             sourceFile,
             audioToUse,
             {
-              duration: (vapConfig?.info?.f && (vapConfig?.info?.fps || 24)) ? (vapConfig.info.f / (vapConfig.info.fps || 24)) : (videoDuration > 0 ? videoDuration : undefined),
+              duration: (vapConfig?.info?.f && ((vapConfig?.info as any)?.fps || 24)) ? (vapConfig.info.f / ((vapConfig?.info as any)?.fps || 24)) : (videoDuration > 0 ? videoDuration : undefined),
               vapConfig: vapConfig,
               volume: audioVolume,
               mute: muteOriginalAudio && !hasCustomAudio,
@@ -1810,6 +1817,12 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+
+            // Auto companion info file
+            downloadDesignerInfoFile(`${baseName}_with_audio.mp4`, {
+              format: 'VAP 1.0.5 (MP4)',
+              duration: videoDuration
+            });
             return;
           }
         } catch (fastErr) {
@@ -2227,6 +2240,12 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       link.click();
       document.body.removeChild(link);
 
+      // Auto companion info file
+      downloadDesignerInfoFile(`${baseName}${audioTag}.mp4`, {
+        format: exportTargetFormat === 'vap' ? 'VAP 1.0.5 (MP4)' : 'MP4 Video',
+        duration: videoDuration
+      });
+
     } catch (err: any) {
       console.error('Export Error:', err);
       setErrorMessage(`حدث خطأ أثناء تصدير الملف: ${err.message || err}`);
@@ -2633,10 +2652,16 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     link.href = URL.createObjectURL(exportedBlob);
     const baseName = fileName.replace(/\.[^/.]+$/, '');
     const hasAudioTag = !isAudioMuted && (audioFile || audioUrl) ? '_with_audio' : '';
-    link.download = `${baseName}${hasAudioTag}_clean.svga`;
+    const dlName = `${baseName}${hasAudioTag}_clean.svga`;
+    link.download = dlName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+
+    downloadDesignerInfoFile(dlName, {
+      format: 'SVGA 2.0 (Clean Animation)',
+      duration: videoDuration
+    });
   };
 
   useEffect(() => {
@@ -2962,12 +2987,18 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                       <button
                         onClick={() => {
                           const baseName = fileName.replace(/\.[^/.]+$/, '');
+                          const dlName = `${baseName}_with_audio.mp4`;
                           const link = document.createElement('a');
                           link.href = URL.createObjectURL(preProcessedVapBlob);
-                          link.download = `${baseName}_with_audio.mp4`;
+                          link.download = dlName;
                           document.body.appendChild(link);
                           link.click();
                           document.body.removeChild(link);
+
+                          downloadDesignerInfoFile(dlName, {
+                            format: 'VAP 1.0.5 (MP4)',
+                            duration: videoDuration
+                          });
                         }}
                         className="w-full py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-lg text-xs font-black shadow-md shadow-emerald-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                       >
@@ -3184,7 +3215,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                           sourceFile,
                           audioToUse,
                           {
-                            duration: (vapConfig?.info?.f && (vapConfig?.info?.fps || 24)) ? (vapConfig.info.f / (vapConfig.info.fps || 24)) : (videoDuration > 0 ? videoDuration : undefined),
+                            duration: (vapConfig?.info?.f && ((vapConfig?.info as any)?.fps || 24)) ? (vapConfig.info.f / ((vapConfig?.info as any)?.fps || 24)) : (videoDuration > 0 ? videoDuration : undefined),
                             vapConfig: vapConfig,
                             mute: nextMute && !hasCustomAudio,
                             onProgress: (p) => setAudioProcessProgress(p)
@@ -4552,12 +4583,18 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                         if (!blobToDownload) return;
                         const baseName = fileName.replace(/\.[^/.]+$/, '');
                         const isVap = exportTargetFormat === 'vap';
+                        const dlName = isVap ? `${baseName}_with_audio.mp4` : `${baseName}.mp4`;
                         const link = document.createElement('a');
                         link.href = URL.createObjectURL(blobToDownload);
-                        link.download = isVap ? `${baseName}_with_audio.mp4` : `${baseName}.mp4`;
+                        link.download = dlName;
                         document.body.appendChild(link);
                         link.click();
                         document.body.removeChild(link);
+
+                        downloadDesignerInfoFile(dlName, {
+                          format: isVap ? 'VAP 1.0.5 (MP4)' : 'MP4 Video',
+                          duration: videoDuration
+                        });
                       }}
                       className="w-full py-3 bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600 hover:from-indigo-400 hover:to-purple-400 text-white rounded-xl text-xs font-black shadow-lg shadow-indigo-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
                     >

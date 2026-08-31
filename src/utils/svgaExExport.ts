@@ -3,6 +3,7 @@ import { svgaSchema } from "../svga-proto";
 import { ensureMp3WithId3, isAudioKey } from "./svgaAudio";
 import { decodeAudioSource } from "./svgaAudioTrimmer";
 import { audioBufferToMp3 } from "./mp3Encoder";
+import { downloadDesignerInfoFile } from "./designerInfo";
 
 /**
  * SVGA 2.0 EX Export Logic
@@ -570,6 +571,11 @@ export const handleSvgaExExport = async (params: {
     const baseName = (metadata?.name || "project").replace(/\.[^/.]+$/, "");
     link.download = `${baseName}.svga`;
     link.click();
+    downloadDesignerInfoFile(`${baseName}.svga`, {
+      format: 'SVGA 2.0 EX Compositions',
+      fps: metadata?.fps,
+      frames: metadata?.frames
+    });
     setProgress(100);
   } catch (e) {
     console.error(e);
