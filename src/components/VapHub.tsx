@@ -245,7 +245,7 @@ export const VapHub: React.FC = () => {
 
                 const a = document.createElement('a');
                 a.href = URL.createObjectURL(finalBlob);
-                a.download = `${baseName}_export.vap`;
+                a.download = `${baseName}_export.mp4`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);

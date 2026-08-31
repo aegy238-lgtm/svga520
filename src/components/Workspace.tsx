@@ -5980,12 +5980,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         // Download Files
         const baseName = (metadata?.name || 'project').replace(/\.[^/.]+$/, '');
         
-        // 1. Video (with embedded vapc)
+        // 1. Video (with embedded vapc) - Download as standard playable .mp4
         const videoBlob = new Blob([buffer], { type: 'video/mp4' });
         const videoUrl = URL.createObjectURL(videoBlob);
         const videoLink = document.createElement('a');
         videoLink.href = videoUrl;
-        videoLink.download = `${baseName}.vap`;
+        videoLink.download = `${baseName}.mp4`;
         videoLink.click();
         
         if (currentUser) {
@@ -6685,8 +6685,50 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             }
             muxer.finalize();
 
-            const buffer = muxer.target.buffer;
-            const blob = new Blob([buffer], { type: 'video/mp4' });
+            const muxerBuffer = muxer.target.buffer;
+            let finalBuffer: ArrayBuffer = muxerBuffer;
+
+            // Generate & append standard vapc box metadata for VAP / YYEVA so that transparent engines detect it
+            try {
+                const isYYEVA = currentFormat === "SVGA → YYEVA";
+                const jsonConfig = {
+                    info: {
+                        v: 2,
+                        f: totalFrames,
+                        w: safeWidth,
+                        h: safeHeight,
+                        fps: fps,
+                        videoW: vapWidth,
+                        videoH: vapHeight,
+                        aFrame: isYYEVA ? [safeWidth, 0, safeWidth, safeHeight] : [0, 0, safeWidth, safeHeight],
+                        rgbFrame: isYYEVA ? [0, 0, safeWidth, safeHeight] : [safeWidth, 0, safeWidth, safeHeight],
+                        isVapx: 0,
+                        codeTag: ["common"],
+                        orien: 0
+                    }
+                };
+                const jsonStr = JSON.stringify(jsonConfig);
+                const jsonBytes = new TextEncoder().encode(jsonStr);
+                const boxSize = 8 + jsonBytes.length;
+                const boxBuffer = new Uint8Array(boxSize);
+                const view = new DataView(boxBuffer.buffer);
+                view.setUint32(0, boxSize);
+                view.setUint8(4, 0x76); // v
+                view.setUint8(5, 0x61); // a
+                view.setUint8(6, 0x70); // p
+                view.setUint8(7, 0x63); // c
+                boxBuffer.set(jsonBytes, 8);
+
+                const combined = new Uint8Array(muxerBuffer.byteLength + boxSize);
+                combined.set(new Uint8Array(muxerBuffer), 0);
+                combined.set(boxBuffer, muxerBuffer.byteLength);
+                finalBuffer = combined.buffer;
+            } catch (vapcErr) {
+                console.warn("Could not append vapc box, proceeding with raw mp4:", vapcErr);
+                finalBuffer = muxerBuffer;
+            }
+
+            const blob = new Blob([finalBuffer], { type: 'video/mp4' });
             const url = URL.createObjectURL(blob);
             
             setExportedVapUrl(url);
@@ -6694,7 +6736,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             const a = document.createElement('a');
             a.href = url;
             const baseName = (metadata?.name || 'project').replace(/\.[^/.]+$/, '');
-            a.download = currentFormat === "SVGA → YYEVA" ? `${baseName}.mp4` : `${baseName}.vap`;
+            a.download = `${baseName}.mp4`;
             a.click();
             
             if (currentUser) {

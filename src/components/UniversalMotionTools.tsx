@@ -1757,7 +1757,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             const baseName = fileName.replace(/\.[^/.]+$/, '');
             const link = document.createElement('a');
             link.href = URL.createObjectURL(preProcessedVapBlob);
-            link.download = `${baseName}_with_audio.vap`;
+            link.download = `${baseName}_with_audio.mp4`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -1806,7 +1806,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             const baseName = fileName.replace(/\.[^/.]+$/, '');
             const link = document.createElement('a');
             link.href = URL.createObjectURL(finalVapBlob);
-            link.download = `${baseName}_with_audio.vap`;
+            link.download = `${baseName}_with_audio.mp4`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -2222,9 +2222,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       const audioTag = shouldIncludeAudio ? '_with_audio' : '_silent';
       const link = document.createElement('a');
       link.href = URL.createObjectURL(finalBlob);
-      link.download = isStandardMP4 
-        ? `${baseName}${audioTag}.mp4`
-        : `${baseName}${audioTag}.vap`;
+      link.download = `${baseName}${audioTag}.mp4`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -2966,7 +2964,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                           const baseName = fileName.replace(/\.[^/.]+$/, '');
                           const link = document.createElement('a');
                           link.href = URL.createObjectURL(preProcessedVapBlob);
-                          link.download = `${baseName}_with_audio.vap`;
+                          link.download = `${baseName}_with_audio.mp4`;
                           document.body.appendChild(link);
                           link.click();
                           document.body.removeChild(link);
@@ -4556,7 +4554,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                         const isVap = exportTargetFormat === 'vap';
                         const link = document.createElement('a');
                         link.href = URL.createObjectURL(blobToDownload);
-                        link.download = isVap ? `${baseName}_with_audio.vap` : `${baseName}.mp4`;
+                        link.download = isVap ? `${baseName}_with_audio.mp4` : `${baseName}.mp4`;
                         document.body.appendChild(link);
                         link.click();
                         document.body.removeChild(link);
