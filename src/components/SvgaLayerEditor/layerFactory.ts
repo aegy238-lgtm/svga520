@@ -77,7 +77,7 @@ export function createImageLayer(
     name: layerName,
     type: 'image',
     visible: true,
-    locked: true,
+    locked: false,
     thumbnailUrl: dataUrl,
     transform: {
       x,
@@ -95,6 +95,23 @@ export function createImageLayer(
       width: imgWidth,
       height: imgHeight
     },
+    originalInitialBounds: {
+      x: x,
+      y: y,
+      width: w,
+      height: h
+    },
+    originalTransform: {
+      x,
+      y,
+      width: w,
+      height: h,
+      scaleX: w / (imgWidth || 1),
+      scaleY: h / (imgHeight || 1),
+      rotation: 0,
+      opacity: 100
+    },
+    originalSpriteFrames: JSON.parse(JSON.stringify(frames)),
     aspectRatioLocked: true,
     spriteRef,
     framesCount: totalFrames,

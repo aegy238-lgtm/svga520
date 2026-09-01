@@ -1,0 +1,70 @@
+--- src/components/SvgaLayerEditor/SvgaLayerEditor.tsx
++++ src/components/SvgaLayerEditor/SvgaLayerEditor.tsx
+@@ -892,34 +892,30 @@
+   // Merge Two Specific Layers together (with motion synchronization and isolated separation)
+   const handleMergeTwoLayers = useCallback(async (
+     sourceLayerId: string, 
+     targetLayerId: string, 
+     options: { syncMotion?: boolean } = {}
+   ) => {
+     if (!project) return;
+-    const l1 = layers.find(l => l.id === sourceLayerId);
+-    const l2 = layers.find(l => l.id === targetLayerId);
+-    if (!l1 || !l2) {
+-      setErrorMessage('الطبقات المحددة للربط والدمج غير موجودة');
++    const sourceLayer = layers.find(l => l.id === sourceLayerId);
++    const targetLayer = layers.find(l => l.id === targetLayerId);
++    if (!sourceLayer || !targetLayer) {
++      setErrorMessage('الطبقات المحددة للربط غير موجودة');
+       return;
+     }
+ 
+     setIsMergingLayers(true);
+     try {
+-      const targetLayers = [l1, l2];
+-      const { updatedLayers, mergedLayer, newImagesMap } = await mergeLayersIntoSingleLayer(
+-        targetLayers,
+-        layers,
+-        project,
+-        { 
+-          name: `${l1.name} + ${l2.name}`,
+-          isAll: false,
+-          syncMotion: options.syncMotion !== false
+-        }
+-      );
++      let updatedTarget = { ...targetLayer };
++      if (options.syncMotion !== false) {
++        const { syncLayerMotionWithReference } = await import('./svgaMergeEngine');
++        updatedTarget = syncLayerMotionWithReference(targetLayer, sourceLayer, project.totalFrames || 60);
++      } else {
++        updatedTarget.isMotionSynced = true;
++        updatedTarget.motionReferenceLayerId = sourceLayer.id;
++      }
+ 
+-      if (newImagesMap && Object.keys(newImagesMap).length > 0) {
+-        setProject(prev => prev ? {
+-          ...prev,
+-          imagesMap: { ...prev.imagesMap, ...newImagesMap }
+-        } : prev);
+-      }
+-
+-      setLayers(updatedLayers);
+-      setSelectedLayerId(mergedLayer.id);
+-      setSelectedLayerIds([mergedLayer.id]);
+-      pushHistory(updatedLayers);
++      const updatedLayers = layers.map(l => l.id === targetLayerId ? updatedTarget : l);
++      setLayers(updatedLayers);
++      setSelectedLayerId(updatedTarget.id);
++      setSelectedLayerIds([updatedTarget.id, sourceLayer.id]);
++      pushHistory(updatedLayers);
+       
+-      setSuccessToast(`تم ربط ودمج "${l1.name}" مع "${l2.name}" بنجاح في طبقة واحدة مع توريث الحركة!`);
++      setSuccessToast(`تم ربط حركة "${targetLayer.name}" لتتبع "${sourceLayer.name}" بنجاح!`);
+     } catch (err: any) {
+       console.error("Failed to merge two layers:", err);
+-      setErrorMessage(err?.message || 'حدث خطأ أثناء ربط ودمج الطبقتين');
++      setErrorMessage(err?.message || 'حدث خطأ أثناء ربط الطبقتين');
+     } finally {
+       setIsMergingLayers(false);
+     }
+   }, [project, layers, pushHistory]);

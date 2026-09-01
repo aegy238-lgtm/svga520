@@ -73,6 +73,26 @@ export interface EditableLayer {
   matteKey?: string;
   framesCount: number;
   keyframeSummary: SVGAKeyframeSummary;
+
+  // Merged layer properties
+  isMerged?: boolean;
+  mergedLayers?: EditableLayer[];
+  mergedLayersCount?: number;
+  motionReferenceLayerId?: string;
+  isMotionSynced?: boolean;
+
+  // Original immutable snapshot for absolute reset independent of copies/merges
+  originalInitialBounds?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  originalTransform?: LayerTransform;
+  originalSpriteFrames?: any[];
+  originalKeyframes?: LayerKeyframe[];
+  isDuplicate?: boolean;
+  sourceLayerId?: string;
 }
 
 export interface SVGAAudioTrack {

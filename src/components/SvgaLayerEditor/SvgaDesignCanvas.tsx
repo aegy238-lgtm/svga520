@@ -226,6 +226,9 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
   // Helper to determine if a layer's frame is visible/active at given frameIndex
   const getLayerFrameState = useCallback((layer: EditableLayer, frameIdx: number) => {
+    if (layer.isMerged || (layer.mergedLayers && layer.mergedLayers.length > 0)) {
+      return { isActive: true, frame: { alpha: 1, transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 } }, alpha: 1.0 };
+    }
     const frames = layer.spriteRef?.frames;
     if (!frames || !frames[frameIdx]) return { isActive: false, frame: null, alpha: 0 };
     const frame = frames[frameIdx];
@@ -250,10 +253,27 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
     const totalMatrix = computeLayerMatrix(selectedLayer, frame);
     const cachedImg = imagesCache.current[selectedLayer.imageKey];
-    const localW = frame.layout?.width || cachedImg?.naturalWidth || selectedLayer.initialBounds.width || 50;
-    const localH = frame.layout?.height || cachedImg?.naturalHeight || selectedLayer.initialBounds.height || 50;
-    const localX = frame.layout?.x || 0;
-    const localY = frame.layout?.y || 0;
+    const isMergedGroup = selectedLayer.isMerged || (selectedLayer.mergedLayers && selectedLayer.mergedLayers.length > 0);
+
+    let localX = 0;
+    let localY = 0;
+    let localW = cachedImg?.naturalWidth || selectedLayer.initialBounds.width || 50;
+    let localH = cachedImg?.naturalHeight || selectedLayer.initialBounds.height || 50;
+
+    if (isMergedGroup) {
+      localX = selectedLayer.initialBounds.x;
+      localY = selectedLayer.initialBounds.y;
+      localW = selectedLayer.initialBounds.width;
+      localH = selectedLayer.initialBounds.height;
+    } else if (frame.layout && frame.layout.width > 0 && frame.layout.height > 0) {
+      localX = frame.layout.x || 0;
+      localY = frame.layout.y || 0;
+      localW = frame.layout.width;
+      localH = frame.layout.height;
+    } else if (frame.layout) {
+      localX = frame.layout.x || 0;
+      localY = frame.layout.y || 0;
+    }
 
     const p0 = transformPoint(totalMatrix, localX, localY);
     const p2 = transformPoint(totalMatrix, localX + localW, localY + localH);
@@ -374,22 +394,71 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       ctx.restore();
     }
 
-    // 3. Render all visible layers in sequence (bottom to top)
-    for (const layer of layers) {
-      if (!layer.visible) continue;
+    // 3. Recursive layer drawing function
+    const renderLayerRecursive = (
+      layerItem: EditableLayer,
+      parentMatrix: [number, number, number, number, number, number] | null,
+      parentAlpha: number
+    ) => {
+      if (!layerItem.visible) return;
 
-      const { isActive, frame, alpha: frameAlpha } = getLayerFrameState(layer, currentFrame);
-      if (!isActive || !frame) continue;
+      const animTransform = getLayerAnimatedTransform(layerItem, currentFrame);
+      const layerAlpha = Math.max(0, Math.min(1, (animTransform.opacity !== undefined ? animTransform.opacity : layerItem.transform.opacity) / 100));
+      const currentAlpha = parentAlpha * layerAlpha;
+      if (currentAlpha <= 0.001) return;
+
+      // Calculate user transformation matrix for this layer relative to its initial bounds
+      const initialBounds = layerItem.initialBounds || { x: 0, y: 0, width: 100, height: 100 };
+      const deltaX = animTransform.x - initialBounds.x;
+      const deltaY = animTransform.y - initialBounds.y;
+      const scaleX = animTransform.scaleX;
+      const scaleY = animTransform.scaleY;
+      const rotation = animTransform.rotation;
+
+      const pivotX = initialBounds.x + initialBounds.width / 2;
+      const pivotY = initialBounds.y + initialBounds.height / 2;
+
+      const rad = (rotation * Math.PI) / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+
+      const uA = scaleX * cos;
+      const uB = scaleX * sin;
+      const uC = -scaleY * sin;
+      const uD = scaleY * cos;
+      const uTx = (pivotX + deltaX) - (uA * pivotX + uC * pivotY);
+      const uTy = (pivotY + deltaY) - (uB * pivotX + uD * pivotY);
+      const mUser: [number, number, number, number, number, number] = [uA, uB, uC, uD, uTx, uTy];
+
+      const currentTotalMatrix = parentMatrix ? multiplyMatrices(parentMatrix, mUser) : mUser;
+
+      // If this layer has merged sublayers, recurse into sublayers!
+      // Render sublayers in visual stacking order (bottom to top, so sublayers[0] is in front)
+      if (layerItem.mergedLayers && layerItem.mergedLayers.length > 0) {
+        const sublayersToRender = [...layerItem.mergedLayers].reverse();
+        for (const sub of sublayersToRender) {
+          renderLayerRecursive(sub, currentTotalMatrix, currentAlpha);
+        }
+        return;
+      }
+
+      // Otherwise render leaf sprite
+      const { isActive, frame, alpha: frameAlpha } = getLayerFrameState(layerItem, currentFrame);
+      if (!isActive || !frame) return;
+
+      const fA = frame?.transform?.a ?? 1;
+      const fB = frame?.transform?.b ?? 0;
+      const fC = frame?.transform?.c ?? 0;
+      const fD = frame?.transform?.d ?? 1;
+      const fTx = frame?.transform?.tx ?? 0;
+      const fTy = frame?.transform?.ty ?? 0;
+      const mFrame: [number, number, number, number, number, number] = [fA, fB, fC, fD, fTx, fTy];
+
+      const finalTotalMatrix = multiplyMatrices(currentTotalMatrix, mFrame);
 
       ctx.save();
-
-      const animTransform = getLayerAnimatedTransform(layer, currentFrame);
-      const layerAlpha = Math.max(0, Math.min(1, (animTransform.opacity !== undefined ? animTransform.opacity : layer.transform.opacity) / 100));
-      ctx.globalAlpha = frameAlpha * layerAlpha;
-
-      // Apply Combined Total Matrix
-      const totalMatrix = computeLayerMatrix(layer, frame);
-      ctx.transform(totalMatrix[0], totalMatrix[1], totalMatrix[2], totalMatrix[3], totalMatrix[4], totalMatrix[5]);
+      ctx.globalAlpha = currentAlpha * frameAlpha;
+      ctx.transform(finalTotalMatrix[0], finalTotalMatrix[1], finalTotalMatrix[2], finalTotalMatrix[3], finalTotalMatrix[4], finalTotalMatrix[5]);
 
       // Apply ClipPath if existing
       if (frame.clipPath) {
@@ -405,7 +474,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       }
 
       // Draw Image
-      const cachedImg = imagesCache.current[layer.imageKey];
+      const cachedImg = imagesCache.current[layerItem.imageKey];
       if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
         let drawX = 0;
         let drawY = 0;
@@ -423,18 +492,25 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         }
 
         ctx.drawImage(cachedImg, drawX, drawY, drawW, drawH);
-      } else if (layer.type === 'shape' && (!frame.shapes || frame.shapes.length === 0)) {
+      } else if (layerItem.type === 'shape' && (!frame.shapes || frame.shapes.length === 0)) {
         // Fallback shape box
         ctx.fillStyle = 'rgba(99, 102, 241, 0.4)';
         ctx.strokeStyle = '#6366f1';
         ctx.lineWidth = 1.5;
-        const w = layer.transform.width || 100;
-        const h = layer.transform.height || 100;
+        const w = layerItem.transform.width || 100;
+        const h = layerItem.transform.height || 100;
         ctx.fillRect(0, 0, w, h);
         ctx.strokeRect(0, 0, w, h);
       }
 
       ctx.restore();
+    };
+
+    // Render all visible top-level layers in visual stacking order:
+    // layers[last] (background) is drawn first -> layers[0] (foreground/top of stack) is drawn last (in front)!
+    const layersToRender = [...layers].reverse();
+    for (const layer of layersToRender) {
+      renderLayerRecursive(layer, null, 1.0);
     }
 
     // 4. Draw Active Smart Alignment Guides
@@ -468,6 +544,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       if (isActive && frame) {
         ctx.save();
         const totalMatrix = computeLayerMatrix(targetL, frame);
+        const isMergedGroup = targetL.isMerged || (targetL.mergedLayers && targetL.mergedLayers.length > 0);
         const cachedImg = imagesCache.current[targetL.imageKey];
 
         let localX = 0;
@@ -475,7 +552,12 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         let localW = cachedImg?.naturalWidth || targetL.initialBounds.width || 100;
         let localH = cachedImg?.naturalHeight || targetL.initialBounds.height || 100;
 
-        if (frame.layout && frame.layout.width > 0 && frame.layout.height > 0) {
+        if (isMergedGroup) {
+          localX = targetL.initialBounds.x;
+          localY = targetL.initialBounds.y;
+          localW = targetL.initialBounds.width;
+          localH = targetL.initialBounds.height;
+        } else if (frame.layout && frame.layout.width > 0 && frame.layout.height > 0) {
           localX = frame.layout.x || 0;
           localY = frame.layout.y || 0;
           localW = frame.layout.width;
@@ -578,10 +660,9 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     drawScene();
   }, [drawScene]);
 
-  // Hit test to find layer under cursor
+  // Hit test to find layer under cursor (search foreground to background: layers[0] to layers[last])
   const hitTestLayer = useCallback((cx: number, cy: number): string | null => {
-    // Search top-to-bottom
-    for (let i = layers.length - 1; i >= 0; i--) {
+    for (let i = 0; i < layers.length; i++) {
       const layer = layers[i];
       if (!layer.visible) continue;
 
@@ -589,6 +670,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       if (!isActive || !frame) continue;
 
       const totalMatrix = computeLayerMatrix(layer, frame);
+      const isMergedGroup = layer.isMerged || (layer.mergedLayers && layer.mergedLayers.length > 0);
       const cachedImg = imagesCache.current[layer.imageKey];
 
       let localX = 0;
@@ -596,7 +678,12 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       let localW = cachedImg?.naturalWidth || layer.initialBounds.width || 100;
       let localH = cachedImg?.naturalHeight || layer.initialBounds.height || 100;
 
-      if (frame.layout && frame.layout.width > 0 && frame.layout.height > 0) {
+      if (isMergedGroup) {
+        localX = layer.initialBounds.x;
+        localY = layer.initialBounds.y;
+        localW = layer.initialBounds.width;
+        localH = layer.initialBounds.height;
+      } else if (frame.layout && frame.layout.width > 0 && frame.layout.height > 0) {
         localX = frame.layout.x || 0;
         localY = frame.layout.y || 0;
         localW = frame.layout.width;
@@ -643,6 +730,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     if (!isActive || !frame) return null;
 
     const totalMatrix = computeLayerMatrix(selectedLayer, frame);
+    const isMergedGroup = selectedLayer.isMerged || (selectedLayer.mergedLayers && selectedLayer.mergedLayers.length > 0);
     const cachedImg = imagesCache.current[selectedLayer.imageKey];
 
     let localX = 0;
@@ -650,7 +738,12 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     let localW = cachedImg?.naturalWidth || selectedLayer.initialBounds.width || 100;
     let localH = cachedImg?.naturalHeight || selectedLayer.initialBounds.height || 100;
 
-    if (frame.layout && frame.layout.width > 0 && frame.layout.height > 0) {
+    if (isMergedGroup) {
+      localX = selectedLayer.initialBounds.x;
+      localY = selectedLayer.initialBounds.y;
+      localW = selectedLayer.initialBounds.width;
+      localH = selectedLayer.initialBounds.height;
+    } else if (frame.layout && frame.layout.width > 0 && frame.layout.height > 0) {
       localX = frame.layout.x || 0;
       localY = frame.layout.y || 0;
       localW = frame.layout.width;

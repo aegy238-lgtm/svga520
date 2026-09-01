@@ -4,10 +4,12 @@ import {
   Sliders, Link, Unlink, RotateCcw, 
   AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter,
   AlignLeft, AlignRight, AlignCenter, ArrowUp, ArrowDown,
+  ArrowUpToLine, ArrowDownToLine,
   Upload, Image as ImageIcon, Sparkles, RefreshCw, Eye,
   Film, FlipHorizontal, FlipVertical, Clock, Lock, Unlock,
   ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Crosshair,
   Layers, Box, Trash2, Maximize2, Move, Package, CheckSquare,
+  Square as UncheckedSquare, Link2, Check,
   ZoomIn, ZoomOut, Scaling, SlidersHorizontal, ArrowLeftRight,
   RotateCw, Target, CheckCheck, Minimize2
 } from 'lucide-react';
@@ -39,6 +41,12 @@ interface SvgaPropertiesPanelProps {
   onReplaceAsset: (file: File) => void;
   onResetTransform: () => void;
   onUpdateFrameRange?: (startFrame: number, endFrame: number) => void;
+  onMergeSelectedLayers?: () => void;
+  onMergeTwoLayers?: (sourceLayerId: string, targetLayerId: string, options?: { syncMotion?: boolean }) => void;
+  onUngroupMergedLayer?: (layerId: string) => void;
+  allLayers?: EditableLayer[];
+  onSyncLayerMotion?: (targetLayerId: string, referenceLayerId: string) => void;
+  onReorderLayer?: (layerId: string, direction: 'up' | 'down' | 'top' | 'bottom') => void;
   // Merged Group / Bundle Operations
   onTransformGroup?: (groupId: string, deltas: { dx?: number; dy?: number; scaleMultiplier?: number; rotationDelta?: number; opacityDelta?: number; setOpacity?: number }) => void;
   onUngroup?: (groupId: string) => void;
@@ -60,6 +68,12 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
   onReplaceAsset,
   onResetTransform,
   onUpdateFrameRange,
+  onMergeSelectedLayers,
+  onMergeTwoLayers,
+  onUngroupMergedLayer,
+  allLayers = [],
+  onSyncLayerMotion,
+  onReorderLayer,
   onTransformGroup,
   onUngroup,
   onDeleteGroup,
@@ -72,6 +86,10 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
   const [groupNudgeStep, setGroupNudgeStep] = useState<number>(5);
   const [bulkNudgeStep, setBulkNudgeStep] = useState<number>(10);
   const [bulkScaleSlider, setBulkScaleSlider] = useState<number>(100);
+  const [selectedMotionSourceId, setSelectedMotionSourceId] = useState<string>('');
+  const [checkedTargetLayerId, setCheckedTargetLayerId] = useState<string | null>(null);
+  const [pairSyncMotion, setPairSyncMotion] = useState<boolean>(true);
+  const [previewModalLayer, setPreviewModalLayer] = useState<EditableLayer | null>(null);
 
   const isMultiSelected = selectedLayerIds.length > 1;
 
@@ -139,6 +157,34 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Quick Merge Action Card for Multi-Selection */}
+        {onMergeSelectedLayers && (
+          <div className="bg-gradient-to-r from-purple-900/60 via-indigo-900/60 to-purple-950/60 border border-purple-500/40 rounded-2xl p-3.5 space-y-2.5 shadow-xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-xl bg-purple-500/25 border border-purple-400/40 text-purple-300 flex items-center justify-center">
+                  <Sparkles size={15} className="text-purple-300 animate-pulse" />
+                </div>
+                <div>
+                  <span className="text-xs font-black text-white">دمج الطبقات المحددة</span>
+                  <span className="text-[10px] text-purple-200/80 block">توحيد {selectedLayerIds.length} طبقات في Layer واحد ذكي</span>
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onMergeSelectedLayers}
+              className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-lg shadow-purple-600/30 transition-all cursor-pointer hover:scale-[1.02] active:scale-95 border border-purple-400/40"
+            >
+              <Layers size={14} />
+              <span>دمج {selectedLayerIds.length} طبقات في Layer واحد الآن</span>
+            </button>
+            <p className="text-[9.5px] text-purple-300/70 text-center">
+              ✓ يحافظ على كامل الفريمات والأنيميشن والأشكال ونقاء الصور دون أي تسطيح
+            </p>
+          </div>
+        )}
 
         {/* 1. Scale & Resizing Master Hub */}
         <div className="bg-slate-900/80 border border-white/10 rounded-2xl p-3.5 space-y-3 shadow-lg">
@@ -772,6 +818,137 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
         }}
       />
 
+      {/* Merged Layer Card if this layer is a composite merged layer */}
+      {layer.isMerged && (
+        <div className="bg-gradient-to-br from-purple-950/90 to-indigo-950/90 border border-purple-500/50 rounded-2xl p-3.5 space-y-3 shadow-xl">
+          <div className="flex items-center justify-between border-b border-purple-500/30 pb-2">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-xl bg-purple-500/30 text-purple-300 flex items-center justify-center border border-purple-400/40">
+                <Layers size={15} className="text-purple-300" />
+              </div>
+              <div>
+                <span className="text-xs font-black text-white block">طبقة مدمجة موحدة (Merged Layer)</span>
+                <span className="text-[10px] text-purple-300 font-mono">
+                  تحتوي على {layer.mergedLayersCount || layer.mergedLayers?.length || 0} طبقات فرعية
+                </span>
+              </div>
+            </div>
+            {onUngroupMergedLayer && (
+              <button
+                type="button"
+                onClick={() => onUngroupMergedLayer(layer.id)}
+                className="px-2.5 py-1 bg-purple-500/20 hover:bg-purple-600 text-purple-200 hover:text-white rounded-xl text-[10px] font-bold border border-purple-400/40 transition-all cursor-pointer flex items-center gap-1 shadow-sm active:scale-95"
+                title="فك دمج هذه الطبقة واسترجاع كافة الطبقات الفرعية الأصلية"
+              >
+                <span>فك الدمج (Ungroup)</span>
+              </button>
+            )}
+          </div>
+
+          <div className="text-[11px] text-purple-200/80 leading-relaxed bg-black/40 border border-purple-500/20 rounded-xl p-2.5 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-purple-100 flex items-center gap-1.5">
+                <Sparkles size={13} className="text-purple-400" />
+                <span>مزامنة الحركة (Motion Inheritance):</span>
+              </span>
+              <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                {layer.isMotionSynced ? '✓ حركة موحدة ونشطة' : '✓ حركة مدمجة'}
+              </span>
+            </div>
+            <p className="text-[10px] text-purple-300/80">
+              تتحرك الطبقات المدمجة ككتلة واحدة متناسقة، وتتبع الطبقات الثابتة مسار وحركة الطبقات المتحركة بدقة في كل الفريمات.
+            </p>
+
+            {onSyncLayerMotion && allLayers.length > 1 && (
+              <div className="pt-2 border-t border-purple-500/20 space-y-1.5">
+                <label className="text-[10px] font-bold text-purple-200 block">
+                  ربط وتوحيد الحركة مع طبقة أخرى:
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={selectedMotionSourceId}
+                    onChange={(e) => setSelectedMotionSourceId(e.target.value)}
+                    className="flex-1 bg-slate-900 border border-purple-500/40 rounded-xl px-2 py-1 text-[10px] text-white outline-none font-sans"
+                  >
+                    <option value="">اختر طبقة مرجعية للحركة...</option>
+                    {allLayers
+                      .filter(l => l.id !== layer.id)
+                      .map(l => (
+                        <option key={l.id} value={l.id}>
+                          {l.name} {l.keyframes && l.keyframes.length > 0 ? `(${l.keyframes.length} كي فريم)` : ''}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={!selectedMotionSourceId}
+                    onClick={() => {
+                      if (selectedMotionSourceId) {
+                        onSyncLayerMotion(layer.id, selectedMotionSourceId);
+                      }
+                    }}
+                    className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-[10px] font-bold rounded-xl transition-all shadow-sm active:scale-95 shrink-0"
+                  >
+                    مزامنة
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {layer.mergedLayers && layer.mergedLayers.length > 0 && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-purple-300 block">الطبقات المدمجة بالداخل:</span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const lw = transform.width || layer.initialBounds.width || 100;
+                      const lh = transform.height || layer.initialBounds.height || 100;
+                      onUpdateTransform({
+                        x: Math.round((project.width - lw) / 2),
+                        y: Math.round((project.height - lh) / 2)
+                      });
+                    }}
+                    className="px-2 py-0.5 bg-purple-500/20 hover:bg-purple-600 text-purple-200 hover:text-white rounded-lg text-[9px] font-bold transition-all cursor-pointer"
+                    title="توسيط الطبقة المدمجة في منتصف الكانفاس"
+                  >
+                    توسيط بالكانفاس
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onUpdateTransform({
+                        x: layer.initialBounds.x,
+                        y: layer.initialBounds.y,
+                        scaleX: 1.0,
+                        scaleY: 1.0,
+                        rotation: 0
+                      });
+                    }}
+                    className="px-2 py-0.5 bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white rounded-lg text-[9px] font-bold transition-all cursor-pointer"
+                    title="إعادة ضبط الموضع والحجم للحالة الأصلية"
+                  >
+                    إعادة ضبط
+                  </button>
+                </div>
+              </div>
+              <div className="max-h-28 overflow-y-auto space-y-1 custom-scrollbar">
+                {layer.mergedLayers.map((sub, idx) => (
+                  <div key={sub.id || idx} className="flex items-center justify-between text-[10px] px-2 py-1 bg-white/5 rounded-lg border border-white/5">
+                    <span className="text-slate-200 truncate">{sub.name}</span>
+                    <span className="text-[9px] font-mono text-purple-300 bg-purple-500/20 px-1 rounded">
+                      {sub.type}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Merged SVGA Bundle Controller Card if layer belongs to a merged SVGA group */}
       {layer.groupId && onTransformGroup && (
         <div className="bg-gradient-to-br from-indigo-950/80 to-purple-950/80 border border-indigo-500/40 rounded-2xl p-3.5 space-y-3 shadow-xl">
@@ -971,15 +1148,39 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
 
       {/* Layer Thumbnail & Asset Replace */}
       <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-3 flex items-center gap-3">
-        <div className="w-14 h-14 rounded-xl bg-black/50 border border-white/10 overflow-hidden flex items-center justify-center shrink-0">
+        <div 
+          onClick={() => {
+            if (layer.thumbnailUrl) setPreviewModalLayer(layer);
+          }}
+          className={`w-14 h-14 rounded-xl bg-black/50 border border-white/10 overflow-hidden flex items-center justify-center shrink-0 group/panelThumb relative transition-transform ${
+            layer.thumbnailUrl ? 'cursor-zoom-in hover:scale-105 active:scale-95' : ''
+          }`}
+          title={layer.thumbnailUrl ? 'انقر لعرض الصورة بالحجم الكامل' : undefined}
+        >
           {layer.thumbnailUrl ? (
-            <img src={layer.thumbnailUrl} alt={layer.name} className="w-full h-full object-contain p-1" />
+            <>
+              <img src={layer.thumbnailUrl} alt={layer.name} className="w-full h-full object-contain p-1" />
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/panelThumb:opacity-100 flex items-center justify-center transition-opacity">
+                <Maximize2 size={15} className="text-white drop-shadow" />
+              </div>
+            </>
           ) : (
             <ImageIcon size={20} className="text-slate-500" />
           )}
         </div>
         <div className="flex flex-col gap-1.5 flex-1 min-w-0">
-          <span className="text-xs font-bold text-white truncate">{layer.name}</span>
+          <div className="flex items-center justify-between gap-1">
+            <span className="text-xs font-bold text-white truncate">{layer.name}</span>
+            {layer.thumbnailUrl && (
+              <button
+                type="button"
+                onClick={() => setPreviewModalLayer(layer)}
+                className="text-[10px] text-indigo-400 hover:text-indigo-200 underline font-bold shrink-0 cursor-pointer"
+              >
+                معاينة كاملة
+              </button>
+            )}
+          </div>
           <button
             onClick={() => replaceInputRef.current?.click()}
             className="w-full py-1.5 px-2 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 hover:text-white rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
@@ -1013,6 +1214,79 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Layer Stacking / Z-Index Order Controls */}
+      {onReorderLayer && allLayers.length > 1 && (
+        <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Layers size={13} className="text-indigo-400" />
+              <span className="text-[11px] font-bold text-slate-200">ترتيب ومستوى الطبقة (Z-Index)</span>
+            </div>
+            {(() => {
+              const stackIdx = allLayers.findIndex(l => l.id === layer.id);
+              if (stackIdx === 0) {
+                return (
+                  <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    في المقدمة (أعلى طبقة)
+                  </span>
+                );
+              }
+              if (stackIdx === allLayers.length - 1) {
+                return (
+                  <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                    في الخلفية (أسفل طبقة)
+                  </span>
+                );
+              }
+              return (
+                <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-white/5 text-slate-400 border border-white/10">
+                  موضع {stackIdx + 1} من {allLayers.length}
+                </span>
+              );
+            })()}
+          </div>
+
+          <div className="grid grid-cols-4 gap-1.5">
+            <button
+              type="button"
+              onClick={() => onReorderLayer(layer.id, 'top')}
+              className="py-1.5 px-1 bg-white/5 hover:bg-indigo-600/30 hover:text-indigo-200 text-slate-300 rounded-xl text-[10px] font-bold border border-white/10 flex flex-col items-center gap-1 transition-all cursor-pointer shadow-sm active:scale-95"
+              title="إحضار لأعلى المقدمة لتكون فوق جميع الطبقات"
+            >
+              <ArrowUpToLine size={13} className="text-indigo-400" />
+              <span>أعلى المقدمة</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onReorderLayer(layer.id, 'up')}
+              className="py-1.5 px-1 bg-white/5 hover:bg-indigo-600/30 hover:text-indigo-200 text-slate-300 rounded-xl text-[10px] font-bold border border-white/10 flex flex-col items-center gap-1 transition-all cursor-pointer shadow-sm active:scale-95"
+              title="رفع للأمام خطوة واحدة فوق الطبقة التي تعلوها"
+            >
+              <ArrowUp size={13} className="text-indigo-400" />
+              <span>خطوة للأمام</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onReorderLayer(layer.id, 'down')}
+              className="py-1.5 px-1 bg-white/5 hover:bg-indigo-600/30 hover:text-indigo-200 text-slate-300 rounded-xl text-[10px] font-bold border border-white/10 flex flex-col items-center gap-1 transition-all cursor-pointer shadow-sm active:scale-95"
+              title="إنزال للخلف خطوة واحدة تحت الطبقة التي تليها"
+            >
+              <ArrowDown size={13} className="text-indigo-400" />
+              <span>خطوة للخلف</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onReorderLayer(layer.id, 'bottom')}
+              className="py-1.5 px-1 bg-white/5 hover:bg-indigo-600/30 hover:text-indigo-200 text-slate-300 rounded-xl text-[10px] font-bold border border-white/10 flex flex-col items-center gap-1 transition-all cursor-pointer shadow-sm active:scale-95"
+              title="إرسال لأسفل الخلفية لتكون تحت جميع الطبقات"
+            >
+              <ArrowDownToLine size={13} className="text-indigo-400" />
+              <span>أسفل الخلفية</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Position (X, Y) with Precision Nudge D-Pad */}
       <div className="space-y-2 bg-slate-900/40 p-2.5 rounded-2xl border border-white/5">
@@ -1277,6 +1551,179 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
         />
       </div>
 
+      {/* Interactive Checkmark Layer Pairing & Merge Hub (ربط ودمج طبقتين بعلامة الصح) */}
+      {allLayers.length > 1 && !layer.isMerged && (
+        <div className="bg-gradient-to-br from-indigo-950/80 via-purple-950/70 to-slate-900 border border-indigo-500/40 rounded-2xl p-3 space-y-2.5 text-xs shadow-xl">
+          <div className="flex items-center justify-between border-b border-indigo-500/20 pb-2">
+            <div className="flex items-center gap-1.5">
+              <div className="w-6 h-6 rounded-lg bg-indigo-500/30 text-indigo-300 flex items-center justify-center border border-indigo-400/40">
+                <Link2 size={13} />
+              </div>
+              <div>
+                <span className="font-bold text-white block text-xs">ربط ودمج مع طبقة أخرى (علامة صح ✓)</span>
+                <span className="text-[9px] text-indigo-300/80">ربط مستقل منفصل عن بقية الطبقات</span>
+              </div>
+            </div>
+            {layer.isMotionSynced && (
+              <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/20 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                حركة متزامنة ✓
+              </span>
+            )}
+          </div>
+
+          <p className="text-[10px] text-indigo-200/90 leading-relaxed">
+            اضغط على <span className="text-amber-300 font-bold">علامة الصح (✓)</span> أمام الطبقة التي تريد ربط هذه الطبقة بها لدمجهما معاً في طبقة واحدة مستقلة مع توريث الحركة:
+          </p>
+
+          {/* Interactive Checklist of other layers */}
+          <div className="space-y-1 max-h-44 overflow-y-auto custom-scrollbar p-1 bg-black/30 rounded-xl border border-white/10">
+            {allLayers
+              .filter(l => l.id !== layer.id)
+              .map(targetL => {
+                const isChecked = checkedTargetLayerId === targetL.id;
+                const hasMotion = targetL.keyframes && targetL.keyframes.length > 0;
+                return (
+                  <div
+                    key={targetL.id}
+                    onClick={() => setCheckedTargetLayerId(isChecked ? null : targetL.id)}
+                    className={`flex items-center justify-between p-2 rounded-xl border transition-all cursor-pointer ${
+                      isChecked
+                        ? 'bg-indigo-600/30 border-indigo-400 text-white shadow-md ring-1 ring-indigo-400/50'
+                        : 'bg-white/5 hover:bg-white/10 border-white/5 text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <button
+                        type="button"
+                        className={`p-0.5 rounded transition-colors ${
+                          isChecked ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'
+                        }`}
+                      >
+                        {isChecked ? (
+                          <CheckSquare size={15} className="text-indigo-400 fill-indigo-400/20" />
+                        ) : (
+                          <UncheckedSquare size={15} />
+                        )}
+                      </button>
+
+                      {/* Thumbnail preview */}
+                      <div 
+                        onClick={(e) => {
+                          if (targetL.thumbnailUrl) {
+                            e.stopPropagation();
+                            setPreviewModalLayer(targetL);
+                          }
+                        }}
+                        className={`w-8 h-8 rounded-lg bg-black/50 border border-white/10 overflow-hidden flex items-center justify-center shrink-0 relative group/targetThumb transition-transform ${
+                          targetL.thumbnailUrl ? 'cursor-zoom-in hover:scale-105 active:scale-95' : ''
+                        }`}
+                        title={targetL.thumbnailUrl ? 'انقر لعرض الصورة بالحجم الكامل' : undefined}
+                      >
+                        {targetL.thumbnailUrl ? (
+                          <>
+                            <img src={targetL.thumbnailUrl} alt={targetL.name} className="w-full h-full object-contain p-0.5" />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/targetThumb:opacity-100 flex items-center justify-center transition-opacity">
+                              <Maximize2 size={12} className="text-white drop-shadow" />
+                            </div>
+                          </>
+                        ) : (
+                          <Layers size={13} className="text-slate-400" />
+                        )}
+                      </div>
+
+                      <div className="min-w-0">
+                        <span className="font-bold text-[11px] truncate block max-w-[130px]">
+                          {targetL.name}
+                        </span>
+                        <span className="text-[9px] text-slate-400 font-mono">
+                          {targetL.type}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      {hasMotion ? (
+                        <span className="text-[9px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded">
+                          متحركة ({targetL.keyframes!.length} فريم)
+                        </span>
+                      ) : (
+                        <span className="text-[9px] text-slate-400 bg-white/5 px-1.5 py-0.5 rounded">
+                          ثابتة
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+
+          {/* Action Box when a target layer has been checkmarked */}
+          {checkedTargetLayerId && (() => {
+            const targetL = allLayers.find(l => l.id === checkedTargetLayerId);
+            if (!targetL) return null;
+
+            return (
+              <div className="bg-indigo-950/90 border border-indigo-500/50 rounded-xl p-2.5 space-y-2 animate-fadeIn shadow-lg">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="font-bold text-indigo-200">الربط الثنائي المستقل:</span>
+                  <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                    تم اختيار الطبقة المستهدفة ✓
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between text-xs bg-black/50 p-2 rounded-lg border border-indigo-500/30">
+                  <span className="text-white font-bold truncate max-w-[90px]">{layer.name}</span>
+                  <span className="text-indigo-400 font-black text-[11px]">⟷ سيتم دمجها مع ⟷</span>
+                  <span className="text-indigo-200 font-bold truncate max-w-[90px]">{targetL.name}</span>
+                </div>
+
+                {/* Motion Inheritance checkbox */}
+                <label className="flex items-center gap-2 text-[10px] text-indigo-200 cursor-pointer pt-0.5">
+                  <input
+                    type="checkbox"
+                    checked={pairSyncMotion}
+                    onChange={(e) => setPairSyncMotion(e.target.checked)}
+                    className="accent-indigo-500 rounded"
+                  />
+                  <span>توريث ومزامنة مسار الحركة تلقائياً (Motion Sync)</span>
+                </label>
+
+                <div className="flex flex-col gap-1.5 pt-1">
+                  {onMergeTwoLayers && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onMergeTwoLayers(layer.id, checkedTargetLayerId, { syncMotion: pairSyncMotion });
+                        setCheckedTargetLayerId(null);
+                      }}
+                      className="w-full py-2 bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-lg shadow-purple-600/30 transition-all cursor-pointer active:scale-95 border border-purple-400/40"
+                    >
+                      <Sparkles size={13} className="text-purple-200" />
+                      <span>دمج وتوحيد الطبقتين في طبقة واحدة مستقلة</span>
+                    </button>
+                  )}
+
+                  {onSyncLayerMotion && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSyncLayerMotion(layer.id, checkedTargetLayerId);
+                        setCheckedTargetLayerId(null);
+                      }}
+                      className="w-full py-1.5 bg-white/10 hover:bg-white/15 text-slate-200 rounded-xl text-[11px] font-bold border border-white/10 transition-all flex items-center justify-center gap-1 cursor-pointer"
+                      title="مزامنة الحركة وتتبع المسار فقط دون دمج الطبقتين في كائن واحد"
+                    >
+                      <Film size={12} className="text-indigo-400" />
+                      <span>تتبع ومحاكاة الحركة فقط (Motion Follow)</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
       {/* Timeline Active Frame Range Controls */}
       {onUpdateFrameRange && (
         <div className="bg-slate-900/90 border border-indigo-500/20 rounded-2xl p-3 space-y-2 text-xs">
@@ -1366,6 +1813,89 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Full Screen Image Preview Modal (لوحة الخصائص) */}
+      {previewModalLayer && previewModalLayer.thumbnailUrl && (
+        <div 
+          className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-center justify-center p-4 sm:p-8 animate-fadeIn select-none"
+          onClick={() => setPreviewModalLayer(null)}
+        >
+          <div 
+            className="bg-slate-900/95 border border-indigo-500/40 rounded-3xl p-5 max-w-4xl w-full max-h-[92vh] flex flex-col space-y-4 shadow-2xl ring-1 ring-white/15"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-white/10 pb-3 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-600/30 text-indigo-300 flex items-center justify-center border border-indigo-500/40">
+                  <ImageIcon size={20} className="text-indigo-400" />
+                </div>
+                <div>
+                  <h3 className="text-white font-black text-base flex items-center gap-2">
+                    <span>{previewModalLayer.name}</span>
+                    <span className="text-xs font-mono font-normal text-indigo-300 bg-indigo-500/20 px-2.5 py-0.5 rounded-full border border-indigo-500/30">
+                      {previewModalLayer.type}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400 font-mono mt-0.5">
+                    الأبعاد: {Math.round(previewModalLayer.transform.width || previewModalLayer.initialBounds.width)} × {Math.round(previewModalLayer.transform.height || previewModalLayer.initialBounds.height)} بكسل
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <a
+                  href={previewModalLayer.thumbnailUrl}
+                  download={`${previewModalLayer.name || 'layer'}.png`}
+                  className="px-3.5 py-2 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white rounded-xl text-xs font-bold transition-all border border-indigo-500/30 flex items-center gap-1.5 cursor-pointer"
+                  title="تحميل الصورة على جهازك"
+                >
+                  <span>تحميل الصورة</span>
+                </a>
+                <button
+                  onClick={() => setPreviewModalLayer(null)}
+                  className="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-xl cursor-pointer transition-colors"
+                  title="إغلاق"
+                >
+                  <Minimize2 size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* High-Resolution Large Image Canvas */}
+            <div 
+              className="flex-1 min-h-[300px] max-h-[65vh] rounded-2xl border border-white/10 overflow-hidden flex items-center justify-center bg-[#0d121f] relative p-4 shadow-inner"
+              style={{
+                backgroundImage: `radial-gradient(#2d3748 18%, transparent 19%), radial-gradient(#2d3748 18%, transparent 19%)`,
+                backgroundSize: '16px 16px',
+                backgroundPosition: '0 0, 8px 8px'
+              }}
+            >
+              <img 
+                src={previewModalLayer.thumbnailUrl} 
+                alt={previewModalLayer.name}
+                className="max-w-full max-h-[60vh] object-contain drop-shadow-2xl transition-transform"
+              />
+            </div>
+
+            {/* Modal Footer Info */}
+            <div className="flex items-center justify-between pt-2 border-t border-white/10 text-xs text-slate-400 shrink-0">
+              <div className="flex items-center gap-4">
+                <span>الموضع: X: {previewModalLayer.transform.x} , Y: {previewModalLayer.transform.y}</span>
+                <span>الشفافية: {previewModalLayer.transform.opacity}%</span>
+                <span>الزاوية: {previewModalLayer.transform.rotation}°</span>
+              </div>
+              <button
+                onClick={() => setPreviewModalLayer(null)}
+                className="px-5 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl font-bold cursor-pointer transition-colors"
+              >
+                إغلاق
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -4,7 +4,7 @@ import {
 } from './types';
 import { parseSvgaToProject, createNewSvgaProject } from './svgaParserEngine';
 import { exportEditedSvga } from './svgaExportEngine';
-import { mergeSvgaFileIntoProject, transformLayerGroup } from './svgaMergeEngine';
+import { mergeSvgaFileIntoProject, transformLayerGroup, mergeLayersIntoSingleLayer, ungroupMergedLayer, syncLayerMotionWithReference } from './svgaMergeEngine';
 import { 
   transformSelectedLayers, 
   reorderSelectedLayers, 
@@ -209,7 +209,6 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       return () => clearTimeout(timer);
     }
   }, [successToast]);
-
   // Layer Update Handlers
   const handleUpdateLayerTransform = useCallback((layerId: string, deltaTransform: Partial<EditableLayer['transform']>) => {
     setLayers(prev => prev.map(l => {
@@ -498,13 +497,19 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         return updatedLayers;
       }
 
-      const target = prev.find(l => l.id === layerId);
-      if (!target) return prev;
+      const targetIndex = prev.findIndex(l => l.id === layerId);
+      const target = prev[targetIndex];
+      if (!target || targetIndex === -1) return prev;
 
       const newId = `layer_${Date.now()}_copy`;
       const cloned: EditableLayer = JSON.parse(JSON.stringify(target));
       cloned.id = newId;
+      cloned.locked = false;
       cloned.name = `${target.name} (نسخة ${mirror ? 'معكوسة' : ''})`;
+      cloned.isDuplicate = true;
+      cloned.sourceLayerId = target.id;
+      cloned.isMotionSynced = false;
+      cloned.motionReferenceLayerId = undefined;
       
       if (mirror && project) {
         // Mirror horizontally across the canvas center
@@ -534,7 +539,23 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         }
       }
 
-      const updated = [cloned, ...prev];
+      // Configure duplicated layer's own isolated snapshot
+      cloned.originalInitialBounds = {
+        x: cloned.transform.x,
+        y: cloned.transform.y,
+        width: cloned.transform.width,
+        height: cloned.transform.height
+      };
+      cloned.initialBounds = { ...cloned.originalInitialBounds };
+      cloned.originalTransform = JSON.parse(JSON.stringify(cloned.transform));
+      cloned.originalSpriteFrames = JSON.parse(JSON.stringify(cloned.spriteRef?.frames || []));
+      cloned.originalKeyframes = cloned.keyframes ? JSON.parse(JSON.stringify(cloned.keyframes)) : undefined;
+
+      const updated = [
+        ...prev.slice(0, targetIndex),
+        cloned,
+        ...prev.slice(targetIndex)
+      ];
       setSelectedLayerId(newId);
       setSelectedLayerIds([newId]);
       pushHistory(updated);
@@ -577,33 +598,77 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     });
   }, [pushHistory]);
 
-  const handleResetTransform = useCallback(() => {
-    if (!selectedLayerId) return;
+  const handleResetTransform = useCallback((layerId?: string) => {
+    const targetIds = layerId 
+      ? [layerId] 
+      : selectedLayerIds.length > 1 
+      ? selectedLayerIds 
+      : selectedLayerId ? [selectedLayerId] : [];
+
+    if (targetIds.length === 0) return;
+
     setLayers(prev => {
+      let targetNames: string[] = [];
       const updated = prev.map(l => {
-        if (l.id === selectedLayerId) {
+        if (targetIds.includes(l.id)) {
+          targetNames.push(l.name);
+          
+          // Absolute original native coordinates (completely independent of duplicate or merged copies)
+          const origX = l.originalInitialBounds?.x ?? l.initialBounds.x;
+          const origY = l.originalInitialBounds?.y ?? l.initialBounds.y;
+          const origW = l.originalInitialBounds?.width ?? l.initialBounds.width;
+          const origH = l.originalInitialBounds?.height ?? l.initialBounds.height;
+
+          // Restore native original sprite frames (purging all cross-layer synced matrix transforms)
+          let restoredSpriteRef = l.spriteRef;
+          if (l.originalSpriteFrames && l.originalSpriteFrames.length > 0) {
+            restoredSpriteRef = {
+              ...l.spriteRef,
+              frames: JSON.parse(JSON.stringify(l.originalSpriteFrames))
+            };
+          }
+
+          // Restore native keyframes if layer was originally animated, otherwise clear keyframes
+          const restoredKeyframes = l.originalKeyframes && l.originalKeyframes.length > 0
+            ? JSON.parse(JSON.stringify(l.originalKeyframes))
+            : undefined;
+
           return {
             ...l,
+            isMotionSynced: false,
+            motionReferenceLayerId: undefined,
+            spriteRef: restoredSpriteRef,
+            initialBounds: {
+              x: origX,
+              y: origY,
+              width: origW,
+              height: origH
+            },
             transform: {
               ...l.transform,
-              x: l.initialBounds.x,
-              y: l.initialBounds.y,
-              width: l.initialBounds.width,
-              height: l.initialBounds.height,
+              x: origX,
+              y: origY,
+              width: origW,
+              height: origH,
               scaleX: 1,
               scaleY: 1,
               rotation: 0,
               opacity: 100
-            }
+            },
+            keyframes: restoredKeyframes
           };
         }
         return l;
       });
       pushHistory(updated);
-      setSuccessToast('تمت استعادة الإحداثيات الأصلية للطبقة');
+      if (targetIds.length === 1 && targetNames[0]) {
+        setSuccessToast(`تمت استعادة الطبقة "${targetNames[0]}" لمكانها الأصلي وتجريدها من أي ارتباط بنجاح`);
+      } else {
+        setSuccessToast(`تمت استعادة ${targetIds.length} طبقات إلى مواضعها الأصلية بنجاح`);
+      }
       return updated;
     });
-  }, [selectedLayerId, pushHistory]);
+  }, [selectedLayerId, selectedLayerIds, pushHistory]);
 
   const handleReplaceAsset = useCallback((file: File) => {
     if (!selectedLayerId || !project) return;
@@ -764,6 +829,188 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       setIsLoading(false);
     }
   }, [project, layers, pushHistory, loadSvgaFile]);
+
+  const [isMergingLayers, setIsMergingLayers] = useState(false);
+
+  // Merge All Layers into a single Layer
+  const handleMergeAllLayers = useCallback(async () => {
+    if (!project) return;
+    if (layers.length < 2) {
+      if (layers.length === 1 && layers[0].isMerged) {
+        setSuccessToast('تم دمج جميع الطبقات مسبقاً في Layer واحد');
+        return;
+      }
+      if (layers.length === 0) {
+        setErrorMessage('لا توجد طبقات متاحة للدمج');
+        return;
+      }
+    }
+
+    setIsMergingLayers(true);
+    try {
+      const { updatedLayers, mergedLayer, newImagesMap } = await mergeLayersIntoSingleLayer(
+        layers,
+        layers,
+        project,
+        { isAll: true }
+      );
+
+      if (newImagesMap && Object.keys(newImagesMap).length > 0) {
+        setProject(prev => prev ? {
+          ...prev,
+          imagesMap: { ...prev.imagesMap, ...newImagesMap }
+        } : prev);
+      }
+
+      setLayers(updatedLayers);
+      setSelectedLayerId(mergedLayer.id);
+      setSelectedLayerIds([mergedLayer.id]);
+      pushHistory(updatedLayers);
+      setSuccessToast(`تم دمج جميع الطبقات (${mergedLayer.mergedLayersCount || layers.length} طبقة) بنجاح في Layer واحد!`);
+    } catch (err: any) {
+      console.error("Failed to merge all layers:", err);
+      setErrorMessage(err?.message || 'حدث خطأ أثناء دمج الطبقات');
+    } finally {
+      setIsMergingLayers(false);
+    }
+  }, [project, layers, pushHistory]);
+
+  // Merge Selected Layers into a single Layer
+  const handleMergeSelectedLayers = useCallback(async () => {
+    if (!project) return;
+    const targetLayers = layers.filter(l => selectedLayerIds.includes(l.id));
+    if (targetLayers.length < 2) {
+      setErrorMessage('يرجى تحديد طبقتين على الأقل للدمج');
+      return;
+    }
+
+    setIsMergingLayers(true);
+    try {
+      const { updatedLayers, mergedLayer, newImagesMap } = await mergeLayersIntoSingleLayer(
+        targetLayers,
+        layers,
+        project,
+        { isAll: false }
+      );
+
+      if (newImagesMap && Object.keys(newImagesMap).length > 0) {
+        setProject(prev => prev ? {
+          ...prev,
+          imagesMap: { ...prev.imagesMap, ...newImagesMap }
+        } : prev);
+      }
+
+      setLayers(updatedLayers);
+      setSelectedLayerId(mergedLayer.id);
+      setSelectedLayerIds([mergedLayer.id]);
+      pushHistory(updatedLayers);
+      setSuccessToast(`تم دمج ${targetLayers.length} طبقات محددة بنجاح في Layer واحد!`);
+    } catch (err: any) {
+      console.error("Failed to merge selected layers:", err);
+      setErrorMessage(err?.message || 'حدث خطأ أثناء دمج الطبقات المحددة');
+    } finally {
+      setIsMergingLayers(false);
+    }
+  }, [project, layers, selectedLayerIds, pushHistory]);
+
+  // Merge Two Specific Layers together (with motion synchronization and isolated separation)
+  const handleMergeTwoLayers = useCallback(async (
+    sourceLayerId: string, 
+    targetLayerId: string, 
+    options: { syncMotion?: boolean } = {}
+  ) => {
+    if (!project) return;
+    const l1 = layers.find(l => l.id === sourceLayerId);
+    const l2 = layers.find(l => l.id === targetLayerId);
+    if (!l1 || !l2) {
+      setErrorMessage('الطبقات المحددة للربط والدمج غير موجودة');
+      return;
+    }
+
+    setIsMergingLayers(true);
+    try {
+      let updatedSource = { ...l1 };
+      if (options.syncMotion !== false) {
+        const { syncLayerMotionWithReference } = await import('./svgaMergeEngine');
+        updatedSource = syncLayerMotionWithReference(l1, l2, project.totalFrames || 60);
+      } else {
+        updatedSource.isMotionSynced = true;
+        updatedSource.motionReferenceLayerId = l2.id;
+      }
+
+      const updatedLayers = layers.map(l => l.id === sourceLayerId ? updatedSource : l);
+      
+      setLayers(updatedLayers);
+      setSelectedLayerId(updatedSource.id);
+      setSelectedLayerIds([updatedSource.id, l2.id]);
+      pushHistory(updatedLayers);
+      
+      setSuccessToast(`تم ربط حركة "${l1.name}" لتتبع "${l2.name}" بنجاح!`);
+    } catch (err: any) {
+      console.error("Failed to merge two layers:", err);
+      setErrorMessage(err?.message || 'حدث خطأ أثناء ربط الطبقتين');
+    } finally {
+      setIsMergingLayers(false);
+    }
+  }, [project, layers, pushHistory]);
+
+  // Ungroup a merged layer back into its original sublayers
+  const handleUngroupMergedLayer = useCallback((layerId: string) => {
+    const target = layers.find(l => l.id === layerId);
+    if (!target || !target.isMerged) return;
+
+    try {
+      const updatedLayers = ungroupMergedLayer(layerId, layers);
+      setLayers(updatedLayers);
+      const firstUnbundledId = updatedLayers.find(l => !layers.some(old => old.id === l.id))?.id || null;
+      setSelectedLayerId(firstUnbundledId);
+      setSelectedLayerIds(firstUnbundledId ? [firstUnbundledId] : []);
+      pushHistory(updatedLayers);
+      setSuccessToast(`تم فك دمج الطبقة واسترجاع ${target.mergedLayersCount || target.mergedLayers?.length || ''} طبقات منفصلة بنجاح`);
+    } catch (err: any) {
+      console.error("Failed to ungroup merged layer:", err);
+      setErrorMessage('حدث خطأ أثناء فك الدمج');
+    }
+  }, [layers, pushHistory]);
+
+  // Synchronize a layer's motion with a reference layer
+  const handleSyncLayerMotion = useCallback((targetLayerId: string, referenceLayerId: string) => {
+    if (!project) return;
+    const targetLayer = layers.find(l => l.id === targetLayerId);
+    const referenceLayer = layers.find(l => l.id === referenceLayerId);
+    if (!targetLayer || !referenceLayer) {
+      setErrorMessage('الطبقة المحددة غير موجودة');
+      return;
+    }
+
+    try {
+      const totalFrames = project.totalFrames || 60;
+      let updatedLayer: EditableLayer;
+
+      if (targetLayer.isMerged && targetLayer.mergedLayers) {
+        const syncedSublayers = targetLayer.mergedLayers.map(sub => 
+          syncLayerMotionWithReference(sub, referenceLayer, totalFrames)
+        );
+        updatedLayer = {
+          ...targetLayer,
+          mergedLayers: syncedSublayers,
+          isMotionSynced: true,
+          motionReferenceLayerId: referenceLayer.id,
+          keyframes: referenceLayer.keyframes ? JSON.parse(JSON.stringify(referenceLayer.keyframes)) : undefined
+        };
+      } else {
+        updatedLayer = syncLayerMotionWithReference(targetLayer, referenceLayer, totalFrames);
+      }
+
+      const updatedLayers = layers.map(l => l.id === targetLayerId ? updatedLayer : l);
+      setLayers(updatedLayers);
+      pushHistory(updatedLayers);
+      setSuccessToast(`تمت مزامنة حركة "${targetLayer.name}" لتتبع حركة "${referenceLayer.name}" بنجاح!`);
+    } catch (err: any) {
+      console.error("Failed to sync layer motion:", err);
+      setErrorMessage('حدث خطأ أثناء مزامنة الحركة');
+    }
+  }, [project, layers, pushHistory]);
 
   // Group / Bundle Collective Transformations
   const handleTransformGroup = useCallback((
@@ -1171,6 +1418,18 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             </button>
           )}
 
+          {project && layers.length > 1 && (
+            <button
+              onClick={handleMergeAllLayers}
+              disabled={isMergingLayers}
+              className="flex items-center gap-1.5 text-xs font-bold text-purple-200 hover:text-white bg-purple-600/30 hover:bg-purple-600/50 px-3.5 py-1.5 rounded-xl border border-purple-500/40 transition-all cursor-pointer shadow-sm hover:scale-105 disabled:opacity-50"
+              title="دمج كافة Layers في Layer واحد موحد مع الحفاظ على الحركة"
+            >
+              <Layers size={13} className="text-purple-300" />
+              <span>دمج الطبقات</span>
+            </button>
+          )}
+
           {project && (
             <button
               onClick={() => setShowExportModal(true)}
@@ -1200,6 +1459,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               onToggleAllVisibility={handleToggleAllVisibility}
               onToggleLock={handleToggleLock}
               onToggleAllLock={handleToggleAllLock}
+              onResetLayerTransform={handleResetTransform}
               onReorderLayer={handleReorderLayer}
               onMoveLayer={handleMoveLayer}
               onDuplicateLayer={handleDuplicateLayer}
@@ -1209,6 +1469,11 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               onAddShapeLayer={handleAddShapeLayer}
               onMergeSvga={() => mergeFileInputRef.current?.click()}
               onOpenAudioStudio={() => setShowAudioStudioModal(true)}
+              onMergeAllLayers={handleMergeAllLayers}
+              onMergeSelectedLayers={handleMergeSelectedLayers}
+              onMergeTwoLayers={handleMergeTwoLayers}
+              onUngroupLayer={handleUngroupMergedLayer}
+              isMerging={isMergingLayers}
             />
           </aside>
 
@@ -1279,6 +1544,12 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               onReplaceAsset={handleReplaceAsset}
               onResetTransform={handleResetTransform}
               onUpdateFrameRange={handleUpdateFrameRange}
+              onMergeSelectedLayers={handleMergeSelectedLayers}
+              onMergeTwoLayers={handleMergeTwoLayers}
+              onUngroupMergedLayer={handleUngroupMergedLayer}
+              allLayers={layers}
+              onSyncLayerMotion={handleSyncLayerMotion}
+              onReorderLayer={handleReorderLayer}
               onTransformGroup={handleTransformGroup}
               onUngroup={handleUngroup}
               onDeleteGroup={handleDeleteGroup}

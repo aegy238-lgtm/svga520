@@ -127,11 +127,16 @@ export async function parseSvgaToProject(file: File): Promise<{
   };
 
   // Build Editable Layers from Sprites
+  // Note: In SVGA Protobuf, sprites array is ordered 0 (background) to N-1 (foreground).
+  // In graphic editors (Photoshop / After Effects / Figma), layers[0] represents the TOP-most (foreground) layer.
+  // We reverse the array so layers[0] is at the top of the layer stack and stays in front.
   const layers: EditableLayer[] = [];
-  const sprites = movie.sprites || [];
+  const rawSprites = movie.sprites || [];
+  const sprites = [...rawSprites].reverse();
 
   sprites.forEach((sprite: any, idx: number) => {
-    const imageKey = sprite.imageKey || `layer_${idx}`;
+    const originalIndex = rawSprites.length - 1 - idx;
+    const imageKey = sprite.imageKey || `layer_${originalIndex}`;
     const frames = sprite.frames || [];
     const imgDims = imageDimensions[imageKey] || { width: 100, height: 100 };
     
@@ -208,8 +213,8 @@ export async function parseSvgaToProject(file: File): Promise<{
     const layerName = sprite.imageKey ? sprite.imageKey : `Layer_${idx + 1}`;
 
     layers.push({
-      id: `layer_${idx}_${imageKey}`,
-      originalIndex: idx,
+      id: `layer_${originalIndex}_${imageKey}`,
+      originalIndex,
       imageKey,
       name: layerName,
       type: layerType,
@@ -232,6 +237,23 @@ export async function parseSvgaToProject(file: File): Promise<{
         width: initialW,
         height: initialH
       },
+      originalInitialBounds: {
+        x: initialX,
+        y: initialY,
+        width: initialW,
+        height: initialH
+      },
+      originalTransform: {
+        x: initialX,
+        y: initialY,
+        width: initialW,
+        height: initialH,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        opacity: 100
+      },
+      originalSpriteFrames: frames ? JSON.parse(JSON.stringify(frames)) : undefined,
       aspectRatioLocked: true,
       spriteRef: sprite,
       matteKey: sprite.matteKey,

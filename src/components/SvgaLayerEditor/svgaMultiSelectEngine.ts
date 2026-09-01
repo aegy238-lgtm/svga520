@@ -288,7 +288,12 @@ export function duplicateSelectedLayers(
 
       const cloned: EditableLayer = JSON.parse(JSON.stringify(layer));
       cloned.id = newId;
+      cloned.locked = false;
       cloned.name = `${layer.name} (نسخة ${mirror ? 'معكوسة' : ''})`;
+      cloned.isDuplicate = true;
+      cloned.sourceLayerId = layer.id;
+      cloned.isMotionSynced = false;
+      cloned.motionReferenceLayerId = undefined;
 
       if (mirror) {
         cloned.transform.x = canvasWidth - layer.transform.x;
@@ -313,6 +318,18 @@ export function duplicateSelectedLayers(
           });
         }
       }
+
+      // Initialize cloned layer's own isolated snapshot
+      cloned.originalInitialBounds = {
+        x: cloned.transform.x,
+        y: cloned.transform.y,
+        width: cloned.transform.width,
+        height: cloned.transform.height
+      };
+      cloned.initialBounds = { ...cloned.originalInitialBounds };
+      cloned.originalTransform = JSON.parse(JSON.stringify(cloned.transform));
+      cloned.originalSpriteFrames = JSON.parse(JSON.stringify(cloned.spriteRef?.frames || []));
+      cloned.originalKeyframes = cloned.keyframes ? JSON.parse(JSON.stringify(cloned.keyframes)) : undefined;
 
       clonedLayers.push(cloned);
     }
