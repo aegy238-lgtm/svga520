@@ -4,12 +4,13 @@ import { db, storage } from '../lib/firebase';
 import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, query, orderBy, Timestamp, setDoc, getDoc, limit } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { StoreManager } from './StoreManager';
-import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, BadgeCheck, Wifi, Smartphone, Store, UserPlus, Lock, Unlock, Shield, ShieldPlus, ShieldOff, GitBranch, Download } from 'lucide-react';
+import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, BadgeCheck, Wifi, Smartphone, Store, UserPlus, Lock, Unlock, Shield, ShieldPlus, ShieldOff, GitBranch, Download, ShieldCheck } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { logActivity } from '../utils/logger';
 import { AccountVersionsTab } from './admin/AccountVersionsTab';
+import { FeatureAccessControlTab } from './admin/FeatureAccessControlTab';
 
 // Secondary app for creating users without logging out admin
 const secondaryApp = initializeApp(firebaseConfig, 'SecondaryApp');
@@ -23,7 +24,7 @@ interface AdminPanelProps {
 const EXPORT_FORMATS = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP 1.0.5', 'VAP (MP4)', 'SVGA → YYEVA'];
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'store' | 'keys' | 'assets' | 'settings' | 'records' | 'account_versions'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'store' | 'keys' | 'assets' | 'settings' | 'records' | 'account_versions' | 'features_access'>('users');
   const [dropdownState, setDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
   const [subDropdownState, setSubDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -59,6 +60,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
 
   const TABS = [
     { id: 'users', label: 'المستخدمين', icon: <Users /> },
+    { id: 'features_access', label: 'تحديد الوظائف', icon: <ShieldCheck /> },
     { id: 'store', label: 'المتجر', icon: <Store /> },
     { id: 'keys', label: 'الاشتراكات', icon: <Key /> },
     { id: 'assets', label: 'الوسائط', icon: <ImageIcon /> },
@@ -603,6 +605,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
             </div>
           ) : (
             <>
+              {activeTab === 'features_access' && <FeatureAccessControlTab />}
               {activeTab === 'store' && <StoreManager />}
               {activeTab === 'account_versions' && (
                 <AccountVersionsTab 

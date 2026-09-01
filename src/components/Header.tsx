@@ -127,6 +127,29 @@ const categories: CategoryDefinition[] = [
   }
 ];
 
+const TOOL_FEATURE_MAP: Record<string, string> = {
+  'svga-layer-editor': 'svgaLayerEditor',
+  'svga-compressor': 'svgaBatchCompressor',
+  'svga': 'svga',
+  'svga-ex': 'svgaEx',
+  'multi-svga': 'multiSvga',
+  'image-converter': 'imageConverter',
+  'universal': 'universalConverter',
+  'ai-video-matting': 'aiVideoMatting',
+  'name-3d': 'name3DEditor',
+  'image-enhancer': 'imageEnhancer',
+  'image-processor': 'imageProcessor',
+  'image-editor': 'imageEditor',
+  'image-matcher': 'imageMatcher',
+  'audio-extractor': 'audioExtractor',
+  'svga-batch-compress': 'svgaBatchCompressor',
+  'batch-image-processor': 'batchImageProcessor',
+  'batch': 'batchCompress',
+  'cropper': 'batchCropper',
+  'converter': 'videoConverter',
+  'store': 'store'
+};
+
 export const Header: React.FC<HeaderProps> = (props) => {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -169,7 +192,23 @@ export const Header: React.FC<HeaderProps> = (props) => {
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const allTools = useMemo(() => categories.flatMap(c => c.tools), []);
+  // Feature Access Control check
+  const isFeatureAllowed = (toolId: string) => {
+    if (!props.currentUser) return true;
+    if (props.currentUser.allFeaturesEnabled !== false) return true;
+    const allowed = props.currentUser.allowedFeatures || [];
+    const featureKey = TOOL_FEATURE_MAP[toolId] || toolId;
+    return allowed.includes(featureKey);
+  };
+
+  const visibleCategories = useMemo(() => {
+    return categories.map(cat => ({
+      ...cat,
+      tools: cat.tools.filter(t => isFeatureAllowed(t.id))
+    })).filter(cat => cat.tools.length > 0);
+  }, [props.currentUser]);
+
+  const allTools = useMemo(() => visibleCategories.flatMap(c => c.tools), [visibleCategories]);
   const filteredTools = useMemo(() => {
     if (!searchQuery.trim()) return [];
     const query = searchQuery.toLowerCase();
@@ -546,7 +585,7 @@ export const Header: React.FC<HeaderProps> = (props) => {
               </div>
 
               <div className="p-4 flex flex-col gap-6 pt-6">
-                {categories.map((category) => (
+                {visibleCategories.map((category) => (
                   <div key={category.id} className="flex flex-col gap-3">
                     <div className="flex items-center gap-2 px-2 text-indigo-400">
                       {category.icon}

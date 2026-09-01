@@ -85,41 +85,49 @@ export const Uploader: React.FC<UploaderProps> = ({ onUpload, isUploading, onCon
                <span className="text-xs text-slate-300 font-bold uppercase tracking-widest">SVGA 1.0 / 2.0</span>
             </div>
             
-            <button 
-              onClick={(e) => { e.stopPropagation(); onConverterOpen?.(); }}
-              className="flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-b from-sky-500/20 to-sky-600/10 hover:from-sky-400/30 hover:to-sky-500/20 rounded-2xl border-t border-sky-400/30 border-b-4 border-b-sky-900/50 shadow-lg hover:shadow-[0_10px_20px_rgba(14,165,233,0.2)] hover:-translate-y-1 active:translate-y-1 active:border-b-0 transition-all group/btn"
-              title="محول الفيديو المباشر"
-            >
-               <Zap className="w-5 h-5 text-sky-400 group-hover/btn:scale-110 transition-transform drop-shadow-md" />
-               <span className="text-xs text-sky-300 font-bold uppercase tracking-wide drop-shadow-sm whitespace-nowrap">محول الفيديو المباشر</span>
-            </button>
+            {onConverterOpen && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onConverterOpen(); }}
+                className="flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-b from-sky-500/20 to-sky-600/10 hover:from-sky-400/30 hover:to-sky-500/20 rounded-2xl border-t border-sky-400/30 border-b-4 border-b-sky-900/50 shadow-lg hover:shadow-[0_10px_20px_rgba(14,165,233,0.2)] hover:-translate-y-1 active:translate-y-1 active:border-b-0 transition-all group/btn"
+                title="محول الفيديو المباشر"
+              >
+                 <Zap className="w-5 h-5 text-sky-400 group-hover/btn:scale-110 transition-transform drop-shadow-md" />
+                 <span className="text-xs text-sky-300 font-bold uppercase tracking-wide drop-shadow-sm whitespace-nowrap">محول الفيديو المباشر</span>
+              </button>
+            )}
 
-            <button 
-              onClick={(e) => { e.stopPropagation(); onMultiSvgaOpen?.(); }}
-              className="flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-b from-indigo-500/20 to-indigo-600/10 hover:from-indigo-400/30 hover:to-indigo-500/20 rounded-2xl border-t border-indigo-400/30 border-b-4 border-b-indigo-900/50 shadow-lg hover:shadow-[0_10px_20px_rgba(99,102,241,0.2)] hover:-translate-y-1 active:translate-y-1 active:border-b-0 transition-all group/btn"
-              title="معاينة متعددة"
-            >
-               <LayoutGrid className="w-5 h-5 text-indigo-400 group-hover/btn:scale-110 transition-transform drop-shadow-md" />
-               <span className="text-xs text-indigo-300 font-bold uppercase tracking-wide drop-shadow-sm whitespace-nowrap">معاينة متعددة</span>
-            </button>
+            {onMultiSvgaOpen && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onMultiSvgaOpen(); }}
+                className="flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-b from-indigo-500/20 to-indigo-600/10 hover:from-indigo-400/30 hover:to-indigo-500/20 rounded-2xl border-t border-indigo-400/30 border-b-4 border-b-indigo-900/50 shadow-lg hover:shadow-[0_10px_20px_rgba(99,102,241,0.2)] hover:-translate-y-1 active:translate-y-1 active:border-b-0 transition-all group/btn"
+                title="معاينة متعددة"
+              >
+                 <LayoutGrid className="w-5 h-5 text-indigo-400 group-hover/btn:scale-110 transition-transform drop-shadow-md" />
+                 <span className="text-xs text-indigo-300 font-bold uppercase tracking-wide drop-shadow-sm whitespace-nowrap">معاينة متعددة</span>
+              </button>
+            )}
 
-            <button 
-              onClick={(e) => { e.stopPropagation(); onBatchImageOpen?.(); }}
-              className="flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-b from-emerald-500/20 to-emerald-600/10 hover:from-emerald-400/30 hover:to-emerald-500/20 rounded-2xl border-t border-emerald-400/30 border-b-4 border-b-emerald-900/50 shadow-lg hover:shadow-[0_10px_20px_rgba(16,185,129,0.2)] hover:-translate-y-1 active:translate-y-1 active:border-b-0 transition-all group/btn"
-              title="المحول الجماعي للصور"
-            >
-               <Images className="w-5 h-5 text-emerald-400 group-hover/btn:scale-110 transition-transform drop-shadow-md" />
-               <span className="text-xs text-emerald-300 font-bold uppercase tracking-wide drop-shadow-sm whitespace-nowrap">المحول الجماعي للصور</span>
-            </button>
+            {onBatchImageOpen && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onBatchImageOpen(); }}
+                className="flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-b from-emerald-500/20 to-emerald-600/10 hover:from-emerald-400/30 hover:to-emerald-500/20 rounded-2xl border-t border-emerald-400/30 border-b-4 border-b-emerald-900/50 shadow-lg hover:shadow-[0_10px_20px_rgba(16,185,129,0.2)] hover:-translate-y-1 active:translate-y-1 active:border-b-0 transition-all group/btn"
+                title="المحول الجماعي للصور"
+              >
+                 <Images className="w-5 h-5 text-emerald-400 group-hover/btn:scale-110 transition-transform drop-shadow-md" />
+                 <span className="text-xs text-emerald-300 font-bold uppercase tracking-wide drop-shadow-sm whitespace-nowrap">المحول الجماعي للصور</span>
+              </button>
+            )}
 
-            <button 
-              onClick={(e) => { e.stopPropagation(); onPagConverterOpen?.(); }}
-              className="flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-b from-purple-500/20 to-purple-600/10 hover:from-purple-400/30 hover:to-purple-500/20 rounded-2xl border-t border-purple-400/30 border-b-4 border-b-purple-900/50 shadow-lg hover:shadow-[0_10px_20px_rgba(168,85,247,0.2)] hover:-translate-y-1 active:translate-y-1 active:border-b-0 transition-all group/btn"
-              title="محول PAG إلى SVGA"
-            >
-               <Layers className="w-5 h-5 text-purple-400 group-hover/btn:scale-110 transition-transform drop-shadow-md" />
-               <span className="text-xs text-purple-300 font-bold uppercase tracking-wide drop-shadow-sm whitespace-nowrap">محول PAG إلى SVGA</span>
-            </button>
+            {onPagConverterOpen && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onPagConverterOpen(); }}
+                className="flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-b from-purple-500/20 to-purple-600/10 hover:from-purple-400/30 hover:to-purple-500/20 rounded-2xl border-t border-purple-400/30 border-b-4 border-b-purple-900/50 shadow-lg hover:shadow-[0_10px_20px_rgba(168,85,247,0.2)] hover:-translate-y-1 active:translate-y-1 active:border-b-0 transition-all group/btn"
+                title="محول PAG إلى SVGA"
+              >
+                 <Layers className="w-5 h-5 text-purple-400 group-hover/btn:scale-110 transition-transform drop-shadow-md" />
+                 <span className="text-xs text-purple-300 font-bold uppercase tracking-wide drop-shadow-sm whitespace-nowrap">محول PAG إلى SVGA</span>
+              </button>
+            )}
         </div>
       </div>
     </div>

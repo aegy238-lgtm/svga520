@@ -89,6 +89,12 @@ export interface UserRecord {
   isVIP: boolean;
   isSuperAdmin?: boolean; // Main admin who cannot be managed by moderators
   permissions?: string[]; // List of tabs or features allowed for moderators
+  
+  // Feature Access Control fields
+  allowedFeatures?: string[];
+  allFeaturesEnabled?: boolean;
+  defaultFeature?: string;
+
   subscriptionExpiry: any; // Firebase Timestamp or null
   subscriptionType: SubscriptionType;
   activatedKey?: string;

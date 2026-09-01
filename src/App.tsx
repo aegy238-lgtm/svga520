@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Header } from './components/Header';
 import { FeaturesGuideModal } from './components/FeaturesGuideModal';
@@ -86,6 +86,39 @@ const App: React.FC = () => {
     requiredVersion: 'v3.0.0',
     installedVersion: 'v3.0.0'
   });
+
+  const hasNavigatedToDefault = useRef(false);
+
+  useEffect(() => {
+    if (currentUser && currentUser.defaultFeature && state === AppState.IDLE && !hasNavigatedToDefault.current) {
+      const actionKeyToState: Record<string, AppState> = {
+        'aiVideoMatting': AppState.AI_VIDEO_MATTING,
+        'videoConverter': AppState.VIDEO_CONVERTER,
+        'universalConverter': AppState.UNIVERSAL_CONVERTER,
+        'multiSvga': AppState.MULTI_SVGA_VIEWER,
+        'batchImageProcessor': AppState.BATCH_IMAGE_PROCESSOR,
+        'svgaBatchCompressor': AppState.SVGA_BATCH_COMPRESSOR,
+        'svgaLayerEditor': AppState.SVGA_LAYER_EDITOR,
+        'batchCompress': AppState.BATCH_COMPRESSOR,
+        'batchCropper': AppState.BATCH_CROPPER,
+        'imageConverter': AppState.IMAGE_CONVERTER,
+        'svgaEx': AppState.SVGA_EDITOR_EX,
+        'imageProcessor': AppState.IMAGE_PROCESSOR,
+        'imageMatcher': AppState.IMAGE_MATCHER,
+        'imageEditor': AppState.IMAGE_EDITOR,
+        'imageEnhancer': AppState.IMAGE_ENHANCER,
+        'name3DEditor': AppState.NAME_3D_EDITOR,
+        'audioExtractor': AppState.AUDIO_EXTRACTOR,
+        'store': AppState.STORE
+      };
+
+      const defaultState = actionKeyToState[currentUser.defaultFeature];
+      if (defaultState) {
+        hasNavigatedToDefault.current = true;
+        handleFeatureAccess(defaultState, currentUser.defaultFeature);
+      }
+    }
+  }, [currentUser, state]);
 
   useEffect(() => {
     if (!currentUser) {
@@ -235,6 +268,39 @@ const App: React.FC = () => {
   }, []);
 
   const handleFeatureAccess = async (targetState: AppState, featureName: string) => {
+    // 1. Check Feature Access Control (تحديد الوظائف)
+    if (currentUser) {
+      const stateToActionKey: Record<string, string> = {
+        [AppState.AI_VIDEO_MATTING]: 'aiVideoMatting',
+        [AppState.VIDEO_CONVERTER]: 'videoConverter',
+        [AppState.UNIVERSAL_CONVERTER]: 'universalConverter',
+        [AppState.MULTI_SVGA_VIEWER]: 'multiSvga',
+        [AppState.BATCH_IMAGE_PROCESSOR]: 'batchImageProcessor',
+        [AppState.SVGA_BATCH_COMPRESSOR]: 'svgaBatchCompressor',
+        [AppState.SVGA_LAYER_EDITOR]: 'svgaLayerEditor',
+        [AppState.BATCH_COMPRESSOR]: 'batchCompress',
+        [AppState.BATCH_CROPPER]: 'batchCropper',
+        [AppState.IMAGE_CONVERTER]: 'imageConverter',
+        [AppState.SVGA_EDITOR_EX]: 'svgaEx',
+        [AppState.IMAGE_PROCESSOR]: 'imageProcessor',
+        [AppState.IMAGE_MATCHER]: 'imageMatcher',
+        [AppState.IMAGE_EDITOR]: 'imageEditor',
+        [AppState.IMAGE_ENHANCER]: 'imageEnhancer',
+        [AppState.NAME_3D_EDITOR]: 'name3DEditor',
+        [AppState.AUDIO_EXTRACTOR]: 'audioExtractor'
+      };
+
+      const actionKey = stateToActionKey[targetState];
+      if (actionKey && currentUser.allFeaturesEnabled === false) {
+        const allowed = currentUser.allowedFeatures || [];
+        if (!allowed.includes(actionKey)) {
+          alert("عذراً، هذه الوظيفة غير متاحة في حسابك بناءً على صلاحياتك المحددة.");
+          return;
+        }
+      }
+    }
+
+    // 2. Check Subscription/Credits Access
     const { allowed } = await checkAccess(featureName, { decrement: false });
     if (allowed) {
       setState(targetState);

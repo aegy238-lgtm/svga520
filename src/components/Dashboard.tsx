@@ -6,9 +6,12 @@ import {
 } from 'lucide-react';
 import { Uploader } from './Uploader';
 
+import { UserRecord } from '../types';
+
 interface DashboardProps {
   onUpload: (files: File[]) => void;
   onAction: (actionKey: string) => void;
+  currentUser?: UserRecord | null;
 }
 
 const categories = [
@@ -88,7 +91,22 @@ const categories = [
   }
 ];
 
-export const Dashboard: React.FC<DashboardProps> = ({ onUpload, onAction }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ onUpload, onAction, currentUser }) => {
+  const isFeatureAllowed = (actionKey: string) => {
+    if (!currentUser) return true;
+    if (currentUser.allFeaturesEnabled !== false) return true;
+    const allowed = currentUser.allowedFeatures || [];
+    return allowed.includes(actionKey);
+  };
+
+  // Filter tools based on user access
+  const filteredCategories = categories.map(cat => {
+    return {
+      ...cat,
+      tools: cat.tools.filter(tool => isFeatureAllowed(tool.actionKey))
+    };
+  }).filter(cat => cat.tools.length > 0);
+
   return (
     <div className="w-full flex justify-center pb-24 pt-4 px-4 sm:px-8 font-sans" dir="rtl">
       <div className="max-w-[1600px] w-full flex flex-col gap-16">
@@ -113,17 +131,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ onUpload, onAction }) => {
                 <Uploader 
                     onUpload={onUpload} 
                     isUploading={false}
-                    onConverterOpen={() => onAction('videoConverter')}
-                    onMultiSvgaOpen={() => onAction('multiSvga')}
-                    onBatchImageOpen={() => onAction('batchImageOpen')}
-                    onPagConverterOpen={() => onAction('pagConverterOpen')} 
+                    onConverterOpen={isFeatureAllowed('videoConverter') ? () => onAction('videoConverter') : undefined}
+                    onMultiSvgaOpen={isFeatureAllowed('multiSvga') ? () => onAction('multiSvga') : undefined}
+                    onBatchImageOpen={isFeatureAllowed('batchImageProcessor') ? () => onAction('batchImageOpen') : undefined}
+                    onPagConverterOpen={isFeatureAllowed('pagConverterOpen') ? () => onAction('pagConverterOpen') : undefined} 
                 />
             </div>
         </section>
 
         {/* Categories and Tools Grid */}
         <section className="flex flex-col gap-16">
-           {categories.map((cat, idx) => (
+           {filteredCategories.map((cat, idx) => (
               <motion.div 
                  key={cat.id}
                  initial={{ opacity: 0, y: 30 }}
