@@ -1194,23 +1194,70 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
       <div className="space-y-1.5">
         <span className="text-[11px] font-bold text-slate-400 block">المحاذاة السريعة (Alignment)</span>
         <div className="grid grid-cols-6 gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
-          <button onClick={() => handleAlign('left')} className="p-1.5 hover:bg-white/10 text-slate-300 hover:text-white rounded-lg transition-colors flex items-center justify-center" title="محاذاة لليسار">
+          <button onClick={() => handleAlign('left')} className="p-1.5 hover:bg-white/10 text-slate-300 hover:text-white rounded-lg transition-colors flex items-center justify-center cursor-pointer" title="محاذاة لليسار">
             <AlignLeft size={13} />
           </button>
-          <button onClick={() => handleAlign('centerX')} className="p-1.5 hover:bg-white/10 text-slate-300 hover:text-white rounded-lg transition-colors flex items-center justify-center" title="محاذاة أفقية للمنتصف">
+          <button onClick={() => handleAlign('centerX')} className="p-1.5 hover:bg-white/10 text-slate-300 hover:text-white rounded-lg transition-colors flex items-center justify-center cursor-pointer" title="محاذاة أفقية للمنتصف">
             <AlignHorizontalDistributeCenter size={13} />
           </button>
-          <button onClick={() => handleAlign('right')} className="p-1.5 hover:bg-white/10 text-slate-300 hover:text-white rounded-lg transition-colors flex items-center justify-center" title="محاذاة لليمين">
+          <button onClick={() => handleAlign('right')} className="p-1.5 hover:bg-white/10 text-slate-300 hover:text-white rounded-lg transition-colors flex items-center justify-center cursor-pointer" title="محاذاة لليمين">
             <AlignRight size={13} />
           </button>
-          <button onClick={() => handleAlign('top')} className="p-1.5 hover:bg-white/10 text-slate-300 hover:text-white rounded-lg transition-colors flex items-center justify-center" title="محاذاة للأعلى">
+          <button onClick={() => handleAlign('top')} className="p-1.5 hover:bg-white/10 text-slate-300 hover:text-white rounded-lg transition-colors flex items-center justify-center cursor-pointer" title="محاذاة للأعلى">
             <ArrowUp size={13} />
           </button>
-          <button onClick={() => handleAlign('centerY')} className="p-1.5 hover:bg-white/10 text-slate-300 hover:text-white rounded-lg transition-colors flex items-center justify-center" title="محاذاة رأسية للمنتصف">
+          <button onClick={() => handleAlign('centerY')} className="p-1.5 hover:bg-white/10 text-slate-300 hover:text-white rounded-lg transition-colors flex items-center justify-center cursor-pointer" title="محاذاة رأسية للمنتصف">
             <AlignVerticalDistributeCenter size={13} />
           </button>
-          <button onClick={() => handleAlign('bottom')} className="p-1.5 hover:bg-white/10 text-slate-300 hover:text-white rounded-lg transition-colors flex items-center justify-center" title="محاذاة للأسفل">
+          <button onClick={() => handleAlign('bottom')} className="p-1.5 hover:bg-white/10 text-slate-300 hover:text-white rounded-lg transition-colors flex items-center justify-center cursor-pointer" title="محاذاة للأسفل">
             <ArrowDown size={13} />
+          </button>
+        </div>
+
+        <div className="flex items-center gap-1.5 pt-1">
+          <button
+            type="button"
+            onClick={() => {
+              const pw = project?.width || 500;
+              const ph = project?.height || 500;
+              const lw = transform.width;
+              const lh = transform.height;
+              onUpdateTransform({
+                x: Math.round((pw - lw) / 2),
+                y: Math.round((ph - lh) / 2)
+              });
+            }}
+            className="flex-1 py-1.5 px-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-xl text-[10px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer shadow-sm active:scale-95"
+            title="توسيط الطبقة في منتصف مساحة العمل تماماً"
+          >
+            <Target size={12} />
+            <span>توسيط بالكانفاس</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const pw = project?.width || 500;
+              const ph = project?.height || 500;
+              const initW = Math.max(1, layer.initialBounds.width);
+              const initH = Math.max(1, layer.initialBounds.height);
+              const scale = Math.min(pw / initW, ph / initH);
+              const newW = Math.max(1, Math.round(initW * scale));
+              const newH = Math.max(1, Math.round(initH * scale));
+              onUpdateTransform({
+                x: Math.round((pw - newW) / 2),
+                y: Math.round((ph - newH) / 2),
+                width: newW,
+                height: newH,
+                scaleX: 1,
+                scaleY: 1,
+                rotation: 0
+              });
+            }}
+            className="flex-1 py-1.5 px-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-white border border-amber-500/30 rounded-xl text-[10px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer shadow-sm active:scale-95"
+            title="ملاءمة حجم الطبقة تلقائياً لحدود أبعاد المشروع"
+          >
+            <Maximize2 size={12} />
+            <span>ملاءمة لمقاس المشروع</span>
           </button>
         </div>
       </div>

@@ -40,17 +40,20 @@ export function createImageLayer(
   startFrame: number = 0,
   endFrame: number = totalFrames - 1
 ): EditableLayer {
-  // Fit image reasonably inside canvas if too large
-  let w = imgWidth;
-  let h = imgHeight;
-  const maxW = Math.round(projectWidth * 0.75);
-  const maxH = Math.round(projectHeight * 0.75);
-  if (w > maxW || h > maxH) {
-    const scale = Math.min(maxW / w, maxH / h);
-    w = Math.round(w * scale);
-    h = Math.round(h * scale);
+  const maxW = Math.max(10, projectWidth);
+  const maxH = Math.max(10, projectHeight);
+
+  // If the image exceeds canvas size, scale it to fit within project bounds while preserving aspect ratio.
+  // If it's already within canvas boundaries, keep its natural size.
+  let scale = 1;
+  if (imgWidth > maxW || imgHeight > maxH) {
+    scale = Math.min(maxW / (imgWidth || 1), maxH / (imgHeight || 1));
   }
 
+  const w = Math.max(1, Math.round(imgWidth * scale));
+  const h = Math.max(1, Math.round(imgHeight * scale));
+
+  // Center layer precisely within the project canvas
   const x = Math.round((projectWidth - w) / 2);
   const y = Math.round((projectHeight - h) / 2);
 
@@ -61,7 +64,7 @@ export function createImageLayer(
     frames.push({
       alpha: isVisible ? 1.0 : 0.0,
       layout: { x: 0, y: 0, width: imgWidth, height: imgHeight },
-      transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
+      transform: { a: scale, b: 0, c: 0, d: scale, tx: x, ty: y }
     });
   }
 
@@ -84,20 +87,20 @@ export function createImageLayer(
       y,
       width: w,
       height: h,
-      scaleX: w / (imgWidth || 1),
-      scaleY: h / (imgHeight || 1),
+      scaleX: 1,
+      scaleY: 1,
       rotation: 0,
       opacity: 100
     },
     initialBounds: {
-      x: 0,
-      y: 0,
-      width: imgWidth,
-      height: imgHeight
+      x,
+      y,
+      width: w,
+      height: h
     },
     originalInitialBounds: {
-      x: x,
-      y: y,
+      x,
+      y,
       width: w,
       height: h
     },
@@ -106,8 +109,8 @@ export function createImageLayer(
       y,
       width: w,
       height: h,
-      scaleX: w / (imgWidth || 1),
-      scaleY: h / (imgHeight || 1),
+      scaleX: 1,
+      scaleY: 1,
       rotation: 0,
       opacity: 100
     },

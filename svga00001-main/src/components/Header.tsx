@@ -5,7 +5,7 @@ import {
   LogOut, Settings, ShoppingBag, Image, Video, Layers, Wand2, 
   BadgeCheck, Maximize, Lock, Scissors, Menu, X as CloseIcon, 
   Zap, Sparkles, Info, Search, ChevronDown, Check, LayoutGrid, 
-  Command
+  Command, Star, Home
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -153,7 +153,7 @@ export const Header: React.FC<HeaderProps> = (props) => {
   };
 
   const TopLevelNavigation = () => (
-    <nav className="hidden lg:flex items-center gap-1.5 mr-6 text-xs lg:text-sm font-bold overflow-x-auto no-scrollbar flex-1 whitespace-nowrap mask-edges">
+    <nav className="hidden lg:flex items-center gap-1.5 mr-6 text-xs lg:text-sm font-bold overflow-x-auto no-scrollbar flex-1 whitespace-nowrap mask-edges py-2">
       {allTools.map((tool) => {
         const isToolActive = props.currentTab === tool.id;
         
