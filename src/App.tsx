@@ -87,38 +87,7 @@ const App: React.FC = () => {
     installedVersion: 'v3.0.0'
   });
 
-  const hasNavigatedToDefault = useRef(false);
-
-  useEffect(() => {
-    if (currentUser && currentUser.defaultFeature && state === AppState.IDLE && !hasNavigatedToDefault.current) {
-      const actionKeyToState: Record<string, AppState> = {
-        'aiVideoMatting': AppState.AI_VIDEO_MATTING,
-        'videoConverter': AppState.VIDEO_CONVERTER,
-        'universalConverter': AppState.UNIVERSAL_CONVERTER,
-        'multiSvga': AppState.MULTI_SVGA_VIEWER,
-        'batchImageProcessor': AppState.BATCH_IMAGE_PROCESSOR,
-        'svgaBatchCompressor': AppState.SVGA_BATCH_COMPRESSOR,
-        'svgaLayerEditor': AppState.SVGA_LAYER_EDITOR,
-        'batchCompress': AppState.BATCH_COMPRESSOR,
-        'batchCropper': AppState.BATCH_CROPPER,
-        'imageConverter': AppState.IMAGE_CONVERTER,
-        'svgaEx': AppState.SVGA_EDITOR_EX,
-        'imageProcessor': AppState.IMAGE_PROCESSOR,
-        'imageMatcher': AppState.IMAGE_MATCHER,
-        'imageEditor': AppState.IMAGE_EDITOR,
-        'imageEnhancer': AppState.IMAGE_ENHANCER,
-        'name3DEditor': AppState.NAME_3D_EDITOR,
-        'audioExtractor': AppState.AUDIO_EXTRACTOR,
-        'store': AppState.STORE
-      };
-
-      const defaultState = actionKeyToState[currentUser.defaultFeature];
-      if (defaultState) {
-        hasNavigatedToDefault.current = true;
-        handleFeatureAccess(defaultState, currentUser.defaultFeature);
-      }
-    }
-  }, [currentUser, state]);
+  // Ensure user always lands directly on the SVGA Editor / Dashboard home screen
 
   useEffect(() => {
     if (!currentUser) {
