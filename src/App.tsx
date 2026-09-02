@@ -42,6 +42,7 @@ import { MaintenanceScreen } from './components/MaintenanceScreen';
 import { VersionBlockedModal } from './components/Auth/VersionBlockedModal';
 import { checkVersionCompatibility, verifyAccountVersionWithServer, getActiveClientVersion } from './utils/versionControl';
 import { AppUpdateToast } from './components/AppUpdateToast';
+import { extractSvgaFromPdfFile } from './utils/pdfSvgaExtractor';
 
 declare var SVGA: any;
 
@@ -286,8 +287,31 @@ const App: React.FC = () => {
   const handleFileUpload = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
 
-    if (files.length > 1) {
-      const svgaFiles = files.filter(f => (f?.name || '').toLowerCase().endsWith('.svga'));
+    // Expand any PDF files (single or multiple) into their extracted SVGA files
+    const expandedFiles: File[] = [];
+    for (const f of files) {
+      if ((f?.name || '').toLowerCase().endsWith('.pdf')) {
+        try {
+          const extracted = await extractSvgaFromPdfFile(f);
+          if (extracted.length > 0) {
+            expandedFiles.push(...extracted.map(e => e.file));
+          } else {
+            alert(`لم يتم العثور على ملفات SVGA صالحة داخل: ${f.name}`);
+          }
+        } catch (err) {
+          console.error('PDF extraction failed for:', f.name, err);
+          alert(`تعذر فك واستخراج ملفات SVGA من: ${f.name}`);
+        }
+      } else {
+        expandedFiles.push(f);
+      }
+    }
+
+    if (expandedFiles.length === 0) return;
+    const currentFiles = expandedFiles;
+
+    if (currentFiles.length > 1) {
+      const svgaFiles = currentFiles.filter(f => (f?.name || '').toLowerCase().endsWith('.svga'));
       if (svgaFiles.length > 0) {
         // Multiple SVGA files uploaded - we'll just process the first one for now
         // since Batch SVGA Converter was removed.
@@ -323,7 +347,7 @@ const App: React.FC = () => {
       }
     }
 
-    const file = files[0];
+    const file = currentFiles[0];
     const fileUrl = URL.createObjectURL(file);
 
     // Check for PAG file

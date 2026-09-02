@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, X, Download, Image as ImageIcon, ShieldCheck, Monitor, Smartphone, Loader2, Camera, Video, Film, FileVideo, Volume2, Music , SquareCheck, Gift, Sparkles, FileText } from 'lucide-react';
+import { Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, X, Download, Image as ImageIcon, ShieldCheck, Monitor, Smartphone, Loader2, Camera, Video, Film, FileVideo, Volume2, Music , SquareCheck, Gift, Sparkles, FileText, Lock, Key } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { PresetBackground, UserRecord } from '../types';
@@ -16,6 +16,7 @@ import { ensureMp3WithId3, extractAudioFromSvga } from '../utils/svgaAudio';
 import Vap from 'video-animation-player';
 import { extractVapConfigFromBlob, convertVapToMp4, WebGLVapRenderer, seekVideoToFrame, VapConfig } from '../utils/vapEngine';
 import { downloadDesignerInfoFile } from '../utils/designerInfo';
+import { extractSvgaFromPdfFile, PdfUnlockRequest } from '../utils/pdfSvgaExtractor';
 
 const decodeDataToBytes = (data: any): Uint8Array | null => {
   if (!data) return null;
@@ -434,10 +435,36 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     };
   }, []);
 
+  const [pdfPasswordRequest, setPdfPasswordRequest] = useState<PdfUnlockRequest | null>(null);
+  const [pdfInputPassword, setPdfInputPassword] = useState('');
+  const [pdfPasswordError, setPdfPasswordError] = useState(false);
+  const [pdfStatusMessage, setPdfStatusMessage] = useState<string | null>(null);
+
+  const handleUnlockPdf = async () => {
+    if (!pdfPasswordRequest) return;
+    const success = await pdfPasswordRequest.submitPassword(pdfInputPassword);
+    if (!success) {
+      setPdfPasswordError(true);
+    } else {
+      setPdfPasswordRequest(null);
+      setPdfInputPassword('');
+      setPdfPasswordError(false);
+    }
+  };
+
+  const handleSkipPdfPassword = () => {
+    if (pdfPasswordRequest) {
+      pdfPasswordRequest.skip();
+      setPdfPasswordRequest(null);
+      setPdfInputPassword('');
+      setPdfPasswordError(false);
+    }
+  };
+
   const handleFiles = useCallback(async (fileObjects: {file: File, folderName?: string, folderPath?: string}[]) => {
     if (!fileObjects || fileObjects.length === 0) return;
 
-    // Expand any ZIP files first
+    // Expand any ZIP and PDF files
     const expandedList: {file: File, folderName?: string, folderPath?: string}[] = [];
 
     for (const item of fileObjects) {
@@ -476,11 +503,59 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 } catch (zipErr) {
                   console.warn("Could not extract entry from zip:", filename, zipErr);
                 }
+              } else if (innerLower.endsWith('.pdf')) {
+                try {
+                  const blob = await entry.async('blob');
+                  const cleanName = filename.split('/').pop() || filename;
+                  const tempPdf = new File([blob], cleanName, { type: 'application/pdf' });
+                  setPdfStatusMessage(`جاري فحص واستخراج ملفات SVGA من PDF داخل الأرشيف: ${cleanName}...`);
+                  const pdfExtracted = await extractSvgaFromPdfFile(tempPdf, {
+                    folderName: item.folderName,
+                    folderPath: item.folderPath,
+                    onPasswordRequired: (req) => setPdfPasswordRequest(req),
+                    onProgress: (status) => setPdfStatusMessage(status)
+                  });
+                  setPdfStatusMessage(null);
+                  for (const pRes of pdfExtracted) {
+                    expandedList.push({
+                      file: pRes.file,
+                      folderName: pRes.folderName || item.folderName,
+                      folderPath: pRes.folderPath || item.folderPath
+                    });
+                  }
+                } catch (innerPdfErr) {
+                  console.warn("Could not extract nested PDF in zip:", filename, innerPdfErr);
+                  setPdfStatusMessage(null);
+                }
               }
             }
           }
         } catch (e) {
           console.warn("Could not extract ZIP file:", item.file.name, e);
+        }
+      } else if (lowerName.endsWith('.pdf')) {
+        // Direct PDF file (locked or normal or disguised)
+        try {
+          setPdfStatusMessage(`جاري فحص واستخراج ملفات SVGA من: ${item.file.name}...`);
+          const pdfExtracted = await extractSvgaFromPdfFile(item.file, {
+            folderName: item.folderName,
+            folderPath: item.folderPath,
+            onPasswordRequired: (req) => setPdfPasswordRequest(req),
+            onProgress: (status) => setPdfStatusMessage(status)
+          });
+          setPdfStatusMessage(null);
+          if (pdfExtracted.length > 0) {
+            for (const pRes of pdfExtracted) {
+              expandedList.push({
+                file: pRes.file,
+                folderName: pRes.folderName || item.folderName,
+                folderPath: pRes.folderPath || item.folderPath
+              });
+            }
+          }
+        } catch (pdfErr) {
+          console.warn("Could not extract SVGA from PDF:", item.file.name, pdfErr);
+          setPdfStatusMessage(null);
         }
       } else {
         const name = item.file.name || '';
@@ -3308,11 +3383,32 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             <Upload className="w-4 h-4" />
             رفع مجلدات
           </button>
+          <button 
+            onClick={() => {
+              const input = document.createElement('input');
+              input.type = 'file';
+              input.multiple = true;
+              // Accept .pdf, .PDF, application/pdf, and allow all files so OS file chooser never hides or greys out PDF files
+              input.accept = '.pdf,.PDF,application/pdf,*/*';
+              input.onchange = (e: any) => {
+                if (e.target.files) {
+                  const fileObjects = Array.from(e.target.files as FileList).map(file => ({ file }));
+                  handleFiles(fileObjects);
+                }
+              };
+              input.click();
+            }}
+            className="px-6 py-3 bg-gradient-to-r from-amber-600 via-rose-600 to-pink-600 hover:from-amber-500 hover:via-rose-500 hover:to-pink-500 text-white rounded-2xl shadow-lg shadow-rose-600/25 font-black text-sm transition-all flex items-center gap-2 cursor-pointer border border-rose-400/30"
+            title="استدعاء ملفات PDF واستخراج ملفات SVGA منها حتى لو كانت مقفولة بكلمة مرور"
+          >
+            <Lock className="w-4 h-4 text-amber-200" />
+            <span>فك واستخراج من PDF</span>
+          </button>
           <input 
             ref={fileInputRef}
             type="file" 
             multiple 
-            accept=".svga,.pag,.vap,.mp4,.zip,application/zip,video/*" 
+            accept=".svga,.SVGA,.pag,.PAG,.vap,.VAP,.mp4,.MP4,.zip,.ZIP,.pdf,.PDF,application/pdf,*/*" 
             className="hidden" 
             onChange={(e) => {
               if (e.target.files) {
@@ -3328,6 +3424,13 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         {/* Toolbar: Background & Watermark */}
       <div className="flex flex-col gap-6 mb-6 bg-white/5 p-6 rounded-[2.5rem] border border-white/10">
         
+        {pdfStatusMessage && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex items-center gap-3 mb-2 animate-pulse">
+            <Loader2 className="w-5 h-5 animate-spin text-amber-400" />
+            <span className="text-sm font-bold text-amber-200">{pdfStatusMessage}</span>
+          </div>
+        )}
+
         {loadProgress && (
           <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-2xl p-4 flex flex-col gap-2 mb-4">
             <div className="flex justify-between items-center text-xs font-black">
@@ -3455,12 +3558,44 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         onDrop={onDrop}
       >
         {(items as any[]).length === 0 ? (
-          <div className="text-center p-12">
-            <div className="w-24 h-24 bg-white/5 rounded-[2rem] flex items-center justify-center mx-auto mb-6 border border-white/10">
-              <Upload className="w-10 h-10 text-slate-500" />
+          <div className="text-center p-12 flex flex-col items-center">
+            <div 
+              onClick={() => fileInputRef.current?.click()}
+              className="w-24 h-24 bg-white/5 hover:bg-white/10 rounded-[2rem] flex items-center justify-center mx-auto mb-6 border border-white/10 cursor-pointer transition-all hover:scale-105"
+            >
+              <Upload className="w-10 h-10 text-indigo-400" />
             </div>
-            <h3 className="text-xl font-black text-white mb-2">اسحب الملفات هنا للبدء</h3>
-            <p className="text-slate-500 text-sm font-bold uppercase tracking-widest">يدعم جميع المقاسات بما فيها 750×1334 الطولية</p>
+            <h3 className="text-xl font-black text-white mb-2">اسحب الملفات أو المجلدات أو ملفات PDF هنا للبدء</h3>
+            <p className="text-slate-400 text-sm font-bold tracking-wide max-w-lg mb-6">يدعم ملفات SVGA, VAP, PAG, ZIP واستدعاء وفك ملفات PDF المقفولة واستخراج الـ SVGA منها</p>
+            
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-xs shadow-lg transition-all flex items-center gap-2 cursor-pointer"
+              >
+                <Upload className="w-4 h-4" />
+                <span>استعراض واختيار الملفات</span>
+              </button>
+              <button
+                onClick={() => {
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.multiple = true;
+                  input.accept = '.pdf,.PDF,application/pdf,*/*';
+                  input.onchange = (e: any) => {
+                    if (e.target.files) {
+                      const fileObjects = Array.from(e.target.files as FileList).map(file => ({ file }));
+                      handleFiles(fileObjects);
+                    }
+                  };
+                  input.click();
+                }}
+                className="px-6 py-2.5 bg-gradient-to-r from-amber-600 to-rose-600 hover:from-amber-500 hover:to-rose-500 text-white rounded-xl font-bold text-xs shadow-lg transition-all flex items-center gap-2 cursor-pointer border border-rose-400/30"
+              >
+                <Lock className="w-4 h-4 text-amber-200" />
+                <span>فك واستخراج من PDF</span>
+              </button>
+            </div>
           </div>
         ) : (
           <div className="p-8 overflow-y-auto max-h-[calc(100vh-320px)] custom-scrollbar flex flex-col gap-12">
@@ -3683,6 +3818,77 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                   تم، إغلاق النافذة
                 </button>
               )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Locked PDF Password Prompt Modal */}
+      <AnimatePresence>
+        {pdfPasswordRequest && (
+          <div className="fixed inset-0 z-[3500] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md" dir="rtl">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: 15 }}
+              className="w-full max-w-md bg-gradient-to-b from-slate-900 to-slate-950 border border-amber-500/40 rounded-3xl p-6 shadow-2xl shadow-amber-500/10 flex flex-col gap-5 text-right font-arabic"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                  <Lock className="w-6 h-6" />
+                </div>
+                <div className="overflow-hidden">
+                  <h3 className="text-lg font-black text-white">ملف PDF محمي بكلمة مرور</h3>
+                  <p className="text-xs text-slate-400 font-bold truncate max-w-[280px]">
+                    {pdfPasswordRequest.fileName}
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-300 leading-relaxed font-bold">
+                هذا الملف مقفول برمز حماية. أدخل كلمة المرور أدناه لفك تشفيره واستخراج جميع ملفات الـ SVGA المضمنة بداخله:
+              </p>
+
+              <div className="flex flex-col gap-2">
+                <div className="relative">
+                  <input
+                    type="password"
+                    value={pdfInputPassword}
+                    onChange={(e) => {
+                      setPdfInputPassword(e.target.value);
+                      setPdfPasswordError(false);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleUnlockPdf();
+                    }}
+                    placeholder="أدخل كلمة مرور ملف PDF..."
+                    className="w-full px-4 py-3 bg-black/50 border border-white/15 rounded-xl text-white text-sm focus:outline-none focus:border-amber-500 transition-colors"
+                    autoFocus
+                  />
+                  <Key className="w-4 h-4 text-slate-500 absolute left-3 top-3.5" />
+                </div>
+                {pdfPasswordError && (
+                  <span className="text-xs text-rose-400 font-bold">
+                    كلمة المرور غير صحيحة، يرجى إعادة المحاولة أو تخطي الملف.
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  onClick={handleUnlockPdf}
+                  className="flex-1 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Lock className="w-4 h-4" />
+                  <span>فك القفل واستخراج SVGA</span>
+                </button>
+                <button
+                  onClick={handleSkipPdfPassword}
+                  className="px-4 py-3 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white font-bold text-xs rounded-xl transition-all cursor-pointer"
+                >
+                  تخطي
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

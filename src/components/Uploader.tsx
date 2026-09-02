@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { UploadCloud, Video, Images, LayoutGrid, Zap, Layers } from 'lucide-react';
+import { UploadCloud, Video, Images, LayoutGrid, Zap, Layers, Lock } from 'lucide-react';
 
 interface UploaderProps {
   onUpload: (files: File[]) => void;
@@ -52,7 +52,7 @@ export const Uploader: React.FC<UploaderProps> = ({ onUpload, isUploading, onCon
       <input 
         id="file-input"
         type="file" 
-        accept=".pag,.svga,.mp4,.webm,.mov,.json,application/json"
+        accept=".pag,.PAG,.svga,.SVGA,.mp4,.MP4,.webm,.WEBM,.mov,.MOV,.json,.JSON,.zip,.ZIP,.pdf,.PDF,application/pdf,*/*"
         className="hidden"
         onChange={handleFileChange}
         multiple
@@ -128,6 +128,27 @@ export const Uploader: React.FC<UploaderProps> = ({ onUpload, isUploading, onCon
                  <span className="text-xs text-purple-300 font-bold uppercase tracking-wide drop-shadow-sm whitespace-nowrap">محول PAG إلى SVGA</span>
               </button>
             )}
+
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.multiple = true;
+                input.accept = '.pdf,.PDF,application/pdf,*/*';
+                input.onchange = (ev: any) => {
+                  if (ev.target.files && ev.target.files.length > 0) {
+                    onUpload(Array.from(ev.target.files));
+                  }
+                };
+                input.click();
+              }}
+              className="flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-b from-amber-500/20 to-rose-600/10 hover:from-amber-400/30 hover:to-rose-500/20 rounded-2xl border-t border-amber-400/30 border-b-4 border-b-amber-900/50 shadow-lg hover:shadow-[0_10px_20px_rgba(245,158,11,0.2)] hover:-translate-y-1 active:translate-y-1 active:border-b-0 transition-all group/btn cursor-pointer"
+              title="فك واستخراج ملفات SVGA من PDF"
+            >
+               <Lock className="w-5 h-5 text-amber-400 group-hover/btn:scale-110 transition-transform drop-shadow-md" />
+               <span className="text-xs text-amber-300 font-bold uppercase tracking-wide drop-shadow-sm whitespace-nowrap">فك واستخراج من PDF</span>
+            </button>
         </div>
       </div>
     </div>
