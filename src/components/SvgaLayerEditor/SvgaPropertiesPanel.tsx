@@ -54,6 +54,7 @@ interface SvgaPropertiesPanelProps {
   onToggleGroupLock?: (groupId: string) => void;
   onToggleGroupVisibility?: (groupId: string) => void;
   groupLayersCount?: number;
+  onUpdateProjectDimensions?: (width: number, height: number, scaleLayers?: boolean) => void;
 }
 
 export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
@@ -79,7 +80,8 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
   onDeleteGroup,
   onToggleGroupLock,
   onToggleGroupVisibility,
-  groupLayersCount = 0
+  groupLayersCount = 0,
+  onUpdateProjectDimensions
 }) => {
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const [panelNudgeStep, setPanelNudgeStep] = useState<number>(1);
@@ -90,6 +92,19 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
   const [checkedTargetLayerId, setCheckedTargetLayerId] = useState<string | null>(null);
   const [pairSyncMotion, setPairSyncMotion] = useState<boolean>(true);
   const [previewModalLayer, setPreviewModalLayer] = useState<EditableLayer | null>(null);
+
+  // Project Dimension Settings State for Panel
+  const [panelWidthInput, setPanelWidthInput] = useState<number>(project?.width || 500);
+  const [panelHeightInput, setPanelHeightInput] = useState<number>(project?.height || 500);
+  const [panelLockRatio, setPanelLockRatio] = useState<boolean>(false);
+  const [panelScaleLayers, setPanelScaleLayers] = useState<boolean>(false);
+
+  React.useEffect(() => {
+    if (project) {
+      setPanelWidthInput(project.width || 500);
+      setPanelHeightInput(project.height || 500);
+    }
+  }, [project?.width, project?.height]);
 
   const isMultiSelected = selectedLayerIds.length > 1;
 
@@ -706,14 +721,192 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
 
   if (!layer) {
     return (
-      <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-[#070b14] border-l border-white/10 text-slate-500 select-none" dir="rtl">
-        <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 mb-3">
-          <Sliders size={20} />
+      <div className="flex flex-col h-full bg-[#070b14] border-l border-white/10 overflow-y-auto custom-scrollbar p-3.5 space-y-3.5 select-none" dir="rtl">
+        {/* Project Canvas Dimensions Control Card */}
+        <div className="bg-gradient-to-br from-indigo-950/80 via-slate-900/90 to-purple-950/80 border border-indigo-500/40 rounded-2xl p-3.5 space-y-3 shadow-xl backdrop-blur-sm">
+          <div className="flex items-center justify-between border-b border-indigo-500/30 pb-2.5">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-indigo-500/25 border border-indigo-500/40 text-indigo-300 flex items-center justify-center shadow-md">
+                <Scaling size={16} className="text-indigo-400" />
+              </div>
+              <div>
+                <span className="text-xs font-black text-white block">مقاس وأبعاد المشروع</span>
+                <p className="text-[10px] text-indigo-200/80 mt-0.5">
+                  تحكم حر في العرض والارتفاع دون التقيد برقم محدد
+                </p>
+              </div>
+            </div>
+            <span className="text-[10px] font-mono font-bold text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded-full border border-indigo-500/30">
+              {project.width} × {project.height} px
+            </span>
+          </div>
+
+          {/* Width & Height Number Inputs */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] font-bold text-slate-300 mb-1 block">العرض (Width):</label>
+              <div className="flex items-center bg-black/60 border border-indigo-400/30 rounded-xl px-2.5 py-1.5 focus-within:border-indigo-400">
+                <input
+                  type="number"
+                  min={10}
+                  max={8192}
+                  value={panelWidthInput}
+                  onChange={(e) => {
+                    const w = parseInt(e.target.value) || 0;
+                    setPanelWidthInput(w);
+                    if (panelLockRatio && project.width > 0 && w > 0) {
+                      const ratio = project.height / project.width;
+                      setPanelHeightInput(Math.round(w * ratio));
+                    }
+                  }}
+                  className="w-full bg-transparent text-white font-mono font-bold text-xs focus:outline-none text-center"
+                  placeholder="العرض"
+                />
+                <span className="text-[10px] text-indigo-400 font-mono">px</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-slate-300 mb-1 block">الارتفاع (Height):</label>
+              <div className="flex items-center bg-black/60 border border-indigo-400/30 rounded-xl px-2.5 py-1.5 focus-within:border-indigo-400">
+                <input
+                  type="number"
+                  min={10}
+                  max={8192}
+                  value={panelHeightInput}
+                  onChange={(e) => {
+                    const h = parseInt(e.target.value) || 0;
+                    setPanelHeightInput(h);
+                    if (panelLockRatio && project.height > 0 && h > 0) {
+                      const ratio = project.width / project.height;
+                      setPanelWidthInput(Math.round(h * ratio));
+                    }
+                  }}
+                  className="w-full bg-transparent text-white font-mono font-bold text-xs focus:outline-none text-center"
+                  placeholder="الارتفاع"
+                />
+                <span className="text-[10px] text-indigo-400 font-mono">px</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Aspect Ratio Lock Toggle */}
+          <div className="flex items-center justify-between px-1">
+            <button
+              type="button"
+              onClick={() => setPanelLockRatio(prev => !prev)}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                panelLockRatio 
+                  ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40' 
+                  : 'bg-white/5 text-slate-400 border-white/5 hover:text-slate-200'
+              }`}
+            >
+              {panelLockRatio ? <Lock size={11} className="text-indigo-400" /> : <Unlock size={11} />}
+              <span>{panelLockRatio ? 'النسبة مقفلة (تناسب طردي)' : 'النسبة حرة (غير مقفلة)'}</span>
+            </button>
+            <span className="text-[9.5px] font-mono text-slate-400">
+              النسبة: {project.width && project.height ? (project.width / project.height).toFixed(2) : '1.00'}
+            </span>
+          </div>
+
+          {/* Popular Presets */}
+          <div className="space-y-1.5 pt-1 border-t border-white/10">
+            <label className="text-[10px] font-bold text-slate-400 block">مقاسات سريعة شائعة:</label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {[
+                { label: '750 × 1334 (قصة / هاتف)', w: 750, h: 1334 },
+                { label: '1080 × 1920 (9:16 FHD)', w: 1080, h: 1920 },
+                { label: '500 × 500 (مربع افتراضي)', w: 500, h: 500 },
+                { label: '750 × 240 (بانر روم البث)', w: 750, h: 240 },
+                { label: '1920 × 1080 (16:9 شاشة)', w: 1920, h: 1080 },
+                { label: '1080 × 1080 (1:1 HD)', w: 1080, h: 1080 },
+                { label: '720 × 1280 (HD عمودي)', w: 720, h: 1280 },
+                { label: '400 × 400 (أيقونة / شارة)', w: 400, h: 400 }
+              ].map((p) => (
+                <button
+                  key={`${p.w}x${p.h}`}
+                  type="button"
+                  onClick={() => {
+                    setPanelWidthInput(p.w);
+                    setPanelHeightInput(p.h);
+                    if (onUpdateProjectDimensions) {
+                      onUpdateProjectDimensions(p.w, p.h, panelScaleLayers);
+                    }
+                  }}
+                  className={`text-right px-2 py-1.5 rounded-xl text-[10px] font-mono transition-all border cursor-pointer ${
+                    project.width === p.w && project.height === p.h
+                      ? 'bg-indigo-600 text-white border-indigo-400 font-bold shadow-sm'
+                      : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/5 hover:border-white/15'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Scale layers checkbox & Apply button */}
+          <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
+            <label className="text-[10px] text-slate-300 flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={panelScaleLayers}
+                onChange={(e) => setPanelScaleLayers(e.target.checked)}
+                className="rounded accent-indigo-500 cursor-pointer"
+              />
+              <span>تحجيم الطبقات تلقائياً</span>
+            </label>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (onUpdateProjectDimensions && panelWidthInput > 0 && panelHeightInput > 0) {
+                  onUpdateProjectDimensions(panelWidthInput, panelHeightInput, panelScaleLayers);
+                }
+              }}
+              className="px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/30 flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95"
+            >
+              <Check size={13} />
+              <span>تطبيق المقاس</span>
+            </button>
+          </div>
         </div>
-        <h4 className="text-white font-bold text-xs mb-1">لوحة الخصائص (Properties)</h4>
-        <p className="text-[11px] text-slate-400 max-w-[200px]">
-          حدد أي طبقة من الكانفاس أو قائمة الطبقات لتعديل موضعها وحجمها وخصائصها، أو حدد عدة طبقات للتحكم الجماعي
-        </p>
+
+        {/* Project Information Card */}
+        <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-3.5 space-y-2.5">
+          <div className="flex items-center justify-between text-[11px] font-bold text-slate-300 border-b border-white/5 pb-1.5">
+            <span>معلومات المشروع:</span>
+            <span className="text-[10px] text-indigo-400 font-mono">SVGA Project</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-slate-300">
+            <div className="bg-black/30 p-2 rounded-xl border border-white/5">
+              <span className="text-slate-500 block text-[9px]">إجمالي الفريمات:</span>
+              <span className="text-white font-bold">{project.totalFrames} F</span>
+            </div>
+            <div className="bg-black/30 p-2 rounded-xl border border-white/5">
+              <span className="text-slate-500 block text-[9px]">معدل الفريمات (FPS):</span>
+              <span className="text-white font-bold">{project.fps} FPS</span>
+            </div>
+            <div className="bg-black/30 p-2 rounded-xl border border-white/5">
+              <span className="text-slate-500 block text-[9px]">المدة الزمنية:</span>
+              <span className="text-indigo-300 font-bold">
+                {((project.totalFrames || 1) / (project.fps || 30)).toFixed(1)} ثانية
+              </span>
+            </div>
+            <div className="bg-black/30 p-2 rounded-xl border border-white/5">
+              <span className="text-slate-500 block text-[9px]">عدد الطبقات:</span>
+              <span className="text-amber-300 font-bold">{allLayers.length} طبقة</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Help Note */}
+        <div className="flex flex-col items-center justify-center p-4 text-center text-slate-500">
+          <Sliders size={18} className="text-slate-500 mb-1.5" />
+          <p className="text-[10px] text-slate-400 leading-relaxed">
+            حدد أي طبقة من الكانفاس لتعديل موضعها، حجمها، دورانها ونطاق ظهورها، أو حدد عدة طبقات للتحكم الجماعي
+          </p>
+        </div>
       </div>
     );
   }

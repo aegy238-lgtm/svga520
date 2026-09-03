@@ -348,6 +348,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const [exportQuality, setExportQuality] = useState<'high' | 'medium' | 'low'>('medium');
   const [selectedPresetId, setSelectedPresetId] = useState<string>('auto');
   const [showPresetMenu, setShowPresetMenu] = useState(false);
+  const [customWidth, setCustomWidth] = useState<number | null>(null);
+  const [customHeight, setCustomHeight] = useState<number | null>(null);
+  const [isCustomDimensionsActive, setIsCustomDimensionsActive] = useState<boolean>(false);
   const [includePdfCatalog, setIncludePdfCatalog] = useState(false);
   
   const selectedPreset = useMemo(() => DEVICE_PRESETS.find(p => p.id === selectedPresetId), [selectedPresetId]);
@@ -1281,9 +1284,10 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         
         setExportProgress(Math.round((completedCount / list.length) * 100));
 
-        const preset = DEVICE_PRESETS.find(p => p.id === item.presetId);
-        let itemW = preset?.width || item.dimensions?.width || 500;
-        let itemH = preset?.height || item.dimensions?.height || 500;
+        const effectivePresetId = item.presetId && item.presetId !== 'auto' ? item.presetId : selectedPresetId;
+        const preset = DEVICE_PRESETS.find(p => p.id === effectivePresetId);
+        let itemW = (isCustomDimensionsActive && customWidth) ? customWidth : (preset?.width || item.dimensions?.width || 500);
+        let itemH = (isCustomDimensionsActive && customHeight) ? customHeight : (preset?.height || item.dimensions?.height || 500);
 
         if (forceMobileSize) {
           itemW = exportResolution === "1080p" ? 1080 : 720;
@@ -1431,7 +1435,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           const videoItem = await parseSvgaIfNeeded(item);
           player = new SVGA.Player(div);
           player.setVideoItem(videoItem);
-          player.setContentMode(preset ? 'AspectFill' : 'AspectFit');
+          player.setContentMode('AspectFit');
           player.stepToFrame(0, false);
           internalCanvas = div.querySelector("canvas");
           
@@ -3071,41 +3075,96 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         <div className="flex flex-wrap items-center gap-3">
           {(items as any[]).length > 0 && (
             <>
+              {/* Custom Dimensions Box */}
+              <div className="flex items-center gap-2 bg-indigo-950/40 border border-indigo-500/30 p-1.5 px-3 rounded-2xl shadow-inner" title="تحديد مقاس مخصص للمشروع (العرض × الارتفاع)">
+                <span className="text-[10px] font-black text-indigo-300 whitespace-nowrap">مقاس مخصص:</span>
+                <input 
+                  type="number" 
+                  placeholder="العرض"
+                  value={customWidth || ''}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value) || 0;
+                    setCustomWidth(val > 0 ? val : null);
+                    setIsCustomDimensionsActive(val > 0 && (customHeight || 0) > 0);
+                  }}
+                  className="w-16 px-2 py-1 bg-black/60 border border-indigo-400/40 rounded-xl text-white font-mono font-bold text-xs text-center focus:outline-none focus:border-indigo-400"
+                />
+                <span className="text-indigo-400 text-xs font-bold font-mono">×</span>
+                <input 
+                  type="number" 
+                  placeholder="الارتفاع"
+                  value={customHeight || ''}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value) || 0;
+                    setCustomHeight(val > 0 ? val : null);
+                    setIsCustomDimensionsActive((customWidth || 0) > 0 && val > 0);
+                  }}
+                  className="w-16 px-2 py-1 bg-black/60 border border-indigo-400/40 rounded-xl text-white font-mono font-bold text-xs text-center focus:outline-none focus:border-indigo-400"
+                />
+                {isCustomDimensionsActive && (
+                  <button
+                    onClick={() => {
+                      setIsCustomDimensionsActive(false);
+                      setCustomWidth(null);
+                      setCustomHeight(null);
+                      setSelectedPresetId('auto');
+                      setItems(prev => prev.map(i => ({ ...i, presetId: 'auto' })));
+                    }}
+                    className="p-1 hover:bg-rose-500/20 text-rose-400 rounded-lg text-[10px] transition-colors"
+                    title="إلغاء المقاس المخصص والعودة للوضع التلقائي"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
               {/* Standard Sizes */}
-              <div className="flex items-center gap-2 bg-white/5 p-1.5 rounded-2xl border border-white/10">
+              <div className="flex items-center gap-1.5 bg-white/5 p-1.5 rounded-2xl border border-white/10">
                 <button 
                   onClick={() => {
                     setSelectedPresetId('ip8');
+                    setCustomWidth(750);
+                    setCustomHeight(1334);
+                    setIsCustomDimensionsActive(true);
                     setItems(prev => prev.map(i => ({ ...i, presetId: 'ip8' })));
                   }}
-                  className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all ${selectedPresetId === 'ip8' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-400 hover:text-white'}`}
+                  className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all ${selectedPresetId === 'ip8' || (customWidth === 750 && customHeight === 1334) ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-400 hover:text-white'}`}
                 >
                   750 × 1334
                 </button>
                 <button 
                   onClick={() => {
                     setSelectedPresetId('sq500');
+                    setCustomWidth(500);
+                    setCustomHeight(500);
+                    setIsCustomDimensionsActive(true);
                     setItems(prev => prev.map(i => ({ ...i, presetId: 'sq500' })));
                   }}
-                  className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all ${selectedPresetId === 'sq500' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-400 hover:text-white'}`}
+                  className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all ${selectedPresetId === 'sq500' || (customWidth === 500 && customHeight === 500) ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-400 hover:text-white'}`}
                 >
                   500 × 500
                 </button>
                 <button 
                   onClick={() => {
                     setSelectedPresetId('custom750x240');
+                    setCustomWidth(750);
+                    setCustomHeight(240);
+                    setIsCustomDimensionsActive(true);
                     setItems(prev => prev.map(i => ({ ...i, presetId: 'custom750x240' })));
                   }}
-                  className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all ${selectedPresetId === 'custom750x240' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-400 hover:text-white'}`}
+                  className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all ${selectedPresetId === 'custom750x240' || (customWidth === 750 && customHeight === 240) ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-400 hover:text-white'}`}
                 >
                   750 × 240
                 </button>
                 <button 
                   onClick={() => {
                     setSelectedPresetId('auto');
+                    setCustomWidth(null);
+                    setCustomHeight(null);
+                    setIsCustomDimensionsActive(false);
                     setItems(prev => prev.map(i => ({ ...i, presetId: 'auto' })));
                   }}
-                  className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all ${selectedPresetId === 'auto' ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white'}`}
+                  className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all ${selectedPresetId === 'auto' && !isCustomDimensionsActive ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white'}`}
                 >
                   تلقائي
                 </button>
@@ -3626,8 +3685,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                   <AnimatePresence mode="popLayout">
                     {(folderItems as any[]).map((item) => (
                       <SvgaCard 
-                        key={`${item.id}-${item.presetId}`} 
+                        key={`${item.id}-${item.presetId}-${customWidth}-${customHeight}`} 
                         item={item} 
+                        customDimensions={isCustomDimensionsActive && customWidth && customHeight ? { width: customWidth, height: customHeight } : null}
                         onRemove={() => removeItem(item.id)} 
                         onMaximize={() => setSelectedItemId(item.id)}
                         onDownload={() => handleDownloadSingleImage(item)}
@@ -4210,6 +4270,7 @@ const SvgaPlayer: React.FC<{ item: any }> = ({ item }) => {
 
 const SvgaCard: React.FC<{ 
   item: MultiSvgaItem; 
+  customDimensions?: { width: number; height: number } | null;
   onRemove: () => void; 
   onMaximize: () => void;
   onDownload: () => void;
@@ -4222,7 +4283,7 @@ const SvgaCard: React.FC<{
   onUpdatePreset: (presetId: string) => void;
   isSelected?: boolean;
   onToggleSelect?: () => void;
-}> = ({ item, onRemove, onMaximize, onDownload, onDownloadSvga, onDownloadGiftBundle, onExportVideo, previewBg, watermark, wmSettings, onUpdatePreset, isSelected, onToggleSelect }) => {
+}> = ({ item, customDimensions, onRemove, onMaximize, onDownload, onDownloadSvga, onDownloadGiftBundle, onExportVideo, previewBg, watermark, wmSettings, onUpdatePreset, isSelected, onToggleSelect }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
@@ -4522,15 +4583,15 @@ const SvgaCard: React.FC<{
         const svgaHeight = item.dimensions?.height || 500;
   
         // Fixed container dimensions as requested
-        const containerWidth = selectedPreset ? selectedPreset.width : svgaWidth;
-        const containerHeight = selectedPreset ? selectedPreset.height : svgaHeight;
+        const containerWidth = (customDimensions && customDimensions.width > 0) ? customDimensions.width : (selectedPreset ? selectedPreset.width : svgaWidth);
+        const containerHeight = (customDimensions && customDimensions.height > 0) ? customDimensions.height : (selectedPreset ? selectedPreset.height : svgaHeight);
   
-        // 1. Scale the SVGA to fit inside the fixed 1334x750 container
+        // 1. Scale the SVGA to fit inside the target container
         const svgaScale = Math.min(containerWidth / svgaWidth, containerHeight / svgaHeight);
         const finalSvgaWidth = svgaWidth * svgaScale;
         const finalSvgaHeight = svgaHeight * svgaScale;
   
-        // 2. Scale the fixed 1334x750 container to fit inside the card wrapper
+        // 2. Scale the container to fit inside the card wrapper
         const wrapperScale = Math.min(wrapperWidth / containerWidth, wrapperHeight / containerHeight);
   
         // Size the inner container to exactly match the scaled SVGA dimensions
@@ -4583,7 +4644,7 @@ const SvgaCard: React.FC<{
         mutationObserver.disconnect();
         clearTimeout(timer);
       };
-    }, [selectedPreset, zoom, item.dimensions]);
+    }, [selectedPreset, zoom, item.dimensions, customDimensions]);
 
   const togglePlay = () => {
     if (item.type === 'pag') {
@@ -4638,7 +4699,11 @@ const SvgaCard: React.FC<{
         ref={wrapperRef}
         className={`relative bg-slate-950/50 flex items-center justify-center overflow-hidden w-full`}
         style={{
-          height: selectedPreset ? `${(selectedPreset.height / selectedPreset.width) * 350}px` : `${(itemHeight / itemWidth) * 350}px`
+          height: (customDimensions && customDimensions.width > 0 && customDimensions.height > 0)
+            ? `${(customDimensions.height / customDimensions.width) * 350}px`
+            : selectedPreset 
+            ? `${(selectedPreset.height / selectedPreset.width) * 350}px` 
+            : `${(itemHeight / itemWidth) * 350}px`
         }}
       >
         {previewBg && <img src={previewBg} alt="Background" className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none" referrerPolicy="no-referrer" />}

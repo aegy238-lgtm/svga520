@@ -5,7 +5,7 @@ import {
   ZoomIn, ZoomOut, RefreshCw, Maximize2, 
   Grid, Compass, Eye, Shield, RotateCcw,
   Focus, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Move, Crosshair
+  Move, Crosshair, Scaling, Check, Lock, Unlock, X, Sliders
 } from 'lucide-react';
 
 interface SvgaDesignCanvasProps {
@@ -27,6 +27,7 @@ interface SvgaDesignCanvasProps {
   onZoomChange: (zoom: number) => void;
   onPanChange: (offset: { x: number; y: number }) => void;
   onDeleteLayer?: (layerId: string) => void;
+  onUpdateProjectDimensions?: (width: number, height: number, scaleLayers?: boolean) => void;
 }
 
 type DragHandleType = 'move' | 'nw' | 'ne' | 'se' | 'sw' | 'n' | 's' | 'e' | 'w' | 'rot' | 'pan';
@@ -137,11 +138,24 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
   onBulkUpdateTransforms,
   onZoomChange,
   onPanChange,
-  onDeleteLayer
+  onDeleteLayer,
+  onUpdateProjectDimensions
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imagesCache = useRef<Record<string, HTMLImageElement>>({});
+
+  // Project Dimensions Controls State
+  const [showDimensionsMenu, setShowDimensionsMenu] = useState<boolean>(false);
+  const [customWidthInput, setCustomWidthInput] = useState<number>(project.width || 500);
+  const [customHeightInput, setCustomHeightInput] = useState<number>(project.height || 500);
+  const [lockRatio, setLockRatio] = useState<boolean>(false);
+  const [scaleLayersWithResize, setScaleLayersWithResize] = useState<boolean>(false);
+
+  useEffect(() => {
+    setCustomWidthInput(project.width || 500);
+    setCustomHeightInput(project.height || 500);
+  }, [project.width, project.height]);
 
   // Effective multi-selection IDs
   const activeSelectedIds = useMemo(() => {
@@ -1096,11 +1110,185 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       onWheel={handleWheel}
       style={{ cursor: activeTool === 'hand' || dragHandle === 'pan' ? 'grab' : canvasCursor }}
     >
-      {/* Floating Canvas Viewport Info Pill & Preset Quick Zoom */}
-      <div className="absolute top-4 left-4 z-20 flex items-center gap-2 bg-slate-900/90 backdrop-blur-md border border-white/10 px-3 py-1.5 rounded-2xl shadow-xl">
-        <span className="text-[11px] font-mono font-bold text-slate-300">
-          {project.width} × {project.height} px
-        </span>
+      {/* Floating Canvas Viewport Info Pill & Dimension Control & Preset Quick Zoom */}
+      <div className="absolute top-4 left-4 z-20 flex items-center gap-2 bg-slate-900/90 backdrop-blur-md border border-white/10 p-1.5 px-3 rounded-2xl shadow-xl">
+        {/* Interactive Dimension Control Button */}
+        <div className="relative">
+          <button
+            onClick={() => setShowDimensionsMenu(prev => !prev)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/30 border border-indigo-500/40 hover:border-indigo-400 text-indigo-200 hover:text-white transition-all cursor-pointer font-mono font-bold text-xs shadow-sm hover:scale-[1.02] active:scale-95"
+            title="تعديل وتحديد مقاسات المشروع بحرية (العرض × الارتفاع)"
+          >
+            <Scaling size={13} className="text-indigo-400" />
+            <span>{project.width} × {project.height} px</span>
+            <ChevronDown size={11} className={`text-indigo-400/80 transition-transform ${showDimensionsMenu ? 'rotate-180' : ''}`} />
+          </button>
+
+          {/* Popover / Menu for Dimensions */}
+          {showDimensionsMenu && (
+            <div 
+              className="absolute top-full left-0 mt-2 w-80 bg-slate-900/95 backdrop-blur-xl border border-indigo-500/30 rounded-2xl shadow-2xl p-4 z-50 text-right animate-in fade-in zoom-in-95 duration-150 ring-1 ring-white/10"
+              onClick={(e) => e.stopPropagation()}
+              dir="rtl"
+            >
+              <div className="flex items-center justify-between pb-2.5 border-b border-white/10 mb-3">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-6 h-6 rounded-lg bg-indigo-500/20 text-indigo-300 flex items-center justify-center border border-indigo-500/30">
+                    <Scaling size={13} className="text-indigo-400" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-black text-white block">مقاس وأبعاد المشروع</span>
+                    <span className="text-[9px] text-slate-400">تحكم كامل بحرية دون التقيد برقم معين</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowDimensionsMenu(false)}
+                  className="p-1 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg text-xs cursor-pointer transition-colors"
+                  title="إغلاق"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              {/* Direct Custom Dimension Inputs */}
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-300 mb-1 block">العرض (Width):</label>
+                    <div className="flex items-center bg-black/60 border border-indigo-400/30 rounded-xl px-2.5 py-1.5 focus-within:border-indigo-400 focus-within:ring-1 focus-within:ring-indigo-400/50">
+                      <input
+                        type="number"
+                        min={10}
+                        max={8192}
+                        value={customWidthInput}
+                        onChange={(e) => {
+                          const w = parseInt(e.target.value) || 0;
+                          setCustomWidthInput(w);
+                          if (lockRatio && project.width > 0 && w > 0) {
+                            const ratio = project.height / project.width;
+                            setCustomHeightInput(Math.round(w * ratio));
+                          }
+                        }}
+                        className="w-full bg-transparent text-white font-mono font-bold text-xs focus:outline-none text-center"
+                        placeholder="العرض"
+                      />
+                      <span className="text-[10px] text-indigo-400 font-mono">px</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-300 mb-1 block">الارتفاع (Height):</label>
+                    <div className="flex items-center bg-black/60 border border-indigo-400/30 rounded-xl px-2.5 py-1.5 focus-within:border-indigo-400 focus-within:ring-1 focus-within:ring-indigo-400/50">
+                      <input
+                        type="number"
+                        min={10}
+                        max={8192}
+                        value={customHeightInput}
+                        onChange={(e) => {
+                          const h = parseInt(e.target.value) || 0;
+                          setCustomHeightInput(h);
+                          if (lockRatio && project.height > 0 && h > 0) {
+                            const ratio = project.width / project.height;
+                            setCustomWidthInput(Math.round(h * ratio));
+                          }
+                        }}
+                        className="w-full bg-transparent text-white font-mono font-bold text-xs focus:outline-none text-center"
+                        placeholder="الارتفاع"
+                      />
+                      <span className="text-[10px] text-indigo-400 font-mono">px</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Aspect Ratio Lock Toggle */}
+                <div className="flex items-center justify-between px-1 py-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setLockRatio(prev => !prev)}
+                    className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                      lockRatio 
+                        ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40' 
+                        : 'bg-white/5 text-slate-400 border-white/5 hover:text-slate-200'
+                    }`}
+                  >
+                    {lockRatio ? <Lock size={11} className="text-indigo-400" /> : <Unlock size={11} />}
+                    <span>{lockRatio ? 'النسبة مقفلة (تناسب طردي)' : 'النسبة حرة (غير مقفلة)'}</span>
+                  </button>
+                  <span className="text-[9.5px] font-mono text-slate-400">
+                    النسبة: {project.width && project.height ? (project.width / project.height).toFixed(2) : '1.00'}
+                  </span>
+                </div>
+
+                {/* Quick Presets Grid */}
+                <div className="space-y-1.5 pt-1 border-t border-white/10">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-slate-400">مقاسات سريعة شائعة:</span>
+                    <span className="text-[9px] text-indigo-400 font-mono">نقرة واحدة للتطبيق</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5 max-h-32 overflow-y-auto custom-scrollbar pr-0.5">
+                    {[
+                      { label: '750 × 1334 (قصة / هاتف)', w: 750, h: 1334 },
+                      { label: '1080 × 1920 (9:16 FHD)', w: 1080, h: 1920 },
+                      { label: '500 × 500 (مربع افتراضي)', w: 500, h: 500 },
+                      { label: '750 × 240 (بانر روم البث)', w: 750, h: 240 },
+                      { label: '1920 × 1080 (16:9 شاشة)', w: 1920, h: 1080 },
+                      { label: '1080 × 1080 (1:1 HD)', w: 1080, h: 1080 },
+                      { label: '720 × 1280 (HD عمودي)', w: 720, h: 1280 },
+                      { label: '400 × 400 (أيقونة / شارة)', w: 400, h: 400 }
+                    ].map((p) => (
+                      <button
+                        key={`${p.w}x${p.h}`}
+                        type="button"
+                        onClick={() => {
+                          setCustomWidthInput(p.w);
+                          setCustomHeightInput(p.h);
+                          if (onUpdateProjectDimensions) {
+                            onUpdateProjectDimensions(p.w, p.h, scaleLayersWithResize);
+                          }
+                        }}
+                        className={`text-right px-2 py-1.5 rounded-xl text-[10px] font-mono transition-all border cursor-pointer ${
+                          project.width === p.w && project.height === p.h
+                            ? 'bg-indigo-600 text-white border-indigo-400 font-bold shadow-sm'
+                            : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/5 hover:border-white/15'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Options & Apply Button */}
+                <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
+                  <label className="text-[10px] text-slate-300 flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={scaleLayersWithResize}
+                      onChange={(e) => setScaleLayersWithResize(e.target.checked)}
+                      className="rounded accent-indigo-500 cursor-pointer"
+                    />
+                    <span>تحجيم الطبقات تلقائياً</span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onUpdateProjectDimensions && customWidthInput > 0 && customHeightInput > 0) {
+                        onUpdateProjectDimensions(customWidthInput, customHeightInput, scaleLayersWithResize);
+                        setShowDimensionsMenu(false);
+                      }
+                    }}
+                    className="px-3.5 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/30 flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95"
+                  >
+                    <Check size={13} />
+                    <span>تطبيق المقاس</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="h-3 w-px bg-white/10" />
         <span className="text-[11px] font-mono text-indigo-400 font-bold">{zoom}%</span>
 

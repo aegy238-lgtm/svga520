@@ -387,6 +387,47 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     });
   }, []);
 
+  const handleUpdateProjectDimensions = useCallback((newWidth: number, newHeight: number, scaleLayers: boolean = false) => {
+    setProject(prev => {
+      if (!prev) return prev;
+      const validW = Math.max(10, Math.min(8192, Math.round(newWidth)));
+      const validH = Math.max(10, Math.min(8192, Math.round(newHeight)));
+
+      const oldW = prev.width || 500;
+      const oldH = prev.height || 500;
+
+      if (scaleLayers && oldW > 0 && oldH > 0 && (oldW !== validW || oldH !== validH)) {
+        const scaleX = validW / oldW;
+        const scaleY = validH / oldH;
+
+        setLayers(currentLayers => {
+          const updated = currentLayers.map(l => ({
+            ...l,
+            transform: {
+              ...l.transform,
+              x: Math.round(l.transform.x * scaleX * 10) / 10,
+              y: Math.round(l.transform.y * scaleY * 10) / 10,
+              width: Math.round(l.transform.width * scaleX),
+              height: Math.round(l.transform.height * scaleY),
+              scaleX: Math.round(l.transform.scaleX * scaleX * 1000) / 1000,
+              scaleY: Math.round(l.transform.scaleY * scaleY * 1000) / 1000
+            }
+          }));
+          pushHistory(updated);
+          return updated;
+        });
+      }
+
+      setSuccessToast(`تم تغيير مقاس المشروع إلى ${validW} × ${validH} بكسل`);
+
+      return {
+        ...prev,
+        width: validW,
+        height: validH
+      };
+    });
+  }, [pushHistory]);
+
   const handleToggleVisibility = useCallback((layerId: string) => {
     setLayers(prev => {
       const updated = prev.map(l => l.id === layerId ? { ...l, visible: !l.visible } : l);
@@ -1511,6 +1552,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                 onZoomChange={setZoom}
                 onPanChange={setPanOffset}
                 onDeleteLayer={handleDeleteLayer}
+                onUpdateProjectDimensions={handleUpdateProjectDimensions}
               />
             </div>
 
@@ -1568,6 +1610,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               onToggleGroupLock={handleToggleGroupLock}
               onToggleGroupVisibility={handleToggleGroupVisibility}
               groupLayersCount={selectedLayer?.groupId ? layers.filter(l => l.groupId === selectedLayer.groupId).length : 0}
+              onUpdateProjectDimensions={handleUpdateProjectDimensions}
             />
           </aside>
         </div>
