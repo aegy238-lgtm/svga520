@@ -1,12 +1,10 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { 
-  Layers, LayoutGrid, Image, Sparkles, Wand2, Scissors, Maximize, 
-  Zap, Video, ShoppingBag, ArrowLeft, Box
-} from 'lucide-react';
+import { ArrowLeft, Star } from 'lucide-react';
 import { Uploader } from './Uploader';
-
 import { UserRecord } from '../types';
+import { TOOLS_REGISTRY, CATEGORIES_CONFIG, ToolCategory } from '../config/toolsRegistry';
+import { useStarredTools } from '../utils/starredTools';
 
 interface DashboardProps {
   onUpload: (files: File[]) => void;
@@ -14,96 +12,31 @@ interface DashboardProps {
   currentUser?: UserRecord | null;
 }
 
-const categories = [
-  {
-    id: 'image',
-    label: 'معالجة الصور والذكاء الاصطناعي',
-    icon: <Sparkles className="w-7 h-7" />,
-    color: 'from-emerald-500/10 to-teal-600/10',
-    hoverColor: 'group-hover:from-emerald-500/20 group-hover:to-teal-600/20',
-    borderColor: 'border-emerald-500/30',
-    textColor: 'text-emerald-400',
-    tools: [
-      { id: 'ai-video-matting', label: 'AI Video Matting Studio', icon: <Sparkles className="w-8 h-8 text-cyan-400" />, actionKey: 'aiVideoMatting', descAr: 'نظام ذكي جداً لتحديد وقص الأشخاص والأجسام داخل الفيديو بدقة متناهية مع إزالة الحواف والبرومة بضغطة زر واحدة.', descEn: 'AI video segmentation, person cutout & background/chroma remover with zero edge fringe.', highlight: true },
-      { id: 'image-enhancer', label: 'AI Image Enhancer', icon: <Sparkles className="w-8 h-8" />, actionKey: 'imageEnhancer', descAr: 'تحسين جودة الصور وترقيتها بالذكاء الاصطناعي مع الحفاظ على التفاصيل بشكل مذهل.', descEn: 'Enhance image quality using AI while preserving details amazingly.', highlight: true },
-      { id: 'image-processor', label: 'Image Processor', icon: <Wand2 className="w-8 h-8" />, actionKey: 'imageProcessor', descAr: 'معالجة وتعديل ألوان وإضاءة الصور بدقة عالية مع أدوات تنقية حساسة.', descEn: 'Process and adjust colors/lighting of images accurately with fine-tuning tools.' },
-      { id: 'image-editor', label: 'Image Editor', icon: <Scissors className="w-8 h-8" />, actionKey: 'imageEditor', descAr: 'محرر صور متكامل يوفر أدوات تعديل احترافية للطبقات والأشكال.', descEn: 'Comprehensive image editor offering professional tools for layers and shapes.' },
-      { id: 'image-matcher', label: 'Image Matcher', icon: <Maximize className="w-8 h-8" />, actionKey: 'imageMatcher', descAr: 'مطابقة الألوان والستايلات بين صورة وأخرى للحصول على طابع موحد ومتناسق.', descEn: 'Match colors and styles between two images for a consistent and unified look.' },
-    ]
-  },
-  {
-    id: 'svga',
-    label: 'أنيميشن و SVGA',
-    icon: <Layers className="w-7 h-7" />,
-    color: 'from-indigo-500/10 to-blue-600/10',
-    hoverColor: 'group-hover:from-indigo-500/20 group-hover:to-blue-600/20',
-    borderColor: 'border-indigo-500/30',
-    textColor: 'text-indigo-400',
-    tools: [
-      { id: 'svga-layer-editor', label: 'تحرير طبقات SVGA', icon: <Layers className="w-8 h-8" />, actionKey: 'svgaLayerEditor', descAr: 'محرر طبقات SVGA احترافي للتحكم بالماوس في الكانفاس، وتغيير الحجم والتدوير والموضع والترتيب مع الحفاظ التام على الحركة والأصوات.', descEn: 'Professional visual SVGA Layer Editor with interactive mouse canvas manipulation, reordering & audio preservation.', highlight: true },
-      { id: 'svga-compressor', label: 'SVGA & VAP Batch Compressor', icon: <Zap className="w-8 h-8" />, actionKey: 'svgaBatchCompressor', descAr: 'منظومة متقدمة لضغط دفعات ضخمة من ملفات SVGA و VAP مع الحفاظ التام على الصوت المدمج والشفافية وجودة الحركة.', descEn: 'Professional advanced batch engine to compress large batches of SVGA & VAP files preserving audio, animation quality and alpha.', highlight: true },
-      { id: 'svga-ex', label: 'SVGA Editor EX', icon: <Layers className="w-8 h-8" />, actionKey: 'svgaEx', descAr: 'محرر احترافي لعمل تركيبات معقدة ومدمجة من عدة ملفات متزامنة.', descEn: 'Professional editor for complex compositions of multiple SVGA files.', highlight: true },
-      { id: 'pag-to-svga', label: 'PAG to SVGA Converter', icon: <Box className="w-8 h-8" />, actionKey: 'pagConverterOpen', descAr: 'تحويل ملفات PAG إلى SVGA مع الحفاظ الكامل على الطبقات والحركة والشفافية.', descEn: 'Convert PAG files to SVGA preserving layers, keyframes and alpha.', highlight: true },
-      { id: 'multi-svga', label: 'Multi SVGA Preview', icon: <LayoutGrid className="w-8 h-8" />, actionKey: 'multiSvga', descAr: 'استعراض ومقارنة عدة ملفات SVGA في نفس الوقت بخصائص دقيقة للمزامنة.', descEn: 'Preview and compare multiple SVGA files simultaneously with sync controls.' },
-      { id: 'image-converter', label: 'Image to SVGA', icon: <Image className="w-8 h-8" />, actionKey: 'imageConverter', descAr: 'تحويل الصور الثابتة إلى ملفات SVGA متحركة مع تأثيرات دخول وحركة سريعة.', descEn: 'Convert static images into animated SVGA files with entry and motion effects.' },
-    ]
-  },
-  {
-    id: 'audio',
-    label: 'أدوات الصوت والميديا',
-    icon: <Video className="w-7 h-7" />,
-    color: 'from-blue-500/10 to-indigo-600/10',
-    hoverColor: 'group-hover:from-blue-500/20 group-hover:to-indigo-600/20',
-    borderColor: 'border-blue-500/30',
-    textColor: 'text-blue-400',
-    tools: [
-      { id: 'audio-extractor', label: 'Audio Extractor', icon: <Video className="w-8 h-8" />, actionKey: 'audioExtractor', descAr: 'استخراج الصوت من الفيديو وتصديره بصيغ متعددة باحترافية وسرعة عالية.', descEn: 'Extract audio from video and export in multiple formats professionally and quickly.', highlight: true },
-    ]
-  },
-  {
-    id: 'batch',
-    label: 'المعالجة الجماعية (Batch)',
-    icon: <Zap className="w-7 h-7" />,
-    color: 'from-orange-500/10 to-red-600/10',
-    hoverColor: 'group-hover:from-orange-500/20 group-hover:to-red-600/20',
-    borderColor: 'border-orange-500/30',
-    textColor: 'text-orange-400',
-    tools: [
-      { id: 'svga-batch-compress', label: 'SVGA & VAP Batch Compressor', icon: <Zap className="w-8 h-8" />, actionKey: 'svgaBatchCompressor', descAr: 'ضغط دفعات ضخمة من ملفات SVGA و VAP دفعة واحدة مع الحفاظ التام على الصوت المدمج والشفافية وجودة الحركة.', descEn: 'Compress huge batches of SVGA & VAP files in parallel with audio preservation & quality control.', highlight: true },
-      { id: 'batch-image-processor', label: 'Batch Image Processor', icon: <Image className="w-8 h-8" />, actionKey: 'batchImageProcessor', descAr: 'تطبيق التعديلات والتحسينات على مجلد كامل من الصور بضغطة واحدة.', descEn: 'Apply enhancements and edits to a whole folder of images with one click.' },
-      { id: 'batch', label: 'Batch Compress', icon: <Layers className="w-8 h-8" />, actionKey: 'batchCompress', descAr: 'ضغط وتقليل حجم كمية كبيرة من الصور بكفاءة دون فقدان ملحوظ للجودة الأصلية.', descEn: 'Compress a large batch of images efficiently without noticeable quality loss.' },
-      { id: 'cropper', label: 'Batch Cropper', icon: <Scissors className="w-8 h-8" />, actionKey: 'batchCropper', descAr: 'قص واقتطاع وتغيير أحجام مجموعة صور بشكل آلي لنفس الأبعاد المطلوبة بدقة.', descEn: 'Auto-crop and resize a batch of images to the exact required dimensions.' },
-      { id: 'universal', label: 'Universal Motion Tools', icon: <Video className="w-8 h-8" />, actionKey: 'universalConverter', descAr: 'بيئة احترافية شاملة لمعاينة وضغط وتحويل كافة صيغ الأنيميشن بسهولة.', descEn: 'Professional universal environment to preview, compress, and convert all animation formats.' },
-      { id: 'converter', label: 'Video Converter', icon: <Video className="w-8 h-8" />, actionKey: 'videoConverter', descAr: 'أداة سريعة لتحويل مقاطع الفيديو وتفريغها إلى صيغ أخرى كـ SVGA.', descEn: 'Fast tool to convert videos and composite them to other formats like SVGA.' },
-    ]
-  },
-  {
-    id: 'store',
-    label: 'المتجر والأصول المساعدة',
-    icon: <ShoppingBag className="w-7 h-7" />,
-    color: 'from-fuchsia-500/10 to-pink-600/10',
-    hoverColor: 'group-hover:from-fuchsia-500/20 group-hover:to-pink-600/20',
-    borderColor: 'border-fuchsia-500/30',
-    textColor: 'text-fuchsia-400',
-    tools: [
-      { id: 'store', label: 'SVGA Store', icon: <ShoppingBag className="w-8 h-8" />, actionKey: 'store', descAr: 'متجر احترافي ضخم يحتوي على مئات المؤثرات، الإطارات، والتركيبات الجاهزة.', descEn: 'Huge professional store with hundreds of effects, frames, and ready-to-use assets.', highlight: true },
-    ]
-  }
-];
-
 export const Dashboard: React.FC<DashboardProps> = ({ onUpload, onAction, currentUser }) => {
-  const isFeatureAllowed = (actionKey: string) => {
+  const { isStarred, toggleStar } = useStarredTools();
+
+  const isFeatureAllowed = (featureAccessKey: string) => {
     if (!currentUser) return true;
     if (currentUser.allFeaturesEnabled !== false) return true;
     const allowed = currentUser.allowedFeatures || [];
-    return allowed.includes(actionKey);
+    return allowed.includes(featureAccessKey);
   };
 
-  // Filter tools based on user access
-  const filteredCategories = categories.map(cat => {
+  // Filter tools based on user access from central TOOLS_REGISTRY
+  const allowedTools = TOOLS_REGISTRY.filter(tool => isFeatureAllowed(tool.featureAccessKey));
+
+  const filteredCategories = (['svga', 'image', 'audio', 'batch', 'store'] as ToolCategory[]).map(catId => {
+    const config = CATEGORIES_CONFIG[catId];
+    const catTools = allowedTools.filter(t => t.category === catId);
     return {
-      ...cat,
-      tools: cat.tools.filter(tool => isFeatureAllowed(tool.actionKey))
+      id: catId,
+      label: config.label,
+      icon: config.icon,
+      color: config.color,
+      hoverColor: config.hoverColor,
+      borderColor: config.borderColor,
+      textColor: config.textColor,
+      tools: catTools
     };
   }).filter(cat => cat.tools.length > 0);
 
@@ -158,16 +91,43 @@ export const Dashboard: React.FC<DashboardProps> = ({ onUpload, onAction, curren
                  </div>
 
                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-6 px-1 sm:px-2">
-                    {cat.tools.map(tool => (
-                       <button
+                    {cat.tools.map(tool => {
+                       const starred = isStarred(tool.id);
+                       return (
+                       <div
                           key={tool.id}
-                          onClick={() => onAction(tool.actionKey)}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => onAction((tool as any).dashboardActionKey || (tool as any).actionKey)}
+                          onKeyDown={(e) => {
+                             if (e.key === 'Enter' || e.key === ' ') {
+                               onAction((tool as any).dashboardActionKey || (tool as any).actionKey);
+                             }
+                          }}
                           className={`group relative text-right flex flex-col items-start gap-3 sm:gap-5 p-4 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] glass-panel transition-all duration-500 cursor-pointer overflow-hidden hover:-translate-y-2 active:translate-y-1 ${
                              tool.highlight 
                               ? 'border-[#4DA3FF]/40 hover:border-[#4DA3FF] shadow-[0_0_20px_rgba(77,163,255,0.15)] hover:shadow-[0_0_40px_rgba(77,163,255,0.3)] bg-gradient-to-b from-[#0d1220]/90 to-[#0d1220]/60' 
-                              : 'border-white/10 hover:border-white/30 hover:shadow-[0_10px_30px_rgba(0,0,0,0.6)] bg-[#0d1220]/60'
+                              : starred
+                                ? 'border-amber-500/40 hover:border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.15)] bg-gradient-to-b from-[#14120a]/80 to-[#0d1220]/70'
+                                : 'border-white/10 hover:border-white/30 hover:shadow-[0_10px_30px_rgba(0,0,0,0.6)] bg-[#0d1220]/60'
                           }`}
                        >
+                          {/* Star Pin Button */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleStar(tool.id);
+                            }}
+                            className={`absolute top-3 sm:top-5 left-3 sm:left-5 p-2 rounded-xl transition-all z-20 cursor-pointer ${
+                              starred
+                                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40 opacity-100 shadow-[0_0_12px_rgba(245,158,11,0.3)] scale-100'
+                                : 'bg-white/5 hover:bg-white/15 text-slate-400 hover:text-amber-400 border border-white/10 opacity-0 group-hover:opacity-100'
+                            }`}
+                            title={starred ? 'مثبتة بنجمة في البداية ⭐ (اضغط لإلغاء التثبيت)' : 'تثبيت الأداة بنجمة في البداية ⭐'}
+                          >
+                            <Star className={`w-4 h-4 sm:w-5 sm:h-5 ${starred ? 'fill-amber-400 text-amber-400' : ''}`} />
+                          </button>
                           {/* 3D Glass Glow Hover */}
                           <div className={`absolute inset-0 bg-gradient-to-br transition-all duration-700 opacity-0 group-hover:opacity-100 pointer-events-none ${cat.hoverColor}`}></div>
                           <div className="absolute -inset-[100%] top-0 bg-gradient-to-b from-transparent via-white/5 to-transparent opacity-0 group-hover:opacity-100 transform -rotate-45 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000 ease-in-out pointer-events-none"></div>
@@ -207,8 +167,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onUpload, onAction, curren
                                 <ArrowLeft className="w-5 h-5 -rotate-45 group-hover:rotate-0 transition-transform duration-500" />
                              </div>
                           </div>
-                       </button>
-                    ))}
+                       </div>
+                    );
+                    })}
                  </div>
               </motion.div>
            ))}

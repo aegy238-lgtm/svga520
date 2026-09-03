@@ -744,6 +744,8 @@ const App: React.FC = () => {
           state === AppState.MULTI_SVGA_VIEWER ? 'multi-svga' :
           state === AppState.NAME_3D_EDITOR ? 'name-3d' :
           state === AppState.AUDIO_EXTRACTOR ? 'audio-extractor' :
+          state === AppState.UNIVERSAL_CONVERTER ? 'universal' :
+          showPagConverter ? 'pag-to-svga' :
           'svga'
         }
       />

@@ -670,38 +670,50 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     });
   }, [selectedLayerId, selectedLayerIds, pushHistory]);
 
-  const handleReplaceAsset = useCallback((file: File) => {
+  const handleReplaceAsset = useCallback(async (file: File) => {
     if (!selectedLayerId || !project) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
-      if (!dataUrl) return;
-
+    try {
+      const { dataUrl, bytes } = await fileToImageBuffer(file);
       const layer = layers.find(l => l.id === selectedLayerId);
       if (!layer) return;
 
-      // Update in project imagesMap
+      const imgKey = layer.imageKey;
+
+      // Update in project imagesMap and rawImages (ensures both canvas preview and SVGA binary export update immediately)
       setProject(prev => {
         if (!prev) return prev;
         return {
           ...prev,
+          rawImages: {
+            ...prev.rawImages,
+            [imgKey]: bytes
+          },
           imagesMap: {
             ...prev.imagesMap,
-            [layer.imageKey]: dataUrl
+            [imgKey]: dataUrl
           }
         };
       });
 
       // Update layer thumbnail
       setLayers(prev => {
-        const updated = prev.map(l => l.id === selectedLayerId ? { ...l, thumbnailUrl: dataUrl } : l);
+        const updated = prev.map(l => {
+          if (l.id === selectedLayerId || l.imageKey === imgKey) {
+            return {
+              ...l,
+              thumbnailUrl: dataUrl
+            };
+          }
+          return l;
+        });
         pushHistory(updated);
         return updated;
       });
 
-      setSuccessToast(`تم استبدال أصل الصورة للطبقة: ${layer.name}`);
-    };
-    reader.readAsDataURL(file);
+      setSuccessToast(`تم استبدال صورة الطبقة بنجاح وتحديثها فورياً: ${layer.name}`);
+    } catch (err: any) {
+      console.error('Failed to replace image asset:', err);
+    }
   }, [selectedLayerId, project, layers, pushHistory]);
 
   // Add New Image Layer

@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import { logActivity } from '../utils/logger';
 import { useAccessControl } from '../hooks/useAccessControl';
+import { SmartAutoCropper } from './SmartAutoCropper';
+import { Sparkles } from 'lucide-react';
 
 declare var JSZip: any;
 
@@ -56,6 +58,7 @@ export const BatchCropper: React.FC<BatchCropperProps> = ({
 }) => {
   const { checkAccess } = useAccessControl();
   
+  const [cropperMode, setCropperMode] = useState<'smart_auto' | 'manual_batch'>('smart_auto');
   const [images, setImages] = useState<CroppableImage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -358,14 +361,35 @@ export const BatchCropper: React.FC<BatchCropperProps> = ({
     };
   }, [resizing, onMouseMove, onTouchMove, onMouseUp]);
 
+  if (cropperMode === 'smart_auto') {
+    return (
+      <SmartAutoCropper
+        currentUser={currentUser}
+        onCancel={onCancel}
+        onLoginRequired={onLoginRequired}
+        onSubscriptionRequired={onSubscriptionRequired}
+        onSwitchToManual={() => setCropperMode('manual_batch')}
+      />
+    );
+  }
+
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-700">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-black text-white tracking-tighter flex items-center gap-3">
-            <Scissors className="w-8 h-8 text-indigo-500" />
-            القصّ وتحديد المقاس الجماعي للصور
-          </h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-3xl font-black text-white tracking-tighter flex items-center gap-3">
+              <Scissors className="w-8 h-8 text-indigo-500" />
+              القصّ وتحديد المقاس الجماعي للصور
+            </h2>
+            <button
+              onClick={() => setCropperMode('smart_auto')}
+              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-indigo-500/20 cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-cyan-200" />
+              <span>القص والتحديد الذكي التلقائي</span>
+            </button>
+          </div>
           <p className="text-slate-400 text-sm mt-1">تحديد منطقة قصّ موحدة وتطبيقها على جميع الصور دفعة واحدة</p>
         </div>
         <div className="flex items-center gap-3">

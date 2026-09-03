@@ -158,19 +158,30 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
   const [initialTransform, setInitialTransform] = useState<EditableLayer['transform'] | null>(null);
   const [initialTransformsMap, setInitialTransformsMap] = useState<Record<string, EditableLayer['transform']>>({});
   const [activeGuides, setActiveGuides] = useState<GuideLine[]>([]);
+  const [cacheVersion, setCacheVersion] = useState<number>(0);
 
   const selectedLayer = useMemo(() => {
     return layers.find(l => l.id === selectedLayerId) || null;
   }, [layers, selectedLayerId]);
 
-  // Preload images into cache
+  // Preload and sync images into cache with automatic canvas redraw
   useEffect(() => {
+    let hasLoadedAny = false;
     for (const [key, dataUrl] of Object.entries(project.imagesMap)) {
-      if (!imagesCache.current[key]) {
+      const existing = imagesCache.current[key];
+      if (!existing || existing.src !== dataUrl) {
         const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          setCacheVersion(v => v + 1);
+        };
         img.src = dataUrl;
         imagesCache.current[key] = img;
+        hasLoadedAny = true;
       }
+    }
+    if (hasLoadedAny) {
+      setCacheVersion(v => v + 1);
     }
   }, [project.imagesMap]);
 
@@ -654,7 +665,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         ctx.restore();
       }
     }
-  }, [project, layers, selectedLayer, activeSelectedIds, selectedLayerId, currentFrame, bgColor, showGrid, showGuides, activeGuides, computeLayerMatrix, getLayerFrameState]);
+  }, [project, layers, selectedLayer, activeSelectedIds, selectedLayerId, currentFrame, bgColor, showGrid, showGuides, activeGuides, computeLayerMatrix, getLayerFrameState, cacheVersion]);
 
   useEffect(() => {
     drawScene();
