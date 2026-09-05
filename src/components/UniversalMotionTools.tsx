@@ -9,9 +9,9 @@ import {
   Check, RefreshCcw, Music, Volume2, VolumeX, Trash2, Plus,
   FileAudio, Headphones, Film, HelpCircle, Video,
   Stamp, Move, Square, Maximize2, SlidersHorizontal, Activity, Compass,
-  Image as ImageIcon, Camera, Lock, Unlock, Zap, Copy, Package
+  Image as ImageIcon, Camera, Lock, Unlock, Zap, Copy, Package, Layers
 } from 'lucide-react';
-import { UserRecord } from '../types';
+import { UserRecord, FileMetadata } from '../types';
 // @ts-ignore
 import Vap from 'video-animation-player';
 import { Player as SvgaPlayer, Parser as SvgaParser } from 'svga.lite';
@@ -166,6 +166,7 @@ interface UniversalMotionToolsProps {
   onCancel: () => void;
   onLoginRequired: () => void;
   onSubscriptionRequired: () => void;
+  onOpenInWorkspace?: (metadata: FileMetadata) => void;
 }
 
 interface VapConfig {
@@ -328,6 +329,9 @@ class WebGLVapRenderer {
 export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   currentUser,
   onCancel,
+  onLoginRequired,
+  onSubscriptionRequired,
+  onOpenInWorkspace
 }) => {
   // Preload FFmpeg to make ultra-fast operations instant
   useEffect(() => {
@@ -410,8 +414,8 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   const [audioProcessProgress, setAudioProcessProgress] = useState(0);
   const [isAudioEditorModalOpen, setIsAudioEditorModalOpen] = useState(false);
   const [preProcessedVapBlob, setPreProcessedVapBlob] = useState<Blob | null>(null);
-  // Export Target Format: 'svga' or 'vap'
-  const [exportTargetFormat, setExportTargetFormat] = useState<'svga' | 'vap' | 'mp4'>('svga');
+  // Export Target Format: 'svga' or 'vap' or 'mp4' or 'frames'
+  const [exportTargetFormat, setExportTargetFormat] = useState<'svga' | 'vap' | 'mp4' | 'frames'>('svga');
 
   // Player & Container Refs
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1642,33 +1646,52 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     });
   };
 
-  // Robust, jitter-free frame seeker that ensures the GPU / video decoder texture is fully rendered
+  // Ultra-fast Base64 Data URL to Uint8Array byte decoder (bypasses fetch / heavy allocations)
+  const fastDataUrlToBytes = (dataUrl: string): Uint8Array => {
+    const commaIdx = dataUrl.indexOf(',');
+    const b64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
+    const binaryStr = atob(b64);
+    const len = binaryStr.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    return bytes;
+  };
+
+  // Ultra-fast, GPU texture-synchronized frame seeker
   const seekVideoToFrame = (video: HTMLVideoElement, targetTime: number): Promise<void> => {
     return new Promise<void>((resolve) => {
       let isDone = false;
       const finish = () => {
         if (!isDone) {
           isDone = true;
-          video.removeEventListener('seeked', onSeeked);
+          video.removeEventListener('seeked', finish);
           video.removeEventListener('error', finish);
           resolve();
         }
       };
 
-      const onSeeked = () => {
-        if ('requestVideoFrameCallback' in video) {
-          (video as any).requestVideoFrameCallback(() => finish());
-        } else {
-          requestAnimationFrame(() => finish());
-        }
-      };
+      if (Math.abs(video.currentTime - targetTime) < 0.002) {
+        finish();
+        return;
+      }
 
-      video.addEventListener('seeked', onSeeked, { once: true });
+      video.addEventListener('seeked', finish, { once: true });
       video.addEventListener('error', finish, { once: true });
-      video.currentTime = targetTime;
 
-      // Safe fallback timeout in case the seeked event was missed
-      setTimeout(finish, 350);
+      if (typeof (video as any).fastSeek === 'function') {
+        try {
+          (video as any).fastSeek(targetTime);
+        } catch (e) {
+          video.currentTime = targetTime;
+        }
+      } else {
+        video.currentTime = targetTime;
+      }
+
+      // Safe immediate fallback timeout to prevent hanging on dropped events
+      setTimeout(finish, 80);
     });
   };
 
@@ -2316,17 +2339,36 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       const totalFrames = Math.max(1, Math.floor(duration * fps));
       const frameInterval = 1 / fps;
 
-      const rgbCanvas = document.createElement('canvas');
-      rgbCanvas.width = origW;
-      rgbCanvas.height = origH;
-      const rgbCtx = rgbCanvas.getContext('2d', { willReadFrequently: true });
-      if (!rgbCtx) throw new Error('فشل إنشاء سياق RGB');
+      // Initialize GPU WebGL Renderer for ultra-fast instant frame processing
+      let webglRenderer: WebGLVapRenderer | null = null;
+      try {
+        webglRenderer = new WebGLVapRenderer(origW, origH);
+      } catch (glErr) {
+        console.warn('WebGL initialization failed, using CPU fallback:', glErr);
+      }
 
-      const alphaCanvas = document.createElement('canvas');
-      alphaCanvas.width = origW;
-      alphaCanvas.height = origH;
-      const alphaCtx = alphaCanvas.getContext('2d', { willReadFrequently: true });
-      if (!alphaCtx) throw new Error('فشل إنشاء سياق Alpha');
+      // CPU Fallback canvases and buffers
+      let rgbCanvas: HTMLCanvasElement | null = null;
+      let rgbCtx: CanvasRenderingContext2D | null = null;
+      let alphaCanvas: HTMLCanvasElement | null = null;
+      let alphaCtx: CanvasRenderingContext2D | null = null;
+      let compositeImageData: ImageData | null = null;
+
+      if (!webglRenderer) {
+        rgbCanvas = document.createElement('canvas');
+        rgbCanvas.width = origW;
+        rgbCanvas.height = origH;
+        rgbCtx = rgbCanvas.getContext('2d', { willReadFrequently: true });
+
+        alphaCanvas = document.createElement('canvas');
+        alphaCanvas.width = origW;
+        alphaCanvas.height = origH;
+        alphaCtx = alphaCanvas.getContext('2d', { willReadFrequently: true });
+
+        if (rgbCtx) {
+          compositeImageData = rgbCtx.createImageData(origW, origH);
+        }
+      }
 
       const exportCanvas = document.createElement('canvas');
       exportCanvas.width = outW;
@@ -2349,6 +2391,8 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
       const imagesMap: Record<string, Uint8Array> = {};
       const sprites: any[] = [];
+      const cLevel = compressionLevel / 100;
+      const qualityRatio = Math.max(0.1, 1.0 - (cLevel * 0.9));
 
       for (let i = 0; i < totalFrames; i++) {
         if (cancelExportRef.current) {
@@ -2360,64 +2404,69 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
         const currentTime = Math.min(i * frameInterval, Math.max(0, duration - 0.01));
         await seekVideoToFrame(video, currentTime);
 
-        rgbCtx.clearRect(0, 0, origW, origH);
-        rgbCtx.drawImage(video, srcRgbX, srcRgbY, srcRgbW, srcRgbH, 0, 0, origW, origH);
-
-        alphaCtx.clearRect(0, 0, origW, origH);
-        alphaCtx.drawImage(video, srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH, 0, 0, origW, origH);
-
-        const rgbData = rgbCtx.getImageData(0, 0, origW, origH);
-        const alphaData = alphaCtx.getImageData(0, 0, origW, origH);
-
-        const compositeImageData = rgbCtx.createImageData(origW, origH);
-        const compData = compositeImageData.data;
-        const rgbPixels = rgbData.data;
-        const alphaPixels = alphaData.data;
-        const pixelCount = origW * origH;
-
-        const threshold = alphaThreshold;
-
-        for (let p = 0; p < pixelCount; p++) {
-          const idx = p * 4;
-          
-          const aR = alphaPixels[idx];
-          const aG = alphaPixels[idx + 1];
-          const aB = alphaPixels[idx + 2];
-          const rawAlpha = Math.round(0.299 * aR + 0.587 * aG + 0.114 * aB);
-
-          if (rawAlpha <= threshold) {
-            compData[idx] = 0;
-            compData[idx + 1] = 0;
-            compData[idx + 2] = 0;
-            compData[idx + 3] = 0;
-          } else {
-            let aVal = rawAlpha;
-            if (aVal < 255) {
-              aVal = Math.min(255, Math.round(((rawAlpha - threshold) / (255 - threshold)) * 255));
-            }
-            const alphaRatio = aVal / 255;
-
-            let r = rgbPixels[idx];
-            let g = rgbPixels[idx + 1];
-            let b = rgbPixels[idx + 2];
-
-            if (unmultiplyAlpha && alphaRatio > 0.02) {
-              r = Math.min(255, Math.max(0, Math.round(r / alphaRatio)));
-              g = Math.min(255, Math.max(0, Math.round(g / alphaRatio)));
-              b = Math.min(255, Math.max(0, Math.round(b / alphaRatio)));
-            }
-
-            compData[idx] = r;
-            compData[idx + 1] = g;
-            compData[idx + 2] = b;
-            compData[idx + 3] = aVal;
-          }
-        }
-
-        rgbCtx.putImageData(compositeImageData, 0, 0);
-
         exportCtx.clearRect(0, 0, outW, outH);
-        exportCtx.drawImage(rgbCanvas, 0, 0, origW, origH, 0, 0, outW, outH);
+
+        if (webglRenderer) {
+          const glCanvas = webglRenderer.render(
+            video,
+            [srcRgbX, srcRgbY, srcRgbW, srcRgbH],
+            [srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH],
+            alphaThreshold,
+            unmultiplyAlpha
+          );
+          exportCtx.drawImage(glCanvas, 0, 0, origW, origH, 0, 0, outW, outH);
+        } else if (rgbCtx && alphaCtx && rgbCanvas && alphaCanvas && compositeImageData) {
+          rgbCtx.clearRect(0, 0, origW, origH);
+          rgbCtx.drawImage(video, srcRgbX, srcRgbY, srcRgbW, srcRgbH, 0, 0, origW, origH);
+
+          alphaCtx.clearRect(0, 0, origW, origH);
+          alphaCtx.drawImage(video, srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH, 0, 0, origW, origH);
+
+          const rgbPixels = rgbCtx.getImageData(0, 0, origW, origH).data;
+          const alphaPixels = alphaCtx.getImageData(0, 0, origW, origH).data;
+          const compData = compositeImageData.data;
+          const pixelCount = origW * origH;
+          const threshold = alphaThreshold;
+
+          for (let p = 0; p < pixelCount; p++) {
+            const idx = p << 2;
+            const aR = alphaPixels[idx];
+            const aG = alphaPixels[idx + 1];
+            const aB = alphaPixels[idx + 2];
+            const rawAlpha = (77 * aR + 150 * aG + 29 * aB) >> 8;
+
+            if (rawAlpha <= threshold) {
+              compData[idx] = 0;
+              compData[idx + 1] = 0;
+              compData[idx + 2] = 0;
+              compData[idx + 3] = 0;
+            } else {
+              let aVal = rawAlpha;
+              if (aVal < 255) {
+                aVal = Math.min(255, Math.floor(((rawAlpha - threshold) * 255) / (255 - threshold)));
+              }
+              const alphaRatio = aVal / 255;
+
+              let r = rgbPixels[idx];
+              let g = rgbPixels[idx + 1];
+              let b = rgbPixels[idx + 2];
+
+              if (unmultiplyAlpha && alphaRatio > 0.02) {
+                r = Math.min(255, Math.max(0, Math.floor(r / alphaRatio)));
+                g = Math.min(255, Math.max(0, Math.floor(g / alphaRatio)));
+                b = Math.min(255, Math.max(0, Math.floor(b / alphaRatio)));
+              }
+
+              compData[idx] = r;
+              compData[idx + 1] = g;
+              compData[idx + 2] = b;
+              compData[idx + 3] = aVal;
+            }
+          }
+
+          rgbCtx.putImageData(compositeImageData, 0, 0);
+          exportCtx.drawImage(rgbCanvas, 0, 0, origW, origH, 0, 0, outW, outH);
+        }
 
         // Draw Animated Square Watermark onto frame if enabled
         if (enableWatermark && wmImgEl && wmImgEl.complete && wmImgEl.naturalWidth > 0) {
@@ -2444,31 +2493,25 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
           );
         }
 
-        const scaledImageData = exportCtx.getImageData(0, 0, outW, outH);
-
-        
-        const cLevel = compressionLevel / 100;
-        const qualityRatio = 1.0 - (cLevel * 0.9);
         let imageBytes: Uint8Array;
-        
         if (svgaFormat === 'webp' || svgaFormat === 'jpeg') {
-           const mime = svgaFormat === 'webp' ? 'image/webp' : 'image/jpeg';
-           const dataUrl = exportCanvas.toDataURL(mime, qualityRatio);
-           const bstr = atob(dataUrl.split(',')[1]);
-           let n = bstr.length;
-           const u8arr = new Uint8Array(n);
-           while(n--) { u8arr[n] = bstr.charCodeAt(n); }
-           imageBytes = u8arr;
+          const mime = svgaFormat === 'webp' ? 'image/webp' : 'image/jpeg';
+          const dataUrl = exportCanvas.toDataURL(mime, qualityRatio);
+          imageBytes = fastDataUrlToBytes(dataUrl);
         } else {
-           const scaledImageData = exportCtx.getImageData(0, 0, outW, outH);
-           const cnum = compressionLevel === 0 ? 0 : Math.max(16, Math.min(256, Math.round(qualityRatio * 256)));
-           const pngBuffer = UPNG.encode([scaledImageData.data.buffer], outW, outH, cnum);
-           imageBytes = new Uint8Array(pngBuffer);
+          if (compressionLevel === 0) {
+            const dataUrl = exportCanvas.toDataURL('image/png');
+            imageBytes = fastDataUrlToBytes(dataUrl);
+          } else {
+            const scaledImageData = exportCtx.getImageData(0, 0, outW, outH);
+            const cnum = Math.max(16, Math.min(256, Math.round(qualityRatio * 256)));
+            const pngBuffer = UPNG.encode([scaledImageData.data.buffer], outW, outH, cnum);
+            imageBytes = new Uint8Array(pngBuffer);
+          }
         }
 
         const imgKey = `frame_${i}`;
         imagesMap[imgKey] = imageBytes;
-
 
         const spriteFrames = [];
         for (let fIdx = 0; fIdx < totalFrames; fIdx++) {
@@ -2486,7 +2529,12 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
         const pct = Math.round(((i + 1) / totalFrames) * 80);
         setExportProgress(pct);
-        setExportStatusText(`معالجة الشفافية وضغط الإطار ${i + 1} من ${totalFrames} (${pct}%)`);
+        setExportStatusText(`معالجة الشفافية الفورية للإطار ${i + 1} من ${totalFrames} (${pct}%)`);
+
+        // Yield execution every 6 frames to keep UI 60fps responsive and fluid
+        if (i % 6 === 0) {
+          await new Promise((r) => setTimeout(r, 0));
+        }
       }
 
       // Process Audio Track & Embedding
@@ -2602,12 +2650,434 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     }
   };
 
+  // Convert VAP to Image Sequence (Frames) and Transfer to Main Workspace or Download ZIP
+  const handleConvertVapToFramesSequenceAndTransfer = async (downloadZipOnly: boolean = false) => {
+    if (!fileUrl) return;
+
+    setIsExporting(true);
+    setExportProgress(0);
+    setExportSuccess(false);
+    setExportedBlob(null);
+    setExportStats(null);
+    cancelExportRef.current = false;
+
+    try {
+      setExportStatusText('جاري فحص ملف VAP وتجهيز استخراج الإطارات كصور شفافة...');
+
+      const video = await loadVideoForExport(fileUrl, sourceFile);
+
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+
+      let cfgW = vapConfig?.info?.w || Math.round(vw / 2);
+      let cfgH = vapConfig?.info?.h || vh;
+      let rawVideoW = vapConfig?.info?.videoW || vw;
+      let rawVideoH = vapConfig?.info?.videoH || vh;
+
+      let rgbRect = vapConfig?.info?.rgbFrame || [0, 0, Math.round(vw / 2), vh];
+      let alphaRect = vapConfig?.info?.aFrame || [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
+
+      if (!vapConfig?.info?.rgbFrame && vh > vw && vw > 0) {
+        rgbRect = [0, 0, vw, Math.round(vh / 2)];
+        alphaRect = [0, Math.round(vh / 2), vw, Math.round(vh / 2)];
+        cfgW = vw;
+        cfgH = Math.round(vh / 2);
+      }
+
+      const scaleX = vw / (rawVideoW || vw);
+      const scaleY = vh / (rawVideoH || vh);
+
+      const srcRgbX = Math.round(rgbRect[0] * scaleX);
+      const srcRgbY = Math.round(rgbRect[1] * scaleY);
+      const srcRgbW = Math.round(rgbRect[2] * scaleX);
+      const srcRgbH = Math.round(rgbRect[3] * scaleY);
+
+      const srcAlphaX = Math.round(alphaRect[0] * scaleX);
+      const srcAlphaY = Math.round(alphaRect[1] * scaleY);
+      const srcAlphaW = Math.round(alphaRect[2] * scaleX);
+      const srcAlphaH = Math.round(alphaRect[3] * scaleY);
+
+      const origW = cfgW;
+      const origH = cfgH;
+      const outW = customWidth || Math.max(1, Math.round(origW * resolutionScale));
+      const outH = customHeight || Math.max(1, Math.round(origH * resolutionScale));
+
+      const duration = video.duration || videoDuration || 3;
+      const fps = targetFps || (vapConfig?.info?.f) || 24;
+      const totalFrames = Math.max(1, Math.floor(duration * fps));
+      const frameInterval = 1 / fps;
+
+      // Initialize GPU WebGL Renderer for ultra-fast instant frame processing
+      let webglRenderer: WebGLVapRenderer | null = null;
+      try {
+        webglRenderer = new WebGLVapRenderer(origW, origH);
+      } catch (glErr) {
+        console.warn('WebGL initialization failed, using CPU fallback:', glErr);
+      }
+
+      // CPU Fallback canvases and buffers
+      let rgbCanvas: HTMLCanvasElement | null = null;
+      let rgbCtx: CanvasRenderingContext2D | null = null;
+      let alphaCanvas: HTMLCanvasElement | null = null;
+      let alphaCtx: CanvasRenderingContext2D | null = null;
+      let compositeImageData: ImageData | null = null;
+
+      if (!webglRenderer) {
+        rgbCanvas = document.createElement('canvas');
+        rgbCanvas.width = origW;
+        rgbCanvas.height = origH;
+        rgbCtx = rgbCanvas.getContext('2d', { willReadFrequently: true });
+
+        alphaCanvas = document.createElement('canvas');
+        alphaCanvas.width = origW;
+        alphaCanvas.height = origH;
+        alphaCtx = alphaCanvas.getContext('2d', { willReadFrequently: true });
+
+        if (rgbCtx) {
+          compositeImageData = rgbCtx.createImageData(origW, origH);
+        }
+      }
+
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = outW;
+      exportCanvas.height = outH;
+      const exportCtx = exportCanvas.getContext('2d', { willReadFrequently: true });
+      if (!exportCtx) throw new Error('فشل إنشاء سياق التصدير');
+
+      // Preload watermark image if enabled
+      let wmImgEl: HTMLImageElement | null = null;
+      if (enableWatermark && watermarkUrl) {
+        wmImgEl = new Image();
+        wmImgEl.crossOrigin = 'anonymous';
+        wmImgEl.src = watermarkUrl;
+        await new Promise((res) => {
+          if (!wmImgEl) return res(null);
+          wmImgEl.onload = () => res(null);
+          wmImgEl.onerror = () => res(null);
+        });
+      }
+
+      const imagesMap: Record<string, Uint8Array> = {};
+      const sprites: any[] = [];
+      const zip = downloadZipOnly ? new JSZip() : null;
+
+      for (let i = 0; i < totalFrames; i++) {
+        if (cancelExportRef.current) {
+          setIsExporting(false);
+          setExportStatusText('تم إلغاء العملية');
+          return;
+        }
+
+        const currentTime = Math.min(i * frameInterval, Math.max(0, duration - 0.01));
+        await seekVideoToFrame(video, currentTime);
+
+        exportCtx.clearRect(0, 0, outW, outH);
+
+        if (webglRenderer) {
+          const glCanvas = webglRenderer.render(
+            video,
+            [srcRgbX, srcRgbY, srcRgbW, srcRgbH],
+            [srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH],
+            alphaThreshold,
+            unmultiplyAlpha
+          );
+          exportCtx.drawImage(glCanvas, 0, 0, origW, origH, 0, 0, outW, outH);
+        } else if (rgbCtx && alphaCtx && rgbCanvas && alphaCanvas && compositeImageData) {
+          rgbCtx.clearRect(0, 0, origW, origH);
+          rgbCtx.drawImage(video, srcRgbX, srcRgbY, srcRgbW, srcRgbH, 0, 0, origW, origH);
+
+          alphaCtx.clearRect(0, 0, origW, origH);
+          alphaCtx.drawImage(video, srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH, 0, 0, origW, origH);
+
+          const rgbPixels = rgbCtx.getImageData(0, 0, origW, origH).data;
+          const alphaPixels = alphaCtx.getImageData(0, 0, origW, origH).data;
+          const compData = compositeImageData.data;
+          const pixelCount = origW * origH;
+          const threshold = alphaThreshold;
+
+          for (let p = 0; p < pixelCount; p++) {
+            const idx = p << 2;
+            const aR = alphaPixels[idx];
+            const aG = alphaPixels[idx + 1];
+            const aB = alphaPixels[idx + 2];
+            const rawAlpha = (77 * aR + 150 * aG + 29 * aB) >> 8;
+
+            if (rawAlpha <= threshold) {
+              compData[idx] = 0;
+              compData[idx + 1] = 0;
+              compData[idx + 2] = 0;
+              compData[idx + 3] = 0;
+            } else {
+              let aVal = rawAlpha;
+              if (aVal < 255) {
+                aVal = Math.min(255, Math.floor(((rawAlpha - threshold) * 255) / (255 - threshold)));
+              }
+              const alphaRatio = aVal / 255;
+
+              let r = rgbPixels[idx];
+              let g = rgbPixels[idx + 1];
+              let b = rgbPixels[idx + 2];
+
+              if (unmultiplyAlpha && alphaRatio > 0.02) {
+                r = Math.min(255, Math.max(0, Math.floor(r / alphaRatio)));
+                g = Math.min(255, Math.max(0, Math.floor(g / alphaRatio)));
+                b = Math.min(255, Math.max(0, Math.floor(b / alphaRatio)));
+              }
+
+              compData[idx] = r;
+              compData[idx + 1] = g;
+              compData[idx + 2] = b;
+              compData[idx + 3] = aVal;
+            }
+          }
+
+          rgbCtx.putImageData(compositeImageData, 0, 0);
+          exportCtx.drawImage(rgbCanvas, 0, 0, origW, origH, 0, 0, outW, outH);
+        }
+
+        // Draw watermark if enabled
+        if (enableWatermark && wmImgEl && wmImgEl.complete && wmImgEl.naturalWidth > 0) {
+          const wmProgress = totalFrames > 1 ? i / (totalFrames - 1) : 0;
+          const { x, y, side } = computeWatermarkPosition(
+            wmProgress,
+            outW,
+            outH,
+            watermarkSize,
+            watermarkMotionType,
+            watermarkMotionAmount,
+            watermarkSpeed,
+            watermarkPosition
+          );
+          drawSquareWatermarkToContext(
+            exportCtx,
+            wmImgEl,
+            x,
+            y,
+            side,
+            watermarkOpacity / 100,
+            watermarkBorderRadius,
+            watermarkBorder
+          );
+        }
+
+        // Ultra-fast native PNG encoding
+        const dataUrl = exportCanvas.toDataURL('image/png');
+        const imageBytes = fastDataUrlToBytes(dataUrl);
+
+        const imgKey = `frame_${i}`;
+        imagesMap[imgKey] = imageBytes;
+
+        if (zip) {
+          const frameNumStr = String(i + 1).padStart(4, '0');
+          zip.file(`frame_${frameNumStr}.png`, imageBytes);
+        }
+
+        const spriteFrames = [];
+        for (let fIdx = 0; fIdx < totalFrames; fIdx++) {
+          spriteFrames.push({
+            alpha: fIdx === i ? 1.0 : 0.0,
+            layout: { x: 0, y: 0, width: outW, height: outH },
+            transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
+          });
+        }
+
+        sprites.push({
+          imageKey: imgKey,
+          frames: spriteFrames
+        });
+
+        const pct = Math.round(((i + 1) / totalFrames) * 80);
+        setExportProgress(pct);
+        setExportStatusText(`استخراج سريع للإطار الشفاف ${i + 1} من ${totalFrames} (${pct}%)`);
+
+        // Yield every 6 frames to keep UI responsive
+        if (i % 6 === 0) {
+          await new Promise((r) => setTimeout(r, 0));
+        }
+      }
+
+      if (downloadZipOnly && zip) {
+        setExportStatusText('جاري ضغط حزمة الصور (ZIP)...');
+        setExportProgress(90);
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        const baseName = fileName.replace(/\.[^/.]+$/, '');
+        const zipUrl = URL.createObjectURL(zipBlob);
+        const a = document.createElement('a');
+        a.href = zipUrl;
+        a.download = `${baseName}_frames_${totalFrames}fps${Math.round(fps)}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(zipUrl);
+
+        setExportProgress(100);
+        setExportStatusText('تم تنزيل حزمة الصور بنجاح!');
+        setIsExporting(false);
+        setExportSuccess(true);
+        return;
+      }
+
+      // Process Audio Track if exists
+      const audios: any[] = [];
+      const hasCustomAudio = (audioFile || audioUrl) && !isAudioMuted;
+      const shouldIncludeAudio = hasCustomAudio || !muteOriginalAudio;
+
+      if (shouldIncludeAudio) {
+        setExportStatusText('جاري فحص ودمج الصوت لمطابقة الإطارات...');
+        setExportProgress(85);
+
+        try {
+          let audioBytes: Uint8Array | null = null;
+          if (hasCustomAudio) {
+            if (audioFile) {
+              const buffer = await audioFile.arrayBuffer();
+              audioBytes = new Uint8Array(buffer);
+            } else if (audioUrl) {
+              const resp = await fetch(audioUrl);
+              const buffer = await resp.arrayBuffer();
+              audioBytes = new Uint8Array(buffer);
+            }
+          }
+
+          if (audioBytes) {
+            const audioKey = `audio_track_${Date.now()}.mp3`;
+            imagesMap[audioKey] = audioBytes;
+            const totalAudioMs = Math.round((audioDuration || duration) * 1000);
+            audios.push({
+              audioKey: audioKey,
+              startFrame: 0,
+              endFrame: totalFrames,
+              startTime: 0,
+              totalTime: totalAudioMs
+            });
+          }
+        } catch (audioErr) {
+          console.warn("Failed to embed audio:", audioErr);
+        }
+      }
+
+      // Encode Final SVGA 2.0 Binary
+      setExportStatusText('تجميع وتجهيز تتابع الإطارات للانتقال إلى الصفحة الرئيسية...');
+      setExportProgress(92);
+
+      const movieData = {
+        version: '2.0',
+        params: {
+          viewBoxWidth: outW,
+          viewBoxHeight: outH,
+          fps: Math.round(fps),
+          frames: totalFrames
+        },
+        images: imagesMap,
+        sprites: sprites,
+        audios: audios
+      };
+
+      const svgaBlob = await encodeSVGA(movieData);
+      const baseName = fileName.replace(/\.[^/.]+$/, '');
+      const svgaFile = new File([svgaBlob], `${baseName}_frames.svga`, { type: 'application/octet-stream' });
+      const svgaUrl = URL.createObjectURL(svgaBlob);
+
+      setExportProgress(98);
+      setExportStatusText('جاري فتح تتابع الصور في الصفحة الرئيسية وتشغيله...');
+
+      // Load using global SVGA Parser to create videoItem
+      if (typeof window !== 'undefined' && (window as any).SVGA) {
+        const parser = new (window as any).SVGA.Parser();
+        parser.load(svgaUrl, (videoItem: any) => {
+          setExportProgress(100);
+          setIsExporting(false);
+          const meta: FileMetadata = {
+            name: `${baseName}_frames.svga`,
+            size: svgaBlob.size,
+            type: 'SVGA',
+            dimensions: { width: outW, height: outH },
+            fps: Math.round(fps),
+            frames: totalFrames,
+            assets: [],
+            videoItem: videoItem,
+            fileUrl: svgaUrl,
+            originalFile: svgaFile
+          };
+
+          if (onOpenInWorkspace) {
+            onOpenInWorkspace(meta);
+          } else {
+            setExportedBlob(svgaBlob);
+            setExportedFileSize((svgaBlob.size / (1024 * 1024)).toFixed(2) + ' MB');
+            setExportSuccess(true);
+            loadSvgaPreview(svgaBlob);
+          }
+        }, (err: any) => {
+          console.error("SVGA Parse error:", err);
+          const meta: FileMetadata = {
+            name: `${baseName}_frames.svga`,
+            size: svgaBlob.size,
+            type: 'SVGA',
+            dimensions: { width: outW, height: outH },
+            fps: Math.round(fps),
+            frames: totalFrames,
+            assets: [],
+            videoItem: {
+              version: "2.0",
+              videoSize: { width: outW, height: outH },
+              FPS: Math.round(fps),
+              frames: totalFrames,
+              images: imagesMap,
+              sprites: sprites,
+              audios: audios
+            },
+            fileUrl: svgaUrl,
+            originalFile: svgaFile
+          };
+          if (onOpenInWorkspace) {
+            onOpenInWorkspace(meta);
+          }
+          setIsExporting(false);
+        });
+      } else {
+        const meta: FileMetadata = {
+          name: `${baseName}_frames.svga`,
+          size: svgaBlob.size,
+          type: 'SVGA',
+          dimensions: { width: outW, height: outH },
+          fps: Math.round(fps),
+          frames: totalFrames,
+          assets: [],
+          videoItem: {
+            version: "2.0",
+            videoSize: { width: outW, height: outH },
+            FPS: Math.round(fps),
+            frames: totalFrames,
+            images: imagesMap,
+            sprites: sprites,
+            audios: audios
+          },
+          fileUrl: svgaUrl,
+          originalFile: svgaFile
+        };
+        if (onOpenInWorkspace) {
+          onOpenInWorkspace(meta);
+        }
+        setIsExporting(false);
+      }
+
+    } catch (err: any) {
+      console.error('Convert VAP to Frames Error:', err);
+      setErrorMessage(`حدث خطأ أثناء استخراج تتابع الصور: ${err.message || err}`);
+      setIsExporting(false);
+      setExportStatusText('فشل الاستخراج');
+    }
+  };
+
   // Trigger Selected Export Mode
   const handleStartExport = () => {
     if (exportTargetFormat === 'vap') {
       handleExportVAP(false);
     } else if (exportTargetFormat === 'mp4') {
       handleExportVAP(true); // true = export standard mp4
+    } else if (exportTargetFormat === 'frames') {
+      handleConvertVapToFramesSequenceAndTransfer(false);
     } else {
       handleExportSVGA();
     }
@@ -4466,10 +4936,10 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                 <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider block mb-2">
                   اختر صيغة التصدير المستهدفة:
                 </span>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   <button
                     onClick={() => setExportTargetFormat('svga')}
-                    className={`py-2.5 px-2 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 border ${
+                    className={`py-2.5 px-2 rounded-xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 border ${
                       exportTargetFormat === 'svga'
                         ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-500/20 scale-[1.02]'
                         : 'bg-white/2 hover:bg-white/5 text-slate-400 border-white/5'
@@ -4481,7 +4951,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
                   <button
                     onClick={() => setExportTargetFormat('vap')}
-                    className={`py-2.5 px-2 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 border ${
+                    className={`py-2.5 px-2 rounded-xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 border ${
                       exportTargetFormat === 'vap'
                         ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-500/20 scale-[1.02]'
                         : 'bg-white/2 hover:bg-white/5 text-slate-400 border-white/5'
@@ -4493,7 +4963,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
                   <button
                     onClick={() => setExportTargetFormat('mp4')}
-                    className={`py-2.5 px-2 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 border ${
+                    className={`py-2.5 px-2 rounded-xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 border ${
                       exportTargetFormat === 'mp4'
                         ? 'bg-purple-600 text-white border-purple-500 shadow-md shadow-purple-500/20 scale-[1.02]'
                         : 'bg-white/2 hover:bg-white/5 text-slate-400 border-white/5'
@@ -4502,8 +4972,42 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                     <Video className="w-3.5 h-3.5" />
                     <span>MP4 بخلفية</span>
                   </button>
+
+                  <button
+                    onClick={() => setExportTargetFormat('frames')}
+                    className={`py-2.5 px-2 rounded-xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 border ${
+                      exportTargetFormat === 'frames'
+                        ? 'bg-gradient-to-r from-cyan-600 to-sky-600 text-white border-cyan-400 shadow-md shadow-cyan-500/30 scale-[1.02]'
+                        : 'bg-white/2 hover:bg-white/5 text-slate-400 border-white/5'
+                    }`}
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>تتابع صور (Frames)</span>
+                  </button>
                 </div>
               </div>
+
+              {exportTargetFormat === 'frames' && !isExporting && (
+                <div className="p-3 bg-cyan-500/10 border border-cyan-500/20 rounded-xl space-y-2 text-xs">
+                  <div className="flex items-center gap-2 text-cyan-300 font-bold">
+                    <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <span>تحويل VAP إلى تتابع صور متطابق الفريمات</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    يتم تفريغ جميع إطارات VAP الشفافة بنفس المدة ومعدل FPS ونقلها مباشرة إلى الصفحة الرئيسية لتشغيلها والتحويل لأي صيغة أخرى (AE, SVGA, WebM, MP4, GIF, PNG ZIP).
+                  </p>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={() => handleConvertVapToFramesSequenceAndTransfer(true)}
+                      disabled={!fileUrl}
+                      className="flex-1 py-2 px-2.5 bg-white/5 hover:bg-white/10 text-cyan-200 border border-cyan-500/30 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all"
+                    >
+                      <Download className="w-3 h-3" />
+                      <span>تنزيل حزمة ZIP للصور</span>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {isExporting ? (
                 <div className="space-y-3 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl p-4">
@@ -4647,15 +5151,23 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                             ? 'bg-gradient-to-r from-emerald-600 via-teal-500 to-emerald-600 hover:from-emerald-500 hover:to-teal-400 text-white shadow-emerald-600/25 cursor-pointer hover:scale-[1.01]'
                             : exportTargetFormat === 'vap'
                             ? 'bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-indigo-600/25 cursor-pointer hover:scale-[1.01]'
+                            : exportTargetFormat === 'frames'
+                            ? 'bg-gradient-to-r from-cyan-600 via-sky-500 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white shadow-cyan-600/30 cursor-pointer hover:scale-[1.01]'
                             : 'bg-gradient-to-r from-purple-600 via-pink-600 to-indigo-600 hover:from-purple-500 hover:to-pink-500 text-white shadow-purple-600/25 cursor-pointer hover:scale-[1.01]'
                           : 'bg-white/5 text-slate-600 cursor-not-allowed border border-white/5'
                       }`}
                     >
-                      <ArrowDownCircle className="w-4 h-4" />
+                      {exportTargetFormat === 'frames' ? (
+                        <Layers className="w-4 h-4 text-cyan-200" />
+                      ) : (
+                        <ArrowDownCircle className="w-4 h-4" />
+                      )}
                       {exportTargetFormat === 'svga' 
                         ? 'تصدير 2.0 SVGA نقي' 
                         : exportTargetFormat === 'vap' 
                         ? 'تصدير VAP مُعالج' 
+                        : exportTargetFormat === 'frames'
+                        ? 'تحويل ونقل للرئيسية'
                         : 'تصدير MP4 نقي'}
                     </button>
                   </div>
@@ -4852,8 +5364,21 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                   )}
                 </div>
 
-                {/* Download Gift Image Button (Red-circled spot) */}
+                {/* Action Buttons in Bottom Bar */}
                 <div className="flex items-center gap-3">
+                  {/* Convert to Image Sequence & Open in Workspace Button */}
+                  <button
+                    onClick={() => handleConvertVapToFramesSequenceAndTransfer(false)}
+                    disabled={isExporting}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-black transition-all shadow-lg active:scale-95 hover:scale-105 border cursor-pointer bg-gradient-to-r from-cyan-600 via-sky-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white border-cyan-400/40 shadow-cyan-500/20"
+                    title="استخراج جميع الإطارات كصور شفافة متسلسلة ونقلها فوراً إلى الصفحة الرئيسية للتشغيل والتحويل لأي صيغة"
+                  >
+                    <Layers className="w-4 h-4 text-cyan-200" />
+                    <span>تحويل لصور ونقل للرئيسية</span>
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  </button>
+
+                  {/* Download Gift Image Button (Red-circled spot) */}
                   <button
                     onClick={handleDownloadGiftImage}
                     disabled={isCapturingSnapshot}

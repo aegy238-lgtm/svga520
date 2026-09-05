@@ -877,6 +877,10 @@ const App: React.FC = () => {
                   onCancel={handleReset} 
                   onLoginRequired={() => {}}
                   onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                  onOpenInWorkspace={(meta) => {
+                    setFileMetadata(meta);
+                    setState(AppState.PROCESSING);
+                  }}
                 />
               </ErrorBoundary>
             )}
