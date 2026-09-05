@@ -58,6 +58,121 @@ interface SmartAutoCropperProps {
 
 type ToolMode = 'select' | 'move' | 'draw' | 'knife';
 
+interface GalleryItemRowProps {
+  element: DetectedElement;
+  isActive: boolean;
+  isHovered: boolean;
+  onSelect: (id: string) => void;
+  onToggleCheck: (id: string, e: React.MouseEvent) => void;
+  onHover: (id: string | null) => void;
+  onExportSingle: (el: DetectedElement, e: React.MouseEvent) => void;
+  onDelete: (id: string, e: React.MouseEvent) => void;
+  onDecompose: (el: DetectedElement, e: React.MouseEvent) => void;
+}
+
+const GalleryItemRow = React.memo<GalleryItemRowProps>(({
+  element: el,
+  isActive,
+  isHovered,
+  onSelect,
+  onToggleCheck,
+  onHover,
+  onExportSingle,
+  onDelete,
+  onDecompose
+}) => {
+  return (
+    <div
+      onClick={() => onSelect(el.id)}
+      onMouseEnter={() => onHover(el.id)}
+      onMouseLeave={() => onHover(null)}
+      className={`p-2.5 rounded-2xl border transition-all flex items-center justify-between gap-3 cursor-pointer ${
+        isActive
+          ? 'bg-indigo-600/20 border-indigo-500 shadow-md shadow-indigo-600/20'
+          : el.selected
+          ? 'bg-white/[0.03] border-emerald-500/40 hover:border-emerald-500/80'
+          : 'bg-white/[0.01] border-white/5 opacity-60 hover:opacity-100 hover:border-white/20'
+      }`}
+    >
+      {/* Checkbox & Thumbnail */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={(e) => onToggleCheck(el.id, e)}
+          className="p-1 text-slate-400 hover:text-white transition-colors cursor-pointer"
+        >
+          {el.selected ? (
+            <CheckSquare className="w-4 h-4 text-emerald-400" />
+          ) : (
+            <Square className="w-4 h-4 text-slate-500" />
+          )}
+        </button>
+
+        {/* Thumbnail Image */}
+        <div 
+          className="w-14 h-12 rounded-xl bg-black/40 border border-white/10 flex items-center justify-center overflow-hidden shrink-0 p-1"
+          style={{
+            backgroundImage: `radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px)`,
+            backgroundSize: '8px 8px'
+          }}
+        >
+          {el.thumbnailUrl ? (
+            <img
+              src={el.thumbnailUrl}
+              alt={el.label}
+              className="max-w-full max-h-full object-contain"
+              loading="lazy"
+            />
+          ) : (
+            <Scissors className="w-4 h-4 text-slate-600" />
+          )}
+        </div>
+
+        {/* Info */}
+        <div>
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono font-bold text-xs text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+              رقم {el.index}
+            </span>
+            {el.selected && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            )}
+          </div>
+          <span className="text-[10px] text-slate-400 font-mono block mt-0.5">
+            {el.width} × {el.height} px
+          </span>
+        </div>
+      </div>
+
+      {/* Quick Item Actions */}
+      <div className="flex items-center gap-1">
+        <button
+          onClick={(e) => onDecompose(el, e)}
+          className="p-1.5 rounded-lg bg-white/5 hover:bg-amber-600/30 text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
+          title="تفكيك وقص هذا العنصر المعقد إلى أجزائه"
+        >
+          <Scissors className="w-3.5 h-3.5 text-amber-400" />
+        </button>
+        <button
+          onClick={(e) => onExportSingle(el, e)}
+          className="p-1.5 rounded-lg bg-white/5 hover:bg-emerald-600/30 text-slate-400 hover:text-emerald-300 transition-colors cursor-pointer"
+          title="تحميل هذا العنصر منفصلاً"
+        >
+          <Download className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={(e) => onDelete(el.id, e)}
+          className="p-1.5 rounded-lg bg-white/5 hover:bg-rose-600/30 text-slate-400 hover:text-rose-300 transition-colors cursor-pointer"
+          title="حذف العنصر"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+});
+
+GalleryItemRow.displayName = 'GalleryItemRow';
+
 export const SmartAutoCropper: React.FC<SmartAutoCropperProps> = ({
   currentUser,
   onCancel,
@@ -93,6 +208,7 @@ export const SmartAutoCropper: React.FC<SmartAutoCropperProps> = ({
   const [toolMode, setToolMode] = useState<ToolMode>('select');
   const [isPanning, setIsPanning] = useState<boolean>(false);
   const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isZoomMenuOpen, setIsZoomMenuOpen] = useState<boolean>(false);
 
   // Manual Drawing & Resizing State
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
@@ -226,24 +342,62 @@ export const SmartAutoCropper: React.FC<SmartAutoCropperProps> = ({
     });
   };
 
-  // Update padding without re-running full pixel segmentation
+  const debounceThumbTimeoutRef = useRef<any>(null);
+
+  // Non-blocking debounced thumbnail refresh in slices of 25 using requestAnimationFrame
+  const triggerDebouncedThumbnailRefresh = useCallback(() => {
+    if (debounceThumbTimeoutRef.current) {
+      clearTimeout(debounceThumbTimeoutRef.current);
+    }
+    debounceThumbTimeoutRef.current = setTimeout(() => {
+      if (!originalImageRef.current) return;
+      const img = originalImageRef.current;
+
+      setElements(curr => {
+        if (!curr.length) return curr;
+        const copy = [...curr];
+        let idx = 0;
+        const total = copy.length;
+
+        const processBatch = () => {
+          const limit = Math.min(idx + 25, total);
+          for (let i = idx; i < limit; i++) {
+            copy[i] = {
+              ...copy[i],
+              thumbnailUrl: generateThumbnailUrl(img, copy[i], 100)
+            };
+          }
+          idx = limit;
+          if (idx < total) {
+            requestAnimationFrame(processBatch);
+          } else {
+            setElements([...copy]);
+          }
+        };
+
+        requestAnimationFrame(processBatch);
+        return curr;
+      });
+    }, 350);
+  }, []);
+
+  // Update padding without re-running full pixel segmentation - INSTANT 60 FPS
   const handlePaddingChange = (newPad: number) => {
-    setPadding(newPad);
+    const validPad = Math.max(0, Math.min(80, newPad));
+    setPadding(validPad);
     if (!originalImageRef.current || elements.length === 0) return;
 
+    // Instant bounds calculation (takes 0.05ms)
     const updated = applyPaddingToElements(
       elements,
-      newPad,
+      validPad,
       imageDimensions.width,
       imageDimensions.height
     );
+    setElements(updated);
 
-    // Refresh thumbnails with new padding
-    const updatedWithThumbs = updated.map(el => ({
-      ...el,
-      thumbnailUrl: generateThumbnailUrl(originalImageRef.current!, el, 100)
-    }));
-    setElements(updatedWithThumbs);
+    // Schedule background thumbnail refresh without blocking slider or canvas
+    triggerDebouncedThumbnailRefresh();
   };
 
   // Selection Handlers
@@ -316,31 +470,100 @@ export const SmartAutoCropper: React.FC<SmartAutoCropperProps> = ({
     };
   }, [pan, zoom, imageDimensions]);
 
+  // State for spacebar pan shortcut
+  const [isSpacePressed, setIsSpacePressed] = useState<boolean>(false);
+
   // Zoom handlers
   const handleZoom = (delta: number) => {
-    setZoom(prev => Math.max(0.08, Math.min(6, prev + delta)));
+    setZoom(prev => {
+      const factor = delta > 0 ? 1.25 : 0.8;
+      const next = Number((prev * factor).toFixed(3));
+      return Math.max(0.05, Math.min(15, next));
+    });
+  };
+
+  const handleSetExactZoom = (targetZoom: number) => {
+    setZoom(Math.max(0.05, Math.min(15, Number(targetZoom.toFixed(3)))));
   };
 
   const handleFitToScreen = () => {
     if (!canvasContainerRef.current || !imageDimensions.width) return;
     const containerW = canvasContainerRef.current.clientWidth - 40;
     const containerH = canvasContainerRef.current.clientHeight - 40;
-    const scale = Math.min(1, Math.min(containerW / imageDimensions.width, containerH / imageDimensions.height));
-    setZoom(scale > 0.08 ? scale : 1);
+    const scale = Math.min(containerW / imageDimensions.width, containerH / imageDimensions.height);
+    setZoom(Math.max(0.05, Math.min(3, Number(scale.toFixed(3)))));
     setPan({ x: 0, y: 0 });
   };
 
-  // Mouse wheel zoom
+  const handleActualSize = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
+
+  // Mouse wheel zoom anchored directly to the mouse cursor position
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    const zoomFactor = e.deltaY < 0 ? 1.12 : 0.88;
-    setZoom(prev => Math.max(0.08, Math.min(6, prev * zoomFactor)));
+    const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+    const newZoom = Math.max(0.05, Math.min(15, zoom * zoomFactor));
+    if (Math.abs(newZoom - zoom) < 0.0005) return;
+
+    if (canvasContainerRef.current) {
+      const rect = canvasContainerRef.current.getBoundingClientRect();
+      const mouseOffsetX = e.clientX - (rect.left + rect.width / 2);
+      const mouseOffsetY = e.clientY - (rect.top + rect.height / 2);
+
+      const scaleChange = newZoom / zoom;
+      const newPanX = mouseOffsetX - (mouseOffsetX - pan.x) * scaleChange;
+      const newPanY = mouseOffsetY - (mouseOffsetY - pan.y) * scaleChange;
+
+      setZoom(newZoom);
+      setPan({ x: Math.round(newPanX), y: Math.round(newPanY) });
+    } else {
+      setZoom(newZoom);
+    }
   };
+
+  // Global Keyboard shortcuts for zoom and pan (+, -, 0, 1, Spacebar)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        handleZoom(0.2);
+      } else if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        handleZoom(-0.2);
+      } else if (e.key === '0') {
+        e.preventDefault();
+        handleFitToScreen();
+      } else if (e.key === '1') {
+        e.preventDefault();
+        handleActualSize();
+      } else if (e.code === 'Space' && !e.repeat) {
+        setIsSpacePressed(true);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setIsSpacePressed(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [zoom, pan, imageDimensions]);
 
   // Canvas Mouse Down: Pan or Draw or Select
   const handleMouseDown = (e: React.MouseEvent) => {
-    // Middle click or move tool = Pan
-    if (e.button === 1 || toolMode === 'move') {
+    // Middle click, move tool, or holding spacebar = Pan
+    if (e.button === 1 || toolMode === 'move' || isSpacePressed) {
       setIsPanning(true);
       setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
       return;
@@ -890,18 +1113,27 @@ export const SmartAutoCropper: React.FC<SmartAutoCropperProps> = ({
                       </span>
                       <HelpTooltipButton topicId="padding" onClick={handleOpenHelp} />
                     </div>
-                    <span className="text-xs font-mono font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-lg border border-indigo-500/20">
-                      {padding}px
-                    </span>
+                    <div className="flex items-center gap-1 bg-indigo-500/10 px-2 py-0.5 rounded-lg border border-indigo-500/20">
+                      <input
+                        type="number"
+                        min="0"
+                        max="60"
+                        value={padding}
+                        onChange={e => handlePaddingChange(Math.max(0, Math.min(60, parseInt(e.target.value, 10) || 0)))}
+                        className="w-8 bg-transparent font-mono text-xs font-bold text-indigo-400 text-center focus:outline-none"
+                      />
+                      <span className="text-[10px] text-indigo-400/80 font-mono">px</span>
+                    </div>
                   </div>
-                  <p className="text-[11px] text-slate-400">إضافة مسافة أمان حول كل عنصر مقصوص</p>
+                  <p className="text-[11px] text-slate-400">إضافة مسافة أمان حول كل عنصر مقصوص بدون أي تعليق</p>
 
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {[0, 2, 5, 10].map(pad => (
+                  {/* Fast Presets */}
+                  <div className="grid grid-cols-6 gap-1">
+                    {[0, 2, 5, 10, 15, 20].map(pad => (
                       <button
                         key={pad}
                         onClick={() => handlePaddingChange(pad)}
-                        className={`py-1.5 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer ${
+                        className={`py-1.5 rounded-lg text-[11px] font-mono font-bold transition-all cursor-pointer ${
                           padding === pad
                             ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 border border-indigo-400'
                             : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/5'
@@ -912,14 +1144,24 @@ export const SmartAutoCropper: React.FC<SmartAutoCropperProps> = ({
                     ))}
                   </div>
 
-                  <input
-                    type="range"
-                    min="0"
-                    max="40"
-                    value={padding}
-                    onChange={e => handlePaddingChange(Number(e.target.value))}
-                    className="w-full accent-indigo-500 cursor-pointer"
-                  />
+                  {/* Smooth Range Slider */}
+                  <div className="space-y-1">
+                    <input
+                      type="range"
+                      min="0"
+                      max="50"
+                      value={padding}
+                      onChange={e => handlePaddingChange(Number(e.target.value))}
+                      onMouseUp={triggerDebouncedThumbnailRefresh}
+                      onTouchEnd={triggerDebouncedThumbnailRefresh}
+                      className="w-full accent-indigo-500 cursor-pointer h-2 bg-white/10 rounded-lg"
+                    />
+                    <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                      <span>0px</span>
+                      <span>25px</span>
+                      <span>50px</span>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Section 3: Detection Parameters */}
@@ -1217,28 +1459,76 @@ export const SmartAutoCropper: React.FC<SmartAutoCropperProps> = ({
                 </div>
 
                 {/* Zoom Controls */}
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 relative">
                   <button
-                    onClick={() => handleZoom(0.15)}
+                    onClick={() => handleZoom(0.2)}
                     className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
-                    title="تكبير"
+                    title="تكبير (أو زر +)"
                   >
                     <ZoomIn className="w-4 h-4" />
                   </button>
-                  <span className="text-[11px] font-mono font-bold text-slate-300 w-12 text-center">
-                    {Math.round(zoom * 100)}%
-                  </span>
+
+                  <div className="relative">
+                    <button
+                      onClick={() => setIsZoomMenuOpen(prev => !prev)}
+                      className="text-[11px] font-mono font-bold text-slate-200 hover:text-white bg-white/5 hover:bg-white/10 px-2 py-1.5 rounded-xl border border-white/5 flex items-center gap-1 transition-all cursor-pointer"
+                      title="خيارات نسبة التكبير"
+                    >
+                      <span>{Math.round(zoom * 100)}%</span>
+                    </button>
+
+                    {/* Quick Zoom Presets Popover */}
+                    {isZoomMenuOpen && (
+                      <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-[#0b1222] border border-white/15 rounded-2xl p-1.5 shadow-2xl z-40 w-32 flex flex-col gap-0.5 backdrop-blur-xl">
+                        {[
+                          { label: 'ملاءمة (Fit)', val: 'fit' },
+                          { label: '100% (أصلي)', val: 1 },
+                          { label: '25%', val: 0.25 },
+                          { label: '50%', val: 0.5 },
+                          { label: '200%', val: 2 },
+                          { label: '400%', val: 4 },
+                          { label: '800%', val: 8 },
+                          { label: '1200%', val: 12 },
+                        ].map(item => (
+                          <button
+                            key={item.label}
+                            onClick={() => {
+                              if (item.val === 'fit') {
+                                handleFitToScreen();
+                              } else {
+                                handleSetExactZoom(item.val as number);
+                              }
+                              setIsZoomMenuOpen(false);
+                            }}
+                            className="text-right px-2.5 py-1.5 rounded-xl text-xs font-mono font-bold text-slate-300 hover:text-white hover:bg-indigo-600/30 transition-all cursor-pointer"
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   <button
-                    onClick={() => handleZoom(-0.15)}
+                    onClick={() => handleZoom(-0.2)}
                     className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
-                    title="تصغير"
+                    title="تصغير (أو زر -)"
                   >
                     <ZoomOut className="w-4 h-4" />
                   </button>
+
+                  <button
+                    onClick={handleActualSize}
+                    className="p-1.5 px-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 text-[11px] font-mono font-bold transition-all cursor-pointer"
+                    title="الحجم الفعلي 100% (زر 1)"
+                  >
+                    1:1
+                  </button>
+
                   <button
                     onClick={handleFitToScreen}
                     className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
-                    title="ملاءمة الشاشة"
+                    title="ملاءمة الشاشة (زر 0)"
                   >
                     <Maximize2 className="w-4 h-4" />
                   </button>
@@ -1262,16 +1552,16 @@ export const SmartAutoCropper: React.FC<SmartAutoCropperProps> = ({
                 onMouseUp={handleMouseUp}
                 onWheel={handleWheel}
                 className={`flex-1 w-full h-full flex items-center justify-center relative select-none overflow-hidden ${
-                  toolMode === 'move' || isPanning ? 'cursor-grab active:cursor-grabbing' : toolMode === 'draw' ? 'cursor-crosshair' : 'cursor-default'
+                  toolMode === 'move' || isPanning || isSpacePressed ? 'cursor-grab active:cursor-grabbing' : toolMode === 'draw' ? 'cursor-crosshair' : toolMode === 'knife' ? 'cursor-crosshair' : 'cursor-default'
                 }`}
                 style={{
                   backgroundImage: `radial-gradient(circle, rgba(255,255,255,0.06) 1px, transparent 1px)`,
                   backgroundSize: '24px 24px'
                 }}
               >
-                {/* Scaled & Panned Image Container */}
+                {/* Scaled & Panned Image Container - instantaneous 60fps transform without CSS animation latency */}
                 <div
-                  className="relative transition-transform duration-75 origin-center"
+                  className="relative will-change-transform origin-center"
                   style={{
                     transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                     width: imageDimensions.width,
@@ -1540,105 +1830,24 @@ export const SmartAutoCropper: React.FC<SmartAutoCropperProps> = ({
                     <span>لا توجد عناصر مطابقة للفلتر</span>
                   </div>
                 ) : (
-                  filteredElements.map((el) => {
-                    const isActive = activeElementId === el.id;
-                    const isHovered = hoveredElementId === el.id;
-
-                    return (
-                      <div
-                        key={el.id}
-                        onClick={() => {
-                          setActiveElementId(el.id);
-                        }}
-                        onMouseEnter={() => setHoveredElementId(el.id)}
-                        onMouseLeave={() => setHoveredElementId(null)}
-                        className={`p-2.5 rounded-2xl border transition-all flex items-center justify-between gap-3 cursor-pointer ${
-                          isActive
-                            ? 'bg-indigo-600/20 border-indigo-500 shadow-md shadow-indigo-600/20'
-                            : el.selected
-                            ? 'bg-white/[0.03] border-emerald-500/40 hover:border-emerald-500/80'
-                            : 'bg-white/[0.01] border-white/5 opacity-60 hover:opacity-100 hover:border-white/20'
-                        }`}
-                      >
-                        {/* Checkbox & Thumbnail */}
-                        <div className="flex items-center gap-3">
-                          <button
-                            onClick={(e) => toggleSelect(el.id, e)}
-                            className="p-1 text-slate-400 hover:text-white transition-colors cursor-pointer"
-                          >
-                            {el.selected ? (
-                              <CheckSquare className="w-4 h-4 text-emerald-400" />
-                            ) : (
-                              <Square className="w-4 h-4 text-slate-500" />
-                            )}
-                          </button>
-
-                          {/* Thumbnail Image */}
-                          <div 
-                            className="w-14 h-12 rounded-xl bg-black/40 border border-white/10 flex items-center justify-center overflow-hidden shrink-0 p-1"
-                            style={{
-                              backgroundImage: `radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px)`,
-                              backgroundSize: '8px 8px'
-                            }}
-                          >
-                            {el.thumbnailUrl ? (
-                              <img
-                                src={el.thumbnailUrl}
-                                alt={el.label}
-                                className="max-w-full max-h-full object-contain"
-                              />
-                            ) : (
-                              <Scissors className="w-4 h-4 text-slate-600" />
-                            )}
-                          </div>
-
-                          {/* Info */}
-                          <div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-mono font-bold text-xs text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
-                                رقم {el.index}
-                              </span>
-                              {el.selected && (
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                              )}
-                            </div>
-                            <span className="text-[10px] text-slate-400 font-mono block mt-0.5">
-                              {el.width} × {el.height} px
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Quick Item Actions */}
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setTargetComplexElement(el);
-                              setIsComplexModalOpen(true);
-                            }}
-                            className="p-1.5 rounded-lg bg-white/5 hover:bg-amber-600/30 text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
-                            title="تفكيك وقص هذا العنصر المعقد إلى أجزائه"
-                          >
-                            <Scissors className="w-3.5 h-3.5 text-amber-400" />
-                          </button>
-                          <button
-                            onClick={(e) => handleExportSingle(el, e)}
-                            className="p-1.5 rounded-lg bg-white/5 hover:bg-emerald-600/30 text-slate-400 hover:text-emerald-300 transition-colors cursor-pointer"
-                            title="تحميل هذا العنصر منفصلاً"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={(e) => handleDeleteElement(el.id, e)}
-                            className="p-1.5 rounded-lg bg-white/5 hover:bg-rose-600/30 text-slate-400 hover:text-rose-300 transition-colors cursor-pointer"
-                            title="حذف العنصر"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })
+                  filteredElements.map((el) => (
+                    <GalleryItemRow
+                      key={el.id}
+                      element={el}
+                      isActive={activeElementId === el.id}
+                      isHovered={hoveredElementId === el.id}
+                      onSelect={setActiveElementId}
+                      onToggleCheck={toggleSelect}
+                      onHover={setHoveredElementId}
+                      onExportSingle={handleExportSingle}
+                      onDelete={handleDeleteElement}
+                      onDecompose={(targetEl, e) => {
+                        e.stopPropagation();
+                        setTargetComplexElement(targetEl);
+                        setIsComplexModalOpen(true);
+                      }}
+                    />
+                  ))
                 )}
               </div>
             </div>
