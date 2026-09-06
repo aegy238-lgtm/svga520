@@ -1,587 +1,1067 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowRight, Volume2, VolumeX, HelpCircle, Trophy, Wifi, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Header } from './components/Header';
+import { FeaturesGuideModal } from './components/FeaturesGuideModal';
+import { WelcomeGuideModal } from './components/WelcomeGuideModal';
+import { Uploader } from './components/Uploader';
+import { Dashboard } from './components/Dashboard';
+import { Workspace } from './components/Workspace';
+import { BatchCompressor } from './components/BatchCompressor';
+import { BatchCropper } from './components/BatchCropper';
+import { VideoConverter } from './components/VideoConverter';
+import { UniversalMotionTools } from './components/UniversalMotionTools';
+import { MultiSvgaViewer } from './components/MultiSvgaViewer';
+import { ImageToSvga } from './components/ImageToSvga';
+import { ImageProcessor } from './components/ImageProcessor';
+import { ImageEnhancer } from './components/ImageEnhancer';
+import { BatchImageProcessor } from './components/BatchImageProcessor';
+import { BatchImageConverter } from './components/BatchImageConverter';
+import { PagConverter } from './components/PagConverter';
+import { PagToSvgaStudio } from './components/PagToSvgaStudio';
+import { SvgaBatchCompressor } from './components/SvgaBatchCompressor';
+import { SvgaLayerEditor } from './components/SvgaLayerEditor/SvgaLayerEditor';
+import { ImageEditor } from './components/ImageEditor';
+import Name3DEditor from "./components/Name3DEditor/Name3DEditor";
+import { ImageMatcher } from './components/ImageMatcher';
+import { Store } from './components/Store';
+import { AudioExtractor } from './components/AudioExtractor';
+import { AIVideoMattingStudio } from './components/AIVideoMattingStudio';
+import { AdminPanel } from './components/AdminPanel';
+import { Login } from './components/Auth/Login';
+import { Signup } from './components/Auth/Signup';
+import { Loading } from './components/Auth/Loading';
+import { UserProfileModal } from './components/UserProfileModal';
+import { SubscriptionModal } from './components/SubscriptionModal';
+import { useAuth } from './contexts/AuthContext';
+import { AppState, FileMetadata, AppSettings } from './types';
+import { useAccessControl } from './hooks/useAccessControl';
+import { doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { db } from './lib/firebase';
+import { logActivity } from './utils/logger';
+import { MaintenanceScreen } from './components/MaintenanceScreen';
+import { VersionBlockedModal } from './components/Auth/VersionBlockedModal';
+import { checkVersionCompatibility, verifyAccountVersionWithServer, getActiveClientVersion } from './utils/versionControl';
+import { AppUpdateToast } from './components/AppUpdateToast';
+import { extractSvgaFromPdfFile } from './utils/pdfSvgaExtractor';
 
-// --- Configuration ---
-const BOARD_ITEMS = [
-  { id: 'strawberry', icon: '🍓', multiplier: 5, label: 'مرة 5', gridPos: 0 },
-  { id: 'banana', icon: '🍌', multiplier: 5, label: 'مرة 5', gridPos: 1 },
-  { id: 'watermelon', icon: '🍉', multiplier: 5, label: 'مرة 5', gridPos: 2 },
-  { id: 'cherry', icon: '🍒', multiplier: 40, label: 'مرة 40', gridPos: 3 },
-  { id: 'center_timer', isTimer: true, gridPos: 4 },
-  { id: 'grapes', icon: '🍇', multiplier: 5, label: 'مرة 5', gridPos: 5 },
-  { id: 'orange', icon: '🍊', multiplier: 20, label: 'مرة 20', gridPos: 6 },
-  { id: 'plum', icon: '🫐', multiplier: 10, label: 'مرة 10', gridPos: 7 }, // Using blueberry as plum approximation
-  { id: 'lemon', icon: '🍋', multiplier: 10, label: 'مرة 10', gridPos: 8 },
-];
+declare var SVGA: any;
 
-// The path the light takes around the edge (clockwise starting top-left)
-const SPIN_PATH = [0, 1, 2, 5, 8, 7, 6, 3];
+import { OnboardingModal } from './components/OnboardingModal';
+import { HelpCircle, BookOpen, Wrench, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
-const CHIPS = [
-  { value: 1000, color: 'from-green-500 to-green-700', border: 'border-green-300' },
-  { value: 5000, color: 'from-blue-500 to-blue-700', border: 'border-blue-300' },
-  { value: 10000, color: 'from-orange-500 to-orange-700', border: 'border-orange-300' },
-  { value: 50000, color: 'from-purple-500 to-purple-700', border: 'border-purple-300' },
-];
+const videoWidth = 1334;
+const videoHeight = 750;
 
-export default function App() {
-  // --- State ---
-  const [gameState, setGameState] = useState<'betting' | 'spinning' | 'showing_result'>('betting');
-  const [timeLeft, setTimeLeft] = useState(15);
-  const [activeCombo, setActiveCombo] = useState<string | null>(null);
-  const [activeIndex, setActiveIndex] = useState<number>(-1); // Index in BOARD_ITEMS
-  const [history, setHistory] = useState<string[]>(['🍇', '🍓', '🍌', '🍌', '🍌', '🍉', '🍌']);
-  const [balance, setBalance] = useState(1000000);
-  const [todayWin, setTodayWin] = useState(0);
-  const [selectedChip, setSelectedChip] = useState<number>(1000);
-  const [placedBets, setPlacedBets] = useState<Record<number, number>>({}); // gridPos -> amount
-  const [winNotification, setWinNotification] = useState<{icon: string, amount: number, bet: number} | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [isMuted, setIsMuted] = useState(false);
-  const [showLeaderboard, setShowLeaderboard] = useState(false);
-  const [jackpotPool, setJackpotPool] = useState(37120918);
-  
-  // Data fetched from Server
-  const [leaderboardData, setLeaderboardData] = useState<any[]>([]);
-  const [recentWinners, setRecentWinners] = useState<any[]>([]);
+const App: React.FC = () => {
+  const { currentUser, loading, logout } = useAuth();
+  const { checkAccess } = useAccessControl();
+  const [state, setState] = useState<AppState>(AppState.IDLE);
+  const [fileMetadata, setFileMetadata] = useState<FileMetadata | null>(null);
+  const [batchFiles, setBatchFiles] = useState<File[]>([]);
+  const [settings, setSettings] = useState<AppSettings | null>(() => {
+    const cached = localStorage.getItem('appSettings');
+    return cached ? JSON.parse(cached) : null;
+  });
+  const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showFeaturesGuide, setShowFeaturesGuide] = useState(false);
+  const [showWelcomeGuide, setShowWelcomeGuide] = useState(false);
+  const [showBatchImage, setShowBatchImage] = useState(false);
+  const [showPagConverter, setShowPagConverter] = useState(false);
+  const [uploadedPagFile, setUploadedPagFile] = useState<File | null>(null);
+  const [layerEditorInitialFile, setLayerEditorInitialFile] = useState<File | null>(null);
+  const [globalQuality, setGlobalQuality] = useState<'low' | 'medium' | 'high'>('high');
+  const [initialLottieFile, setInitialLottieFile] = useState<File | null>(null);
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [showSplash, setShowSplash] = useState(false);
 
-  const audioCtxRef = useRef<AudioContext | null>(null);
+  // Server-Enforced Version Control State
+  const [versionBlockedState, setVersionBlockedState] = useState<{
+    isBlocked: boolean;
+    requiredVersion: string;
+    installedVersion: string;
+  }>({
+    isBlocked: false,
+    requiredVersion: 'v3.0.0',
+    installedVersion: 'v3.0.0'
+  });
 
-  useEffect(() => {
-    // Fetch initial data from server
-    fetch('/api/leaderboard').then(res => res.json()).then(setLeaderboardData).catch(console.error);
-    fetch('/api/recent-winners').then(res => res.json()).then(setRecentWinners).catch(console.error);
-  }, []);
-
-  // --- Audio Helpers ---
-  const playSound = (frequency: number, type: OscillatorType, duration: number, vol: number) => {
-    if (isMuted) return;
-    try {
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-      }
-      const ctx = audioCtxRef.current;
-      if (ctx.state === 'suspended') ctx.resume();
-
-      const oscillator = ctx.createOscillator();
-      const gainNode = ctx.createGain();
-      
-      oscillator.type = type;
-      oscillator.frequency.setValueAtTime(frequency, ctx.currentTime);
-      
-      gainNode.gain.setValueAtTime(vol, ctx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
-      
-      oscillator.connect(gainNode);
-      gainNode.connect(ctx.destination);
-      
-      oscillator.start();
-      oscillator.stop(ctx.currentTime + duration);
-    } catch (e) {
-      console.error("Audio play failed", e);
-    }
-  };
-
-  const playBetSound = () => playSound(800, 'sine', 0.1, 0.1);
-  const playTickSound = () => playSound(400, 'square', 0.05, 0.02);
-  const playWinSound = () => {
-    playSound(400, 'sine', 0.1, 0.1);
-    setTimeout(() => playSound(600, 'sine', 0.2, 0.1), 100);
-    setTimeout(() => playSound(800, 'sine', 0.3, 0.1), 200);
-  };
-  const playLoseSound = () => {
-    playSound(300, 'sawtooth', 0.3, 0.1);
-    setTimeout(() => playSound(200, 'sawtooth', 0.4, 0.1), 200);
-  };
-
-  // --- Game Loop Logic ---
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (gameState === 'betting') {
-      timer = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            setGameState('spinning');
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(timer);
-  }, [gameState]);
+  // Ensure user always lands directly on the SVGA Editor / Dashboard home screen
 
   useEffect(() => {
-    if (gameState === 'spinning') {
-      let currentPathIndex = 0;
-      let speed = 50;
-      let spins = 0;
-      // Randomize where it stops (minimum 3 full circles + random extra)
-      const targetSpins = (SPIN_PATH.length * 3) + Math.floor(Math.random() * SPIN_PATH.length);
-
-      const spinTick = () => {
-        playTickSound();
-        setActiveIndex(SPIN_PATH[currentPathIndex]);
-        currentPathIndex = (currentPathIndex + 1) % SPIN_PATH.length;
-        spins++;
-
-        if (spins < targetSpins) {
-          // Decelerate in the last 10 steps
-          if (spins > targetSpins - 10) {
-            speed += 40;
-          }
-          setTimeout(spinTick, speed);
-        } else {
-          // Spin finished
-          setGameState('showing_result');
-          const winningGridPos = SPIN_PATH[(currentPathIndex - 1 + SPIN_PATH.length) % SPIN_PATH.length];
-          const winningItem = BOARD_ITEMS.find(item => item.gridPos === winningGridPos);
-          
-          if (winningItem && !winningItem.isTimer) {
-            // Determine Combo
-            const possibleCombos = ['x2', '+3', '+1', null, null]; // 3/5 chance for a combo
-            const hitCombo = possibleCombos[Math.floor(Math.random() * possibleCombos.length)];
-            setActiveCombo(hitCombo);
-
-            // Update history
-            setHistory(prev => {
-              const newHist = [winningItem.icon, ...prev];
-              if (newHist.length > 8) newHist.pop();
-              return newHist;
-            });
-
-            // Calculate winnings
-            const betOnWinner = placedBets[winningGridPos] || 0;
-            if (betOnWinner > 0) {
-              let winAmount = betOnWinner * winningItem.multiplier;
-              if (hitCombo === 'x2') winAmount *= 2;
-              else if (hitCombo === '+3') winAmount += betOnWinner * 3;
-              else if (hitCombo === '+1') winAmount += betOnWinner * 1;
-
-              setBalance(prev => prev + winAmount);
-              setTodayWin(prev => prev + winAmount);
-              setJackpotPool(prev => Math.max(0, prev - winAmount));
-              setWinNotification({ icon: winningItem.icon, amount: winAmount, bet: betOnWinner });
-              playWinSound();
-
-              // Record game to server
-              fetch('/api/record-game', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user: 'Prestige', betAmount: betOnWinner, winAmount: winAmount })
-              }).catch(console.error);
-            } else {
-              if (Object.keys(placedBets).length > 0) {
-                playLoseSound();
-              }
-            }
-          }
-        }
-      };
-
-      setTimeout(spinTick, speed);
-    }
-  }, [gameState]);
-
-  useEffect(() => {
-    if (gameState === 'showing_result') {
-      const notifTimer = setTimeout(() => {
-        setWinNotification(null);
-      }, 5000); // Hide notification after 5 seconds for the complex modal
-
-      const timer = setTimeout(() => {
-        setGameState('betting');
-        setTimeLeft(15);
-        setActiveIndex(-1);
-        setActiveCombo(null);
-        setPlacedBets({}); // Clear bets for next round
-      }, 7000); // Show result for 7 seconds to accommodate the beautiful popup
-      
-      return () => {
-        clearTimeout(notifTimer);
-        clearTimeout(timer);
-      };
-    }
-  }, [gameState]);
-
-  // --- Handlers ---
-  const handlePlaceBet = (gridPos: number) => {
-    if (gameState !== 'betting') return;
-    
-    if (balance < selectedChip) {
-      setErrorMsg("رصيدك لا يكفي للرهان!");
-      setTimeout(() => setErrorMsg(null), 2000);
+    if (!currentUser) {
+      setVersionBlockedState(prev => ({ ...prev, isBlocked: false }));
       return;
     }
 
-    playBetSound();
-    setBalance(prev => prev - selectedChip);
-    setJackpotPool(prev => prev + selectedChip);
-    setPlacedBets(prev => ({
-      ...prev,
-      [gridPos]: (prev[gridPos] || 0) + selectedChip
-    }));
-  };
+    const clientVer = getActiveClientVersion();
 
-  // --- Render Helpers ---
-  const renderGridItem = (item: typeof BOARD_ITEMS[0]) => {
-    if (item.isTimer) {
-      return (
-        <div key={item.id} className="flex items-center justify-center bg-purple-950 rounded-xl border-2 border-purple-800 shadow-inner">
-          <div className="text-4xl sm:text-5xl font-mono font-bold text-yellow-400 drop-shadow-[0_0_10px_rgba(250,204,21,0.8)]">
-            {gameState === 'betting' ? timeLeft.toString().padStart(2, '0') : '--'}
-          </div>
-        </div>
-      );
+    // CRITICAL: Admins are ALWAYS bypassed from version blocks to prevent lockouts.
+    // We also correct database records if they were set incorrectly.
+    if (currentUser.role === 'admin') {
+      setVersionBlockedState(prev => ({ ...prev, isBlocked: false }));
+      
+      // Self-correct database if allowedVersion is not set to client version
+      if (currentUser.allowedVersion !== clientVer) {
+        updateDoc(doc(db, 'users', currentUser.id), {
+          allowedVersion: clientVer,
+          lastUsedVersion: clientVer
+        }).catch(err => console.warn("Failed to correct admin allowedVersion:", err));
+      }
+
+      // Self-correct global default allowed version in settings
+      if (settings && settings.defaultAllowedVersion !== clientVer) {
+        updateDoc(doc(db, 'settings', 'global'), {
+          defaultAllowedVersion: clientVer
+        }).catch(err => console.warn("Failed to correct global defaultAllowedVersion:", err));
+      }
+      return;
     }
 
-    const isActive = activeIndex === item.gridPos;
-    const betAmount = placedBets[item.gridPos] || 0;
+    const allowedVer = currentUser.allowedVersion || settings?.defaultAllowedVersion || 'v3.0.0';
 
-    return (
-      <div 
-        key={item.id} 
-        onClick={() => handlePlaceBet(item.gridPos)}
-        className={`relative flex flex-col items-center justify-center rounded-xl transition-all duration-100 cursor-pointer
-          ${isActive 
-            ? 'bg-blue-600/40 border-4 border-blue-400 shadow-[0_0_20px_rgba(96,165,250,0.9)] z-10 scale-105' 
-            : 'bg-[#5a1818] border-2 border-[#8a2828] hover:bg-[#6a1c1c]'
+    const localCheck = checkVersionCompatibility(allowedVer, clientVer);
+    if (!localCheck.isAllowed) {
+      setVersionBlockedState({
+        isBlocked: true,
+        requiredVersion: localCheck.requiredVersion,
+        installedVersion: localCheck.currentVersion
+      });
+      return;
+    }
+
+    verifyAccountVersionWithServer(currentUser.id, currentUser.email, allowedVer)
+      .then(res => {
+        if (!res.allowed) {
+          setVersionBlockedState({
+            isBlocked: true,
+            requiredVersion: res.requiredVersion,
+            installedVersion: res.installedVersion
+          });
+        } else {
+          setVersionBlockedState(prev => ({ ...prev, isBlocked: false }));
+          // Update lastUsedVersion in database if it differs to show real-time version status to admins
+          if (currentUser.lastUsedVersion !== clientVer) {
+            updateDoc(doc(db, 'users', currentUser.id), {
+              lastUsedVersion: clientVer
+            }).catch(err => console.warn("Failed to update lastUsedVersion on success:", err));
           }
-        `}
-        style={{ aspectRatio: '1/1' }}
-      >
-        <div className="text-4xl sm:text-5xl drop-shadow-lg mb-1">{item.icon}</div>
-        <div className="text-pink-200 text-xs sm:text-sm font-bold tracking-wider">{item.label}</div>
-        
-        {/* Bet Indicator */}
-        {betAmount > 0 && (
-          <div className="absolute -top-2 -right-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full border-2 border-white shadow-lg z-20">
-            {(betAmount / 1000)}K
-          </div>
-        )}
+        }
+      })
+      .catch(() => {
+        if (!localCheck.isAllowed) {
+          setVersionBlockedState({
+            isBlocked: true,
+            requiredVersion: localCheck.requiredVersion,
+            installedVersion: localCheck.currentVersion
+          });
+        } else {
+          setVersionBlockedState(prev => ({ ...prev, isBlocked: false }));
+          if (currentUser.lastUsedVersion !== clientVer) {
+            updateDoc(doc(db, 'users', currentUser.id), {
+              lastUsedVersion: clientVer
+            }).catch(err => console.warn("Failed to update lastUsedVersion on local success:", err));
+          }
+        }
+      });
+  }, [currentUser?.id, currentUser?.role, currentUser?.allowedVersion, settings?.defaultAllowedVersion]);
 
-        {/* Hand Cursor Simulation for active item (like in screenshot) */}
-        {isActive && gameState === 'showing_result' && (
-          <div className="absolute -bottom-4 right-0 text-4xl animate-bounce z-30 drop-shadow-xl">
-            👇
-          </div>
-        )}
+  useEffect(() => {
+    // Hide splash screen after 1.5 seconds
+    const timer = setTimeout(() => {
+      setShowSplash(false);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    // Check if user has seen onboarding
+    const hasSeenOnboarding = localStorage.getItem('hasSeenOnboarding');
+    if (!hasSeenOnboarding) {
+      setShowOnboarding(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    const guideSkipped = localStorage.getItem('guide_skipped');
+    if (!guideSkipped) {
+      setShowWelcomeGuide(true);
+    }
+  }, []);
+
+  const handleCloseOnboarding = () => {
+    setShowOnboarding(false);
+    localStorage.setItem('hasSeenOnboarding', 'true');
+  };
+
+  const isSuperAdmin = currentUser?.email?.toLowerCase() === 'uhbijnokmpl098900@gmail.com' || currentUser?.isSuperAdmin === true;
+  const isAdminUser = isSuperAdmin || currentUser?.role === 'admin' || currentUser?.role === 'moderator';
+  const isMaintenanceActive = Boolean(settings?.isMaintenanceMode);
+
+  useEffect(() => {
+    // Real-time listener for Global Settings
+    const docRef = doc(db, 'settings', 'global');
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data() as AppSettings;
+        setSettings(data);
+        localStorage.setItem('appSettings', JSON.stringify(data));
+        // Sync with backend memory cache
+        try {
+          fetch('/api/maintenance/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              isMaintenanceMode: data.isMaintenanceMode,
+              maintenanceMessage: data.maintenanceMessage,
+              maintenanceTitle: data.maintenanceTitle,
+              maintenanceEstimatedTime: data.maintenanceEstimatedTime
+            })
+          }).catch(() => {});
+        } catch (e) {}
+      }
+    }, (e: any) => {
+      console.warn("Settings Load Notice:", e.message);
+      const cached = localStorage.getItem('appSettings');
+      if (cached) {
+        try {
+          setSettings(JSON.parse(cached));
+        } catch (parseError) {
+          console.error("Failed to parse cached settings");
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleFeatureAccess = async (targetState: AppState, featureName: string) => {
+    // 1. Check Feature Access Control (تحديد الوظائف)
+    if (currentUser) {
+      const stateToActionKey: Record<string, string> = {
+        [AppState.AI_VIDEO_MATTING]: 'aiVideoMatting',
+        [AppState.VIDEO_CONVERTER]: 'videoConverter',
+        [AppState.UNIVERSAL_CONVERTER]: 'universalConverter',
+        [AppState.MULTI_SVGA_VIEWER]: 'multiSvga',
+        [AppState.BATCH_IMAGE_PROCESSOR]: 'batchImageProcessor',
+        [AppState.SVGA_BATCH_COMPRESSOR]: 'svgaBatchCompressor',
+        [AppState.SVGA_LAYER_EDITOR]: 'svgaLayerEditor',
+        [AppState.BATCH_COMPRESSOR]: 'batchCompress',
+        [AppState.BATCH_CROPPER]: 'batchCropper',
+        [AppState.IMAGE_CONVERTER]: 'imageConverter',
+        [AppState.SVGA_EDITOR_EX]: 'svgaEx',
+        [AppState.IMAGE_PROCESSOR]: 'imageProcessor',
+        [AppState.IMAGE_MATCHER]: 'imageMatcher',
+        [AppState.IMAGE_EDITOR]: 'imageEditor',
+        [AppState.IMAGE_ENHANCER]: 'imageEnhancer',
+        [AppState.NAME_3D_EDITOR]: 'name3DEditor',
+        [AppState.AUDIO_EXTRACTOR]: 'audioExtractor'
+      };
+
+      const actionKey = stateToActionKey[targetState];
+      if (actionKey && currentUser.allFeaturesEnabled === false) {
+        const allowed = currentUser.allowedFeatures || [];
+        if (!allowed.includes(actionKey)) {
+          alert("عذراً، هذه الوظيفة غير متاحة في حسابك بناءً على صلاحياتك المحددة.");
+          return;
+        }
+      }
+    }
+
+    // 2. Check Subscription/Credits Access
+    const { allowed } = await checkAccess(featureName, { decrement: false });
+    if (allowed) {
+      setState(targetState);
+    } else {
+      setShowSubscriptionModal(true);
+    }
+  };
+
+  const handleImageConverterOpen = (file?: File) => {
+    if (file) setInitialLottieFile(file);
+    handleFeatureAccess(AppState.IMAGE_CONVERTER, 'Image Converter');
+  };
+
+  const handleFileUpload = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
+
+    // Expand any PDF files (single or multiple) into their extracted SVGA files
+    const expandedFiles: File[] = [];
+    for (const f of files) {
+      if ((f?.name || '').toLowerCase().endsWith('.pdf')) {
+        try {
+          const extracted = await extractSvgaFromPdfFile(f);
+          if (extracted.length > 0) {
+            expandedFiles.push(...extracted.map(e => e.file));
+          } else {
+            alert(`لم يتم العثور على ملفات SVGA صالحة داخل: ${f.name}`);
+          }
+        } catch (err) {
+          console.error('PDF extraction failed for:', f.name, err);
+          alert(`تعذر فك واستخراج ملفات SVGA من: ${f.name}`);
+        }
+      } else {
+        expandedFiles.push(f);
+      }
+    }
+
+    if (expandedFiles.length === 0) return;
+    const currentFiles = expandedFiles;
+
+    if (currentFiles.length > 1) {
+      const svgaFiles = currentFiles.filter(f => (f?.name || '').toLowerCase().endsWith('.svga'));
+      if (svgaFiles.length > 0) {
+        // Multiple SVGA files uploaded - we'll just process the first one for now
+        // since Batch SVGA Converter was removed.
+        const file = svgaFiles[0];
+        const fileUrl = URL.createObjectURL(file);
+        
+        if (currentUser) {
+          logActivity(currentUser, 'upload', `Uploaded file: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`);
+        }
+
+        const parser = new SVGA.Parser();
+        parser.load(fileUrl, (videoItem: any) => {
+          let extractedFps = videoItem.FPS || videoItem.fps || 30;
+          if (typeof extractedFps === 'string') extractedFps = parseFloat(extractedFps);
+          if (!extractedFps || extractedFps <= 0) extractedFps = 30;
+
+          const meta: FileMetadata = {
+            name: file.name, size: file.size, type: 'SVGA',
+            dimensions: { width: videoItem.videoSize?.width || 0, height: videoItem.videoSize?.height || 0 },
+            fps: extractedFps, frames: videoItem.frames || 0, assets: [], videoItem,
+            fileUrl: fileUrl,
+            originalFile: file
+          };
+          
+          setFileMetadata(meta);
+          setState(AppState.PROCESSING);
+        }, (err: any) => {
+          console.error("SVGA Load Error:", err);
+          alert("فشل في قراءة ملف SVGA.");
+          URL.revokeObjectURL(fileUrl);
+        });
+        return;
+      }
+    }
+
+    const file = currentFiles[0];
+    const fileUrl = URL.createObjectURL(file);
+
+    // Check for PAG file
+    if ((file?.name || '').toLowerCase().endsWith('.pag')) {
+      setUploadedPagFile(file);
+      setShowPagConverter(true);
+      return;
+    }
+
+    // Check for Lottie JSON
+    if ((file?.name || '').toLowerCase().endsWith('.json') || file?.type === 'application/json') {
+        try {
+            const text = await file.text();
+            const json = JSON.parse(text);
+            if (json.v && json.layers && json.fr) {
+                // It's a Lottie file - redirect to Image Converter
+                setInitialLottieFile(file);
+                setState(AppState.IMAGE_CONVERTER);
+                return;
+            }
+        } catch (e) {
+            console.error("Not a valid Lottie JSON", e);
+        }
+    }
+
+    // Log the upload activity if user exists
+    if (currentUser) {
+      logActivity(currentUser, 'upload', `Uploaded file: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`);
+    }
+
+    const isVideo = file?.type?.startsWith('video/') || (file?.name || '').toLowerCase().endsWith('.mp4') || (file?.name || '').toLowerCase().endsWith('.webm') || (file?.name || '').toLowerCase().endsWith('.mov');
+    const isImage = false; // Disabled image support
+
+    if (isVideo || isImage) {
+        // For simple MP4/WebM, try to extract frames immediately
+        if ((file?.name || '').toLowerCase().endsWith('.mp4') || (file?.name || '').toLowerCase().endsWith('.webm')) {
+            try {
+               const video = document.createElement('video');
+               video.src = fileUrl;
+               video.muted = true;
+               video.playsInline = true;
+               await video.play();
+               video.pause();
+               
+               const duration = video.duration;
+               
+               if (duration > 15) {
+                  alert("عذراً، يجب أن يكون الفيديو أقل من 15 ثانية لتجنب انهيار المتصفح.");
+                  URL.revokeObjectURL(fileUrl);
+                  return;
+               }
+
+               const vw = video.videoWidth;
+               const vh = video.videoHeight;
+               const fps = 30; 
+               const totalFrames = Math.floor(duration * fps);
+
+               const canvas = document.createElement('canvas');
+               canvas.width = vw;
+               canvas.height = vh;
+               const ctx = canvas.getContext('2d');
+               
+               const newLayerImages: Record<string, string> = {};
+               const newSprites: any[] = [];
+               
+               for (let i = 0; i < totalFrames; i++) {
+                   const time = i / fps;
+                   video.currentTime = time;
+                   await new Promise(r => {
+                       const onSeek = () => {
+                           video.removeEventListener('seeked', onSeek);
+                           r(null);
+                       };
+                       video.addEventListener('seeked', onSeek);
+                   });
+                   
+                   if (ctx) {
+                       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                       const quality = 0.8;
+                       const dataUrl = canvas.toDataURL('image/png', quality);
+                       const key = `v_frame_${i}`;
+                       newLayerImages[key] = dataUrl;
+                       
+                       const frames = [];
+                       for (let f = 0; f < totalFrames; f++) {
+                           frames.push({
+                               alpha: f === i ? 1.0 : 0.0,
+                               layout: { x: (videoWidth - canvas.width) / 2, y: (videoHeight - canvas.height) / 2, width: canvas.width, height: canvas.height },
+                               transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
+                           });
+                       }
+                       
+                       newSprites.push({
+                           imageKey: key,
+                           frames: frames,
+                           matteKey: ""
+                       });
+                   }
+               }
+
+               const meta: FileMetadata = {
+                   name: file.name, size: file.size, type: 'MP4',
+                   dimensions: { width: videoWidth, height: videoHeight },
+                   fps: fps, frames: totalFrames, assets: [], 
+                   videoItem: {
+                       version: "2.0",
+                       videoSize: { width: videoWidth, height: videoHeight },
+                       FPS: fps,
+                       frames: totalFrames,
+                       images: newLayerImages,
+                       sprites: newSprites,
+                       audios: [] 
+                   },
+                   fileUrl: fileUrl 
+               };
+               
+               setFileMetadata(meta);
+               setState(AppState.PROCESSING);
+
+            } catch (e) {
+                console.error(e);
+                // Fallback to Workspace processing if simple extraction fails
+                const meta: FileMetadata = {
+                    name: file.name, size: file.size, type: 'VIDEO_COMPLEX',
+                    dimensions: { width: 0, height: 0 },
+                    fps: 30, frames: 0, assets: [], 
+                    videoItem: null,
+                    fileUrl: fileUrl 
+                };
+                setFileMetadata(meta);
+                setState(AppState.PROCESSING);
+            }
+            return;
+        }
+
+        // For GIF/WebP/MOV (complex formats), pass to Workspace for FFmpeg processing
+        const meta: FileMetadata = {
+            name: file.name, 
+            size: file.size, 
+            type: isImage ? 'IMAGE_ANIM' : 'VIDEO_COMPLEX',
+            dimensions: { width: 0, height: 0 },
+            fps: 30, 
+            frames: 0, 
+            assets: [], 
+            videoItem: null,
+            fileUrl: fileUrl 
+        };
+        setFileMetadata(meta);
+        setState(AppState.PROCESSING);
+        return;
+    }
+
+    if (!file || !(file?.name || '').toLowerCase().endsWith('.svga')) return;
+    
+    try {
+      const parser = new SVGA.Parser();
+      parser.load(fileUrl, (videoItem: any) => {
+        // Robust FPS extraction
+        let extractedFps = videoItem.FPS || videoItem.fps || 30;
+        if (typeof extractedFps === 'string') extractedFps = parseFloat(extractedFps);
+        if (!extractedFps || extractedFps <= 0) extractedFps = 30;
+
+        const meta: FileMetadata = {
+          name: file.name, size: file.size, type: 'SVGA',
+          dimensions: { width: videoItem.videoSize?.width || 0, height: videoItem.videoSize?.height || 0 },
+          fps: extractedFps, frames: videoItem.frames || 0, assets: [], videoItem,
+          fileUrl: fileUrl,
+          originalFile: file
+        };
+        
+        setFileMetadata(meta);
+        setState(AppState.PROCESSING);
+      }, (err: any) => {
+        console.error("SVGA Load Error:", err);
+        alert("فشل في قراءة ملف SVGA.");
+        URL.revokeObjectURL(fileUrl);
+      });
+    } catch (err) {
+      setState(AppState.IDLE);
+    }
+  }, [currentUser, settings]);
+
+  const handleReset = useCallback(() => {
+    if (fileMetadata?.fileUrl) {
+      URL.revokeObjectURL(fileMetadata.fileUrl);
+    }
+    setState(AppState.IDLE);
+    setFileMetadata(null);
+    setBatchFiles([]);
+    setInitialLottieFile(null);
+  }, [fileMetadata]);
+
+  if (loading) {
+    return <Loading />;
+  }
+
+  // 🔴 Maintenance Mode Blocking for Non-Admin Users
+  if (isMaintenanceActive && !isAdminUser) {
+    return (
+      <MaintenanceScreen 
+        settings={settings} 
+        currentUser={currentUser} 
+        onRefresh={async () => {
+          try {
+            const docSnap = await getDoc(doc(db, 'settings', 'global'));
+            if (docSnap.exists()) {
+              setSettings(docSnap.data() as AppSettings);
+            }
+          } catch (e) {}
+        }}
+      />
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-[#020617] flex items-center justify-center p-4 relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0">
+          <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-500/10 blur-[120px] rounded-full"></div>
+          <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-600/10 blur-[120px] rounded-full"></div>
+        </div>
+        <div className="relative z-10 w-full max-w-md">
+          {authMode === 'login' ? (
+            <Login onToggle={() => setAuthMode('signup')} />
+          ) : (
+            <Signup onToggle={() => setAuthMode('login')} />
+          )}
+        </div>
       </div>
     );
+  }
+
+  const defaultBgUrl = 'https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?q=80&w=2070&auto=format&fit=crop';
+  const bgUrl = settings?.backgroundUrl || defaultBgUrl;
+
+  const dynamicBgStyle: React.CSSProperties = {
+    backgroundImage: `linear-gradient(rgba(7, 10, 18, 0.85), rgba(7, 10, 18, 0.95)), url(${bgUrl})`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+    backgroundAttachment: 'fixed'
   };
 
   return (
-    <div className="min-h-[100dvh] bg-[#2a0a4a] text-white font-sans overflow-y-auto flex justify-center custom-scrollbar" dir="rtl">
-      {/* Main Game Container - Constrained width for mobile feel */}
-      <div className="w-full max-w-md bg-gradient-to-b from-[#3a1060] via-[#2a0a4a] to-[#1a0530] relative shadow-2xl flex flex-col min-h-[100dvh]">
-        
-        {/* Win Notification Overlay */}
-        <AnimatePresence>
-          {winNotification && (
+    <div className="min-h-screen text-slate-200 overflow-x-hidden relative" style={dynamicBgStyle}>
+      <div className="fixed inset-0 bg-[#020617]/30 backdrop-blur-[4px] -z-10 pointer-events-none" />
+      
+      {/* 3D Splash Screen */}
+      {showWelcomeGuide && (
+        <WelcomeGuideModal 
+          onOpenGuide={() => {
+            setShowWelcomeGuide(false);
+            setShowFeaturesGuide(true);
+          }} 
+          onSkip={() => {
+            setShowWelcomeGuide(false);
+            localStorage.setItem('guide_skipped', 'true');
+          }}
+        />
+      )}
+      
+      {showFeaturesGuide && (
+        <FeaturesGuideModal onClose={() => {
+          setShowFeaturesGuide(false);
+          localStorage.setItem('guide_skipped', 'true');
+        }} />
+      )}
+
+      <AnimatePresence>
+        {showSplash && (
+          <motion.div 
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0, transition: { duration: 0.8, ease: "easeInOut" } }}
+            className="fixed inset-0 z-[2000] bg-[#020617] flex flex-col items-center justify-center pointer-events-none"
+          >
+            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20 mix-blend-overlay"></div>
+            
             <motion.div
-              initial={{ opacity: 0, scale: 0.8, y: 50 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.8, y: -50 }}
-              className="absolute inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+              initial={{ scale: 0.5, y: 50, rotateX: 30, opacity: 0 }}
+              animate={{ scale: 1, y: 0, rotateX: 0, opacity: 1 }}
+              exit={{ scale: 1.1, opacity: 0, filter: 'blur(10px)' }}
+              transition={{ duration: 1, type: "spring", bounce: 0.5 }}
+              className="relative z-10 flex flex-col items-center"
             >
-              <div className="bg-[#1c013b] border-4 border-[#fbbf24] rounded-2xl w-[95%] max-w-sm mx-auto overflow-hidden relative shadow-[0_0_50px_rgba(251,191,36,0.3)]">
-                
-                {/* Title */}
-                <h2 className="text-center font-bold text-[#fbbf24] text-4xl mt-6 drop-shadow-md pb-0">حظ سعيد</h2>
-                <p className="text-center text-white text-lg mt-1 mb-8">مبروك للفائزين التالية</p>
-
-                {/* 3 Winners Grid */}
-                <div className="flex justify-center items-end gap-2 px-2 mb-6">
-                  {recentWinners.map((winner) => {
-                    const isCenter = winner.rank === 1;
-                    return (
-                      <div key={winner.rank} className={`flex flex-col items-center ${isCenter ? 'w-1/3 -mt-6' : 'w-1/3'}`}>
-                        <div className="relative">
-                          <span className={`absolute ${isCenter ? '-top-10' : '-top-7'} left-1/2 -translate-x-1/2 ${isCenter ? 'text-5xl' : 'text-3xl'}`}>👑</span>
-                          <span className={`absolute ${isCenter ? '-top-6' : '-top-4'} left-1/2 -translate-x-1/2 text-white font-bold z-10 text-sm`}>{winner.rank}</span>
-                          <img 
-                            className={`${isCenter ? 'w-24 h-24 border-4 border-[#fbbf24]' : 'w-16 h-16 border-2'} ${winner.rank === 2 ? 'border-gray-200' : 'border-orange-400'} rounded-full object-cover`} 
-                            src={winner.avatar} 
-                            alt={winner.name} 
-                          />
-                        </div>
-                        
-                        <div className={`${isCenter ? 'bg-[#fbbf24] text-black shadow-lg text-sm w-[110%]' : winner.rank === 2 ? 'bg-gray-200 text-gray-900 text-xs w-full' : 'bg-orange-400 text-white text-xs w-full'} font-bold px-1 py-1 -mt-3 relative z-10 rounded text-center truncate`}>
-                          {winner.name}
-                        </div>
-                        
-                        <div className="text-white text-[11px] sm:text-xs mt-2 w-full flex justify-between px-1 font-bold">
-                          <span>رهان</span> 
-                          <span>{winner.bet.toLocaleString()}</span>
-                        </div>
-                        <div className="text-[#fbbf24] text-[11px] sm:text-xs w-full flex justify-between px-1 mt-1 font-bold">
-                          <span>يفوز</span> 
-                          <span>{(winner.win >= 100000 ? (winner.win/1000).toFixed(1)+'K' : winner.win.toLocaleString())}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Current User Row */}
-                <div className="bg-[#2c0957] mx-2 mb-2 p-2 rounded-xl flex items-center justify-between border border-[#441188]">
-                  <div className="flex items-center gap-2">
-                    <img className="w-10 h-10 rounded-full border border-gray-500" src="https://api.dicebear.com/7.x/avataaars/svg?seed=You&backgroundColor=black" alt="You" />
-                    <span className="text-white font-bold text-sm">أنت (Prestige)</span>
-                  </div>
-                  <div className="flex flex-col gap-1 w-32 border-l border-gray-700 pl-2">
-                    <div className="flex justify-between bg-[#190433] px-2 py-0.5 rounded text-xs text-white">
-                      <span>رهان</span> 
-                      <span>{winNotification.bet.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between bg-[#190433] px-2 py-0.5 rounded text-xs text-[#fbbf24]">
-                      <span>يفوز</span> 
-                      <span>{winNotification.amount.toLocaleString()}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Floating Big Win Icon Overlay in background (subtle) */}
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-10 pointer-events-none">
-                  <span className="text-9xl">{winNotification.icon}</span>
-                </div>
-              </div>
+               {settings?.logoUrl ? (
+                 <motion.img 
+                   src={settings.logoUrl} 
+                   alt="Logo" 
+                   initial={{ filter: 'drop-shadow(0 0 0 rgba(99,102,241,0))' }}
+                   animate={{ filter: ['drop-shadow(0 0 20px rgba(99,102,241,0.8))', 'drop-shadow(0 0 40px rgba(168,85,247,0.8))', 'drop-shadow(0 0 20px rgba(99,102,241,0.8))'] }}
+                   transition={{ duration: 2, repeat: Infinity }}
+                   className="w-32 h-32 md:w-48 md:h-48 object-cover rounded-3xl mb-6 shadow-2xl" 
+                 />
+               ) : (
+                 <motion.div 
+                   initial={{ filter: 'drop-shadow(0 0 0 rgba(99,102,241,0))' }}
+                   animate={{ filter: ['drop-shadow(0 0 20px rgba(99,102,241,0.8))', 'drop-shadow(0 0 40px rgba(168,85,247,0.8))', 'drop-shadow(0 0 20px rgba(99,102,241,0.8))'] }}
+                   transition={{ duration: 2, repeat: Infinity }}
+                   className="w-32 h-32 md:w-48 md:h-48 bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-900 rounded-3xl flex items-center justify-center shadow-lg border-2 border-white/20 mb-6"
+                 >
+                   <span className="text-white font-black text-6xl md:text-8xl drop-shadow-lg">S</span>
+                 </motion.div>
+               )}
+               
+               <h1 className="text-4xl md:text-6xl font-black animated-brand-text tracking-tight uppercase">
+                 {settings?.appName?.trim() ? settings.appName : 'SVGA Studio'}
+               </h1>
+               <motion.span 
+                 initial={{ opacity: 0, y: 10 }}
+                 animate={{ opacity: 1, y: 0 }}
+                 transition={{ delay: 0.5, duration: 0.5 }}
+                 className="text-xs md:text-sm text-indigo-400 font-bold tracking-[0.4em] uppercase mt-4"
+               >
+                 Professional Platform
+               </motion.span>
+               
+               {/* 3D Core Loader Ring */}
+               <div className="absolute inset-0 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] border-2 border-dashed border-indigo-500/30 rounded-full animate-[spin_10s_linear_infinite] -z-10"></div>
+               <div className="absolute inset-0 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[140%] h-[140%] border border-purple-500/20 rounded-full animate-[spin_15s_linear_infinite_reverse] -z-10"></div>
             </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Error Message Overlay */}
-        <AnimatePresence>
-          {errorMsg && (
-            <motion.div
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="absolute top-24 left-1/2 -translate-x-1/2 z-[70] bg-red-600 text-white px-6 py-2 rounded-full font-bold shadow-lg border-2 border-red-400 whitespace-nowrap"
-            >
-              {errorMsg}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Leaderboard Overlay */}
-        <AnimatePresence>
-          {showLeaderboard && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 z-[80] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
-            >
-              <motion.div
-                initial={{ scale: 0.8, y: 50 }}
-                animate={{ scale: 1, y: 0 }}
-                exit={{ scale: 0.8, y: 50 }}
-                className="bg-gradient-to-b from-[#3a1060] to-[#1a0530] border-2 border-yellow-400 rounded-3xl w-full max-w-sm overflow-hidden shadow-[0_0_30px_rgba(250,204,21,0.3)] flex flex-col max-h-[80vh]"
-              >
-                <div className="bg-gradient-to-r from-yellow-600 via-yellow-400 to-yellow-600 p-4 text-center relative shrink-0">
-                  <h2 className="text-2xl font-black text-purple-950 drop-shadow-sm">🏆 قائمة المتصدرين</h2>
-                  <button 
-                    onClick={() => setShowLeaderboard(false)}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 w-8 h-8 bg-purple-900 rounded-full flex items-center justify-center text-white font-bold border-2 border-purple-950 hover:bg-red-600 transition-colors"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <div className="p-4 space-y-2 overflow-y-auto flex-1 custom-scrollbar">
-                  {leaderboardData.map((player, index) => (
-                    <div key={player.id} className="flex items-center justify-between bg-purple-900/50 p-2 sm:p-3 rounded-xl border border-purple-500/30">
-                      <div className="flex items-center gap-2 sm:gap-3">
-                        <div className={`w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center font-bold shadow-inner text-xs sm:text-base ${
-                          index === 0 ? 'bg-yellow-400 text-black border-2 border-yellow-200' : 
-                          index === 1 ? 'bg-gray-300 text-black border-2 border-gray-100' : 
-                          index === 2 ? 'bg-amber-600 text-white border-2 border-amber-400' : 
-                          'bg-purple-800 text-white border border-purple-600'
-                        }`}>
-                          {index + 1}
-                        </div>
-                        <img src={player.avatar} alt={player.name} className="w-8 h-8 rounded-full bg-black/30 border border-white/20 hidden sm:block" />
-                        <span className="font-bold text-base sm:text-lg">{player.name}</span>
-                      </div>
-                      <div className="text-yellow-400 font-bold bg-black/30 px-2 py-1 sm:px-3 sm:py-1 rounded-full text-xs sm:text-sm whitespace-nowrap">
-                        {player.score.toLocaleString()} 🪙
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* --- Top Bar --- */}
-        <div className="flex justify-between items-start p-3 z-10">
-          <div className="flex flex-col gap-2">
-            <button className="w-10 h-10 bg-indigo-600/80 rounded-full flex items-center justify-center border-2 border-indigo-400 shadow-lg">
-              <ArrowRight className="w-6 h-6 text-white" />
-            </button>
-            <button 
-              onClick={() => setIsMuted(!isMuted)}
-              className="w-10 h-10 bg-indigo-600/80 rounded-full flex items-center justify-center border-2 border-indigo-400 shadow-lg"
-            >
-              {isMuted ? <VolumeX className="w-6 h-6 text-white" /> : <Volume2 className="w-6 h-6 text-white" />}
-            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      
+      {isMaintenanceActive && isAdminUser && (
+        <div className="fixed top-0 left-0 right-0 bg-gradient-to-r from-amber-600 via-orange-600 to-amber-600 text-white py-1.5 px-4 text-xs font-bold z-[300] flex items-center justify-between shadow-lg border-b border-amber-400/40">
+          <div className="flex items-center gap-2">
+            <Wrench className="w-4 h-4 text-amber-200 animate-pulse" />
+            <span>⚠️ وضع التحديث والتطوير مفعّل حالياً: الموقع مغلق أمام المستخدمين العاديين، وتتصفح أنت كمسؤول.</span>
           </div>
-          
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 text-green-400 text-sm font-bold bg-black/30 px-2 py-1 rounded-full">
-                <Wifi className="w-4 h-4" /> 467ms
-              </div>
-              <button className="w-10 h-10 bg-indigo-600/80 rounded-full flex items-center justify-center border-2 border-indigo-400 shadow-lg">
-                <HelpCircle className="w-6 h-6 text-white" />
-              </button>
-            </div>
-            <div className="flex flex-col items-center cursor-pointer group" onClick={() => setShowLeaderboard(true)}>
-              <Trophy className="w-8 h-8 text-yellow-400 drop-shadow-md group-hover:scale-110 transition-transform" />
-              <span className="text-red-500 font-bold text-sm bg-black/40 px-2 rounded-full mt-1">03:27</span>
-            </div>
-          </div>
+          <button
+            onClick={() => setState(AppState.ADMIN_PANEL)}
+            className="px-3 py-0.5 rounded-lg bg-black/40 hover:bg-black/60 text-white text-[11px] border border-white/20 transition-all font-bold"
+          >
+            فتح لوحة الإعدادات
+          </button>
         </div>
+      )}
 
-        {/* Absolute positioned "دائري: 2247" */}
-        <div className="absolute top-4 right-16 text-indigo-200 text-sm font-bold">
-          دائري: 2247
+      {isQuotaExceeded && (
+        <div className="fixed top-0 left-0 right-0 bg-amber-500/90 backdrop-blur-sm text-black py-1 px-4 text-center text-[10px] font-bold z-[300] flex items-center justify-center gap-2">
+          <span>⚠️ تم تجاوز حصة الاستخدام اليومية للسيرفر. الموقع يعمل الآن بالوضع الاحتياطي (Offline Mode).</span>
         </div>
+      )}
 
-        {/* --- Header Section --- */}
-        <div className="flex flex-col items-center -mt-4 sm:-mt-8 z-10">
-          {/* Jackpot Logo */}
-          <h1 className="text-5xl sm:text-6xl font-black italic tracking-tighter mb-2" 
-              style={{
-                background: 'linear-gradient(to bottom, #ffeb3b, #ff9800, #f44336)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-                filter: 'drop-shadow(0px 4px 2px rgba(0,0,0,0.8)) drop-shadow(0px 0px 10px rgba(255,0,0,0.5))',
-                WebkitTextStroke: '1px #b71c1c'
-              }}>
-            JACKPOT
-          </h1>
-
-          {/* Big Number Display */}
-          <div className="relative">
-            {/* Red Ribbon Background effect */}
-            <div className="absolute -inset-4 bg-red-600 rounded-full blur-md opacity-50 -z-10"></div>
-            <div className="bg-purple-900 border-4 border-yellow-400 rounded-xl px-4 sm:px-6 py-1 shadow-[0_0_15px_rgba(250,204,21,0.5)]">
-              <span className="text-2xl sm:text-3xl font-bold text-white tracking-widest drop-shadow-md">
-                {jackpotPool.toLocaleString()}
-              </span>
-            </div>
+      <Header 
+        onOpenGuide={() => setShowFeaturesGuide(true)}
+        onLogoClick={handleReset} 
+        isAdmin={currentUser?.role === 'admin' || currentUser?.role === 'moderator'} 
+        currentUser={currentUser}
+        settings={settings}
+        onAdminToggle={() => setState(AppState.ADMIN_PANEL)}
+        onLogout={logout}
+        isAdminOpen={state === AppState.ADMIN_PANEL}
+        onBatchOpen={() => handleFeatureAccess(AppState.BATCH_COMPRESSOR, 'Batch Compressor')}
+        onStoreOpen={() => setState(AppState.STORE)}
+        onConverterOpen={() => handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter')}
+        onImageConverterOpen={() => handleImageConverterOpen()}
+        onImageEditorOpen={() => handleFeatureAccess(AppState.IMAGE_EDITOR, 'Image Editor')}
+        onImageMatcherOpen={() => handleFeatureAccess(AppState.IMAGE_MATCHER, 'Image Matcher')}
+        onCropperOpen={() => handleFeatureAccess(AppState.BATCH_CROPPER, 'Batch Cropper')}
+        onSvgaExOpen={() => handleFeatureAccess(AppState.SVGA_EDITOR_EX, 'SVGA Editor EX')}
+        onMultiSvgaOpen={() => handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview')}
+        onImageProcessorOpen={() => handleFeatureAccess(AppState.IMAGE_PROCESSOR, 'Image Processor')}
+        onImageEnhancerOpen={() => handleFeatureAccess(AppState.IMAGE_ENHANCER, 'AI Image Enhancer')}
+        onBatchImageProcessorOpen={() => handleFeatureAccess(AppState.BATCH_IMAGE_PROCESSOR, 'Batch Image Processor')}
+        onUniversalConverterOpen={() => handleFeatureAccess(AppState.UNIVERSAL_CONVERTER, 'Universal Motion Tools')}
+        onPagConverterOpen={() => setShowPagConverter(true)}
+        onName3DEditorOpen={() => handleFeatureAccess(AppState.NAME_3D_EDITOR, '3D Name Editor')}
+        onAudioExtractorOpen={() => handleFeatureAccess(AppState.AUDIO_EXTRACTOR, 'Audio Extractor')}
+        onAiVideoMattingOpen={() => handleFeatureAccess(AppState.AI_VIDEO_MATTING, 'AI Video Matting Studio')}
+        onSvgaBatchCompressorOpen={() => handleFeatureAccess(AppState.SVGA_BATCH_COMPRESSOR, 'SVGA Batch Compressor')}
+        onSvgaLayerEditorOpen={() => {
+          setLayerEditorInitialFile(fileMetadata?.originalFile || null);
+          handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
+        }}
+        onBatchImageOpen={() => setShowBatchImage(true)}
+        onLoginClick={() => {}}
+        onProfileClick={() => {}}
+        currentTab={
+          state === AppState.AI_VIDEO_MATTING ? 'ai-video-matting' :
+          state === AppState.SVGA_LAYER_EDITOR ? 'svga-layer-editor' :
+          state === AppState.SVGA_BATCH_COMPRESSOR ? 'svga-compressor' :
+          state === AppState.BATCH_COMPRESSOR ? 'batch' : 
+          state === AppState.STORE ? 'store' : 
+          state === AppState.VIDEO_CONVERTER ? 'converter' : 
+          state === AppState.IMAGE_CONVERTER ? 'image-converter' :
+          state === AppState.IMAGE_PROCESSOR ? 'image-processor' :
+          state === AppState.IMAGE_ENHANCER ? 'image-enhancer' :
+          state === AppState.BATCH_IMAGE_PROCESSOR ? 'batch-image-processor' :
+          state === AppState.IMAGE_EDITOR ? 'image-editor' :
+          state === AppState.IMAGE_MATCHER ? 'image-matcher' :
+          state === AppState.BATCH_CROPPER ? 'cropper' :
+          state === AppState.SVGA_EDITOR_EX ? 'svga-ex' :
+          state === AppState.MULTI_SVGA_VIEWER ? 'multi-svga' :
+          state === AppState.NAME_3D_EDITOR ? 'name-3d' :
+          state === AppState.AUDIO_EXTRACTOR ? 'audio-extractor' :
+          state === AppState.UNIVERSAL_CONVERTER ? 'universal' :
+          showPagConverter ? 'pag-to-svga' :
+          'svga'
+        }
+      />
+      
+      <div className="flex pt-28 h-screen overflow-hidden relative">
+        <main className={`flex-1 overflow-y-auto transition-all duration-700 custom-scrollbar mr-0`}>
+          <style>{`
+            .no-scrollbar::-webkit-scrollbar {
+              display: none;
+            }
+            .no-scrollbar {
+              -ms-overflow-style: none;
+              scrollbar-width: none;
+            }
+            .mask-edges {
+              mask-image: linear-gradient(to right, transparent, black 2%, black 98%, transparent);
+              -webkit-mask-image: linear-gradient(to right, transparent, black 2%, black 98%, transparent);
+            }
+            .animated-brand-text {
+              background: linear-gradient(90deg, #6366f1, #a855f7, #ec4899, #3b82f6, #2dd4bf, #6366f1);
+              background-size: 200% auto;
+              color: transparent;
+              background-clip: text;
+              -webkit-background-clip: text;
+              animation: colorGradient 4s linear infinite;
+              filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5)) drop-shadow(0 0 10px rgba(168,85,247,0.4));
+            }
+            @keyframes colorGradient {
+              to { background-position: 200% center; }
+            }
+          `}</style>
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+            {state === AppState.IDLE && (
+              <div className="py-10 animate-in fade-in zoom-in duration-700 w-[100vw] relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]">
+                <Dashboard 
+                  onUpload={handleFileUpload} 
+                  onAction={(actionKey: string) => {
+                     switch(actionKey) {
+                        case 'aiVideoMatting': handleFeatureAccess(AppState.AI_VIDEO_MATTING, 'AI Video Matting Studio'); break;
+                        case 'videoConverter': handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter'); break;
+                        case 'universalConverter': handleFeatureAccess(AppState.UNIVERSAL_CONVERTER, 'Universal Motion Tools'); break;
+                        case 'multiSvga': handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview'); break;
+                        case 'batchImageProcessor': handleFeatureAccess(AppState.BATCH_IMAGE_PROCESSOR, 'Batch Image Processor'); break;
+                        case 'svgaBatchCompressor': handleFeatureAccess(AppState.SVGA_BATCH_COMPRESSOR, 'SVGA Batch Compressor'); break;
+                        case 'svgaLayerEditor': handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor'); break;
+                        case 'batchCompress': handleFeatureAccess(AppState.BATCH_COMPRESSOR, 'Batch Compressor'); break;
+                        case 'batchCropper': handleFeatureAccess(AppState.BATCH_CROPPER, 'Batch Cropper'); break;
+                        case 'imageConverter': handleImageConverterOpen(); break;
+                        case 'svgaEx': handleFeatureAccess(AppState.SVGA_EDITOR_EX, 'SVGA Editor EX'); break;
+                        case 'store': setState(AppState.STORE); break;
+                        case 'imageProcessor': handleFeatureAccess(AppState.IMAGE_PROCESSOR, 'Image Processor'); break;
+                        case 'imageMatcher': handleFeatureAccess(AppState.IMAGE_MATCHER, 'Image Matcher'); break;
+                        case 'imageEditor': handleFeatureAccess(AppState.IMAGE_EDITOR, 'Image Editor'); break;
+                        case 'imageEnhancer': handleFeatureAccess(AppState.IMAGE_ENHANCER, 'AI Image Enhancer'); break;
+                        case 'batchImageOpen': setShowBatchImage(true); break;
+                        case 'name3DEditor': handleFeatureAccess(AppState.NAME_3D_EDITOR, '3D Name Editor'); break;
+                        case 'audioExtractor': handleFeatureAccess(AppState.AUDIO_EXTRACTOR, 'Audio Extractor'); break;
+                        case 'pagConverterOpen': setShowPagConverter(true); break;
+                     }
+                  }}
+                />
+              </div>
+            )}
+            {(state === AppState.PROCESSING || state === AppState.SVGA_EDITOR_EX) && fileMetadata && (
+              <Workspace 
+                key={fileMetadata.fileUrl}
+                metadata={fileMetadata} 
+                onCancel={handleReset} 
+                settings={settings} 
+                currentUser={currentUser} 
+                onLoginRequired={() => {}}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                globalQuality={globalQuality}
+                onFileReplace={(meta) => setFileMetadata(meta)}
+                mode={state === AppState.SVGA_EDITOR_EX ? 'ex' : 'normal'}
+                onImageConverterOpen={handleImageConverterOpen}
+                onOpenLayerEditor={(file) => {
+                  setLayerEditorInitialFile(file || fileMetadata?.originalFile || null);
+                  handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
+                }}
+              />
+            )}
+            {state === AppState.BATCH_COMPRESSOR && (
+              <BatchCompressor 
+                onCancel={handleReset} 
+                currentUser={currentUser} 
+                onLoginRequired={() => {}}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+              />
+            )}
+            {state === AppState.SVGA_BATCH_COMPRESSOR && (
+              <SvgaBatchCompressor 
+                onCancel={handleReset} 
+                currentUser={currentUser} 
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+              />
+            )}
+            {state === AppState.SVGA_LAYER_EDITOR && (
+              <ErrorBoundary fallbackTitle="حدث خطأ في محرر طبقات SVGA" onReset={handleReset}>
+                <SvgaLayerEditor 
+                  initialFile={layerEditorInitialFile || fileMetadata?.originalFile || undefined}
+                  onClose={() => {
+                    if (fileMetadata) {
+                      setState(AppState.PROCESSING);
+                    } else {
+                      handleReset();
+                    }
+                  }}
+                  onOpenViewer={(exportedFile) => handleFileUpload([exportedFile])}
+                />
+              </ErrorBoundary>
+            )}
+            {state === AppState.STORE && (
+              <Store currentUser={currentUser} onLoginRequired={() => {}} />
+            )}
+            {state === AppState.VIDEO_CONVERTER && (
+              <VideoConverter 
+                currentUser={currentUser} 
+                onCancel={handleReset} 
+                onLoginRequired={() => {}}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                globalQuality={globalQuality}
+              />
+            )}
+            {state === AppState.UNIVERSAL_CONVERTER && (
+              <ErrorBoundary fallbackTitle="حدث خطأ في محول الحركة الشامل" onReset={handleReset}>
+                <UniversalMotionTools 
+                  currentUser={currentUser} 
+                  onCancel={handleReset} 
+                  onLoginRequired={() => {}}
+                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                  onOpenInWorkspace={(meta) => {
+                    setFileMetadata(meta);
+                    setState(AppState.PROCESSING);
+                  }}
+                />
+              </ErrorBoundary>
+            )}
+            {state === AppState.IMAGE_CONVERTER && (
+              <ImageToSvga 
+                currentUser={currentUser} 
+                onCancel={handleReset} 
+                onLoginRequired={() => {}}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                globalQuality={globalQuality}
+                initialFile={initialLottieFile}
+              />
+            )}
+            {state === AppState.IMAGE_PROCESSOR && (
+              <ImageProcessor 
+                currentUser={currentUser} 
+                onCancel={handleReset} 
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+              />
+            )}
+            {state === AppState.IMAGE_ENHANCER && (
+              <ImageEnhancer 
+                currentUser={currentUser} 
+                onCancel={handleReset} 
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+              />
+            )}
+            {state === AppState.BATCH_IMAGE_PROCESSOR && (
+              <BatchImageProcessor 
+                onCancel={handleReset} 
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+              />
+            )}
+            {state === AppState.IMAGE_EDITOR && (
+              <ImageEditor 
+                currentUser={currentUser} 
+                onCancel={handleReset} 
+                onLoginRequired={() => {}}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+              />
+            )}
+            {state === AppState.IMAGE_MATCHER && (
+              <ImageMatcher 
+                currentUser={currentUser} 
+                onCancel={handleReset} 
+                onLoginRequired={() => {}}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+              />
+            )}
+            {state === AppState.BATCH_CROPPER && (
+              <BatchCropper 
+                currentUser={currentUser} 
+                onCancel={handleReset} 
+                onLoginRequired={() => {}}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+              />
+            )}
+            {state === AppState.NAME_3D_EDITOR && (
+              <Name3DEditor 
+                onCancel={handleReset} 
+                currentUser={currentUser}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+              />
+            )}
+            {state === AppState.MULTI_SVGA_VIEWER && (
+              <MultiSvgaViewer 
+                onCancel={handleReset} 
+                currentUser={currentUser}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+              />
+            )}
+            {state === AppState.AUDIO_EXTRACTOR && (
+              <AudioExtractor 
+                currentUser={currentUser}
+                onCancel={handleReset}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+              />
+            )}
+            {state === AppState.AI_VIDEO_MATTING && (
+              <AIVideoMattingStudio 
+                currentUser={currentUser}
+                onCancel={handleReset}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                initialVideoFile={fileMetadata?.originalFile || null}
+              />
+            )}
+            {state === AppState.ADMIN_PANEL && (currentUser?.role === 'admin' || currentUser?.role === 'moderator') && (
+              <AdminPanel currentUser={currentUser} onCancel={handleReset} />
+            )}
           </div>
-
-          {/* Bonus Slots */}
-          <div className="flex gap-2 mt-3 bg-yellow-400/20 p-1.5 rounded-lg border border-yellow-500/50">
-            {['x2', '+3', '+1'].map((bonus, i) => {
-              const isActive = activeCombo === bonus;
-              return (
-                <div key={i} className={`rounded font-bold px-3 py-1 shadow-inner border-b-2 transition-all duration-300 ${
-                  isActive 
-                    ? 'bg-green-500 text-white border-green-700 scale-110 shadow-[0_0_15px_rgba(34,197,94,0.8)]' 
-                    : 'bg-white text-purple-900 border-gray-300'
-                }`}>
-                  {bonus}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* --- Main Game Board --- */}
-        <div className="mx-2 sm:mx-4 mt-4 sm:mt-6 relative">
-          {/* Marquee Lights Border Effect */}
-          <div className="absolute -inset-2 bg-yellow-400 rounded-2xl opacity-20 blur-sm animate-pulse"></div>
-          
-          <div className="bg-[#e53935] p-2 rounded-2xl border-4 border-yellow-400 shadow-[0_0_20px_rgba(0,0,0,0.5)] relative z-10">
-            {/* Inner Dark Red Area */}
-            <div className="bg-[#b71c1c] p-2 rounded-xl border-2 border-[#c62828] shadow-inner">
-              
-              {/* 3x3 Grid */}
-              <div className="grid grid-cols-3 gap-2">
-                {BOARD_ITEMS.map(renderGridItem)}
-              </div>
-
-            </div>
-
-            {/* History Bar */}
-            <div className="mt-3 bg-[#8e0000] rounded-full flex items-center px-3 py-1.5 border border-[#ff5252]">
-              <span className="text-yellow-400 font-bold text-sm ml-2 whitespace-nowrap">نتائج</span>
-              <div className="flex gap-1 overflow-hidden">
-                {history.map((fruit, i) => (
-                  <div key={i} className="relative">
-                    <span className="text-lg">{fruit}</span>
-                    {i === 0 && (
-                      <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 text-[8px] bg-yellow-400 text-black px-1 rounded-full font-bold">NEW</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Spacer to push controls to bottom */}
-        <div className="flex-grow"></div>
-
-        {/* --- Bottom Controls --- */}
-        <div className="bg-gradient-to-t from-purple-900 to-transparent pt-2 pb-4 sm:pt-4 sm:pb-6 px-2 sm:px-4 z-10">
-          
-          {/* Chips */}
-          <div className="flex justify-between items-end mb-4 sm:mb-6 px-1 sm:px-2">
-            {CHIPS.map((chip) => (
-              <button
-                key={chip.value}
-                onClick={() => setSelectedChip(chip.value)}
-                className={`relative rounded-full w-14 h-14 sm:w-16 sm:h-16 flex items-center justify-center font-bold text-white shadow-xl transition-transform text-xs sm:text-base
-                  bg-gradient-to-br ${chip.color} border-4 ${chip.border}
-                  ${selectedChip === chip.value ? '-translate-y-4 scale-110 shadow-[0_10px_20px_rgba(0,0,0,0.5)]' : 'hover:-translate-y-1'}
-                `}
-              >
-                {/* Inner dashed ring to look like a casino chip */}
-                <div className="absolute inset-1 border-2 border-dashed border-white/30 rounded-full pointer-events-none"></div>
-                {chip.value}
-              </button>
-            ))}
-          </div>
-
-          {/* Bottom Stats Bar */}
-          <div className="flex justify-between gap-2">
-            {/* My Balance */}
-            <div className="flex-1 bg-indigo-900/80 rounded-full border border-indigo-400 p-1 flex items-center justify-between">
-              <div className="bg-yellow-500 rounded-full w-6 h-6 flex items-center justify-center text-black text-xs font-bold">
-                A
-              </div>
-              <div className="flex flex-col items-center flex-1">
-                <span className="text-[10px] text-indigo-200">ملكي</span>
-                <span className="font-bold text-sm">{balance}</span>
-              </div>
-              <ChevronRight className="w-4 h-4 text-indigo-300" />
-            </div>
-
-            {/* Today's Win */}
-            <div className="flex-1 bg-indigo-900/80 rounded-full border border-indigo-400 p-1 flex items-center justify-between">
-              <div className="bg-yellow-500 rounded-full w-6 h-6 flex items-center justify-center text-black text-xs font-bold">
-                A
-              </div>
-              <div className="flex flex-col items-center flex-1">
-                <span className="text-[10px] text-indigo-200">انتصار اليوم</span>
-                <span className="font-bold text-sm">{todayWin}</span>
-              </div>
-            </div>
-
-            {/* Auto Button */}
-            <button className="bg-gradient-to-b from-purple-400 to-purple-600 rounded-full border-2 border-purple-300 px-6 py-2 shadow-lg hover:brightness-110 transition-all">
-              <span className="font-bold text-white drop-shadow-md">تلقائي</span>
-            </button>
-          </div>
-        </div>
-
+        </main>
       </div>
+
+      {state !== AppState.SVGA_LAYER_EDITOR && (
+        <div className="fixed bottom-6 left-6 z-[100] flex flex-col-reverse gap-4">
+          {/* WhatsApp Floating Button */}
+          {settings?.whatsappNumber && (
+            <a 
+              href={`https://wa.me/${settings.whatsappNumber}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-14 h-14 bg-[#25D366] hover:bg-[#20bd5a] text-white rounded-full flex items-center justify-center shadow-lg shadow-[#25D366]/30 transition-all hover:scale-110 hover:-translate-y-1 group"
+              title="تواصل معنا عبر واتساب"
+            >
+              <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+              </svg>
+            </a>
+          )}
+
+          {/* Help Button */}
+          <button 
+            onClick={() => setShowOnboarding(true)}
+            className="w-14 h-14 bg-blue-600 hover:bg-blue-500 text-white rounded-full flex items-center justify-center shadow-lg shadow-blue-600/30 transition-all hover:scale-110 hover:-translate-y-1 group cursor-pointer"
+            title="شرح الموقع"
+          >
+            <HelpCircle className="w-8 h-8" />
+          </button>
+
+          {/* Features Guide Button */}
+          <button 
+            onClick={() => setShowFeaturesGuide(true)}
+            className="w-14 h-14 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full flex items-center justify-center shadow-lg shadow-indigo-600/30 transition-all hover:scale-110 hover:-translate-y-1 group cursor-pointer"
+            title="دليل الميزات"
+          >
+            <BookOpen className="w-7 h-7" />
+          </button>
+        </div>
+      )}
+
+      {showBatchImage && (
+        <BatchImageConverter
+          onClose={() => setShowBatchImage(false)}
+        />
+      )}
+
+      {showPagConverter && (
+        <PagToSvgaStudio
+          initialFile={uploadedPagFile}
+          onClose={() => {
+            setShowPagConverter(false);
+            setUploadedPagFile(null);
+          }}
+        />
+      )}
+
+      {/* Onboarding Modal */}
+      <OnboardingModal 
+        isOpen={showOnboarding} 
+        onClose={handleCloseOnboarding} 
+      />
+
+      {/* Subscription Modal */}
+      <SubscriptionModal 
+        isOpen={showSubscriptionModal}
+        onClose={() => setShowSubscriptionModal(false)}
+        settings={settings}
+      />
+
+      {/* Global Background App Update Notification */}
+      <AppUpdateToast />
+
+      {/* Version Blocked Modal */}
+      {versionBlockedState.isBlocked && (
+        <VersionBlockedModal
+          requiredVersion={versionBlockedState.requiredVersion}
+          installedVersion={versionBlockedState.installedVersion}
+          userEmail={currentUser?.email}
+          userId={currentUser?.id}
+          onRetry={() => {
+            const clientVer = getActiveClientVersion();
+            const allowedVer = currentUser?.allowedVersion || settings?.defaultAllowedVersion || 'v3.0.0';
+            const localCheck = checkVersionCompatibility(allowedVer, clientVer);
+            if (localCheck.isAllowed) {
+              setVersionBlockedState(prev => ({ ...prev, isBlocked: false }));
+            }
+          }}
+        />
+      )}
     </div>
   );
-}
+};
+
+export default App;
