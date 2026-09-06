@@ -31,6 +31,7 @@ export interface DetectionOptions {
   backgroundMode: 'auto' | 'transparent' | 'white' | 'black' | 'custom';
   customBgColor?: { r: number; g: number; b: number };
   splitTightGaps?: boolean; // Enable morphological split for adjacent touching elements
+  detectionStrategy?: 'auto' | 'grid' | 'freeform';
 }
 
 export interface BackgroundInfo {
@@ -129,6 +130,241 @@ export function detectImageBackground(ctx: CanvasRenderingContext2D, width: numb
   };
 }
 
+export interface RawBox {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  pixelCount: number;
+}
+
+/**
+ * Intelligent Row & Column Projection Grid Segmentation
+ * Designed specifically for sprite sheets, icon sheets, stickers, and game asset matrices.
+ * Separates touching rows and columns while keeping composite elements (e.g. lion + number badge) 100% unified.
+ */
+export function segmentByGridBands(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  minW: number,
+  minH: number,
+  maxW: number,
+  maxH: number
+): RawBox[] {
+  // 1. Calculate row projection profile
+  const rowProj = new Int32Array(height);
+  for (let y = 0; y < height; y++) {
+    let count = 0;
+    const rowOffset = y * width;
+    for (let x = 0; x < width; x++) {
+      if (mask[rowOffset + x] === 1) count++;
+    }
+    rowProj[y] = count;
+  }
+
+  const maxRow = Math.max(...rowProj);
+  if (maxRow < minW) return [];
+
+  // Safe valley threshold for rows:
+  // Catches single-element rows (width >= minW) while ignoring minor 1-3px touching bridges or noise in gaps
+  const rowValleyThreshold = Math.max(2, Math.min(15, Math.round(maxRow * 0.02)));
+
+  const rowBands: { startY: number; endY: number }[] = [];
+  let inRow = false;
+  let rStartY = 0;
+
+  for (let y = 0; y < height; y++) {
+    if (rowProj[y] > rowValleyThreshold) {
+      if (!inRow) {
+        inRow = true;
+        rStartY = y;
+      }
+    } else {
+      if (inRow) {
+        if (y - rStartY >= minH) {
+          rowBands.push({ startY: rStartY, endY: y - 1 });
+        }
+        inRow = false;
+      }
+    }
+  }
+  if (inRow && height - rStartY >= minH) {
+    rowBands.push({ startY: rStartY, endY: height - 1 });
+  }
+
+  if (rowBands.length === 0) return [];
+
+  const rawBoxes: RawBox[] = [];
+
+  // 2. For each row band, segment by column
+  for (const { startY, endY } of rowBands) {
+    const colProj = new Int32Array(width);
+    for (let y = startY; y <= endY; y++) {
+      const rowOffset = y * width;
+      for (let x = 0; x < width; x++) {
+        if (mask[rowOffset + x] === 1) colProj[x]++;
+      }
+    }
+
+    const maxCol = Math.max(...colProj);
+    if (maxCol < 2) continue;
+
+    // Safe column valley threshold:
+    // Keeps single icons unified (where internal neck height > 8px)
+    // while splitting adjacent icons separated by background gaps or 1-2px bridges
+    const colValleyThreshold = Math.max(1, Math.min(8, Math.round(maxCol * 0.05)));
+
+    let inCol = false;
+    let cStartX = 0;
+    const colBands: { startX: number; endX: number }[] = [];
+
+    for (let x = 0; x < width; x++) {
+      if (colProj[x] > colValleyThreshold) {
+        if (!inCol) {
+          inCol = true;
+          cStartX = x;
+        }
+      } else {
+        if (inCol) {
+          if (x - cStartX >= minW) {
+            colBands.push({ startX: cStartX, endX: x - 1 });
+          }
+          inCol = false;
+        }
+      }
+    }
+    if (inCol && width - cStartX >= minW) {
+      colBands.push({ startX: cStartX, endX: width - 1 });
+    }
+
+    // 3. For each cell [startX, startY] to [endX, endY], compute the tight bounding box of foreground pixels
+    for (const { startX, endX } of colBands) {
+      let minX = endX;
+      let maxX = startX;
+      let minY = endY;
+      let maxY = startY;
+      let pixelCount = 0;
+
+      for (let y = startY; y <= endY; y++) {
+        const rowOffset = y * width;
+        for (let x = startX; x <= endX; x++) {
+          if (mask[rowOffset + x] === 1) {
+            pixelCount++;
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+
+      if (pixelCount >= 10 && maxX >= minX && maxY >= minY) {
+        const boxW = maxX - minX + 1;
+        const boxH = maxY - minY + 1;
+        if (boxW >= minW && boxH >= minH && boxW <= maxW && boxH <= maxH) {
+          rawBoxes.push({
+            minX,
+            minY,
+            maxX,
+            maxY,
+            pixelCount
+          });
+        }
+      }
+    }
+  }
+
+  return rawBoxes;
+}
+
+/**
+ * 4-Way Connected Component Flood Fill Algorithm
+ * Prevents accidental diagonal bridging between adjacent elements while isolating contours.
+ */
+export function segmentByConnectedComponents(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  minW: number,
+  minH: number,
+  maxW: number,
+  maxH: number,
+  _splitTightGaps = true
+): RawBox[] {
+  const visited = new Uint8Array(width * height);
+  const rawBoxes: RawBox[] = [];
+  const queue = new Int32Array(width * height);
+
+  for (let y = 0; y < height; y++) {
+    const rowOffset = y * width;
+    for (let x = 0; x < width; x++) {
+      const idx = rowOffset + x;
+      if (mask[idx] === 1 && visited[idx] === 0) {
+        let qHead = 0;
+        let qTail = 0;
+        queue[qTail++] = idx;
+        visited[idx] = 1;
+
+        let bMinX = x;
+        let bMaxX = x;
+        let bMinY = y;
+        let bMaxY = y;
+        let pCount = 0;
+
+        while (qHead < qTail) {
+          const currIdx = queue[qHead++];
+          pCount++;
+          const cx = currIdx % width;
+          const cy = (currIdx / width) | 0;
+
+          if (cx < bMinX) bMinX = cx;
+          if (cx > bMaxX) bMaxX = cx;
+          if (cy < bMinY) bMinY = cy;
+          if (cy > bMaxY) bMaxY = cy;
+
+          // 4-way connectivity: prevents accidental diagonal bridges
+          const neighbors = [
+            currIdx - 1, // left
+            currIdx + 1, // right
+            currIdx - width, // up
+            currIdx + width // down
+          ];
+
+          for (let n = 0; n < 4; n++) {
+            const nIdx = neighbors[n];
+            if (nIdx >= 0 && nIdx < mask.length) {
+              const nx = nIdx % width;
+              if (Math.abs(nx - cx) <= 1 && mask[nIdx] === 1 && visited[nIdx] === 0) {
+                visited[nIdx] = 1;
+                queue[qTail++] = nIdx;
+              }
+            }
+          }
+        }
+
+        const compW = bMaxX - bMinX + 1;
+        const compH = bMaxY - bMinY + 1;
+
+        if (compW >= minW && compH >= minH && compW <= maxW && compH <= maxH) {
+          const area = compW * compH;
+          if (pCount / area >= 0.04) {
+            rawBoxes.push({
+              minX: bMinX,
+              minY: bMinY,
+              maxX: bMaxX,
+              maxY: bMaxY,
+              pixelCount: pCount
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return rawBoxes;
+}
+
 /**
  * High-performance Connected Component & Contour Detection Algorithm
  */
@@ -218,173 +454,23 @@ export async function detectObjectsInImage(
     }
   }
 
-  // Step 2: Connected Component Analysis (BFS Queue with boundary tracking)
-  const visited = new Uint8Array(width * height);
-  interface RawBox {
-    minX: number;
-    minY: number;
-    maxX: number;
-    maxY: number;
-    pixelCount: number;
-  }
+  // Step 2: Intelligent Object Segmentation (Auto Grid Slicing vs Connected Components)
+  const strategy = options.detectionStrategy || 'auto';
+  let detectedBoxes: RawBox[] = [];
 
-  const rawBoxes: RawBox[] = [];
-
-  // Reusable queue for BFS to avoid GC overhead
-  const queue = new Int32Array(width * height);
-
-  for (let y = 0; y < height; y++) {
-    const rowOffset = y * width;
-    for (let x = 0; x < width; x++) {
-      const idx = rowOffset + x;
-      if (mask[idx] === 1 && visited[idx] === 0) {
-        // Start new component flood fill
-        let qHead = 0;
-        let qTail = 0;
-        queue[qTail++] = idx;
-        visited[idx] = 1;
-
-        let bMinX = x;
-        let bMaxX = x;
-        let bMinY = y;
-        let bMaxY = y;
-        let pCount = 0;
-
-        while (qHead < qTail) {
-          const currIdx = queue[qHead++];
-          pCount++;
-          const cx = currIdx % width;
-          const cy = (currIdx / width) | 0;
-
-          if (cx < bMinX) bMinX = cx;
-          if (cx > bMaxX) bMaxX = cx;
-          if (cy < bMinY) bMinY = cy;
-          if (cy > bMaxY) bMaxY = cy;
-
-          // 8-way connectivity for smooth diagonal contours
-          const neighbors = [
-            currIdx - 1, // left
-            currIdx + 1, // right
-            currIdx - width, // up
-            currIdx + width, // down
-            currIdx - width - 1, // top-left
-            currIdx - width + 1, // top-right
-            currIdx + width - 1, // bottom-left
-            currIdx + width + 1  // bottom-right
-          ];
-
-          for (let n = 0; n < 8; n++) {
-            const nIdx = neighbors[n];
-            if (nIdx >= 0 && nIdx < mask.length) {
-              const nx = nIdx % width;
-              // Prevent wrapping across edges
-              if (Math.abs(nx - cx) <= 1 && mask[nIdx] === 1 && visited[nIdx] === 0) {
-                visited[nIdx] = 1;
-                queue[qTail++] = nIdx;
-              }
-            }
-          }
-        }
-
-        const compW = bMaxX - bMinX + 1;
-        const compH = bMaxY - bMinY + 1;
-
-        // Size filtering
-        if (compW >= minW && compH >= minH && compW <= maxW && compH <= maxH) {
-          // Density filter: object must have a reasonable foreground fill ratio (> 5%)
-          // to avoid hollow borders or huge single-pixel stray lines
-          const area = compW * compH;
-          if (pCount / area >= 0.04) {
-            rawBoxes.push({
-              minX: bMinX,
-              minY: bMinY,
-              maxX: bMaxX,
-              maxY: bMaxY,
-              pixelCount: pCount
-            });
-          }
-        }
-      }
-    }
-  }
-
-  // Step 3: Check for merged adjacent components (Grid Valley Split)
-  // If an element is roughly 2x or 3x the median width or height of other components,
-  // split it along its vertical or horizontal projection valley
-  const splitBoxes: RawBox[] = [];
-  if (splitTightGaps && rawBoxes.length >= 4) {
-    const widths = rawBoxes.map(b => b.maxX - b.minX + 1).sort((a, b) => a - b);
-    const heights = rawBoxes.map(b => b.maxY - b.minY + 1).sort((a, b) => a - b);
-    const medianW = widths[Math.floor(widths.length / 2)];
-    const medianH = heights[Math.floor(heights.length / 2)];
-
-    for (const box of rawBoxes) {
-      const bw = box.maxX - box.minX + 1;
-      const bh = box.maxY - box.minY + 1;
-
-      // Check if multiple elements are stuck side-by-side horizontally
-      if (bw > medianW * 1.75 && bw < medianW * 6 && bh >= medianH * 0.7 && bh <= medianH * 1.5) {
-        // Calculate vertical projection profile inside this box
-        const vProj = new Int32Array(bw);
-        for (let y = box.minY; y <= box.maxY; y++) {
-          const row = y * width;
-          for (let x = 0; x < bw; x++) {
-            if (mask[row + box.minX + x] === 1) {
-              vProj[x]++;
-            }
-          }
-        }
-
-        // Find local valleys (minima) where elements can be cleanly split
-        const splitPoints: number[] = [];
-        const expectedCount = Math.round(bw / medianW);
-        const approxStep = bw / expectedCount;
-
-        for (let s = 1; s < expectedCount; s++) {
-          const searchCenter = Math.round(s * approxStep);
-          const searchRadius = Math.max(3, Math.round(approxStep * 0.25));
-          let minVal = Infinity;
-          let bestSplit = searchCenter;
-
-          for (let x = Math.max(2, searchCenter - searchRadius); x <= Math.min(bw - 3, searchCenter + searchRadius); x++) {
-            if (vProj[x] < minVal) {
-              minVal = vProj[x];
-              bestSplit = x;
-            }
-          }
-
-          if (minVal < bh * 0.3) {
-            splitPoints.push(bestSplit);
-          }
-        }
-
-        if (splitPoints.length > 0) {
-          let prevX = 0;
-          for (const sp of splitPoints) {
-            splitBoxes.push({
-              minX: box.minX + prevX,
-              minY: box.minY,
-              maxX: box.minX + sp - 1,
-              maxY: box.maxY,
-              pixelCount: Math.round(box.pixelCount / (splitPoints.length + 1))
-            });
-            prevX = sp;
-          }
-          splitBoxes.push({
-            minX: box.minX + prevX,
-            minY: box.minY,
-            maxX: box.maxX,
-            maxY: box.maxY,
-            pixelCount: Math.round(box.pixelCount / (splitPoints.length + 1))
-          });
-          continue;
-        }
-      }
-
-      splitBoxes.push(box);
-    }
+  if (strategy === 'grid') {
+    detectedBoxes = segmentByGridBands(mask, width, height, minW, minH, maxW, maxH);
+  } else if (strategy === 'freeform') {
+    detectedBoxes = segmentByConnectedComponents(mask, width, height, minW, minH, maxW, maxH, splitTightGaps);
   } else {
-    splitBoxes.push(...rawBoxes);
+    // 'auto': Smart adaptive detection
+    // First, test Grid / Sprite Sheet row & column projection
+    const gridBoxes = segmentByGridBands(mask, width, height, minW, minH, maxW, maxH);
+    if (gridBoxes.length >= 2) {
+      detectedBoxes = gridBoxes;
+    } else {
+      detectedBoxes = segmentByConnectedComponents(mask, width, height, minW, minH, maxW, maxH, splitTightGaps);
+    }
   }
 
   // Step 4: Spatial Row-Column Clustering & Logical Ordering
@@ -396,7 +482,7 @@ export async function detectObjectsInImage(
     h: number;
   }
 
-  const boxesWithCenters: BoxWithCenter[] = splitBoxes.map(b => ({
+  const boxesWithCenters: BoxWithCenter[] = detectedBoxes.map(b => ({
     ...b,
     cx: (b.minX + b.maxX) / 2,
     cy: (b.minY + b.maxY) / 2,
