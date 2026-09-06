@@ -37,6 +37,7 @@ export interface SVGAKeyframeSummary {
   endFrame: number;
   hasShapes: boolean;
   hasTransform: boolean;
+  hasAnyExplicitAlpha?: boolean;
 }
 
 export interface EditableLayer {
@@ -73,6 +74,11 @@ export interface EditableLayer {
   matteKey?: string;
   framesCount: number;
   keyframeSummary: SVGAKeyframeSummary;
+
+  // Visibility Time Span & Track Color
+  inFrame?: number;   // Start frame of appearance (defaults to 0)
+  outFrame?: number;  // End frame of appearance (defaults to totalFrames - 1)
+  trackColor?: string; // Hex color for the timeline clip bar (e.g. '#ef4444' for red)
 
   // Merged layer properties
   isMerged?: boolean;

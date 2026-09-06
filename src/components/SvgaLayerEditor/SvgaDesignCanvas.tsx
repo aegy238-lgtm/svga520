@@ -251,6 +251,14 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
   // Helper to determine if a layer's frame is visible/active at given frameIndex
   const getLayerFrameState = useCallback((layer: EditableLayer, frameIdx: number) => {
+    // Check if layer has custom in/out duration span
+    if (layer.inFrame !== undefined && frameIdx < layer.inFrame) {
+      return { isActive: false, frame: null, alpha: 0 };
+    }
+    if (layer.outFrame !== undefined && frameIdx > layer.outFrame) {
+      return { isActive: false, frame: null, alpha: 0 };
+    }
+
     if (layer.isMerged || (layer.mergedLayers && layer.mergedLayers.length > 0)) {
       return { isActive: true, frame: { alpha: 1, transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 } }, alpha: 1.0 };
     }
@@ -258,7 +266,18 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     if (!frames || !frames[frameIdx]) return { isActive: false, frame: null, alpha: 0 };
     const frame = frames[frameIdx];
 
-    const hasAnyExplicitAlpha = frames.some((fr: any) => fr && fr.alpha !== undefined && fr.alpha > 0.005);
+    let hasAnyExplicitAlpha = layer.keyframeSummary?.hasAnyExplicitAlpha;
+    if (hasAnyExplicitAlpha === undefined) {
+      if (layer.spriteRef && (layer.spriteRef as any)._hasExplicitAlpha !== undefined) {
+        hasAnyExplicitAlpha = (layer.spriteRef as any)._hasExplicitAlpha;
+      } else {
+        hasAnyExplicitAlpha = frames.some((fr: any) => fr && fr.alpha !== undefined && fr.alpha > 0.005);
+        if (layer.spriteRef) {
+          (layer.spriteRef as any)._hasExplicitAlpha = hasAnyExplicitAlpha;
+        }
+      }
+    }
+
     let isActive = false;
     if (hasAnyExplicitAlpha) {
       isActive = frame.alpha !== undefined && frame.alpha > 0.005;
@@ -560,7 +579,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     }
 
     // 5. Draw Selection Transform Box and Handles for Selected Layers
-    const layersToHighlight = layers.filter(l => activeSelectedIds.includes(l.id) && l.visible);
+    const layersToHighlight = layers.filter(l => activeSelectedIds.includes(l.id) && l.visible && !l.locked);
 
     for (const targetL of layersToHighlight) {
       const isPrimary = targetL.id === selectedLayerId;
@@ -686,10 +705,11 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
   }, [drawScene]);
 
   // Hit test to find layer under cursor (search foreground to background: layers[0] to layers[last])
+  // Locked layers are completely skipped so they cannot be clicked/selected on canvas
   const hitTestLayer = useCallback((cx: number, cy: number): string | null => {
     for (let i = 0; i < layers.length; i++) {
       const layer = layers[i];
-      if (!layer.visible) continue;
+      if (!layer.visible || layer.locked) continue;
 
       const { isActive, frame } = getLayerFrameState(layer, currentFrame);
       if (!isActive || !frame) continue;
@@ -750,7 +770,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
   // Determine handle under mouse for selected layer
   const getHandleUnderMouse = useCallback((cx: number, cy: number): DragHandleType | null => {
-    if (!selectedLayer) return null;
+    if (!selectedLayer || selectedLayer.locked) return null;
     const { isActive, frame } = getLayerFrameState(selectedLayer, currentFrame);
     if (!isActive || !frame) return null;
 

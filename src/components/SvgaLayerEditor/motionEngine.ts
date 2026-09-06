@@ -56,6 +56,15 @@ export function evaluateEasing(
 // Get the interpolated transform for a layer at a specific frame index
 export function getLayerAnimatedTransform(layer: EditableLayer, frame: number): LayerTransform {
   const baseTransform: LayerTransform = { ...layer.transform };
+
+  // Check if frame is outside the layer's visibility time span (inFrame/outFrame)
+  if (layer.inFrame !== undefined && frame < layer.inFrame) {
+    return { ...baseTransform, opacity: 0 };
+  }
+  if (layer.outFrame !== undefined && frame > layer.outFrame) {
+    return { ...baseTransform, opacity: 0 };
+  }
+
   const keyframes = layer.keyframes;
 
   // If no keyframes exist, return the base static transform

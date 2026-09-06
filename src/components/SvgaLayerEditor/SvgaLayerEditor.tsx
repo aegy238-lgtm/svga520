@@ -300,8 +300,14 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     }
   }, []);
 
-  // Toggle specific layer selection
+  // Toggle specific layer selection (locked layers cannot be selected)
   const handleToggleLayerSelection = useCallback((layerId: string) => {
+    const target = layers.find(l => l.id === layerId);
+    if (target?.locked) {
+      setErrorMessage(`الطبقة "${target.name}" مقفلة بقفل. قم بإلغاء القفل أولاً لتحديدها.`);
+      return;
+    }
+
     setSelectedLayerIds(prev => {
       if (prev.includes(layerId)) {
         const filtered = prev.filter(id => id !== layerId);
@@ -314,9 +320,10 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         return [...prev, layerId];
       }
     });
-  }, [selectedLayerId]);
+  }, [selectedLayerId, layers]);
 
   // Select All, Range, or Subsets of Layers (e.g. Merged File or Base Layers)
+  // CRITICAL RULE: Layers with locked: true MUST NEVER be selected when selecting all layers!
   const handleSelectAllLayers = useCallback((allSelected: boolean, filterScope?: 'all' | 'bundles' | 'base' | string[]) => {
     if (!allSelected) {
       setSelectedLayerIds([]);
@@ -327,34 +334,44 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
 
     let targetIds: string[] = [];
 
+    // Filter out locked layers strictly
     if (Array.isArray(filterScope)) {
-      targetIds = filterScope;
+      targetIds = filterScope.filter(id => {
+        const l = layers.find(layer => layer.id === id);
+        return l && !l.locked;
+      });
     } else if (filterScope === 'bundles') {
       targetIds = layers
-        .filter(l => Boolean(l.groupId || l.id.startsWith('mrg_') || l.imageKey.startsWith('mrg_') || (l.name && l.name.includes('(مدمج)'))))
+        .filter(l => !l.locked && Boolean(l.groupId || l.id.startsWith('mrg_') || l.imageKey.startsWith('mrg_') || (l.name && l.name.includes('(مدمج)'))))
         .map(l => l.id);
     } else if (filterScope === 'base') {
       targetIds = layers
-        .filter(l => !l.groupId && !l.id.startsWith('mrg_') && !l.imageKey.startsWith('mrg_') && !(l.name && l.name.includes('(مدمج)')))
+        .filter(l => !l.locked && !l.groupId && !l.id.startsWith('mrg_') && !l.imageKey.startsWith('mrg_') && !(l.name && l.name.includes('(مدمج)')))
         .map(l => l.id);
     } else {
-      // 'all' or undefined
-      targetIds = layers.map(l => l.id);
+      // 'all' or undefined: ONLY select unlocked layers
+      targetIds = layers.filter(l => !l.locked).map(l => l.id);
     }
+
+    const lockedLayersCount = layers.filter(l => l.locked).length;
 
     if (targetIds.length > 0) {
       setSelectedLayerIds(targetIds);
       setSelectedLayerId(targetIds[0]);
+      const lockedSuffix = lockedLayersCount > 0 ? ` (تم استثناء ${lockedLayersCount} طبقات مقفلة)` : '';
       if (filterScope === 'bundles') {
-        setSuccessToast(`تم تحديد جميع طبقات الملف المدمج (${targetIds.length} طبقة) للتحكم الجماعي`);
+        setSuccessToast(`تم تحديد طبقات الملف المدمج غير المقفلة (${targetIds.length} طبقة)${lockedSuffix}`);
       } else if (filterScope === 'base') {
-        setSuccessToast(`تم تحديد جميع طبقات الملف الأساسي (${targetIds.length} طبقة) للتحكم الجماعي`);
+        setSuccessToast(`تم تحديد طبقات الملف الأساسي غير المقفلة (${targetIds.length} طبقة)${lockedSuffix}`);
       } else {
-        setSuccessToast(`تم تحديد كافة الطبقات (${targetIds.length} طبقة) للتحكم الجماعي`);
+        setSuccessToast(`تم تحديد جميع الطبقات غير المقفلة (${targetIds.length} طبقة)${lockedSuffix}`);
       }
     } else {
       setSelectedLayerIds([]);
       setSelectedLayerId(null);
+      if (lockedLayersCount > 0) {
+        setSuccessToast(`جميع الطبقات المستهدفة مقفلة بقفل (${lockedLayersCount} طبقة)، افتح القفل لتحديدها`);
+      }
     }
   }, [layers]);
 
@@ -450,8 +467,19 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
 
   const handleToggleLock = useCallback((layerId: string) => {
     setLayers(prev => {
-      const updated = prev.map(l => l.id === layerId ? { ...l, locked: !l.locked } : l);
+      const target = prev.find(l => l.id === layerId);
+      const willBeLocked = target ? !target.locked : false;
+      const updated = prev.map(l => l.id === layerId ? { ...l, locked: willBeLocked } : l);
       pushHistory(updated);
+
+      // If locking, remove immediately from active selection
+      if (willBeLocked) {
+        setSelectedLayerIds(curr => curr.filter(id => id !== layerId));
+        setSelectedLayerId(curr => curr === layerId ? null : curr);
+        setSuccessToast(`تم قفل الطبقة "${target?.name || ''}" واستثناؤها من التحديد`);
+      } else {
+        setSuccessToast(`تم فتح قفل الطبقة "${target?.name || ''}"`);
+      }
       return updated;
     });
   }, [pushHistory]);
@@ -463,7 +491,11 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         : !prev.every(l => l.locked);
       const updated = prev.map(l => ({ ...l, locked: targetState }));
       pushHistory(updated);
-      setSuccessToast(targetState ? 'تم قفل جميع الطبقات' : 'تم فتح قفل جميع الطبقات');
+      setSuccessToast(targetState ? 'تم قفل جميع الطبقات واستثناؤها من التحديد' : 'تم فتح قفل جميع الطبقات');
+      if (targetState) {
+        setSelectedLayerIds([]);
+        setSelectedLayerId(null);
+      }
       return updated;
     });
   }, [pushHistory]);
@@ -1125,7 +1157,12 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       const targetState = !allLocked;
       const updated = prev.map(l => l.groupId === groupId ? { ...l, locked: targetState } : l);
       pushHistory(updated);
-      setSuccessToast(targetState ? 'تم قفل كامل حزمة SVGA' : 'تم فتح قفل كامل حزمة SVGA');
+      setSuccessToast(targetState ? 'تم قفل كامل حزمة SVGA واستثناؤها من التحديد' : 'تم فتح قفل كامل حزمة SVGA');
+      if (targetState) {
+        const groupLayerIds = groupLayers.map(l => l.id);
+        setSelectedLayerIds(curr => curr.filter(id => !groupLayerIds.includes(id)));
+        setSelectedLayerId(curr => (curr && groupLayerIds.includes(curr)) ? null : curr);
+      }
       return updated;
     });
   }, [pushHistory]);
@@ -1160,6 +1197,8 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
 
         return {
           ...l,
+          inFrame: startFrame,
+          outFrame: endFrame,
           keyframeSummary: {
             ...l.keyframeSummary,
             startFrame,
@@ -1175,6 +1214,50 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       return updated;
     });
   }, [selectedLayerId, project, pushHistory]);
+
+  // Update Layer In/Out duration frame range & track color (timeline visual red bar)
+  const handleUpdateLayerTimeRange = useCallback((
+    layerId: string,
+    inFrame: number,
+    outFrame: number,
+    trackColor?: string,
+    commitHistory = true
+  ) => {
+    if (!project) return;
+    setLayers(prev => {
+      const updated = prev.map(l => {
+        if (l.id !== layerId) return l;
+
+        const updatedFrames = l.spriteRef?.frames ? l.spriteRef.frames.map((fr: any, idx: number) => {
+          const isVisible = idx >= inFrame && idx <= outFrame;
+          return {
+            ...fr,
+            alpha: isVisible ? (fr.alpha && fr.alpha > 0 ? fr.alpha : 1.0) : 0.0
+          };
+        }) : [];
+
+        return {
+          ...l,
+          inFrame,
+          outFrame,
+          trackColor: trackColor || l.trackColor || '#ef4444',
+          keyframeSummary: {
+            ...l.keyframeSummary,
+            startFrame: inFrame,
+            endFrame: outFrame
+          },
+          spriteRef: {
+            ...l.spriteRef,
+            frames: updatedFrames
+          }
+        };
+      });
+      if (commitHistory) {
+        pushHistory(updated);
+      }
+      return updated;
+    });
+  }, [project, pushHistory]);
 
   // Undo / Redo Actions
   const handleUndo = useCallback(() => {
@@ -1581,6 +1664,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               onUpdateLayerTransform={handleUpdateLayerTransform}
               onUpdateLayerKeyframes={handleUpdateLayerKeyframes}
               onUpdateProjectDuration={handleUpdateProjectDuration}
+              onUpdateLayerTimeRange={handleUpdateLayerTimeRange}
             />
           </main>
 
@@ -1593,6 +1677,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               selectedLayerIds={selectedLayerIds}
               currentFrame={currentFrame}
               onUpdateTransform={(t) => selectedLayerId && handleUpdateLayerTransform(selectedLayerId, t)}
+              onUpdateLayerKeyframes={handleUpdateLayerKeyframes}
               onBulkTransform={handleBulkTransform}
               onToggleAspectLock={handleToggleAspectLock}
               onReplaceAsset={handleReplaceAsset}

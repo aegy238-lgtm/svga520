@@ -169,6 +169,12 @@ export async function exportEditedSvga(
         let globalAlphaMul = 1;
 
         // Start with the layer's own animated transform
+        const inFrame = layer.inFrame !== undefined ? layer.inFrame : 0;
+        const outFrame = layer.outFrame !== undefined ? layer.outFrame : project.totalFrames - 1;
+        if (frameIdx < inFrame || frameIdx > outFrame) {
+          globalAlphaMul = 0;
+        }
+
         const animTransform = getLayerAnimatedTransform(layer, frameIdx);
         const { x, y, scaleX, scaleY, rotation, opacity } = animTransform;
         

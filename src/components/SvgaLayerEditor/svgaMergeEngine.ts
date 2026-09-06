@@ -151,6 +151,7 @@ export async function mergeSvgaFileIntoProject(
       thumbnailUrl: updatedImagesMap[namespacedImageKey] || layer.thumbnailUrl,
       groupId: importedGroupId,
       groupName: importedGroupName,
+      locked: false,
       transform: {
         ...layer.transform,
         x: newX,
@@ -168,6 +169,9 @@ export async function mergeSvgaFileIntoProject(
       },
       spriteRef: clonedSpriteRef,
       framesCount: curTotalFrames,
+      inFrame: 0,
+      outFrame: curTotalFrames - 1,
+      trackColor: '#ef4444', // Red track bar color for merged/added files
       keyframeSummary: {
         startFrame: 0,
         endFrame: curTotalFrames - 1,

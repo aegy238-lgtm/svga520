@@ -118,6 +118,9 @@ export function createImageLayer(
     aspectRatioLocked: true,
     spriteRef,
     framesCount: totalFrames,
+    inFrame: startFrame,
+    outFrame: endFrame,
+    trackColor: '#ef4444', // Red track bar color for newly added assets
     keyframeSummary: {
       startFrame,
       endFrame,

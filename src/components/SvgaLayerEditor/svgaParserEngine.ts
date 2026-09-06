@@ -219,7 +219,7 @@ export async function parseSvgaToProject(file: File): Promise<{
       name: layerName,
       type: layerType,
       visible: true,
-      locked: true,
+      locked: false,
       thumbnailUrl: imagesMap[imageKey] || undefined,
       transform: {
         x: initialX,
@@ -262,7 +262,8 @@ export async function parseSvgaToProject(file: File): Promise<{
         startFrame,
         endFrame,
         hasShapes,
-        hasTransform
+        hasTransform,
+        hasAnyExplicitAlpha
       }
     });
   });

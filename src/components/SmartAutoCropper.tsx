@@ -29,7 +29,10 @@ import {
   CheckCircle2,
   AlertCircle,
   FileText,
-  HelpCircle
+  HelpCircle,
+  Copy,
+  Hash,
+  ShieldCheck
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { UserRecord } from '../types';
@@ -47,6 +50,18 @@ import { SmartCropperPdfModal } from './SmartCropperPdfModal';
 import { SmartCropperHelpModal, HelpTooltipButton, HelpTopicKey } from './SmartCropperHelpModal';
 import { SmartComplexSlicerModal } from './SmartComplexSlicerModal';
 import { sliceBoxWithKnifeLine } from '../utils/complexImageSlicer';
+import { SmartIconLabelingModal } from './SmartIconLabelingModal';
+import { SmartIconClonerModal } from './SmartIconClonerModal';
+import { 
+  IconLabelConfig, 
+  DEFAULT_LABEL_CONFIG, 
+  ClonedIconItem, 
+  GRADIENT_PRESETS, 
+  GradientPresetKey, 
+  generateTextListForCopy, 
+  formatIconText, 
+  renderLabelOnContext 
+} from '../utils/smartIconLabelingEngine';
 
 interface SmartAutoCropperProps {
   currentUser: UserRecord | null;
@@ -240,6 +255,46 @@ export const SmartAutoCropper: React.FC<SmartAutoCropperProps> = ({
   const [isKnifing, setIsKnifing] = useState<boolean>(false);
   const [knifeStart, setKnifeStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [knifeCurrent, setKnifeCurrent] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Smart Icon Labeling & Auto-Numbering Studio State
+  const [isLabelingModalOpen, setIsLabelingModalOpen] = useState<boolean>(false);
+  const [isClonerModalOpen, setIsClonerModalOpen] = useState<boolean>(false);
+  const [showLiveCanvasNumbers, setShowLiveCanvasNumbers] = useState<boolean>(true);
+  const [activeLabelConfig, setActiveLabelConfig] = useState<IconLabelConfig>({
+    ...DEFAULT_LABEL_CONFIG,
+    startNumber: 0,
+    paddingDigits: 0
+  });
+  const [copiedCanvasFeedback, setCopiedCanvasFeedback] = useState<boolean>(false);
+  const [appliedLabelConfig, setAppliedLabelConfig] = useState<IconLabelConfig | null>(null);
+
+  const handleCopyAllNumbers = async () => {
+    if (elements.length === 0) return;
+    const items = elements.map(el => ({
+      computedLabel: formatIconText(el.index, activeLabelConfig),
+      filename: `${String(el.index).padStart(Math.max(activeLabelConfig.paddingDigits, 3), '0')}.png`
+    }));
+    const text = generateTextListForCopy(items, 'numbers_only');
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedCanvasFeedback(true);
+      setTimeout(() => setCopiedCanvasFeedback(false), 3000);
+    } catch (e) {
+      console.error('Clipboard copy failed:', e);
+    }
+  };
+
+  const handleApplyClonedElements = (clonedItems: ClonedIconItem[]) => {
+    if (clonedItems.length === 0) return;
+    // Map cloned items into active detected elements
+    const newElements: DetectedElement[] = clonedItems.map((item, idx) => ({
+      ...item.sourceElement,
+      id: `cloned-${idx}-${Date.now()}`,
+      index: item.targetNumber,
+      selected: true
+    }));
+    setElements(newElements);
+  };
 
   const handleOpenHelp = (topicKey: HelpTopicKey) => {
     setActiveHelpTopic(topicKey);
@@ -913,6 +968,17 @@ export const SmartAutoCropper: React.FC<SmartAutoCropperProps> = ({
 
           {imageSrc && elements.length > 0 && (
             <button
+              onClick={() => setIsLabelingModalOpen(true)}
+              className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-amber-500/20 hover:from-amber-500/30 hover:to-orange-500/30 text-amber-300 hover:text-white text-xs font-bold transition-all border border-amber-500/40 flex items-center gap-1.5 cursor-pointer shadow-sm"
+              title="نظام ترقيم وكتابة الأسماء على الأيقونات تلقائياً مع خطوط 3D وخامات احترافية وتصدير ZIP"
+            >
+              <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
+              <span>ترقيم الأيقونات (3D Label)</span>
+            </button>
+          )}
+
+          {imageSrc && elements.length > 0 && (
+            <button
               onClick={() => setIsPdfModalOpen(true)}
               className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-rose-500/20 to-indigo-500/20 hover:from-rose-500/30 hover:to-indigo-500/30 text-rose-300 hover:text-white text-xs font-bold transition-all border border-rose-500/30 flex items-center gap-1.5 cursor-pointer shadow-sm"
               title="تصدير كتالوج PDF احترافي بالترتيب التسلسلي من 1 إلى N"
@@ -1370,6 +1436,38 @@ export const SmartAutoCropper: React.FC<SmartAutoCropperProps> = ({
                     </p>
                   </div>
 
+                  {/* Smart Icon Labeling Banner */}
+                  <div className="p-3.5 bg-gradient-to-br from-amber-500/15 via-orange-500/10 to-indigo-500/15 border border-amber-500/30 rounded-2xl space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-amber-400" />
+                        <span className="text-xs font-black text-amber-200">ترقيم وتسمية الأيقونات (3D)</span>
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono">
+                        {elements.length} أيقونة
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      ترقيم تسلسلي ذكي من 0 إلى {Math.max(0, elements.length - 1)} بخطوط ثلاثية الأبعاد وخامات ملكية وتصدير منظم.
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setIsLabelingModalOpen(true)}
+                        className="py-2 px-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-amber-500/20"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-black" />
+                        <span>استوديو الـ 3D</span>
+                      </button>
+                      <button
+                        onClick={() => setIsClonerModalOpen(true)}
+                        className="py-2 px-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-cyan-500/20"
+                      >
+                        <Layers className="w-3.5 h-3.5 text-white" />
+                        <span>مضاعفة (200+)</span>
+                      </button>
+                    </div>
+                  </div>
+
                   {/* Export Buttons */}
                   <div className="space-y-2 pt-2">
                     <button
@@ -1405,6 +1503,86 @@ export const SmartAutoCropper: React.FC<SmartAutoCropperProps> = ({
 
             {/* Center Canvas Area with Zoom & Pan */}
             <div className="flex-1 flex flex-col bg-[#060a14] relative overflow-hidden">
+              {/* Floating Live Numbering & Cloning Quick Bar */}
+              <div className="absolute top-4 left-4 z-20 flex flex-wrap items-center gap-2 bg-[#0b1222]/90 border border-white/15 backdrop-blur-md p-1.5 rounded-2xl shadow-2xl">
+                <button
+                  onClick={() => setShowLiveCanvasNumbers(prev => !prev)}
+                  className={`py-1.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    showLiveCanvasNumbers
+                      ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20 font-black'
+                      : 'bg-white/5 hover:bg-white/10 text-slate-300'
+                  }`}
+                  title="تفعيل/إلغاء إظهار الأرقام الحقيقية ثلاثية الأبعاد فوق الأيقونات مباشرة"
+                >
+                  <Hash className="w-3.5 h-3.5" />
+                  <span>أرقام الأيقونات {showLiveCanvasNumbers ? '(مفعل من 0)' : '(مخفي)'}</span>
+                </button>
+
+                {showLiveCanvasNumbers && (
+                  <>
+                    {/* Quick Gradient Preset Selector */}
+                    <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
+                      {(['gold', 'silver', 'ruby', 'emerald', 'royal_blue'] as GradientPresetKey[]).map(presetKey => (
+                        <button
+                          key={presetKey}
+                          onClick={() => setActiveLabelConfig(prev => ({ ...prev, gradientPreset: presetKey }))}
+                          className={`w-5 h-5 rounded-full border transition-all cursor-pointer ${
+                            activeLabelConfig.gradientPreset === presetKey
+                              ? 'scale-125 border-white shadow-md'
+                              : 'border-white/20 opacity-70 hover:opacity-100'
+                          }`}
+                          style={{
+                            background: `linear-gradient(135deg, ${GRADIENT_PRESETS[presetKey].color1}, ${GRADIENT_PRESETS[presetKey].color2})`
+                          }}
+                          title={GRADIENT_PRESETS[presetKey].name}
+                        />
+                      ))}
+                    </div>
+
+                    {/* Quick Position Selector */}
+                    <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1 text-[11px] font-bold">
+                      {[
+                        { label: 'وسط', y: 50 },
+                        { label: 'أسفل', y: 78 },
+                        { label: 'أعلى', y: 22 }
+                      ].map(pos => (
+                        <button
+                          key={pos.label}
+                          onClick={() => setActiveLabelConfig(prev => ({ ...prev, positionY: pos.y }))}
+                          className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
+                            activeLabelConfig.positionY === pos.y
+                              ? 'bg-white/20 text-white font-black'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          {pos.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {/* Copy All Numbers */}
+                <button
+                  onClick={handleCopyAllNumbers}
+                  className="py-1.5 px-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 hover:text-white text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                  title="نسخ قائمة كافة أرقام الأيقونات الحالية إلى الحافظة"
+                >
+                  {copiedCanvasFeedback ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
+                  <span>{copiedCanvasFeedback ? 'تم النسخ!' : 'نسخ الأرقام'}</span>
+                </button>
+
+                {/* Open Cloner Modal Button */}
+                <button
+                  onClick={() => setIsClonerModalOpen(true)}
+                  className="py-1.5 px-3 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white text-xs font-black shadow-md shadow-indigo-500/20 transition-all flex items-center gap-1.5 cursor-pointer"
+                  title="مضاعفة الأيقونات حتى 200 أيقونة أو أكثر وتخصيص كل 20 أيقونة"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>مضاعفة (200+)</span>
+                </button>
+              </div>
+
               {/* Floating Canvas Toolbar */}
               <div className="absolute top-4 right-4 z-20 flex items-center gap-2 bg-[#0b1222]/90 border border-white/10 backdrop-blur-md p-1.5 rounded-2xl shadow-2xl">
                 {/* Tool Selection */}
@@ -1660,6 +1838,63 @@ export const SmartAutoCropper: React.FC<SmartAutoCropperProps> = ({
                               );
                             })()}
                           </g>
+
+                          {/* Live 3D Number Direct Canvas Render */}
+                          {showLiveCanvasNumbers && (
+                            <g className="pointer-events-none select-none">
+                              {(() => {
+                                const formattedNum = formatIconText(el.index, activeLabelConfig);
+                                const textX = el.x + (el.width * activeLabelConfig.positionX) / 100 + activeLabelConfig.offsetX;
+                                const textY = el.y + (el.height * activeLabelConfig.positionY) / 100 + activeLabelConfig.offsetY;
+                                const computedFontSize = Math.max(10, el.height * (activeLabelConfig.fontSizeRatio / 100));
+                                const grad = GRADIENT_PRESETS[activeLabelConfig.gradientPreset] || GRADIENT_PRESETS.gold;
+
+                                return (
+                                  <g transform={`translate(${textX}, ${textY})`}>
+                                    {/* Bold Dark Stroke 3D Extrusion */}
+                                    <text
+                                      x={0}
+                                      y={computedFontSize * 0.35}
+                                      textAnchor="middle"
+                                      fill="#000000"
+                                      stroke="#000000"
+                                      strokeWidth={Math.max(3.5, computedFontSize * 0.28)}
+                                      strokeLinejoin="round"
+                                      fontFamily={activeLabelConfig.fontFamily}
+                                      fontWeight="900"
+                                      fontSize={computedFontSize}
+                                    >
+                                      {formattedNum}
+                                    </text>
+                                    {/* 3D Side Shadow */}
+                                    <text
+                                      x={0.8}
+                                      y={computedFontSize * 0.35 + 1.2}
+                                      textAnchor="middle"
+                                      fill={grad.side3D}
+                                      fontFamily={activeLabelConfig.fontFamily}
+                                      fontWeight="900"
+                                      fontSize={computedFontSize}
+                                    >
+                                      {formattedNum}
+                                    </text>
+                                    {/* Front Vibrant Face */}
+                                    <text
+                                      x={0}
+                                      y={computedFontSize * 0.35}
+                                      textAnchor="middle"
+                                      fill={grad.color1}
+                                      fontFamily={activeLabelConfig.fontFamily}
+                                      fontWeight="900"
+                                      fontSize={computedFontSize}
+                                    >
+                                      {formattedNum}
+                                    </text>
+                                  </g>
+                                );
+                              })()}
+                            </g>
+                          )}
 
                           {/* Resize Handles on Active Box */}
                           {isActive && (
@@ -1924,6 +2159,29 @@ export const SmartAutoCropper: React.FC<SmartAutoCropperProps> = ({
         onApplyParts={handleApplyComplexParts}
         onSelectKnifeTool={() => setToolMode('knife')}
         onOpenHelp={handleOpenHelp}
+      />
+
+      {/* Smart 3D Icon Labeling, Numbering & Batch Studio Modal */}
+      <SmartIconLabelingModal
+        isOpen={isLabelingModalOpen}
+        onClose={() => setIsLabelingModalOpen(false)}
+        elements={elements}
+        originalImage={originalImageRef.current}
+        imageFileName={imageFile?.name?.replace(/\.[^/.]+$/, '') || 'Icons'}
+        onApplyLabelsToSheet={(config) => {
+          setAppliedLabelConfig(config);
+          setActiveLabelConfig(config);
+        }}
+      />
+
+      {/* Smart Icon Multiplier & Cloner Modal (Target 200+ Icons, Tier Cycling, Clipboard Copy) */}
+      <SmartIconClonerModal
+        isOpen={isClonerModalOpen}
+        onClose={() => setIsClonerModalOpen(false)}
+        elements={elements}
+        originalImage={originalImageRef.current}
+        baseLabelConfig={activeLabelConfig}
+        onApplyClonedElements={handleApplyClonedElements}
       />
     </div>
   );

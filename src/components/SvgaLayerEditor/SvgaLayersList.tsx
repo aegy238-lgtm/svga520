@@ -513,27 +513,35 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
           </div>
 
           <div className="flex items-center gap-1">
-            {/* Quick Multi-Select All / Clear */}
-            {onSelectAllLayers && (
-              <button
-                type="button"
-                onClick={() => {
-                  const allSelected = selectedLayerIds.length === layers.length;
-                  onSelectAllLayers(!allSelected);
-                }}
-                className={`px-2 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1 border transition-all cursor-pointer ${
-                  selectedLayerIds.length === layers.length && layers.length > 0
-                    ? 'bg-amber-600 text-white border-amber-500 shadow-md shadow-amber-600/30'
-                    : selectedLayerIds.length > 0
-                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                    : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
-                }`}
-                title={selectedLayerIds.length === layers.length ? 'إلغاء تحديد الكل' : 'تحديد جميع الطبقات دفعة واحدة (Select All)'}
-              >
-                <CheckSquare size={12} className={selectedLayerIds.length > 0 ? 'text-amber-300' : 'text-slate-400'} />
-                <span>{selectedLayerIds.length === layers.length && layers.length > 0 ? 'إلغاء التحديد' : 'تحديد الكل'}</span>
-              </button>
-            )}
+            {/* Quick Multi-Select All / Clear (Strictly excludes locked layers) */}
+            {onSelectAllLayers && (() => {
+              const unlockedLayers = layers.filter(l => !l.locked);
+              const isAllUnlockedSelected = unlockedLayers.length > 0 && unlockedLayers.every(l => selectedLayerIds.includes(l.id));
+
+              return (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectAllLayers(!isAllUnlockedSelected);
+                  }}
+                  className={`px-2 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1 border transition-all cursor-pointer ${
+                    isAllUnlockedSelected
+                      ? 'bg-amber-600 text-white border-amber-500 shadow-md shadow-amber-600/30'
+                      : selectedLayerIds.length > 0
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                      : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                  }`}
+                  title={
+                    isAllUnlockedSelected
+                      ? 'إلغاء تحديد الكل'
+                      : 'تحديد جميع الطبقات غير المقفلة دفعة واحدة (الطبقات المقفلة تُستثنى دائماً من التحديد)'
+                  }
+                >
+                  <CheckSquare size={12} className={selectedLayerIds.length > 0 ? 'text-amber-300' : 'text-slate-400'} />
+                  <span>{isAllUnlockedSelected ? 'إلغاء التحديد' : 'تحديد الكل'}</span>
+                </button>
+              );
+            })()}
 
             {/* Master Visibility Button */}
             {(() => {
@@ -737,22 +745,26 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
                 {/* Selection Checkbox */}
                 <button
                   type="button"
+                  disabled={layer.locked}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (layer.locked) return;
                     if (onToggleLayerSelection) {
                       onToggleLayerSelection(layer.id);
                     } else {
                       onSelectLayer(layer.id, true);
                     }
                   }}
-                  className={`p-1 rounded-lg border transition-all shrink-0 cursor-pointer ${
-                    isSelected
-                      ? 'bg-indigo-600 text-white border-indigo-400'
-                      : 'bg-white/5 border-white/15 text-slate-600 hover:text-slate-300 hover:border-white/30'
+                  className={`p-1 rounded-lg border transition-all shrink-0 ${
+                    layer.locked
+                      ? 'bg-black/40 border-amber-500/30 text-amber-400 cursor-not-allowed opacity-80'
+                      : isSelected
+                      ? 'bg-indigo-600 text-white border-indigo-400 cursor-pointer shadow-sm'
+                      : 'bg-white/5 border-white/15 text-slate-600 hover:text-slate-300 hover:border-white/30 cursor-pointer'
                   }`}
-                  title={isSelected ? 'إلغاء تحديد هذه الطبقة' : 'تحديد هذه الطبقة للتحكم الجماعي'}
+                  title={layer.locked ? 'الطبقة مقفلة بقفل محمي (تُستثنى دائماً من التحديد)' : isSelected ? 'إلغاء تحديد هذه الطبقة' : 'تحديد هذه الطبقة للتحكم الجماعي'}
                 >
-                  {isSelected ? <CheckSquare size={13} /> : <UncheckedSquare size={13} />}
+                  {layer.locked ? <Lock size={12} className="text-amber-400" /> : isSelected ? <CheckSquare size={13} /> : <UncheckedSquare size={13} />}
                 </button>
 
                 {/* Drag Grip Handle */}

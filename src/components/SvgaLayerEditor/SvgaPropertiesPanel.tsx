@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
-import { EditableLayer, SVGAProjectData } from './types';
+import { EditableLayer, SVGAProjectData, LayerKeyframe } from './types';
+import { upsertKeyframe, deleteKeyframe } from './motionEngine';
 import { 
   Sliders, Link, Unlink, RotateCcw, 
   AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter,
@@ -11,7 +12,7 @@ import {
   Layers, Box, Trash2, Maximize2, Move, Package, CheckSquare,
   Square as UncheckedSquare, Link2, Check,
   ZoomIn, ZoomOut, Scaling, SlidersHorizontal, ArrowLeftRight,
-  RotateCw, Target, CheckCheck, Minimize2
+  RotateCw, Target, CheckCheck, Minimize2, Diamond
 } from 'lucide-react';
 
 interface SvgaPropertiesPanelProps {
@@ -21,6 +22,7 @@ interface SvgaPropertiesPanelProps {
   selectedLayerIds?: string[];
   currentFrame: number;
   onUpdateTransform: (transform: Partial<EditableLayer['transform']>) => void;
+  onUpdateLayerKeyframes?: (layerId: string, keyframes: LayerKeyframe[]) => void;
   onBulkTransform?: (deltas: { 
     dx?: number; 
     dy?: number; 
@@ -64,6 +66,7 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
   selectedLayerIds = [],
   currentFrame,
   onUpdateTransform,
+  onUpdateLayerKeyframes,
   onBulkTransform,
   onToggleAspectLock,
   onReplaceAsset,
@@ -92,6 +95,7 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
   const [checkedTargetLayerId, setCheckedTargetLayerId] = useState<string | null>(null);
   const [pairSyncMotion, setPairSyncMotion] = useState<boolean>(true);
   const [previewModalLayer, setPreviewModalLayer] = useState<EditableLayer | null>(null);
+  const [autoRecordScaleKeyframe, setAutoRecordScaleKeyframe] = useState<boolean>(true);
 
   // Project Dimension Settings State for Panel
   const [panelWidthInput, setPanelWidthInput] = useState<number>(project?.width || 500);
@@ -1660,7 +1664,7 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
         </div>
       </div>
 
-      {/* Scale X & Scale Y with Flip buttons */}
+      {/* Scale X & Scale Y with Flip buttons & Keyframe Recording */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
           <span className="text-[11px] font-bold text-slate-400">مقياس التكبير والانعكاس</span>
@@ -1685,52 +1689,148 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
           </div>
         </div>
 
+        {/* Range Slider starting from 0% all the way to 300% */}
         <input
           type="range"
-          min="10"
+          min="0"
           max="300"
+          step="1"
           value={Math.round(Math.abs(transform.scaleX) * 100)}
           onChange={(e) => {
-            const sc = parseFloat(e.target.value) / 100;
+            const sc = Math.max(0, parseFloat(e.target.value) || 0) / 100;
             const signX = transform.scaleX < 0 ? -1 : 1;
             const signY = transform.scaleY < 0 ? -1 : 1;
             const initW = Math.max(1, layer.initialBounds.width);
             const initH = Math.max(1, layer.initialBounds.height);
+            const newScaleX = sc * signX;
+            const newScaleY = sc * signY;
+
             onUpdateTransform({
-              scaleX: sc * signX,
-              scaleY: sc * signY,
+              scaleX: newScaleX,
+              scaleY: newScaleY,
               width: Math.round(initW * sc),
               height: Math.round(initH * sc)
             });
+
+            if (autoRecordScaleKeyframe && onUpdateLayerKeyframes && layer) {
+              const updatedKfs = upsertKeyframe(layer, currentFrame, {
+                scaleX: newScaleX,
+                scaleY: newScaleY
+              });
+              onUpdateLayerKeyframes(layer.id, updatedKfs);
+            }
           }}
           className="w-full accent-indigo-500 cursor-pointer"
         />
 
-        <div className="flex gap-1 pt-1">
-          {[50, 75, 100, 150, 200].map(p => {
+        {/* Quick Scale Presets including 0% to collapse completely */}
+        <div className="flex gap-1 pt-0.5">
+          {[0, 25, 50, 75, 100, 150, 200].map(p => {
             const sc = p / 100;
+            const signX = transform.scaleX < 0 ? -1 : 1;
+            const signY = transform.scaleY < 0 ? -1 : 1;
             const initW = Math.max(1, layer.initialBounds.width);
             const initH = Math.max(1, layer.initialBounds.height);
+            const newScaleX = sc * signX;
+            const newScaleY = sc * signY;
+            const isCurrent = Math.round(Math.abs(transform.scaleX) * 100) === p;
+
             return (
               <button
                 key={p}
-                onClick={() => onUpdateTransform({
-                  scaleX: sc * (transform.scaleX < 0 ? -1 : 1),
-                  scaleY: sc * (transform.scaleY < 0 ? -1 : 1),
-                  width: Math.round(initW * sc),
-                  height: Math.round(initH * sc)
-                })}
-                className={`flex-1 py-1 rounded-lg text-[9px] font-mono transition-colors ${
-                  Math.round(Math.abs(transform.scaleX) * 100) === p
-                    ? 'bg-indigo-600 text-white font-bold'
-                    : 'bg-white/5 hover:bg-white/10 text-slate-400'
+                type="button"
+                onClick={() => {
+                  onUpdateTransform({
+                    scaleX: newScaleX,
+                    scaleY: newScaleY,
+                    width: Math.round(initW * sc),
+                    height: Math.round(initH * sc)
+                  });
+
+                  if (autoRecordScaleKeyframe && onUpdateLayerKeyframes && layer) {
+                    const updatedKfs = upsertKeyframe(layer, currentFrame, {
+                      scaleX: newScaleX,
+                      scaleY: newScaleY
+                    });
+                    onUpdateLayerKeyframes(layer.id, updatedKfs);
+                  }
+                }}
+                className={`flex-1 py-1 rounded-lg text-[9px] font-mono transition-all active:scale-95 cursor-pointer ${
+                  isCurrent
+                    ? 'bg-indigo-600 text-white font-black shadow-sm'
+                    : 'bg-white/5 hover:bg-white/10 text-slate-400 border border-white/5'
                 }`}
+                title={`ضبط الحجم إلى ${p}% ${autoRecordScaleKeyframe ? 'وتسجيل نقطة تحريك على الشريط بالفريم ' + currentFrame : ''}`}
               >
                 {p}%
               </button>
             );
           })}
         </div>
+
+        {/* Dedicated Scale Keyframe Point Controls & Auto-Record Toggle */}
+        {onUpdateLayerKeyframes && layer && (
+          <div className="pt-2 border-t border-white/5 space-y-1.5">
+            {(() => {
+              const scaleKfs = (layer.keyframes || []).filter(k => k.scaleX !== undefined || k.scaleY !== undefined);
+              const currentKf = scaleKfs.find(k => k.frame === currentFrame);
+
+              return (
+                <>
+                  <div className="flex items-center justify-between text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setAutoRecordScaleKeyframe(!autoRecordScaleKeyframe)}
+                      className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border transition-all cursor-pointer ${
+                        autoRecordScaleKeyframe
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-xs'
+                          : 'bg-white/5 text-slate-400 border-white/10 hover:text-slate-200'
+                      }`}
+                      title="عند التفعيل، سيتم إضافة أو تحديث نقطة تحريك تكبير/تصغير على شريط الخط الزمني فور تحريك السلايدر أو الضغط على النسب"
+                    >
+                      <Diamond size={10} className={autoRecordScaleKeyframe ? 'fill-emerald-400 text-emerald-400' : 'text-slate-400'} />
+                      <span className="font-bold">تسجيل نقاط تحريك على الشريط تلقائياً</span>
+                    </button>
+                    <span className="font-mono text-emerald-400 font-bold">
+                      {scaleKfs.length > 0 ? `${scaleKfs.length} نقطة` : 'لا توجد'}
+                    </span>
+                  </div>
+
+                  {currentKf ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updated = deleteKeyframe(layer, currentKf.id);
+                        onUpdateLayerKeyframes(layer.id, updated);
+                      }}
+                      className="w-full py-1.5 px-2 bg-emerald-500/20 hover:bg-red-500/20 text-emerald-300 hover:text-red-300 border border-emerald-500/30 hover:border-red-500/30 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
+                      title="حذف نقطة تحريك التكبير في هذا الفريم"
+                    >
+                      <Diamond size={12} className="fill-emerald-400 text-emerald-400" />
+                      <span>نقطة تكبير مسجلة بـ F{currentFrame} ({Math.round(Math.abs(currentKf.scaleX ?? 1) * 100)}%) (انقر للحذف)</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updated = upsertKeyframe(layer, currentFrame, {
+                          scaleX: transform.scaleX,
+                          scaleY: transform.scaleY
+                        });
+                        onUpdateLayerKeyframes(layer.id, updated);
+                      }}
+                      className="w-full py-1.5 px-2 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-200 hover:text-white border border-emerald-500/40 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
+                      title="تسجيل نقطة تحريك تكبير/تصغير على الشريط في الفريم الحالي"
+                    >
+                      <Diamond size={12} className="fill-emerald-400 text-emerald-400" />
+                      <span>+ إضافة نقطة تحريك تكبير على الشريط (فريم {currentFrame})</span>
+                    </button>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        )}
       </div>
 
       {/* Rotation */}
