@@ -94,6 +94,19 @@ export const CATEGORIES_CONFIG: Record<ToolCategory, CategoryInfo> = {
 export const TOOLS_REGISTRY: ToolRegistryItem[] = [
   // --- أنيميشن و SVGA ---
   {
+    id: 'animation-manager',
+    label: 'Animation File Manager & Studio',
+    icon: <Film className="w-4 h-4 text-cyan-400" />,
+    category: 'svga',
+    categoryNameAr: 'أنيميشن و SVGA',
+    actionKey: 'onAnimationManagerOpen',
+    dashboardActionKey: 'animationManager',
+    featureAccessKey: 'animationManager',
+    descAr: 'مركز احترافي متكامل لرفع ومعاينة وإدارة وتحويل وتصدير ملفات الأنيميشن (GIF, WebP, APNG, PNG, Lottie, DotLottie, MP4) مع منع التكرار (Content Hash) والتصدير الجماعي ZIP.',
+    descEn: 'Professional hub to upload, preview, manage, convert, and batch export animation files (GIF, WebP, APNG, PNG, Lottie, DotLottie, MP4) with hash deduplication and ZIP packaging.',
+    highlight: true
+  },
+  {
     id: 'svga-layer-editor',
     label: 'تحرير طبقات SVGA',
     icon: <Layers className="w-4 h-4 text-cyan-400" />,

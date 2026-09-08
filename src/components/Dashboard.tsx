@@ -64,6 +64,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onUpload, onAction, curren
                 <Uploader 
                     onUpload={onUpload} 
                     isUploading={false}
+                    onAnimationManagerOpen={isFeatureAllowed('animationManager') ? () => onAction('animationManager') : undefined}
                     onConverterOpen={isFeatureAllowed('videoConverter') ? () => onAction('videoConverter') : undefined}
                     onMultiSvgaOpen={isFeatureAllowed('multiSvga') ? () => onAction('multiSvga') : undefined}
                     onBatchImageOpen={isFeatureAllowed('batchImageProcessor') ? () => onAction('batchImageOpen') : undefined}

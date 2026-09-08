@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { UploadCloud, Video, Images, LayoutGrid, Zap, Layers, Lock } from 'lucide-react';
+import { UploadCloud, Video, Images, LayoutGrid, Zap, Layers, Lock, Film } from 'lucide-react';
 
 interface UploaderProps {
   onUpload: (files: File[]) => void;
@@ -9,11 +9,12 @@ interface UploaderProps {
   onMultiSvgaOpen?: () => void;
   onBatchImageOpen?: () => void;
   onPagConverterOpen?: () => void;
+  onAnimationManagerOpen?: () => void;
   globalQuality?: 'low' | 'medium' | 'high';
   setGlobalQuality?: (q: 'low' | 'medium' | 'high') => void;
 }
 
-export const Uploader: React.FC<UploaderProps> = ({ onUpload, isUploading, onConverterOpen, onMultiSvgaOpen, onBatchImageOpen, onPagConverterOpen, globalQuality = 'high', setGlobalQuality }) => {
+export const Uploader: React.FC<UploaderProps> = ({ onUpload, isUploading, onConverterOpen, onMultiSvgaOpen, onBatchImageOpen, onPagConverterOpen, onAnimationManagerOpen, globalQuality = 'high', setGlobalQuality }) => {
   const [isDragOver, setIsDragOver] = useState(false);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -85,6 +86,17 @@ export const Uploader: React.FC<UploaderProps> = ({ onUpload, isUploading, onCon
                <span className="text-xs text-slate-300 font-bold uppercase tracking-widest">SVGA 1.0 / 2.0</span>
             </div>
             
+            {onAnimationManagerOpen && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onAnimationManagerOpen(); }}
+                className="flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-b from-cyan-500/20 to-cyan-600/10 hover:from-cyan-400/30 hover:to-cyan-500/20 rounded-2xl border-t border-cyan-400/30 border-b-4 border-b-cyan-900/50 shadow-lg hover:shadow-[0_10px_20px_rgba(6,182,212,0.2)] hover:-translate-y-1 active:translate-y-1 active:border-b-0 transition-all group/btn"
+                title="مدير ومحول ملفات الأنيميشن (GIF / WebP / APNG / Lottie)"
+              >
+                 <Film className="w-5 h-5 text-cyan-400 group-hover/btn:scale-110 transition-transform drop-shadow-md" />
+                 <span className="text-xs text-cyan-300 font-bold uppercase tracking-wide drop-shadow-sm whitespace-nowrap">مدير ومحول الأنيميشن</span>
+              </button>
+            )}
+
             {onConverterOpen && (
               <button 
                 onClick={(e) => { e.stopPropagation(); onConverterOpen(); }}

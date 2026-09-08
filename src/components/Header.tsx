@@ -57,6 +57,7 @@ export interface HeaderProps {
   onAiVideoMattingOpen?: () => void;
   onSvgaBatchCompressorOpen?: () => void;
   onSvgaLayerEditorOpen?: () => void;
+  onAnimationManagerOpen?: () => void;
   onBatchImageOpen: () => void;
   onLoginClick: () => void;
   onProfileClick: () => void;

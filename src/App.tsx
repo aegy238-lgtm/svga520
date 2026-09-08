@@ -26,6 +26,7 @@ import { ImageMatcher } from './components/ImageMatcher';
 import { Store } from './components/Store';
 import { AudioExtractor } from './components/AudioExtractor';
 import { AIVideoMattingStudio } from './components/AIVideoMattingStudio';
+import { AnimationManager } from './components/AnimationManager/AnimationManager';
 import { AdminPanel } from './components/AdminPanel';
 import { Login } from './components/Auth/Login';
 import { Signup } from './components/Auth/Signup';
@@ -242,6 +243,7 @@ const App: React.FC = () => {
     if (currentUser) {
       const stateToActionKey: Record<string, string> = {
         [AppState.AI_VIDEO_MATTING]: 'aiVideoMatting',
+        [AppState.ANIMATION_MANAGER]: 'animationManager',
         [AppState.VIDEO_CONVERTER]: 'videoConverter',
         [AppState.UNIVERSAL_CONVERTER]: 'universalConverter',
         [AppState.MULTI_SVGA_VIEWER]: 'multiSvga',
@@ -719,6 +721,7 @@ const App: React.FC = () => {
         onAudioExtractorOpen={() => handleFeatureAccess(AppState.AUDIO_EXTRACTOR, 'Audio Extractor')}
         onAiVideoMattingOpen={() => handleFeatureAccess(AppState.AI_VIDEO_MATTING, 'AI Video Matting Studio')}
         onSvgaBatchCompressorOpen={() => handleFeatureAccess(AppState.SVGA_BATCH_COMPRESSOR, 'SVGA Batch Compressor')}
+        onAnimationManagerOpen={() => handleFeatureAccess(AppState.ANIMATION_MANAGER, 'Animation File Manager')}
         onSvgaLayerEditorOpen={() => {
           setLayerEditorInitialFile(fileMetadata?.originalFile || null);
           handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
@@ -727,6 +730,7 @@ const App: React.FC = () => {
         onLoginClick={() => {}}
         onProfileClick={() => {}}
         currentTab={
+          state === AppState.ANIMATION_MANAGER ? 'animation-manager' :
           state === AppState.AI_VIDEO_MATTING ? 'ai-video-matting' :
           state === AppState.SVGA_LAYER_EDITOR ? 'svga-layer-editor' :
           state === AppState.SVGA_BATCH_COMPRESSOR ? 'svga-compressor' :
@@ -784,6 +788,7 @@ const App: React.FC = () => {
                   onUpload={handleFileUpload} 
                   onAction={(actionKey: string) => {
                      switch(actionKey) {
+                        case 'animationManager': handleFeatureAccess(AppState.ANIMATION_MANAGER, 'Animation File Manager'); break;
                         case 'aiVideoMatting': handleFeatureAccess(AppState.AI_VIDEO_MATTING, 'AI Video Matting Studio'); break;
                         case 'videoConverter': handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter'); break;
                         case 'universalConverter': handleFeatureAccess(AppState.UNIVERSAL_CONVERTER, 'Universal Motion Tools'); break;
@@ -966,6 +971,9 @@ const App: React.FC = () => {
                 onSubscriptionRequired={() => setShowSubscriptionModal(true)}
                 initialVideoFile={fileMetadata?.originalFile || null}
               />
+            )}
+            {state === AppState.ANIMATION_MANAGER && (
+              <AnimationManager onBack={handleReset} />
             )}
             {state === AppState.ADMIN_PANEL && (currentUser?.role === 'admin' || currentUser?.role === 'moderator') && (
               <AdminPanel currentUser={currentUser} onCancel={handleReset} />
