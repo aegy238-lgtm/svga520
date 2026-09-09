@@ -15,7 +15,7 @@ import { UniversalConvertModal } from './UniversalConvertModal';
 import { DeduplicationAlert } from './DeduplicationAlert';
 import { FeatureInfoModal } from './FeatureInfoModal';
 import { parseAnimationFile } from './utils/formatParsers';
-import { checkDuplicate } from './utils/hashUtils';
+import { checkDuplicate, deduplicateItems } from './utils/hashUtils';
 import { exportItem, downloadBlob } from './utils/exportEngine';
 
 interface AnimationManagerProps {
@@ -61,6 +61,39 @@ export const AnimationManager: React.FC<AnimationManagerProps> = ({ onBack }) =>
   const [isUnifiedVideoOpen, setIsUnifiedVideoOpen] = useState(false);
   const [isUniversalConvertOpen, setIsUniversalConvertOpen] = useState(false);
   const [isManagerInfoOpen, setIsManagerInfoOpen] = useState(false);
+  const [preventDuplicates, setPreventDuplicates] = useState(false);
+
+  // Effect to clean up duplicates when toggle is turned on
+  React.useEffect(() => {
+    if (preventDuplicates) {
+      setItems(prev => {
+        const unique = deduplicateItems(prev);
+        const removedCount = prev.length - unique.length;
+        
+        if (removedCount > 0) {
+          // Find names of removed items for the alert
+          const uniqueHashes = new Set(unique.map(i => i.contentHash));
+          const removedNames = prev
+            .filter(i => !uniqueHashes.has(i.contentHash))
+            .map(i => i.file.name)
+            // fallback if we just have multiple of the same hash
+            .concat(prev.filter((item, index, self) => 
+              index !== self.findIndex(t => t.contentHash === item.contentHash)
+            ).map(i => i.file.name));
+
+          // deduplicate the names array itself just in case
+          const uniqueRemovedNames = Array.from(new Set(removedNames)).slice(0, 5);
+
+          setDuplicatesDetected({
+            count: removedCount,
+            names: uniqueRemovedNames.length > 0 ? uniqueRemovedNames : ['ملفات مكررة تم تنظيفها']
+          });
+        }
+        
+        return unique;
+      });
+    }
+  }, [preventDuplicates]);
 
   // Duplicate alert state
   const [duplicatesDetected, setDuplicatesDetected] = useState<{
@@ -72,7 +105,6 @@ export const AnimationManager: React.FC<AnimationManagerProps> = ({ onBack }) =>
   const handleFilesSelected = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
     setIsProcessing(true);
-
     const duplicateNames: string[] = [];
     const validNewFiles: File[] = [];
 
@@ -82,10 +114,12 @@ export const AnimationManager: React.FC<AnimationManagerProps> = ({ onBack }) =>
       try {
         const parsed = await parseAnimationFile(file);
         setItems(prevItems => {
-          const dupCheck = checkDuplicate(parsed.contentHash, prevItems);
-          if (dupCheck.isDuplicate) {
-            duplicateNames.push(file.name);
-            return prevItems; // Do not insert duplicate
+          if (preventDuplicates) {
+            const dupCheck = checkDuplicate(parsed.contentHash, prevItems);
+            if (dupCheck.isDuplicate) {
+              duplicateNames.push(file.name);
+              return prevItems; // Do not insert duplicate
+            }
           }
           return [parsed, ...prevItems];
         });
@@ -94,7 +128,7 @@ export const AnimationManager: React.FC<AnimationManagerProps> = ({ onBack }) =>
       }
     }
 
-    if (duplicateNames.length > 0) {
+    if (duplicateNames.length > 0 && preventDuplicates) {
       setDuplicatesDetected({
         count: duplicateNames.length,
         names: duplicateNames
@@ -102,7 +136,7 @@ export const AnimationManager: React.FC<AnimationManagerProps> = ({ onBack }) =>
     }
 
     setIsProcessing(false);
-  }, []);
+  }, [preventDuplicates]);
 
   // Selection handlers
   const handleToggleSelect = useCallback((id: string) => {
@@ -252,6 +286,26 @@ export const AnimationManager: React.FC<AnimationManagerProps> = ({ onBack }) =>
 
           {/* Stats Badges */}
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            {/* High-Visibility Yellow Deduplication Toggle */}
+            <button
+              type="button"
+              onClick={() => setPreventDuplicates(!preventDuplicates)}
+              className={`px-4 py-2 rounded-2xl font-black text-xs font-arabic flex items-center gap-2 border shadow-xl transition-all cursor-pointer ${
+                preventDuplicates 
+                  ? 'bg-yellow-400 hover:bg-yellow-300 text-slate-950 border-yellow-200 shadow-yellow-400/40 ring-2 ring-yellow-400/50' 
+                  : 'bg-yellow-400/20 hover:bg-yellow-400 hover:text-slate-950 text-yellow-300 border-yellow-400/60 shadow-yellow-400/20'
+              }`}
+              title="فحص وحذف الملفات المكررة ومنع تكرار الرفع"
+            >
+              {preventDuplicates ? (
+                <CheckSquare className="w-4 h-4 text-slate-950 stroke-[3]" />
+              ) : (
+                <Square className="w-4 h-4 text-yellow-300" />
+              )}
+              <ShieldCheck className="w-4 h-4" />
+              <span>{preventDuplicates ? 'منع التكرار: مفعّل (نسخة واحدة فقط)' : 'منع التكرار'}</span>
+            </button>
+
             <div className="px-4 py-2 rounded-2xl bg-white/5 border border-white/10 text-xs font-arabic flex items-center gap-2">
               <span className="text-gray-400">إجمالي الملفات:</span>
               <span className="text-cyan-400 font-bold font-mono">{items.length}</span>
@@ -331,6 +385,26 @@ export const AnimationManager: React.FC<AnimationManagerProps> = ({ onBack }) =>
                     {chip.label}
                   </button>
                 ))}
+
+                <div className="w-px h-5 bg-white/10 mx-1 hidden sm:block"></div>
+
+                <button
+                  type="button"
+                  onClick={() => setPreventDuplicates(!preventDuplicates)}
+                  className={`flex items-center gap-1.5 text-xs font-black px-3.5 py-1.5 rounded-xl transition-all border shadow-lg cursor-pointer ${
+                    preventDuplicates 
+                      ? 'bg-yellow-400 hover:bg-yellow-300 text-slate-950 border-yellow-200 shadow-yellow-400/40 ring-2 ring-yellow-400/50' 
+                      : 'bg-yellow-400/20 hover:bg-yellow-400 hover:text-slate-950 text-yellow-300 border-yellow-400/50 shadow-yellow-400/20'
+                  }`}
+                  title="فحص وحذف الملفات المكررة ذكياً، ومنع تكرار الرفع لأي صيغة"
+                >
+                  {preventDuplicates ? (
+                    <CheckSquare className="w-3.5 h-3.5 text-slate-950 stroke-[3]" />
+                  ) : (
+                    <Square className="w-3.5 h-3.5 text-yellow-400" />
+                  )}
+                  <span>{preventDuplicates ? 'منع التكرار: مفعّل' : 'منع وحذف التكرار'}</span>
+                </button>
               </div>
 
               {/* Sort & View Mode */}
@@ -379,7 +453,7 @@ export const AnimationManager: React.FC<AnimationManagerProps> = ({ onBack }) =>
 
             {/* Selection & Batch Action Buttons */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-white/5 font-arabic">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   onClick={handleSelectAll}
@@ -519,7 +593,7 @@ export const AnimationManager: React.FC<AnimationManagerProps> = ({ onBack }) =>
           isOpen={isManagerInfoOpen}
           onClose={() => setIsManagerInfoOpen(false)}
           title="معلومات مدير الأنيميشن"
-          content={MANAGER_INFO_MD}
+          description={MANAGER_INFO_MD}
         />
       </div>
     </div>

@@ -26,7 +26,8 @@ const FORMAT_CONFIG: Record<
   png: { label: 'PNG', bg: 'bg-sky-500/15', text: 'text-sky-400', border: 'border-sky-500/30' },
   lottie: { label: 'Lottie', bg: 'bg-cyan-500/15', text: 'text-cyan-400', border: 'border-cyan-500/30' },
   dotlottie: { label: 'DotLottie', bg: 'bg-pink-500/15', text: 'text-pink-400', border: 'border-pink-500/30' },
-  svga: { label: 'SVGA', bg: 'bg-indigo-500/15', text: 'text-indigo-400', border: 'border-indigo-500/30' }
+  svga: { label: 'SVGA', bg: 'bg-indigo-500/15', text: 'text-indigo-400', border: 'border-indigo-500/30' },
+  pag: { label: 'PAG', bg: 'bg-rose-500/15', text: 'text-rose-400', border: 'border-rose-500/30' }
 };
 
 export const AnimationCard: React.FC<AnimationCardProps> = ({
@@ -96,7 +97,7 @@ export const AnimationCard: React.FC<AnimationCardProps> = ({
           
           const player = new Player(canvasRef.current);
           await player.mount(svgaData);
-          player.set({ loop: 0, fillMode: 'forwards' as any });
+          player.set({ loop: 0, fillMode: 'forwards' } as any);
           
           svgaPlayerRef.current = player;
           if (isPlaying) player.start();

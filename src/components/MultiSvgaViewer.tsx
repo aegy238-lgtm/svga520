@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, X, Download, Image as ImageIcon, ShieldCheck, Monitor, Smartphone, Loader2, Camera, Video, Film, FileVideo, Volume2, Music , SquareCheck, Gift, Sparkles, FileText, Lock, Key } from 'lucide-react';
+import { Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, X, Download, Image as ImageIcon, ShieldCheck, Monitor, Smartphone, Loader2, Camera, Video, Film, FileVideo, Volume2, Music , SquareCheck, Gift, Sparkles, FileText, Lock, Key, Square, CheckSquare, Check } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { PresetBackground, UserRecord } from '../types';
@@ -352,6 +352,12 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const [customHeight, setCustomHeight] = useState<number | null>(null);
   const [isCustomDimensionsActive, setIsCustomDimensionsActive] = useState<boolean>(false);
   const [includePdfCatalog, setIncludePdfCatalog] = useState(false);
+  const [preventDuplicates, setPreventDuplicates] = useState(true);
+  const preventDuplicatesRef = useRef(true);
+  useEffect(() => {
+    preventDuplicatesRef.current = preventDuplicates;
+  }, [preventDuplicates]);
+  const [dedupNotice, setDedupNotice] = useState<{ count: number; names: string[] } | null>(null);
   
   const selectedPreset = useMemo(() => DEVICE_PRESETS.find(p => p.id === selectedPresetId), [selectedPresetId]);
 
@@ -655,7 +661,34 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         }
       }))).filter(Boolean) as MultiSvgaItem[];
       
-      setItems(prev => [...prev, ...newItems]);
+      setItems(prev => {
+        if (!preventDuplicatesRef.current) {
+          return [...prev, ...newItems];
+        }
+        const existingKeys = new Set(prev.map(p => `${p.name.toLowerCase().trim()}_${p.size}`));
+        const filteredNew: MultiSvgaItem[] = [];
+        const skippedNames: string[] = [];
+
+        for (const ni of newItems) {
+          const key = `${ni.name.toLowerCase().trim()}_${ni.size}`;
+          if (existingKeys.has(key)) {
+            skippedNames.push(ni.name);
+            try { URL.revokeObjectURL(ni.url); } catch (_) {}
+          } else {
+            existingKeys.add(key);
+            filteredNew.push(ni);
+          }
+        }
+
+        if (skippedNames.length > 0) {
+          setDedupNotice({
+            count: skippedNames.length,
+            names: Array.from(new Set(skippedNames))
+          });
+        }
+
+        return [...prev, ...filteredNew];
+      });
       setLoadProgress({ current: Math.min(i + BATCH_SIZE, fileArray.length), total: fileArray.length });
       await new Promise(r => setTimeout(r, 10));
     }
@@ -758,7 +791,72 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     setSelectedItemIds(new Set());
   };
 
-  const getActiveItems = () => selectedItemIds.size > 0 ? items.filter(i => selectedItemIds.has(i.id)) : items;
+  const getActiveItems = () => {
+    const rawList = selectedItemIds.size > 0 ? items.filter(i => selectedItemIds.has(i.id)) : items;
+    if (!preventDuplicates) return rawList;
+    const seen = new Set<string>();
+    const uniqueList: MultiSvgaItem[] = [];
+    for (const item of rawList) {
+      const key = `${item.name.toLowerCase().trim()}_${item.size}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueList.push(item);
+      }
+    }
+    return uniqueList;
+  };
+
+  const runDeduplication = useCallback(() => {
+    setItems(prev => {
+      const seen = new Set<string>();
+      const uniqueList: MultiSvgaItem[] = [];
+      const removedNames: string[] = [];
+
+      for (const item of prev) {
+        const key = `${item.name.toLowerCase().trim()}_${item.size}`;
+        if (seen.has(key)) {
+          removedNames.push(item.name);
+          try { URL.revokeObjectURL(item.url); } catch (_) {}
+        } else {
+          seen.add(key);
+          uniqueList.push(item);
+        }
+      }
+
+      if (removedNames.length > 0) {
+        setSelectedItemIds(sel => {
+          const nextSel = new Set<string>();
+          uniqueList.forEach(u => {
+            if (sel.has(u.id)) nextSel.add(u.id);
+          });
+          return nextSel;
+        });
+        setDedupNotice({
+          count: removedNames.length,
+          names: Array.from(new Set(removedNames))
+        });
+      } else {
+        setDedupNotice({
+          count: 0,
+          names: []
+        });
+      }
+
+      return uniqueList;
+    });
+  }, []);
+
+  const handleToggleDeduplication = useCallback(() => {
+    setPreventDuplicates(prev => {
+      const next = !prev;
+      if (next) {
+        runDeduplication();
+      } else {
+        setDedupNotice(null);
+      }
+      return next;
+    });
+  }, [runDeduplication]);
 
   const handleExportGrid = async () => {
     const activeItems = getActiveItems();
@@ -3071,6 +3169,39 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             دعم كامل لجميع المقاسات (500×500, 750×1334, 2000×2000) مع الحفاظ على الجودة
           </p>
         </div>
+
+        {dedupNotice && (
+          <div className="w-full lg:w-auto flex-1 max-w-2xl rounded-2xl p-3 px-4 bg-yellow-400/20 border-2 border-yellow-400 flex items-center justify-between gap-4 font-arabic shadow-xl shadow-yellow-500/10 backdrop-blur-md animate-in fade-in">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-yellow-400 text-slate-950 flex items-center justify-center font-black shadow-md flex-shrink-0">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div className="flex flex-col gap-0.5 text-right">
+                <span className="text-xs font-black text-yellow-300">
+                  {dedupNotice.count > 0 
+                    ? `تم فحص الملفات وحذف ${dedupNotice.count} ملف مكرر بنجاح! تم الإبقاء على نسخة واحدة فقط.`
+                    : 'تم الفحص بنجاح: جميع الملفات فريدة ولا يوجد أي تكرار!'}
+                </span>
+                {dedupNotice.names.length > 0 && (
+                  <span className="text-[11px] text-slate-300">
+                    الملفات المكررة:{' '}
+                    <span className="text-yellow-200 font-bold">
+                      {dedupNotice.names.slice(0, 4).join(', ')}
+                      {dedupNotice.names.length > 4 ? ` و ${dedupNotice.names.length - 4} ملفات أخرى` : ''}
+                    </span>
+                  </span>
+                )}
+              </div>
+            </div>
+            <button 
+              onClick={() => setDedupNotice(null)}
+              className="p-1 rounded-lg text-yellow-300 hover:text-white hover:bg-yellow-400/20 transition-colors"
+              title="إغلاق التنبيه"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
         
         <div className="flex flex-wrap items-center gap-3">
           {(items as any[]).length > 0 && (
@@ -3351,6 +3482,31 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                 {isZipping ? `جاري التحضير ${exportProgress}%` : 'تنزيل الكل (الملفات + صور + PDF)'}
               </button>
+
+              {/* Distinct High-Visibility Yellow Deduplication Button */}
+              <button 
+                type="button"
+                onClick={handleToggleDeduplication}
+                className={`px-6 py-3 rounded-2xl font-black text-sm transition-all flex items-center gap-2.5 shadow-xl border cursor-pointer select-none ${
+                  preventDuplicates 
+                    ? 'bg-yellow-400 hover:bg-yellow-300 text-slate-950 border-yellow-200 shadow-yellow-400/50 ring-4 ring-yellow-400/40' 
+                    : 'bg-yellow-400/20 hover:bg-yellow-400 hover:text-slate-950 text-yellow-300 border-yellow-400/60 shadow-lg shadow-yellow-500/20'
+                }`}
+                title="فحص فوري ومنع تكرار الملفات: الاحتفاظ بنسخة واحدة فقط وحذف أي ملف متكرر عند التنزيل أو الرفع"
+              >
+                <div className="w-5 h-5 rounded-md flex items-center justify-center bg-black/20 border border-black/30">
+                  {preventDuplicates ? (
+                    <CheckSquare className="w-4 h-4 text-slate-950 stroke-[3]" />
+                  ) : (
+                    <Square className="w-4 h-4 text-yellow-300" />
+                  )}
+                </div>
+                <ShieldCheck className={`w-5 h-5 ${preventDuplicates ? 'text-slate-950' : 'text-yellow-400'}`} />
+                <span className="font-black text-sm whitespace-nowrap">
+                  {preventDuplicates ? 'منع التكرار: مفعّل (تنزيل نسخة واحدة فقط)' : 'منع وحذف الملفات المكررة'}
+                </span>
+              </button>
+
               <button 
                 onClick={handleDownloadAllSvga}
                 disabled={isZipping || isExporting}
@@ -3411,6 +3567,31 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 مسح الكل
               </button>
             </>
+          )}
+
+          {items.length === 0 && (
+            <button 
+              type="button"
+              onClick={handleToggleDeduplication}
+              className={`px-6 py-3 rounded-2xl font-black text-sm transition-all flex items-center gap-2.5 shadow-xl border cursor-pointer select-none ${
+                preventDuplicates 
+                  ? 'bg-yellow-400 hover:bg-yellow-300 text-slate-950 border-yellow-200 shadow-yellow-400/50 ring-4 ring-yellow-400/40' 
+                  : 'bg-yellow-400/20 hover:bg-yellow-400 hover:text-slate-950 text-yellow-300 border-yellow-400/60 shadow-lg shadow-yellow-500/20'
+              }`}
+              title="تفعيل فحص ومنع تكرار الملفات تلقائياً عند الرفع والتنزيل"
+            >
+              <div className="w-5 h-5 rounded-md flex items-center justify-center bg-black/20 border border-black/30">
+                {preventDuplicates ? (
+                  <CheckSquare className="w-4 h-4 text-slate-950 stroke-[3]" />
+                ) : (
+                  <Square className="w-4 h-4 text-yellow-300" />
+                )}
+              </div>
+              <ShieldCheck className={`w-5 h-5 ${preventDuplicates ? 'text-slate-950' : 'text-yellow-400'}`} />
+              <span className="font-black text-sm whitespace-nowrap">
+                {preventDuplicates ? 'منع التكرار: مفعّل (نسخة واحدة فقط)' : 'منع تكرار الملفات'}
+              </span>
+            </button>
           )}
           <button 
             onClick={() => fileInputRef.current?.click()}

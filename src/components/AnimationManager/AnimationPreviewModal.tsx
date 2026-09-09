@@ -78,7 +78,7 @@ export const AnimationPreviewModal: React.FC<AnimationPreviewModalProps> = ({
           
           const player = new Player(canvasRef.current);
           await player.mount(svgaData);
-          player.set({ loop: 0, fillMode: 'forwards' as any });
+          player.set({ loop: 0, fillMode: 'forwards' } as any);
           
           svgaPlayerRef.current = player;
           if (isPlaying) player.start();

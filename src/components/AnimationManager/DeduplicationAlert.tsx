@@ -22,10 +22,10 @@ export const DeduplicationAlert: React.FC<DeduplicationAlertProps> = ({
         </div>
         <div className="flex flex-col gap-0.5 text-right">
           <span className="text-sm font-bold text-amber-300">
-            تم منع تكرار {duplicateCount} {duplicateCount === 1 ? 'ملف' : 'ملفات'} بواسطة Content Hash
+            تم تنظيف ومنع تكرار {duplicateCount} {duplicateCount === 1 ? 'ملف' : 'ملفات'} بنجاح بواسطة البصمة الذكية
           </span>
           <span className="text-xs text-gray-300">
-            الملفات المتطابقة تماماً تم استبعادها تلقائياً لتفادي استهلاك الموارد والتكرار:{' '}
+            تم فحص مساحة العمل واستبعاد الملفات المتطابقة تماماً لتفادي استهلاك الموارد والتكرار:{' '}
             <span className="text-amber-200 font-mono">
               {duplicateNames.slice(0, 3).join(', ')}
               {duplicateNames.length > 3 ? ` و ${duplicateNames.length - 3} أخرى` : ''}
