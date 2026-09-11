@@ -1181,11 +1181,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           
           if (file.type.startsWith('video/') || (file.name || '').toLowerCase().endsWith('.mp4') || (file.name || '').toLowerCase().endsWith('.webm') || (file.name || '').toLowerCase().endsWith('.mov')) {
               videoSrc = URL.createObjectURL(file);
-          } else if (file.type.startsWith('image/') || (file.name || '').toLowerCase().endsWith('.gif') || (file.name || '').toLowerCase().endsWith('.webp')) {
-              // Reverted to simple object URL as per user request to remove FFmpeg conversion system
-              videoSrc = URL.createObjectURL(file);
           } else {
-              throw new Error('Unsupported file format');
+              throw new Error('يرجى اختيار ملف فيديو بصيغة MP4 أو WebM أو MOV');
           }
 
           const video = document.createElement('video');
@@ -1196,9 +1193,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           
           await new Promise((resolve, reject) => {
               video.onloadeddata = () => resolve(null);
-              video.onerror = (e) => reject(new Error(`Video load error: ${video.error?.message || 'Unknown error'}`));
+              video.onerror = () => {
+                  URL.revokeObjectURL(videoSrc);
+                  reject(new Error(`تعذر فتح أو فك ترميز الفيديو في المتصفح (${video.error?.message || 'تنسيق غير مدعوم'}). يرجى تحويل الفيديو أو استخدام مساحة Universal Motion Tools.`));
+              };
               // Timeout fallback
-              setTimeout(() => reject(new Error("Video load timeout")), 10000);
+              setTimeout(() => {
+                  URL.revokeObjectURL(videoSrc);
+                  reject(new Error("انتهت مهلة تحميل الفيديو."));
+              }, 12000);
           });
 
           await video.play();

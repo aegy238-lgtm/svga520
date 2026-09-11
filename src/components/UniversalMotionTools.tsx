@@ -167,6 +167,7 @@ interface UniversalMotionToolsProps {
   onLoginRequired: () => void;
   onSubscriptionRequired: () => void;
   onOpenInWorkspace?: (metadata: FileMetadata) => void;
+  initialFile?: File | null;
 }
 
 interface VapConfig {
@@ -331,7 +332,8 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   onCancel,
   onLoginRequired,
   onSubscriptionRequired,
-  onOpenInWorkspace
+  onOpenInWorkspace,
+  initialFile
 }) => {
   // Preload FFmpeg to make ultra-fast operations instant
   useEffect(() => {
@@ -871,7 +873,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   // Process File and init VAP Player
   const processFile = async (f: File) => {
     const name = f.name.toLowerCase();
-    if (!name.endsWith('.mp4') && !name.endsWith('.vap')) {
+    if (!name.endsWith('.mp4') && !name.endsWith('.vap') && !f.type.startsWith('video/')) {
       setErrorMessage("يرجى رفع ملف فيديو بصيغة MP4 أو VAP.");
       return;
     }
@@ -971,6 +973,13 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       // No existing audio track found in VAP
     });
   };
+
+  // Auto-process initialFile when passed from external upload/redirect
+  useEffect(() => {
+    if (initialFile) {
+      processFile(initialFile);
+    }
+  }, [initialFile]);
 
   const handleFileDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -5183,7 +5192,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
               type="file" 
               ref={fileInputRef} 
               className="hidden" 
-              accept="video/mp4" 
+              accept="video/mp4,.mp4,.vap,.VAP,video/*" 
               onChange={handleFileSelect} 
             />
 

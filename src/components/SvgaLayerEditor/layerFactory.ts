@@ -40,20 +40,22 @@ export function createImageLayer(
   startFrame: number = 0,
   endFrame: number = totalFrames - 1
 ): EditableLayer {
-  const maxW = Math.max(10, projectWidth);
-  const maxH = Math.max(10, projectHeight);
+  // Use scaleFit to fit inside project keeping aspect ratio if larger than canvas
+  let scaleFit = 1;
+  const padding = 20; // Some margin
+  const availW = Math.max(10, projectWidth - padding * 2);
+  const availH = Math.max(10, projectHeight - padding * 2);
 
-  // Auto-scale new layer to fit project dimensions cleanly
-  // If the image is larger or different, scale it to match the project dimensions
-  const scaleX = maxW / (imgWidth || 1);
-  const scaleY = maxH / (imgHeight || 1);
-  const scaleFit = Math.min(scaleX, scaleY);
+  if (imgWidth > availW || imgHeight > availH) {
+    scaleFit = Math.min(availW / (imgWidth || 1), availH / (imgHeight || 1));
+  }
 
-  // Use project dimensions for full layer bounds
-  const w = maxW;
-  const h = maxH;
-  const x = 0;
-  const y = 0;
+  const finalW = Math.round((imgWidth || 100) * scaleFit);
+  const finalH = Math.round((imgHeight || 100) * scaleFit);
+  
+  // Center it in the canvas
+  const finalX = Math.round((projectWidth - finalW) / 2);
+  const finalY = Math.round((projectHeight - finalH) / 2);
 
   // Generate FrameEntity array for all project frames
   const frames: any[] = [];
@@ -62,7 +64,8 @@ export function createImageLayer(
     frames.push({
       alpha: isVisible ? 1.0 : 0.0,
       layout: { x: 0, y: 0, width: imgWidth, height: imgHeight },
-      transform: { a: scaleX, b: 0, c: 0, d: scaleY, tx: 0, ty: 0 }
+      // Apply the translation and scale directly to the frame so it draws exactly where the bounds say
+      transform: { a: scaleFit, b: 0, c: 0, d: scaleFit, tx: finalX, ty: finalY }
     });
   }
 
@@ -81,32 +84,32 @@ export function createImageLayer(
     locked: false,
     thumbnailUrl: dataUrl,
     transform: {
-      x,
-      y,
-      width: w,
-      height: h,
+      x: finalX,
+      y: finalY,
+      width: finalW,
+      height: finalH,
       scaleX: 1,
       scaleY: 1,
       rotation: 0,
       opacity: 100
     },
     initialBounds: {
-      x,
-      y,
-      width: w,
-      height: h
+      x: finalX,
+      y: finalY,
+      width: finalW,
+      height: finalH
     },
     originalInitialBounds: {
-      x,
-      y,
-      width: w,
-      height: h
+      x: finalX,
+      y: finalY,
+      width: finalW,
+      height: finalH
     },
     originalTransform: {
-      x,
-      y,
-      width: w,
-      height: h,
+      x: finalX,
+      y: finalY,
+      width: finalW,
+      height: finalH,
       scaleX: 1,
       scaleY: 1,
       rotation: 0,

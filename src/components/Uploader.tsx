@@ -53,7 +53,7 @@ export const Uploader: React.FC<UploaderProps> = ({ onUpload, isUploading, onCon
       <input 
         id="file-input"
         type="file" 
-        accept=".pag,.PAG,.svga,.SVGA,.mp4,.MP4,.webm,.WEBM,.mov,.MOV,.json,.JSON,.zip,.ZIP,.pdf,.PDF,application/pdf,*/*"
+        accept=".vap,.VAP,.pag,.PAG,.svga,.SVGA,.mp4,.MP4,.webm,.WEBM,.mov,.MOV,.json,.JSON,.zip,.ZIP,.pdf,.PDF,application/pdf,*/*"
         className="hidden"
         onChange={handleFileChange}
         multiple

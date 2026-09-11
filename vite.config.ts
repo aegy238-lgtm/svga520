@@ -38,8 +38,8 @@ export default defineConfig(({ mode }) => {
         port: 3000,
         host: '0.0.0.0',
         headers: {
-          'Cross-Origin-Embedder-Policy': 'require-corp',
-          'Cross-Origin-Opener-Policy': 'same-origin',
+          'Cross-Origin-Resource-Policy': 'cross-origin',
+          'Access-Control-Allow-Origin': '*',
         },
       },
       plugins: [react(), tailwindcss(), versionPlugin()],

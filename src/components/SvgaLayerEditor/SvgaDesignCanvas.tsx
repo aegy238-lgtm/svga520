@@ -722,25 +722,47 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         renderSvgaShapes(targetCtx, frame.shapes);
       }
 
-      // Draw Image (standard SVGA 2.0: drawn at 0, 0 without distortion)
-      const cachedImg = imagesCache.current[layerItem.imageKey];
+      // Draw Image (standard SVGA 2.0: drawn with exact layout offset without distortion)
+      let cachedImg = imagesCache.current[layerItem.imageKey];
+      if (!cachedImg && (layerItem.thumbnailUrl || project.imagesMap[layerItem.imageKey])) {
+        const src = layerItem.thumbnailUrl || project.imagesMap[layerItem.imageKey];
+        if (src) {
+          const tempImg = new Image();
+          tempImg.src = src;
+          imagesCache.current[layerItem.imageKey] = tempImg;
+          cachedImg = tempImg;
+        }
+      }
+
       if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
         let drawX = 0;
         let drawY = 0;
-        if (fTx === 0 && fTy === 0 && frame.layout && (frame.layout.x || frame.layout.y)) {
-          drawX = frame.layout.x || 0;
-          drawY = frame.layout.y || 0;
+        let drawW = cachedImg.naturalWidth;
+        let drawH = cachedImg.naturalHeight;
+        
+        if (frame.layout) {
+          drawX = frame.layout.x ?? 0;
+          drawY = frame.layout.y ?? 0;
+          if (frame.layout.width && frame.layout.width > 0) {
+            drawW = frame.layout.width;
+          }
+          if (frame.layout.height && frame.layout.height > 0) {
+            drawH = frame.layout.height;
+          }
         }
-        targetCtx.drawImage(cachedImg, drawX, drawY);
+        
+        targetCtx.drawImage(cachedImg, 0, 0, cachedImg.naturalWidth, cachedImg.naturalHeight, drawX, drawY, drawW, drawH);
       }
 
       targetCtx.restore();
     };
 
-    // Helper to find a mask layer by matteKey
-    const findMaskLayer = (matteKey: string, sourceLayer?: EditableLayer): EditableLayer | undefined => {
+    // Helper to find a mask layer by matteKey (searches current group/scope and top-level layers)
+    const findMaskLayer = (matteKey: string, sourceLayer?: EditableLayer, scopeLayers?: EditableLayer[]): EditableLayer | undefined => {
       const target = String(matteKey).trim();
-      const exact = layers.find(m => {
+      const searchPool = scopeLayers && scopeLayers.length > 0 ? [...scopeLayers, ...layers] : layers;
+
+      const exact = searchPool.find(m => {
         if (!m || m === sourceLayer) return false;
         if (m.imageKey === target || m.id === target || m.name === target) return true;
         if (m.spriteRef?.imageKey === target) return true;
@@ -753,7 +775,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       if (exact) return exact;
 
       if (sourceLayer && sourceLayer.groupId) {
-        return layers.find(m => {
+        return searchPool.find(m => {
           if (!m || m === sourceLayer || m.groupId !== sourceLayer.groupId) return false;
           if (m.imageKey?.includes(target) || target.includes(m.imageKey || '')) return true;
           if (m.name?.includes(target) || target.includes(m.name || '')) return true;
@@ -767,7 +789,8 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     const renderLayerRecursive = (
       layerItem: EditableLayer,
       parentMatrix: [number, number, number, number, number, number] | null,
-      parentAlpha: number
+      parentAlpha: number,
+      siblingLayers?: EditableLayer[]
     ) => {
       if (!layerItem.visible) return;
 
@@ -806,14 +829,15 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       if (layerItem.mergedLayers && layerItem.mergedLayers.length > 0) {
         const sublayersToRender = [...layerItem.mergedLayers].reverse();
         for (const sub of sublayersToRender) {
-          renderLayerRecursive(sub, currentTotalMatrix, currentAlpha);
+          if (isLayerMatteTemplate(sub)) continue;
+          renderLayerRecursive(sub, currentTotalMatrix, currentAlpha, layerItem.mergedLayers);
         }
         return;
       }
 
       // Check if this layer has a matteKey mask
       if (layerItem.matteKey) {
-        const maskLayer = findMaskLayer(layerItem.matteKey, layerItem);
+        const maskLayer = findMaskLayer(layerItem.matteKey, layerItem, siblingLayers);
         if (maskLayer) {
           // If maskLayer is not active or transparent on this frame, the masked layer is 100% clipped
           const maskState = getLayerFrameState(maskLayer, currentFrame);
@@ -958,12 +982,14 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
           localY = targetL.initialBounds.y;
           localW = targetL.initialBounds.width;
           localH = targetL.initialBounds.height;
-        } else if (frame.layout && frame.layout.width > 0 && frame.layout.height > 0) {
-          localW = frame.layout.width;
-          localH = frame.layout.height;
-          if ((frame.transform?.tx === 0 && frame.transform?.ty === 0) && (frame.layout.x || frame.layout.y)) {
-            localX = frame.layout.x || 0;
-            localY = frame.layout.y || 0;
+        } else {
+          localX = frame.layout?.x ?? 0;
+          localY = frame.layout?.y ?? 0;
+          if (frame.layout && frame.layout.width > 0) {
+            localW = frame.layout.width;
+          }
+          if (frame.layout && frame.layout.height > 0) {
+            localH = frame.layout.height;
           }
         }
 
@@ -1034,11 +1060,11 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
           ctx.lineWidth = 1.5;
           ctx.stroke();
 
-          const handlesToDraw = isSmallElement
+          const handlesToDraw = isTinyElement
             ? [p0, p1, p2, p3]
             : [p0, midTop, p1, midRight, p2, midBottom, p3, midLeft];
 
-          const handleRadius = isTinyElement ? 3.5 : isSmallElement ? 4 : 4.5;
+          const handleRadius = isTinyElement ? 3.5 : isSmallElement ? 4.5 : 5.5;
 
           handlesToDraw.forEach(h => {
             ctx.beginPath();
@@ -1046,7 +1072,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
             ctx.fillStyle = '#ffffff';
             ctx.fill();
             ctx.strokeStyle = isPrimary ? '#6366f1' : '#f59e0b';
-            ctx.lineWidth = 1.5;
+            ctx.lineWidth = 1.8;
             ctx.stroke();
           });
         }
@@ -1084,14 +1110,15 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         localY = layer.initialBounds.y;
         localW = layer.initialBounds.width;
         localH = layer.initialBounds.height;
-      } else if (frame.layout && frame.layout.width > 0 && frame.layout.height > 0) {
-        localX = frame.layout.x || 0;
-        localY = frame.layout.y || 0;
-        localW = frame.layout.width;
-        localH = frame.layout.height;
-      } else if (frame.layout) {
-        localX = frame.layout.x || 0;
-        localY = frame.layout.y || 0;
+      } else {
+        localX = frame.layout?.x ?? 0;
+        localY = frame.layout?.y ?? 0;
+        if (frame.layout && frame.layout.width > 0) {
+          localW = frame.layout.width;
+        }
+        if (frame.layout && frame.layout.height > 0) {
+          localH = frame.layout.height;
+        }
       }
 
       // Invert matrix to test point in local coords
@@ -1182,21 +1209,21 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     // 1. Rotation knob test (tested first, outside the box)
     if (Math.hypot(cx - rotHandle.x, cy - rotHandle.y) <= (isTinyElement ? 10 : 12)) return 'rot';
 
-    // 2. Corner resize handles test
-    const cornerHitDist = isTinyElement ? 5.5 : isSmallElement ? 7 : 10;
-    if (Math.hypot(cx - p0.x, cy - p0.y) <= cornerHitDist) return 'nw';
-    if (Math.hypot(cx - p1.x, cy - p1.y) <= cornerHitDist) return 'ne';
-    if (Math.hypot(cx - p2.x, cy - p2.y) <= cornerHitDist) return 'se';
-    if (Math.hypot(cx - p3.x, cy - p3.y) <= cornerHitDist) return 'sw';
-
-    // 3. For large elements, test edge midpoints
-    if (!isSmallElement) {
-      const midHitDist = 8;
+    // 2. Midpoint edge handles test (n, s, e, w) - generous hit distance so 4-way stretching is effortless
+    if (!isTinyElement) {
+      const midHitDist = isSmallElement ? 10 : 13;
       if (Math.hypot(cx - midTop.x, cy - midTop.y) <= midHitDist) return 'n';
       if (Math.hypot(cx - midRight.x, cy - midRight.y) <= midHitDist) return 'e';
       if (Math.hypot(cx - midBottom.x, cy - midBottom.y) <= midHitDist) return 's';
       if (Math.hypot(cx - midLeft.x, cy - midLeft.y) <= midHitDist) return 'w';
     }
+
+    // 3. Corner resize handles test
+    const cornerHitDist = isTinyElement ? 7 : isSmallElement ? 9 : 12;
+    if (Math.hypot(cx - p0.x, cy - p0.y) <= cornerHitDist) return 'nw';
+    if (Math.hypot(cx - p1.x, cy - p1.y) <= cornerHitDist) return 'ne';
+    if (Math.hypot(cx - p2.x, cy - p2.y) <= cornerHitDist) return 'se';
+    if (Math.hypot(cx - p3.x, cy - p3.y) <= cornerHitDist) return 'sw';
 
     // 4. Check inside polygon (or generous perimeter) for move
     const clickedLayerId = hitTestLayer(cx, cy);
@@ -1400,53 +1427,108 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       // Scaling Resize Handles
       const initW = Math.max(10, selectedLayer.initialBounds.width);
       const initH = Math.max(10, selectedLayer.initialBounds.height);
-      let factorX = 1;
-      let factorY = 1;
+      const origW = initW * initialTransform.scaleX;
+      const origH = initH * initialTransform.scaleY;
 
-      if (dragHandle?.includes('e')) factorX = 1 + deltaX / (initW * initialTransform.scaleX);
-      if (dragHandle?.includes('w')) factorX = 1 - deltaX / (initW * initialTransform.scaleX);
-      if (dragHandle?.includes('s')) factorY = 1 + deltaY / (initH * initialTransform.scaleY);
-      if (dragHandle?.includes('n')) factorY = 1 - deltaY / (initH * initialTransform.scaleY);
+      // Inverse-rotate the delta to local layer coordinates
+      const angleRad = (-initialTransform.rotation * Math.PI) / 180;
+      const cosA = Math.cos(angleRad);
+      const sinA = Math.sin(angleRad);
+      const localDeltaX = deltaX * cosA - deltaY * sinA;
+      const localDeltaY = deltaX * sinA + deltaY * cosA;
 
-      if (selectedLayer.aspectRatioLocked || e.shiftKey) {
-        const factor = Math.max(factorX, factorY);
-        factorX = factor;
-        factorY = factor;
+      const isEdgeHandle = ['n', 's', 'e', 'w'].includes(dragHandle || '');
+
+      let newScaleX = initialTransform.scaleX;
+      let newScaleY = initialTransform.scaleY;
+      let newW = origW;
+      let newH = origH;
+      let localShiftX = 0;
+      let localShiftY = 0;
+
+      if (isEdgeHandle) {
+        // 4-Directional Pure Single-Axis Stretches (Edge Midpoints: n, s, e, w)
+        // Stretches/compresses purely along that single direction, never forcing both dimensions together
+        if (dragHandle === 'e') {
+          newW = Math.max(5, origW + (e.altKey ? localDeltaX * 2 : localDeltaX));
+          newScaleX = newW / initW;
+          localShiftX = e.altKey ? 0 : (newW - origW) / 2;
+        } else if (dragHandle === 'w') {
+          newW = Math.max(5, origW - (e.altKey ? localDeltaX * 2 : localDeltaX));
+          newScaleX = newW / initW;
+          localShiftX = e.altKey ? 0 : -(newW - origW) / 2;
+        } else if (dragHandle === 's') {
+          newH = Math.max(5, origH + (e.altKey ? localDeltaY * 2 : localDeltaY));
+          newScaleY = newH / initH;
+          localShiftY = e.altKey ? 0 : (newH - origH) / 2;
+        } else if (dragHandle === 'n') {
+          newH = Math.max(5, origH - (e.altKey ? localDeltaY * 2 : localDeltaY));
+          newScaleY = newH / initH;
+          localShiftY = e.altKey ? 0 : -(newH - origH) / 2;
+        }
+      } else {
+        // Corner handles (nw, ne, se, sw)
+        let factorX = 1;
+        let factorY = 1;
+        if (dragHandle?.includes('e')) factorX = 1 + (localDeltaX * 2) / (initW * initialTransform.scaleX);
+        if (dragHandle?.includes('w')) factorX = 1 - (localDeltaX * 2) / (initW * initialTransform.scaleX);
+        if (dragHandle?.includes('s')) factorY = 1 + (localDeltaY * 2) / (initH * initialTransform.scaleY);
+        if (dragHandle?.includes('n')) factorY = 1 - (localDeltaY * 2) / (initH * initialTransform.scaleY);
+
+        if (selectedLayer.aspectRatioLocked || e.shiftKey) {
+          const factor = Math.max(factorX, factorY);
+          factorX = factor;
+          factorY = factor;
+        }
+
+        const multX = Math.max(0.05, factorX);
+        const multY = Math.max(0.05, factorY);
+        newScaleX = Math.max(0.05, Math.min(10, initialTransform.scaleX * multX));
+        newScaleY = Math.max(0.05, Math.min(10, initialTransform.scaleY * multY));
+        newW = Math.round(initW * newScaleX);
+        newH = Math.round(initH * newScaleY);
       }
 
-      const multX = Math.max(0.05, factorX);
-      const multY = Math.max(0.05, factorY);
+      // Convert local shift to world canvas coordinates
+      const rotRad = (initialTransform.rotation * Math.PI) / 180;
+      const worldShiftX = localShiftX * Math.cos(rotRad) - localShiftY * Math.sin(rotRad);
+      const worldShiftY = localShiftX * Math.sin(rotRad) + localShiftY * Math.cos(rotRad);
+      const newX = Math.round(initialTransform.x + worldShiftX);
+      const newY = Math.round(initialTransform.y + worldShiftY);
 
       if (isBulk) {
+        const multX = newScaleX / initialTransform.scaleX;
+        const multY = newScaleY / initialTransform.scaleY;
         const updates = activeSelectedIds.map(id => {
           const orig = initialTransformsMap[id] || layers.find(l => l.id === id)?.transform;
           const targetL = layers.find(l => l.id === id);
           if (!orig || !targetL) return null;
           const targetInitW = Math.max(10, targetL.initialBounds.width);
           const targetInitH = Math.max(10, targetL.initialBounds.height);
-          const newSX = Math.max(0.05, Math.min(10, orig.scaleX * multX));
-          const newSY = Math.max(0.05, Math.min(10, orig.scaleY * multY));
+          const sX = Math.max(0.05, Math.min(10, orig.scaleX * multX));
+          const sY = Math.max(0.05, Math.min(10, orig.scaleY * multY));
           return {
             id,
             transform: {
-              scaleX: parseFloat(newSX.toFixed(3)),
-              scaleY: parseFloat(newSY.toFixed(3)),
-              width: Math.round(targetInitW * newSX),
-              height: Math.round(targetInitH * newSY)
+              x: Math.round(orig.x + worldShiftX),
+              y: Math.round(orig.y + worldShiftY),
+              scaleX: parseFloat(sX.toFixed(3)),
+              scaleY: parseFloat(sY.toFixed(3)),
+              width: Math.round(targetInitW * sX),
+              height: Math.round(targetInitH * sY)
             }
           };
         }).filter(Boolean) as Array<{ id: string; transform: Partial<EditableLayer['transform']> }>;
 
         onBulkUpdateTransforms(updates);
       } else {
-        const newScaleX = Math.max(0.05, Math.min(10, initialTransform.scaleX * multX));
-        const newScaleY = Math.max(0.05, Math.min(10, initialTransform.scaleY * multY));
-
         onUpdateLayerTransform(selectedLayer.id, {
+          x: newX,
+          y: newY,
           scaleX: parseFloat(newScaleX.toFixed(3)),
           scaleY: parseFloat(newScaleY.toFixed(3)),
-          width: Math.round(initW * newScaleX),
-          height: Math.round(initH * newScaleY)
+          width: Math.round(newW),
+          height: Math.round(newH)
         });
       }
     }

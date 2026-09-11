@@ -910,6 +910,12 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
                     <span className="text-[10px] text-indigo-400 font-bold bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20">
                       F{layer.keyframeSummary.startFrame}→{layer.keyframeSummary.endFrame}
                     </span>
+                    {layer.keyframeSummary.isSequenceOrRepeated && (
+                      <span className="text-[9px] text-teal-300 font-bold bg-teal-500/15 border border-teal-500/30 px-1.5 py-0.5 rounded flex items-center gap-1" title="طبقة متسلسلة أو متكررة في الأنيميشن">
+                        <RotateCcw size={8} className="text-teal-300" />
+                        <span>تسلسل / متكررة</span>
+                      </span>
+                    )}
                     {layer.groupId && (
                       <span className="text-[9px] text-purple-300 font-bold bg-purple-500/20 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1">
                         <Package size={9} />

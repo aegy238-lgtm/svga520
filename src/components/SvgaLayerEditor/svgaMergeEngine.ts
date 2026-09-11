@@ -59,6 +59,14 @@ export async function mergeSvgaFileIntoProject(
     }
   }
 
+  // Also ensure any layer with a thumbnailUrl gets registered in updatedImagesMap
+  incomingLayers.forEach((l, idx) => {
+    const namespacedImageKey = keyTranslation[l.imageKey] || `${prefix}${l.imageKey || `layer_${idx}`}`;
+    if (!updatedImagesMap[namespacedImageKey] && l.thumbnailUrl) {
+      updatedImagesMap[namespacedImageKey] = l.thumbnailUrl;
+    }
+  });
+
   // 4. Calculate scaling & positioning relative to current project canvas
   const curW = currentProject.width || 500;
   const curH = currentProject.height || 500;

@@ -119,11 +119,30 @@ export async function exportEditedSvga(
     }
   }
 
+  const exportContexts = buildExportContexts(layers);
+
+  // Guarantee every layer has its image asset exported
+  for (const ctx of exportContexts) {
+    const key = ctx.layer.imageKey;
+    if (key && !exportImages[key] && ctx.layer.thumbnailUrl) {
+      const src = ctx.layer.thumbnailUrl;
+      if (src.startsWith('data:')) {
+        try {
+          exportImages[key] = base64ToUint8ArrayFast(src);
+        } catch (e) {}
+      } else if (src.startsWith('blob:')) {
+        try {
+          const res = await fetch(src);
+          const ab = await res.arrayBuffer();
+          exportImages[key] = new Uint8Array(ab);
+        } catch (e) {}
+      }
+    }
+  }
+
   exportMovie.images = exportImages;
 
   const newSprites: any[] = [];
-
-  const exportContexts = buildExportContexts(layers);
   const spritesToExport = [...exportContexts].reverse();
 
   for (const ctx of spritesToExport) {
@@ -163,6 +182,20 @@ export async function exportEditedSvga(
           height: initialBounds.height 
         }
       }));
+    } else if (spriteClone.frames.length < project.totalFrames) {
+      // Loop or extend frames to ensure complete playback for repeated layers across full duration
+      const origLen = spriteClone.frames.length;
+      const expanded: any[] = [];
+      for (let f = 0; f < project.totalFrames; f++) {
+        if (f < origLen) {
+          expanded.push(spriteClone.frames[f]);
+        } else if (origLen === 1) {
+          expanded.push(JSON.parse(JSON.stringify(spriteClone.frames[0])));
+        } else if (origLen > 0) {
+          expanded.push(JSON.parse(JSON.stringify(spriteClone.frames[f % origLen])));
+        }
+      }
+      spriteClone.frames = expanded;
     }
 
     if (spriteClone.frames && Array.isArray(spriteClone.frames)) {

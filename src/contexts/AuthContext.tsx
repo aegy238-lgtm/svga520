@@ -17,7 +17,9 @@ import { getActiveClientVersion, DEFAULT_ALLOWED_VERSION } from '../utils/versio
 const getDeviceId = () => {
   let id = localStorage.getItem('deviceId');
   if (!id) {
-    id = crypto.randomUUID();
+    id = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+      ? crypto.randomUUID()
+      : `dev-${Date.now()}-${Math.random().toString(36).substring(2)}`;
     localStorage.setItem('deviceId', id);
   }
   return id;

@@ -134,6 +134,16 @@ export async function parseSvgaToProject(file: File): Promise<{
   const rawSprites = movie.sprites || [];
   const sprites = [...rawSprites].reverse();
 
+  // Count identical imageKeys to identify repeated layers/sequences in SVGA 2.0
+  const imageKeyCounts: Record<string, number> = {};
+  sprites.forEach((s: any) => {
+    const k = s.imageKey || '';
+    if (k) {
+      imageKeyCounts[k] = (imageKeyCounts[k] || 0) + 1;
+    }
+  });
+  const imageKeyIndexTracker: Record<string, number> = {};
+
   sprites.forEach((sprite: any, idx: number) => {
     const originalIndex = rawSprites.length - 1 - idx;
     const imageKey = sprite.imageKey || `layer_${originalIndex}`;
@@ -257,7 +267,15 @@ export async function parseSvgaToProject(file: File): Promise<{
       layerType = 'composite';
     }
 
-    const layerName = sprite.imageKey ? sprite.imageKey : `Layer_${idx + 1}`;
+    const totalWithSameKey = sprite.imageKey ? (imageKeyCounts[sprite.imageKey] || 1) : 1;
+    let sequenceIndex = 1;
+    if (sprite.imageKey && totalWithSameKey > 1) {
+      imageKeyIndexTracker[sprite.imageKey] = (imageKeyIndexTracker[sprite.imageKey] || 0) + 1;
+      sequenceIndex = imageKeyIndexTracker[sprite.imageKey];
+    }
+
+    const baseName = sprite.imageKey ? sprite.imageKey : `Layer_${idx + 1}`;
+    const layerName = totalWithSameKey > 1 ? `${baseName} [${sequenceIndex}/${totalWithSameKey}]` : baseName;
 
     layers.push({
       id: `layer_${originalIndex}_${imageKey}`,
@@ -268,6 +286,8 @@ export async function parseSvgaToProject(file: File): Promise<{
       visible: true,
       locked: false,
       thumbnailUrl: imagesMap[imageKey] || undefined,
+      inFrame: startFrame,
+      outFrame: endFrame,
       transform: {
         x: initialX,
         y: initialY,
@@ -313,7 +333,7 @@ export async function parseSvgaToProject(file: File): Promise<{
         hasTransform,
         hasAnyExplicitAlpha,
         activeFrames: activeFrames.length > 0 ? activeFrames : undefined,
-        isSequenceOrRepeated: activeFrames.length > 0 && activeFrames.length < frames.length
+        isSequenceOrRepeated: totalWithSameKey > 1 || (activeFrames.length > 0 && activeFrames.length < frames.length)
       }
     });
   });

@@ -262,6 +262,10 @@ export const LanguageTranslatorWidget: React.FC<LanguageTranslatorWidgetProps> =
       script.id = 'google-translate-script';
       script.src = 'https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit';
       script.async = true;
+      script.crossOrigin = 'anonymous';
+      script.onerror = () => {
+        // Silently ignore if blocked or unavailable
+      };
       document.body.appendChild(script);
 
       window.googleTranslateElementInit = () => {
