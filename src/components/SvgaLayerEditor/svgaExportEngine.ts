@@ -141,6 +141,11 @@ export async function exportEditedSvga(
     spriteClone.imageKey = layer.imageKey;
     if (layer.matteKey) {
       spriteClone.matteKey = layer.matteKey;
+    } else {
+      delete spriteClone.matteKey;
+    }
+    if (layer.blendMode) {
+      spriteClone.blendMode = layer.blendMode;
     }
 
     const initialBounds = layer.initialBounds || { x: 0, y: 0, width: 100, height: 100 };
@@ -169,8 +174,8 @@ export async function exportEditedSvga(
         let globalAlphaMul = 1;
 
         // Start with the layer's own animated transform
-        const inFrame = layer.inFrame !== undefined ? layer.inFrame : 0;
-        const outFrame = layer.outFrame !== undefined ? layer.outFrame : project.totalFrames - 1;
+        const inFrame = layer.inFrame !== undefined ? layer.inFrame : (layer.keyframeSummary?.startFrame ?? 0);
+        const outFrame = layer.outFrame !== undefined ? layer.outFrame : (layer.keyframeSummary?.endFrame ?? (project.totalFrames - 1));
         if (frameIdx < inFrame || frameIdx > outFrame) {
           globalAlphaMul = 0;
         }
@@ -273,6 +278,10 @@ export async function exportEditedSvga(
             tx: parseFloat(newTx.toFixed(2)),
             ty: parseFloat(newTy.toFixed(2))
           };
+        }
+
+        if (layer.blendMode && !newFrame.blendMode) {
+          newFrame.blendMode = layer.blendMode;
         }
 
         return newFrame;

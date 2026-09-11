@@ -13,6 +13,7 @@ message SpriteEntity {
     string imageKey = 1;
     repeated FrameEntity frames = 2;
     string matteKey = 3;
+    string blendMode = 4;
 }
 
 message AudioEntity {
@@ -94,6 +95,7 @@ message FrameEntity {
     Transform transform = 3;
     string clipPath = 4;
     repeated ShapeEntity shapes = 5;
+    string blendMode = 6;
 }
 
 message MovieEntity {

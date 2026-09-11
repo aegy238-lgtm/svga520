@@ -100,10 +100,15 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
 
   // Check if a layer is active at current frame
   const isLayerActiveAtFrame = (layer: EditableLayer): boolean => {
+    const maxFrames = layer.framesCount || layer.spriteRef?.frames?.length || 9999;
+    const startF = layer.inFrame !== undefined ? layer.inFrame : (layer.keyframeSummary?.startFrame ?? 0);
+    const endF = layer.outFrame !== undefined ? layer.outFrame : (layer.keyframeSummary?.endFrame ?? (maxFrames - 1));
+    if (currentFrame < startF || currentFrame > endF) return false;
+
     const frames = layer.spriteRef?.frames;
     if (!frames || !frames[currentFrame]) return false;
     const frame = frames[currentFrame];
-    const hasAnyExplicitAlpha = frames.some((fr: any) => fr && fr.alpha !== undefined && fr.alpha > 0.005);
+    const hasAnyExplicitAlpha = layer.keyframeSummary?.hasAnyExplicitAlpha ?? frames.some((fr: any) => fr && fr.alpha !== undefined && fr.alpha > 0.005);
     if (hasAnyExplicitAlpha) {
       return frame.alpha !== undefined && frame.alpha > 0.005;
     }

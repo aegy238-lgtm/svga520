@@ -43,19 +43,17 @@ export function createImageLayer(
   const maxW = Math.max(10, projectWidth);
   const maxH = Math.max(10, projectHeight);
 
-  // If the image exceeds canvas size, scale it to fit within project bounds while preserving aspect ratio.
-  // If it's already within canvas boundaries, keep its natural size.
-  let scale = 1;
-  if (imgWidth > maxW || imgHeight > maxH) {
-    scale = Math.min(maxW / (imgWidth || 1), maxH / (imgHeight || 1));
-  }
+  // Auto-scale new layer to fit project dimensions cleanly
+  // If the image is larger or different, scale it to match the project dimensions
+  const scaleX = maxW / (imgWidth || 1);
+  const scaleY = maxH / (imgHeight || 1);
+  const scaleFit = Math.min(scaleX, scaleY);
 
-  const w = Math.max(1, Math.round(imgWidth * scale));
-  const h = Math.max(1, Math.round(imgHeight * scale));
-
-  // Center layer precisely within the project canvas
-  const x = Math.round((projectWidth - w) / 2);
-  const y = Math.round((projectHeight - h) / 2);
+  // Use project dimensions for full layer bounds
+  const w = maxW;
+  const h = maxH;
+  const x = 0;
+  const y = 0;
 
   // Generate FrameEntity array for all project frames
   const frames: any[] = [];
@@ -64,7 +62,7 @@ export function createImageLayer(
     frames.push({
       alpha: isVisible ? 1.0 : 0.0,
       layout: { x: 0, y: 0, width: imgWidth, height: imgHeight },
-      transform: { a: scale, b: 0, c: 0, d: scale, tx: x, ty: y }
+      transform: { a: scaleX, b: 0, c: 0, d: scaleY, tx: 0, ty: 0 }
     });
   }
 

@@ -72,6 +72,8 @@ export interface EditableLayer {
   // Associated sprite data
   spriteRef: any;
   matteKey?: string;
+  blendMode?: string;
+  isMatteMask?: boolean;
   framesCount: number;
   keyframeSummary: SVGAKeyframeSummary;
 

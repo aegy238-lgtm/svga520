@@ -67,11 +67,13 @@ export async function mergeSvgaFileIntoProject(
 
   let scaleFactor = mergedOptions.customScale || 1.0;
   if (mergedOptions.scaleMode === 'fit') {
-    if (inW > curW || inH > curH) {
-      scaleFactor = Math.min((curW * 0.85) / inW, (curH * 0.85) / inH);
+    if (inW === curW && inH === curH) {
+      scaleFactor = 1.0;
     } else {
-      scaleFactor = Math.min(curW / inW, curH / inH, 1.0);
+      scaleFactor = Math.min(curW / inW, curH / inH);
     }
+  } else if (mergedOptions.scaleMode === 'original') {
+    scaleFactor = 1.0;
   }
 
   const scaledW = inW * scaleFactor;
@@ -85,81 +87,171 @@ export async function mergeSvgaFileIntoProject(
     offsetY = (curH - scaledH) / 2;
   } else if (mergedOptions.placement === 'top') {
     offsetX = (curW - scaledW) / 2;
-    offsetY = curH * 0.05;
+    offsetY = 0;
   } else if (mergedOptions.placement === 'bottom') {
     offsetX = (curW - scaledW) / 2;
-    offsetY = curH - scaledH - curH * 0.05;
+    offsetY = curH - scaledH;
   }
 
-  // 5. Adapt timeline frames & sprite entities
+  // 5. Adapt timeline frames & sprite entities with 100% motion and placement fidelity
   const curTotalFrames = currentProject.totalFrames || 60;
   const inTotalFrames = incomingProject.totalFrames || 30;
 
+  // Build a strict mapping for matteKey references
+  // In SVGA, matteKey can be an imageKey, a layer originalIndex, a name, or id.
+  const layerKeyMap = new Map<string, string>();
+  incomingLayers.forEach((layer, idx) => {
+    const namespacedImageKey = keyTranslation[layer.imageKey] || `${prefix}${layer.imageKey || `layer_${idx}`}`;
+    if (layer.imageKey) layerKeyMap.set(layer.imageKey, namespacedImageKey);
+    if (layer.name) layerKeyMap.set(layer.name, namespacedImageKey);
+    if (layer.id) layerKeyMap.set(layer.id, namespacedImageKey);
+    layerKeyMap.set(String(layer.originalIndex), namespacedImageKey);
+    layerKeyMap.set(String(idx), namespacedImageKey);
+    if (layer.spriteRef?.imageKey) layerKeyMap.set(layer.spriteRef.imageKey, namespacedImageKey);
+  });
+
+  const incomingMatteKeysSet = new Set<string>();
+  incomingLayers.forEach(l => {
+    if (l.matteKey) incomingMatteKeysSet.add(String(l.matteKey).trim());
+  });
+
   const transformedImportedLayers: EditableLayer[] = incomingLayers.map((layer, idx) => {
-    const namespacedImageKey = keyTranslation[layer.imageKey] || `${prefix}${layer.imageKey}`;
-    const namespacedMatteKey = layer.matteKey ? (keyTranslation[layer.matteKey] || `${prefix}${layer.matteKey}`) : undefined;
+    const namespacedImageKey = keyTranslation[layer.imageKey] || `${prefix}${layer.imageKey || `layer_${idx}`}`;
+    
+    // Resolve precise namespaced matteKey pointing to the actual mask layer's namespaced key
+    let namespacedMatteKey: string | undefined = undefined;
+    if (layer.matteKey) {
+      const rawMatte = String(layer.matteKey).trim();
+      namespacedMatteKey = layerKeyMap.get(rawMatte) || keyTranslation[rawMatte] || `${prefix}${rawMatte}`;
+    }
+
+    const isThisLayerMask = 
+      Boolean(layer.isMatteMask) ||
+      incomingMatteKeysSet.has(layer.imageKey) ||
+      incomingMatteKeysSet.has(layer.name) ||
+      incomingMatteKeysSet.has(layer.id) ||
+      incomingMatteKeysSet.has(String(layer.originalIndex)) ||
+      incomingMatteKeysSet.has(String(idx)) ||
+      Boolean(layer.spriteRef && incomingMatteKeysSet.has(layer.spriteRef.imageKey));
+
+    const effectiveBlendMode = layer.blendMode || layer.spriteRef?.blendMode;
 
     // Clone and adapt frames to match current project frame duration
     const originalFrames = layer.spriteRef?.frames || [];
     const adaptedFrames: any[] = [];
 
+    // Calculate source layer appearance window
+    const origStart = layer.inFrame !== undefined ? layer.inFrame : (layer.keyframeSummary?.startFrame ?? 0);
+    const origEnd = layer.outFrame !== undefined ? layer.outFrame : (layer.keyframeSummary?.endFrame ?? (inTotalFrames - 1));
+
     for (let f = 0; f < curTotalFrames; f++) {
-      let sourceFrame: any;
-      if (mergedOptions.loopFrames) {
-        sourceFrame = originalFrames[f % inTotalFrames] || originalFrames[0] || {};
-      } else {
-        sourceFrame = f < inTotalFrames ? originalFrames[f] : null;
+      let sourceFrame: any = null;
+      if (f < inTotalFrames) {
+        sourceFrame = originalFrames[f] || null;
+      } else if (mergedOptions.loopFrames && inTotalFrames > 0) {
+        sourceFrame = originalFrames[f % inTotalFrames] || null;
       }
 
       if (sourceFrame) {
-        adaptedFrames.push(JSON.parse(JSON.stringify(sourceFrame)));
+        const frameClone = JSON.parse(JSON.stringify(sourceFrame));
+
+        // Pre-multiply canvas placement matrix directly into frame native transform
+        // This guarantees that relative coordinates of all layers remain 100% pixel-perfect!
+        const origT = frameClone.transform || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+        const fA = origT.a !== undefined ? origT.a : 1;
+        const fB = origT.b !== undefined ? origT.b : 0;
+        const fC = origT.c !== undefined ? origT.c : 0;
+        const fD = origT.d !== undefined ? origT.d : 1;
+        const fTx = origT.tx !== undefined ? origT.tx : 0;
+        const fTy = origT.ty !== undefined ? origT.ty : 0;
+
+        frameClone.transform = {
+          a: parseFloat((fA * scaleFactor).toFixed(5)),
+          b: parseFloat((fB * scaleFactor).toFixed(5)),
+          c: parseFloat((fC * scaleFactor).toFixed(5)),
+          d: parseFloat((fD * scaleFactor).toFixed(5)),
+          tx: parseFloat((fTx * scaleFactor + offsetX).toFixed(2)),
+          ty: parseFloat((fTy * scaleFactor + offsetY).toFixed(2))
+        };
+
+        // Maintain layout in local space without double-scaling or double-translating
+        if (frameClone.layout) {
+          frameClone.layout = {
+            x: frameClone.layout.x ?? 0,
+            y: frameClone.layout.y ?? 0,
+            width: frameClone.layout.width ?? 0,
+            height: frameClone.layout.height ?? 0
+          };
+        }
+
+        if (effectiveBlendMode && !frameClone.blendMode) {
+          frameClone.blendMode = effectiveBlendMode;
+        }
+
+        adaptedFrames.push(frameClone);
       } else {
-        // Frame outside active range -> alpha = 0
+        // Inactive frame outside duration
         adaptedFrames.push({
           alpha: 0,
-          layout: { x: 0, y: 0, width: layer.initialBounds.width, height: layer.initialBounds.height },
-          transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
+          layout: { 
+            x: layer.initialBounds?.x ?? 0, 
+            y: layer.initialBounds?.y ?? 0, 
+            width: layer.initialBounds?.width ?? 0, 
+            height: layer.initialBounds?.height ?? 0 
+          },
+          transform: { 
+            a: parseFloat(scaleFactor.toFixed(5)), 
+            b: 0, 
+            c: 0, 
+            d: parseFloat(scaleFactor.toFixed(5)), 
+            tx: parseFloat(offsetX.toFixed(2)), 
+            ty: parseFloat(offsetY.toFixed(2)) 
+          }
         });
       }
     }
 
-    // Apply scaling and offsets to the layer transform
-    const newX = Number((layer.transform.x * scaleFactor + offsetX).toFixed(2));
-    const newY = Number((layer.transform.y * scaleFactor + offsetY).toFixed(2));
-    const newW = Number((layer.transform.width * scaleFactor).toFixed(2));
-    const newH = Number((layer.transform.height * scaleFactor).toFixed(2));
-    const newScaleX = Number((layer.transform.scaleX * scaleFactor).toFixed(4));
-    const newScaleY = Number((layer.transform.scaleY * scaleFactor).toFixed(4));
-
+    // Scaled initial bounds for bounding box and selection overlay
     const newInitialX = Number((layer.initialBounds.x * scaleFactor + offsetX).toFixed(2));
     const newInitialY = Number((layer.initialBounds.y * scaleFactor + offsetY).toFixed(2));
     const newInitialW = Number((layer.initialBounds.width * scaleFactor).toFixed(2));
     const newInitialH = Number((layer.initialBounds.height * scaleFactor).toFixed(2));
 
     const clonedSpriteRef = {
+      ...layer.spriteRef,
       imageKey: namespacedImageKey,
       matteKey: namespacedMatteKey,
-      frames: adaptedFrames
+      blendMode: effectiveBlendMode,
+      frames: adaptedFrames,
+      _hasExplicitAlpha: layer.keyframeSummary?.hasAnyExplicitAlpha
     };
+
+    // Calculate final in/out frames
+    const finalInFrame = curTotalFrames === inTotalFrames ? origStart : (mergedOptions.loopFrames ? 0 : origStart);
+    const finalOutFrame = curTotalFrames === inTotalFrames ? origEnd : (mergedOptions.loopFrames ? (curTotalFrames - 1) : Math.min(origEnd, curTotalFrames - 1));
 
     return {
       ...layer,
       id: `mrg_${timestamp}_${idx}_${randKey}`,
       originalIndex: currentLayers.length + idx,
       imageKey: namespacedImageKey,
+      matteKey: namespacedMatteKey,
+      isMatteMask: isThisLayerMask,
+      blendMode: effectiveBlendMode,
       name: `${layer.name} (${importedGroupName})`,
       thumbnailUrl: updatedImagesMap[namespacedImageKey] || layer.thumbnailUrl,
       groupId: importedGroupId,
       groupName: importedGroupName,
       locked: false,
       transform: {
-        ...layer.transform,
-        x: newX,
-        y: newY,
-        width: newW,
-        height: newH,
-        scaleX: newScaleX,
-        scaleY: newScaleY
+        x: newInitialX,
+        y: newInitialY,
+        width: newInitialW,
+        height: newInitialH,
+        scaleX: 1, // Normalized to 1 so mUser is identity and frames hold exact coordinates
+        scaleY: 1,
+        rotation: 0,
+        opacity: 100
       },
       initialBounds: {
         x: newInitialX,
@@ -167,16 +259,34 @@ export async function mergeSvgaFileIntoProject(
         width: newInitialW,
         height: newInitialH
       },
+      originalInitialBounds: {
+        x: newInitialX,
+        y: newInitialY,
+        width: newInitialW,
+        height: newInitialH
+      },
+      originalTransform: {
+        x: newInitialX,
+        y: newInitialY,
+        width: newInitialW,
+        height: newInitialH,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        opacity: 100
+      },
+      originalSpriteFrames: JSON.parse(JSON.stringify(adaptedFrames)),
       spriteRef: clonedSpriteRef,
       framesCount: curTotalFrames,
-      inFrame: 0,
-      outFrame: curTotalFrames - 1,
-      trackColor: '#ef4444', // Red track bar color for merged/added files
+      inFrame: finalInFrame,
+      outFrame: finalOutFrame,
+      trackColor: '#ef4444', // Distinct timeline bar color for merged/added files
       keyframeSummary: {
-        startFrame: 0,
-        endFrame: curTotalFrames - 1,
+        startFrame: finalInFrame,
+        endFrame: finalOutFrame,
         hasShapes: layer.keyframeSummary?.hasShapes || false,
-        hasTransform: true
+        hasTransform: true,
+        hasAnyExplicitAlpha: layer.keyframeSummary?.hasAnyExplicitAlpha
       }
     };
   });
@@ -191,6 +301,24 @@ export async function mergeSvgaFileIntoProject(
   const updatedLayers = mergedOptions.layerPosition === 'top'
     ? [...transformedImportedLayers, ...currentLayers]
     : [...currentLayers, ...transformedImportedLayers];
+
+  // Re-verify and enforce isMatteMask for all layers in updatedLayers
+  const allMatteKeys = new Set<string>();
+  updatedLayers.forEach(l => {
+    if (l.matteKey) allMatteKeys.add(String(l.matteKey).trim());
+  });
+  updatedLayers.forEach(l => {
+    if (
+      allMatteKeys.has(l.imageKey) ||
+      allMatteKeys.has(l.name) ||
+      allMatteKeys.has(l.id) ||
+      allMatteKeys.has(String(l.originalIndex)) ||
+      (l.spriteRef && allMatteKeys.has(l.spriteRef.imageKey)) ||
+      Array.from(allMatteKeys).some(k => l.imageKey && (l.imageKey.endsWith(`_${k}`) || k.endsWith(`_${l.imageKey}`)))
+    ) {
+      l.isMatteMask = true;
+    }
+  });
 
   return {
     updatedProject,

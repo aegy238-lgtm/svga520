@@ -184,22 +184,43 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     }
   }, [initialFile, loadSvgaFile]);
 
-  // Animation Frame Playback Loop
+  // Smooth Animation Frame Playback Loop using requestAnimationFrame
   useEffect(() => {
     if (!isPlaying || !project || project.totalFrames <= 1) return;
 
-    const interval = setInterval(() => {
-      setCurrentFrame(prev => {
-        if (prev >= project.totalFrames - 1) {
-          if (isLoop) return 0;
-          setIsPlaying(false);
-          return prev;
-        }
-        return prev + 1;
-      });
-    }, 1000 / (project.fps || 30));
+    let animId: number;
+    let lastTime = performance.now();
+    const frameDuration = 1000 / (project.fps || 30);
+    let accumulatedTime = 0;
 
-    return () => clearInterval(interval);
+    const loop = (currentTime: number) => {
+      const delta = currentTime - lastTime;
+      lastTime = currentTime;
+      accumulatedTime += delta;
+
+      if (accumulatedTime >= frameDuration) {
+        const framesToAdvance = Math.floor(accumulatedTime / frameDuration);
+        accumulatedTime %= frameDuration;
+
+        setCurrentFrame(prev => {
+          const next = prev + framesToAdvance;
+          if (next >= project.totalFrames) {
+            if (isLoop) {
+              return next % project.totalFrames;
+            } else {
+              setIsPlaying(false);
+              return project.totalFrames - 1;
+            }
+          }
+          return next;
+        });
+      }
+
+      animId = requestAnimationFrame(loop);
+    };
+
+    animId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(animId);
   }, [isPlaying, project, isLoop]);
 
   // Auto-dismiss toast
@@ -746,11 +767,22 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const handleReplaceAsset = useCallback(async (file: File) => {
     if (!selectedLayerId || !project) return;
     try {
-      const { dataUrl, bytes } = await fileToImageBuffer(file);
+      const { dataUrl, bytes, width: newWidth, height: newHeight } = await fileToImageBuffer(file);
       const layer = layers.find(l => l.id === selectedLayerId);
       if (!layer) return;
 
       const imgKey = layer.imageKey;
+
+      // Determine previous base layout / frame dimensions
+      const prevLayoutW = layer.spriteRef?.frames?.[0]?.layout?.width || layer.initialBounds?.width || layer.transform?.width || newWidth;
+      const prevLayoutH = layer.spriteRef?.frames?.[0]?.layout?.height || layer.initialBounds?.height || layer.transform?.height || newHeight;
+
+      // Calculate scale compensation factor to automatically adopt and maintain original layer dimensions
+      const scaleRatioX = (newWidth > 0 && prevLayoutW > 0) ? (prevLayoutW / newWidth) : 1;
+      const scaleRatioY = (newHeight > 0 && prevLayoutH > 0) ? (prevLayoutH / newHeight) : 1;
+
+      const targetW = layer.transform.width;
+      const targetH = layer.transform.height;
 
       // Update in project imagesMap and rawImages (ensures both canvas preview and SVGA binary export update immediately)
       setProject(prev => {
@@ -768,13 +800,53 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         };
       });
 
-      // Update layer thumbnail
+      // Update layer thumbnail, dimensions, and sprite frames
       setLayers(prev => {
         const updated = prev.map(l => {
           if (l.id === selectedLayerId || l.imageKey === imgKey) {
+            let updatedSpriteRef = l.spriteRef;
+            if (l.spriteRef && l.spriteRef.frames) {
+              const updatedFrames = l.spriteRef.frames.map((fr: any) => {
+                if (!fr) return fr;
+                const t = fr.transform || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+                return {
+                  ...fr,
+                  layout: {
+                    ...(fr.layout || {}),
+                    width: newWidth,
+                    height: newHeight
+                  },
+                  transform: {
+                    ...t,
+                    a: (t.a ?? 1) * scaleRatioX,
+                    b: (t.b ?? 0) * scaleRatioY,
+                    c: (t.c ?? 0) * scaleRatioX,
+                    d: (t.d ?? 1) * scaleRatioY,
+                    tx: t.tx ?? 0,
+                    ty: t.ty ?? 0
+                  }
+                };
+              });
+              updatedSpriteRef = {
+                ...l.spriteRef,
+                frames: updatedFrames
+              };
+            }
+
             return {
               ...l,
-              thumbnailUrl: dataUrl
+              thumbnailUrl: dataUrl,
+              spriteRef: updatedSpriteRef,
+              transform: {
+                ...l.transform,
+                width: targetW,
+                height: targetH
+              },
+              initialBounds: {
+                ...l.initialBounds,
+                width: targetW,
+                height: targetH
+              }
             };
           }
           return l;
@@ -783,7 +855,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         return updated;
       });
 
-      setSuccessToast(`تم استبدال صورة الطبقة بنجاح وتحديثها فورياً: ${layer.name}`);
+      setSuccessToast(`تم استبدال صورة الطبقة ومطابقة مقاسها تلقائياً مع الطبقة الأصلية (${targetW}×${targetH}): ${layer.name}`);
     } catch (err: any) {
       console.error('Failed to replace image asset:', err);
     }

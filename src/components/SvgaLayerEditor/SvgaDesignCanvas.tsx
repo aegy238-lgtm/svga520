@@ -65,12 +65,194 @@ function transformPoint(m: [number, number, number, number, number, number], x: 
   };
 }
 
+// Helper to parse color channels safely (supports 0..1 floats and 0..255 ints)
+function parseColorChan(v: any): number {
+  const n = parseFloat(v) || 0;
+  return n > 1 ? Math.min(255, Math.max(0, Math.round(n))) : Math.min(255, Math.max(0, Math.round(n * 255)));
+}
+
+// Helper to map SVGA / AE blend modes to canvas globalCompositeOperation
+function mapBlendMode(raw: any): GlobalCompositeOperation | null {
+  if (!raw) return null;
+  const s = String(raw).toLowerCase().trim();
+  switch (s) {
+    case 'screen':
+    case '2':
+      return 'screen';
+    case 'add':
+    case 'lighter':
+    case 'plus':
+    case 'plus-lighter':
+    case 'linear-dodge':
+    case '16':
+      return 'lighter';
+    case 'multiply':
+    case '1':
+      return 'multiply';
+    case 'overlay':
+    case '3':
+      return 'overlay';
+    case 'darken':
+    case '4':
+      return 'darken';
+    case 'lighten':
+    case '5':
+      return 'lighten';
+    case 'color-dodge':
+    case '6':
+      return 'color-dodge';
+    case 'color-burn':
+    case '7':
+      return 'color-burn';
+    case 'hard-light':
+    case '8':
+      return 'hard-light';
+    case 'soft-light':
+    case '9':
+      return 'soft-light';
+    case 'difference':
+    case '10':
+      return 'difference';
+    case 'exclusion':
+    case '11':
+      return 'exclusion';
+    case 'hue':
+    case '12':
+      return 'hue';
+    case 'saturation':
+    case '13':
+      return 'saturation';
+    case 'color':
+    case '14':
+      return 'color';
+    case 'luminosity':
+    case '15':
+      return 'luminosity';
+    default:
+      return null;
+  }
+}
+
+// Robust SVG path parser matching SVGA 2.0 standards
+function applySvgPathToContext(ctx: CanvasRenderingContext2D, pathStr: string): boolean {
+  if (!pathStr || typeof pathStr !== 'string') return false;
+  const str = pathStr.trim();
+  if (!str) return false;
+
+  // 1. Try native Path2D first
+  try {
+    const p = new Path2D(str);
+    ctx.clip(p);
+    return true;
+  } catch (e) {
+    // Fallback to manual parser below
+  }
+
+  // 2. Parser fallback for concatenated/comma numbers in SVGA
+  try {
+    ctx.beginPath();
+    const segments = str
+      .replace(/([a-zA-Z])/g, '|||$1 ')
+      .replace(/,/g, ' ')
+      .split('|||');
+
+    let curX = 0;
+    let curY = 0;
+
+    for (const seg of segments) {
+      if (!seg) continue;
+      const trimmed = seg.trim();
+      if (!trimmed) continue;
+      const cmd = trimmed.charAt(0);
+      const args = trimmed.slice(1).trim().split(/\s+/).map(Number).filter(n => !isNaN(n));
+
+      switch (cmd) {
+        case 'M':
+          curX = args[0] || 0;
+          curY = args[1] || 0;
+          ctx.moveTo(curX, curY);
+          break;
+        case 'm':
+          curX += args[0] || 0;
+          curY += args[1] || 0;
+          ctx.moveTo(curX, curY);
+          break;
+        case 'L':
+          curX = args[0] || 0;
+          curY = args[1] || 0;
+          ctx.lineTo(curX, curY);
+          break;
+        case 'l':
+          curX += args[0] || 0;
+          curY += args[1] || 0;
+          ctx.lineTo(curX, curY);
+          break;
+        case 'H':
+          curX = args[0] || 0;
+          ctx.lineTo(curX, curY);
+          break;
+        case 'h':
+          curX += args[0] || 0;
+          ctx.lineTo(curX, curY);
+          break;
+        case 'V':
+          curY = args[0] || 0;
+          ctx.lineTo(curX, curY);
+          break;
+        case 'v':
+          curY += args[0] || 0;
+          ctx.lineTo(curX, curY);
+          break;
+        case 'C':
+          ctx.bezierCurveTo(args[0] || 0, args[1] || 0, args[2] || 0, args[3] || 0, args[4] || 0, args[5] || 0);
+          curX = args[4] || 0;
+          curY = args[5] || 0;
+          break;
+        case 'c':
+          ctx.bezierCurveTo(curX + (args[0] || 0), curY + (args[1] || 0), curX + (args[2] || 0), curY + (args[3] || 0), curX + (args[4] || 0), curY + (args[5] || 0));
+          curX += args[4] || 0;
+          curY += args[5] || 0;
+          break;
+        case 'S':
+          ctx.bezierCurveTo(curX, curY, args[0] || 0, args[1] || 0, args[2] || 0, args[3] || 0);
+          curX = args[2] || 0;
+          curY = args[3] || 0;
+          break;
+        case 's':
+          ctx.bezierCurveTo(curX, curY, curX + (args[0] || 0), curY + (args[1] || 0), curX + (args[2] || 0), curY + (args[3] || 0));
+          curX += args[2] || 0;
+          curY += args[3] || 0;
+          break;
+        case 'Q':
+          ctx.quadraticCurveTo(args[0] || 0, args[1] || 0, args[2] || 0, args[3] || 0);
+          curX = args[2] || 0;
+          curY = args[3] || 0;
+          break;
+        case 'q':
+          ctx.quadraticCurveTo(curX + (args[0] || 0), curY + (args[1] || 0), curX + (args[2] || 0), curY + (args[3] || 0));
+          curX += args[2] || 0;
+          curY += args[3] || 0;
+          break;
+        case 'Z':
+        case 'z':
+          ctx.closePath();
+          break;
+      }
+    }
+    ctx.clip();
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
 // Helper to render SVGA vector shapes if present
 function renderSvgaShapes(ctx: CanvasRenderingContext2D, shapes: any[]) {
   if (!shapes || !Array.isArray(shapes)) return;
 
   for (const shape of shapes) {
     if (!shape) continue;
+    if (shape.type === 3 || shape.type === 'keep') continue;
     ctx.save();
 
     if (shape.transform) {
@@ -81,37 +263,51 @@ function renderSvgaShapes(ctx: CanvasRenderingContext2D, shapes: any[]) {
     const styles = shape.styles || {};
     if (styles.fill) {
       const { r = 0, g = 0, b = 0, a = 1 } = styles.fill;
-      ctx.fillStyle = `rgba(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, ${a})`;
+      const alpha = typeof a === 'number' ? Math.max(0, Math.min(1, a)) : 1;
+      ctx.fillStyle = `rgba(${parseColorChan(r)}, ${parseColorChan(g)}, ${parseColorChan(b)}, ${alpha})`;
     }
     if (styles.stroke) {
       const { r = 0, g = 0, b = 0, a = 1 } = styles.stroke;
-      ctx.strokeStyle = `rgba(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, ${a})`;
+      const alpha = typeof a === 'number' ? Math.max(0, Math.min(1, a)) : 1;
+      ctx.strokeStyle = `rgba(${parseColorChan(r)}, ${parseColorChan(g)}, ${parseColorChan(b)}, ${alpha})`;
       ctx.lineWidth = styles.strokeWidth || 1;
       if (styles.lineCap) ctx.lineCap = styles.lineCap.toLowerCase();
       if (styles.lineJoin) ctx.lineJoin = styles.lineJoin.toLowerCase();
+      if (styles.miterLimit) ctx.miterLimit = styles.miterLimit;
+      if (styles.lineDash && Array.isArray(styles.lineDash)) {
+        try { ctx.setLineDash(styles.lineDash); } catch (e) {}
+      }
     }
 
-    if (shape.shape && shape.shape.d) {
+    const pathD = shape.shape?.d || shape.args?.d || shape.pathArgs?.d;
+    if (pathD) {
       try {
-        const p = new Path2D(shape.shape.d);
+        const p = new Path2D(pathD);
         if (styles.fill) ctx.fill(p);
         if (styles.stroke) ctx.stroke(p);
-      } catch (e) {}
-    } else if (shape.rect) {
-      const { x = 0, y = 0, width = 0, height = 0, rx = 0 } = shape.rect;
-      if (rx > 0 && ctx.roundRect) {
+      } catch (e) {
+        applySvgPathToContext(ctx, pathD);
+        if (styles.fill) ctx.fill();
+        if (styles.stroke) ctx.stroke();
+      }
+    } else if (shape.rect || (shape.type === 1 && shape.args)) {
+      const rObj = shape.rect || shape.args || {};
+      const { x = 0, y = 0, width = 0, height = 0, cornerRadius = 0, rx = 0 } = rObj;
+      const radius = cornerRadius || rx || 0;
+      if (radius > 0 && ctx.roundRect) {
         ctx.beginPath();
-        ctx.roundRect(x, y, width, height, rx);
+        ctx.roundRect(x, y, width, height, radius);
         if (styles.fill) ctx.fill();
         if (styles.stroke) ctx.stroke();
       } else {
         if (styles.fill) ctx.fillRect(x, y, width, height);
         if (styles.stroke) ctx.strokeRect(x, y, width, height);
       }
-    } else if (shape.ellipse) {
-      const { x = 0, y = 0, radiusX = 0, radiusY = 0 } = shape.ellipse;
+    } else if (shape.ellipse || (shape.type === 2 && shape.args)) {
+      const eObj = shape.ellipse || shape.args || {};
+      const { x = 0, y = 0, radiusX = 0, radiusY = 0 } = eObj;
       ctx.beginPath();
-      ctx.ellipse(x, y, radiusX, radiusY, 0, 0, Math.PI * 2);
+      ctx.ellipse(x, y, Math.max(0.1, radiusX), Math.max(0.1, radiusY), 0, 0, Math.PI * 2);
       if (styles.fill) ctx.fill();
       if (styles.stroke) ctx.stroke();
     }
@@ -143,6 +339,8 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const patternCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const imagesCache = useRef<Record<string, HTMLImageElement>>({});
 
   // Project Dimensions Controls State
@@ -251,11 +449,11 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
   // Helper to determine if a layer's frame is visible/active at given frameIndex
   const getLayerFrameState = useCallback((layer: EditableLayer, frameIdx: number) => {
-    // Check if layer has custom in/out duration span
-    if (layer.inFrame !== undefined && frameIdx < layer.inFrame) {
-      return { isActive: false, frame: null, alpha: 0 };
-    }
-    if (layer.outFrame !== undefined && frameIdx > layer.outFrame) {
+    // Check if layer has custom in/out duration span or keyframeSummary bounds
+    const startF = layer.inFrame !== undefined ? layer.inFrame : (layer.keyframeSummary?.startFrame ?? 0);
+    const endF = layer.outFrame !== undefined ? layer.outFrame : (layer.keyframeSummary?.endFrame ?? (project.totalFrames - 1));
+
+    if (frameIdx < startF || frameIdx > endF) {
       return { isActive: false, frame: null, alpha: 0 };
     }
 
@@ -399,18 +597,29 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
     ctx.clearRect(0, 0, width, height);
 
-    // 1. Draw Checkerboard background if transparent
+    // 1. Draw Checkerboard background if transparent (high-performance cached pattern)
     if (bgColor === 'transparent') {
-      const squareSize = 16;
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(0, 0, width, height);
-      ctx.fillStyle = '#1e293b';
-      for (let y = 0; y < height; y += squareSize) {
-        for (let x = 0; x < width; x += squareSize) {
-          if ((Math.floor(x / squareSize) + Math.floor(y / squareSize)) % 2 === 0) {
-            ctx.fillRect(x, y, squareSize, squareSize);
-          }
+      if (!patternCanvasRef.current) {
+        const pCanvas = document.createElement('canvas');
+        pCanvas.width = 32;
+        pCanvas.height = 32;
+        const pCtx = pCanvas.getContext('2d');
+        if (pCtx) {
+          pCtx.fillStyle = '#0f172a';
+          pCtx.fillRect(0, 0, 32, 32);
+          pCtx.fillStyle = '#1e293b';
+          pCtx.fillRect(0, 0, 16, 16);
+          pCtx.fillRect(16, 16, 16, 16);
         }
+        patternCanvasRef.current = pCanvas;
+      }
+      const pattern = ctx.createPattern(patternCanvasRef.current, 'repeat');
+      if (pattern) {
+        ctx.fillStyle = pattern;
+        ctx.fillRect(0, 0, width, height);
+      } else {
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, 0, width, height);
       }
     } else {
       ctx.fillStyle = bgColor;
@@ -438,7 +647,93 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       ctx.restore();
     }
 
-    // 3. Recursive layer drawing function
+    // 3. Leaf sprite drawing helper
+    const renderLeafSprite = (
+      targetCtx: CanvasRenderingContext2D,
+      layerItem: EditableLayer,
+      totalMatrix: [number, number, number, number, number, number],
+      alpha: number,
+      isMask: boolean = false
+    ) => {
+      const { isActive, frame, alpha: frameAlpha } = getLayerFrameState(layerItem, currentFrame);
+      if (!isActive || !frame || frameAlpha <= 0.005) return;
+
+      const fA = frame?.transform?.a ?? 1;
+      const fB = frame?.transform?.b ?? 0;
+      const fC = frame?.transform?.c ?? 0;
+      const fD = frame?.transform?.d ?? 1;
+      const fTx = frame?.transform?.tx ?? 0;
+      const fTy = frame?.transform?.ty ?? 0;
+      const mFrame: [number, number, number, number, number, number] = [fA, fB, fC, fD, fTx, fTy];
+
+      const finalTotalMatrix = multiplyMatrices(totalMatrix, mFrame);
+
+      targetCtx.save();
+      targetCtx.globalAlpha = Math.max(0, Math.min(1, alpha * frameAlpha));
+
+      // Support blendMode on frame or layer (only for regular sprites, not for masks)
+      if (!isMask) {
+        const rawBlend = frame.blendMode || layerItem.blendMode || layerItem.spriteRef?.blendMode;
+        const bm = mapBlendMode(rawBlend);
+        if (bm) {
+          targetCtx.globalCompositeOperation = bm;
+        }
+      }
+
+      targetCtx.transform(finalTotalMatrix[0], finalTotalMatrix[1], finalTotalMatrix[2], finalTotalMatrix[3], finalTotalMatrix[4], finalTotalMatrix[5]);
+
+      // Apply ClipPath if existing
+      if (frame.clipPath) {
+        applySvgPathToContext(targetCtx, frame.clipPath);
+      }
+
+      // Render Shapes if existing
+      if (frame.shapes && frame.shapes.length > 0) {
+        renderSvgaShapes(targetCtx, frame.shapes);
+      }
+
+      // Draw Image (standard SVGA 2.0: drawn at 0, 0 without distortion)
+      const cachedImg = imagesCache.current[layerItem.imageKey];
+      if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
+        let drawX = 0;
+        let drawY = 0;
+        if (fTx === 0 && fTy === 0 && frame.layout && (frame.layout.x || frame.layout.y)) {
+          drawX = frame.layout.x || 0;
+          drawY = frame.layout.y || 0;
+        }
+        targetCtx.drawImage(cachedImg, drawX, drawY);
+      }
+
+      targetCtx.restore();
+    };
+
+    // Helper to find a mask layer by matteKey
+    const findMaskLayer = (matteKey: string, sourceLayer?: EditableLayer): EditableLayer | undefined => {
+      const target = String(matteKey).trim();
+      const exact = layers.find(m => {
+        if (!m || m === sourceLayer) return false;
+        if (m.imageKey === target || m.id === target || m.name === target) return true;
+        if (m.spriteRef?.imageKey === target) return true;
+        const rawIdx = String(m.originalIndex);
+        if (rawIdx === target || `img_${rawIdx}` === target || `layer_${rawIdx}` === target) return true;
+        if (m.imageKey && (m.imageKey.endsWith(`_${target}`) || target.endsWith(`_${m.imageKey}`))) return true;
+        if (m.name && (m.name.endsWith(`_${target}`) || target.endsWith(`_${m.name}`))) return true;
+        return false;
+      });
+      if (exact) return exact;
+
+      if (sourceLayer && sourceLayer.groupId) {
+        return layers.find(m => {
+          if (!m || m === sourceLayer || m.groupId !== sourceLayer.groupId) return false;
+          if (m.imageKey?.includes(target) || target.includes(m.imageKey || '')) return true;
+          if (m.name?.includes(target) || target.includes(m.name || '')) return true;
+          return false;
+        });
+      }
+      return undefined;
+    };
+
+    // Recursive layer drawing function
     const renderLayerRecursive = (
       layerItem: EditableLayer,
       parentMatrix: [number, number, number, number, number, number] | null,
@@ -486,74 +781,106 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         return;
       }
 
-      // Otherwise render leaf sprite
-      const { isActive, frame, alpha: frameAlpha } = getLayerFrameState(layerItem, currentFrame);
-      if (!isActive || !frame) return;
+      // Check if this layer has a matteKey mask
+      if (layerItem.matteKey) {
+        const maskLayer = findMaskLayer(layerItem.matteKey, layerItem);
+        if (maskLayer) {
+          // If maskLayer is not active or transparent on this frame, the masked layer is 100% clipped
+          const maskState = getLayerFrameState(maskLayer, currentFrame);
+          if (!maskState.isActive || !maskState.frame || maskState.alpha <= 0.005) {
+            return;
+          }
 
-      const fA = frame?.transform?.a ?? 1;
-      const fB = frame?.transform?.b ?? 0;
-      const fC = frame?.transform?.c ?? 0;
-      const fD = frame?.transform?.d ?? 1;
-      const fTx = frame?.transform?.tx ?? 0;
-      const fTy = frame?.transform?.ty ?? 0;
-      const mFrame: [number, number, number, number, number, number] = [fA, fB, fC, fD, fTx, fTy];
+          if (!offscreenCanvasRef.current) {
+            offscreenCanvasRef.current = document.createElement('canvas');
+          }
+          const offCanvas = offscreenCanvasRef.current;
+          if (offCanvas.width !== width || offCanvas.height !== height) {
+            offCanvas.width = width;
+            offCanvas.height = height;
+          }
+          const offCtx = offCanvas.getContext('2d');
+          if (offCtx) {
+            offCtx.clearRect(0, 0, width, height);
 
-      const finalTotalMatrix = multiplyMatrices(currentTotalMatrix, mFrame);
+            // 1. Draw source layer (the effect / light streak / shine)
+            renderLeafSprite(offCtx, layerItem, currentTotalMatrix, currentAlpha);
 
-      ctx.save();
-      ctx.globalAlpha = currentAlpha * frameAlpha;
-      ctx.transform(finalTotalMatrix[0], finalTotalMatrix[1], finalTotalMatrix[2], finalTotalMatrix[3], finalTotalMatrix[4], finalTotalMatrix[5]);
+            // 2. Composite mask with destination-in
+            offCtx.save();
+            offCtx.globalCompositeOperation = 'destination-in';
+            const maskAnim = getLayerAnimatedTransform(maskLayer, currentFrame);
+            const maskAlpha = Math.max(0, Math.min(1, (maskAnim.opacity !== undefined ? maskAnim.opacity : maskLayer.transform.opacity) / 100));
+            const maskBounds = maskLayer.initialBounds || { x: 0, y: 0, width: 100, height: 100 };
+            const mDeltaX = maskAnim.x - maskBounds.x;
+            const mDeltaY = maskAnim.y - maskBounds.y;
+            const mPivotX = maskBounds.x + maskBounds.width / 2;
+            const mPivotY = maskBounds.y + maskBounds.height / 2;
+            const mRad = (maskAnim.rotation * Math.PI) / 180;
+            const mCos = Math.cos(mRad);
+            const mSin = Math.sin(mRad);
+            const muA = maskAnim.scaleX * mCos;
+            const muB = maskAnim.scaleX * mSin;
+            const muC = -maskAnim.scaleY * mSin;
+            const muD = maskAnim.scaleY * mCos;
+            const muTx = (mPivotX + mDeltaX) - (muA * mPivotX + muC * mPivotY);
+            const muTy = (mPivotY + mDeltaY) - (muB * mPivotX + muD * mPivotY);
+            const mMaskUser: [number, number, number, number, number, number] = [muA, muB, muC, muD, muTx, muTy];
+            const mMaskTotalMatrix = parentMatrix ? multiplyMatrices(parentMatrix, mMaskUser) : mMaskUser;
+            renderLeafSprite(offCtx, maskLayer, mMaskTotalMatrix, maskAlpha, true /* isMask */);
+            offCtx.restore();
 
-      // Apply ClipPath if existing
-      if (frame.clipPath) {
-        try {
-          const p = new Path2D(frame.clipPath);
-          ctx.clip(p);
-        } catch (e) {}
-      }
-
-      // Render Shapes if existing
-      if (frame.shapes && frame.shapes.length > 0) {
-        renderSvgaShapes(ctx, frame.shapes);
-      }
-
-      // Draw Image
-      const cachedImg = imagesCache.current[layerItem.imageKey];
-      if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
-        let drawX = 0;
-        let drawY = 0;
-        let drawW = cachedImg.naturalWidth;
-        let drawH = cachedImg.naturalHeight;
-
-        if (frame.layout && frame.layout.width > 0 && frame.layout.height > 0) {
-          drawX = frame.layout.x || 0;
-          drawY = frame.layout.y || 0;
-          drawW = frame.layout.width;
-          drawH = frame.layout.height;
-        } else if (frame.layout) {
-          drawX = frame.layout.x || 0;
-          drawY = frame.layout.y || 0;
+            // 3. Draw masked result to main canvas, respecting layer blend mode
+            ctx.save();
+            const rawBlend = layerItem.blendMode || layerItem.spriteRef?.blendMode;
+            const bm = mapBlendMode(rawBlend);
+            if (bm) {
+              ctx.globalCompositeOperation = bm;
+            }
+            ctx.drawImage(offCanvas, 0, 0);
+            ctx.restore();
+            return;
+          }
         }
-
-        ctx.drawImage(cachedImg, drawX, drawY, drawW, drawH);
-      } else if (layerItem.type === 'shape' && (!frame.shapes || frame.shapes.length === 0)) {
-        // Fallback shape box
-        ctx.fillStyle = 'rgba(99, 102, 241, 0.4)';
-        ctx.strokeStyle = '#6366f1';
-        ctx.lineWidth = 1.5;
-        const w = layerItem.transform.width || 100;
-        const h = layerItem.transform.height || 100;
-        ctx.fillRect(0, 0, w, h);
-        ctx.strokeRect(0, 0, w, h);
       }
 
-      ctx.restore();
+      // Standard leaf sprite drawing
+      renderLeafSprite(ctx, layerItem, currentTotalMatrix, currentAlpha);
+    };
+
+    // Identify all layers serving as matte/mask templates
+    const maskTemplateKeySet = new Set<string>();
+    for (const l of layers) {
+      if (l.matteKey) {
+        maskTemplateKeySet.add(String(l.matteKey).trim());
+      }
+    }
+
+    const isLayerMatteTemplate = (layer: EditableLayer): boolean => {
+      if (layer.isMatteMask) return true;
+      if (maskTemplateKeySet.has(layer.imageKey)) return true;
+      if (maskTemplateKeySet.has(layer.id)) return true;
+      if (maskTemplateKeySet.has(layer.name)) return true;
+      const rawIdx = String(layer.originalIndex);
+      if (maskTemplateKeySet.has(rawIdx)) return true;
+      if (maskTemplateKeySet.has(`img_${rawIdx}`)) return true;
+      if (maskTemplateKeySet.has(`layer_${rawIdx}`)) return true;
+      if (layer.spriteRef && maskTemplateKeySet.has(layer.spriteRef.imageKey)) return true;
+      for (const k of maskTemplateKeySet) {
+        if (layer.imageKey && (layer.imageKey.endsWith(`_${k}`) || k.endsWith(`_${layer.imageKey}`))) return true;
+        if (layer.name && (layer.name.endsWith(`_${k}`) || k.endsWith(`_${layer.name}`))) return true;
+      }
+      return false;
     };
 
     // Render all visible top-level layers in visual stacking order:
     // layers[last] (background) is drawn first -> layers[0] (foreground/top of stack) is drawn last (in front)!
     const layersToRender = [...layers].reverse();
     for (const layer of layersToRender) {
+      // A matte mask template must NEVER be drawn as a standalone opaque layer on the canvas!
+      if (isLayerMatteTemplate(layer)) {
+        continue;
+      }
       renderLayerRecursive(layer, null, 1.0);
     }
 
@@ -602,13 +929,12 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
           localW = targetL.initialBounds.width;
           localH = targetL.initialBounds.height;
         } else if (frame.layout && frame.layout.width > 0 && frame.layout.height > 0) {
-          localX = frame.layout.x || 0;
-          localY = frame.layout.y || 0;
           localW = frame.layout.width;
           localH = frame.layout.height;
-        } else if (frame.layout) {
-          localX = frame.layout.x || 0;
-          localY = frame.layout.y || 0;
+          if ((frame.transform?.tx === 0 && frame.transform?.ty === 0) && (frame.layout.x || frame.layout.y)) {
+            localX = frame.layout.x || 0;
+            localY = frame.layout.y || 0;
+          }
         }
 
         // Transform 4 corners into canvas coordinates
@@ -709,7 +1035,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
   const hitTestLayer = useCallback((cx: number, cy: number): string | null => {
     for (let i = 0; i < layers.length; i++) {
       const layer = layers[i];
-      if (!layer.visible || layer.locked) continue;
+      if (!layer.visible || layer.locked || layer.isMatteMask) continue;
 
       const { isActive, frame } = getLayerFrameState(layer, currentFrame);
       if (!isActive || !frame) continue;

@@ -50,6 +50,7 @@ declare var SVGA: any;
 import { OnboardingModal } from './components/OnboardingModal';
 import { HelpCircle, BookOpen, Wrench, AlertTriangle, ShieldAlert } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { LanguageTranslatorWidget } from './components/LanguageTranslatorWidget';
 
 const videoWidth = 1334;
 const videoHeight = 750;
@@ -1040,6 +1041,9 @@ const App: React.FC = () => {
           >
             <BookOpen className="w-7 h-7" />
           </button>
+
+          {/* Translation Widget (Placed directly above the 3 floating buttons) */}
+          <LanguageTranslatorWidget />
         </div>
       )}
 

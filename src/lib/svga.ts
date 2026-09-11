@@ -21,7 +21,8 @@ const svgaProtoJson = {
                   fields: {
                     imageKey: { type: "string", id: 1 },
                     frames: { rule: "repeated", type: "FrameEntity", id: 2 },
-                    matteKey: { type: "string", id: 3 }
+                    matteKey: { type: "string", id: 3 },
+                    blendMode: { type: "string", id: 4 }
                   }
                 },
                 AudioEntity: {
@@ -65,7 +66,8 @@ const svgaProtoJson = {
                     layout: { type: "Layout", id: 2 },
                     transform: { type: "Transform", id: 3 },
                     clipPath: { type: "string", id: 4 },
-                    shapes: { rule: "repeated", type: "ShapeEntity", id: 5 }
+                    shapes: { rule: "repeated", type: "ShapeEntity", id: 5 },
+                    blendMode: { type: "string", id: 6 }
                   }
                 },
                 MovieEntity: {

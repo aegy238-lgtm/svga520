@@ -139,6 +139,22 @@ export async function parseSvgaToProject(file: File): Promise<{
     const imageKey = sprite.imageKey || `layer_${originalIndex}`;
     const frames = sprite.frames || [];
     const imgDims = imageDimensions[imageKey] || { width: 100, height: 100 };
+
+    // Resolve SVGA 2.0 KEEP shapes across frames (SVGA 2.0 type: 3 / "keep")
+    let lastShapes: any[] = [];
+    for (let f = 0; f < frames.length; f++) {
+      const fr = frames[f];
+      if (!fr) continue;
+      if (fr.shapes && fr.shapes.length > 0) {
+        const firstShape = fr.shapes[0];
+        const isKeep = firstShape && (firstShape.type === 3 || firstShape.type === 'keep' || firstShape.type === 'KEEP');
+        if (isKeep) {
+          fr.shapes = lastShapes;
+        } else {
+          lastShapes = fr.shapes;
+        }
+      }
+    }
     
     // Check if sprite has any explicit alpha > 0
     const hasAnyExplicitAlpha = frames.some((fr: any) => fr && fr.alpha !== undefined && fr.alpha > 0.005);
@@ -257,6 +273,7 @@ export async function parseSvgaToProject(file: File): Promise<{
       aspectRatioLocked: true,
       spriteRef: sprite,
       matteKey: sprite.matteKey,
+      blendMode: sprite.blendMode || frames.find((f: any) => f && f.blendMode)?.blendMode,
       framesCount: frames.length,
       keyframeSummary: {
         startFrame,
@@ -266,6 +283,27 @@ export async function parseSvgaToProject(file: File): Promise<{
         hasAnyExplicitAlpha
       }
     });
+  });
+
+  // Mark all layers that act as a matte mask template for another layer
+  const matteKeys = new Set<string>();
+  layers.forEach(l => {
+    if (l.matteKey) matteKeys.add(String(l.matteKey).trim());
+  });
+  layers.forEach(l => {
+    const rawIdx = String(l.originalIndex);
+    if (
+      matteKeys.has(l.imageKey) || 
+      matteKeys.has(l.name) || 
+      matteKeys.has(l.id) || 
+      matteKeys.has(rawIdx) ||
+      (l.spriteRef && matteKeys.has(l.spriteRef.imageKey)) ||
+      matteKeys.has(`img_${rawIdx}`) ||
+      matteKeys.has(`layer_${rawIdx}`) ||
+      (l.imageKey && (matteKeys.has(l.imageKey.replace(/^img_/, '')) || matteKeys.has(l.imageKey.replace(/^layer_/, ''))))
+    ) {
+      l.isMatteMask = true;
+    }
   });
 
   return { project, layers };

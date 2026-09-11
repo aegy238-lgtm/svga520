@@ -16,6 +16,23 @@
     @apply font-sans;
     background-color: #070A12; /* Deep dark base */
     color: #f8fafc;
+    top: 0px !important;
+  }
+  .goog-te-banner-frame.skiptranslate,
+  .goog-te-banner-frame,
+  #goog-gt-tt,
+  .goog-te-balloon-frame,
+  .goog-tooltip,
+  .goog-tooltip:hover {
+    display: none !important;
+    visibility: hidden !important;
+  }
+  .goog-text-highlight {
+    background-color: transparent !important;
+    box-shadow: none !important;
+  }
+  .skiptranslate iframe {
+    display: none !important;
   }
 }
 
