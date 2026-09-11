@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Globe, Check, X, Sparkles, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Globe, Check, X, Sparkles, RefreshCw, Languages } from 'lucide-react';
+import { useLanguage, Language } from '../contexts/LanguageContext';
+import { SITE_DICTIONARIES, TranslationDictionary, translateString } from '../utils/siteDictionary';
 
 export interface LanguageOption {
-  code: string;
+  code: Language;
   name: string;
   nativeName: string;
   flag: string;
@@ -76,23 +78,185 @@ declare global {
   }
 }
 
+// Storage for original DOM text nodes to ensure 100% reversible translations
+const originalTextMap = new WeakMap<Node, string>();
+const originalAttributeMap = new WeakMap<Element, Record<string, string>>();
+
+/**
+ * High-performance DOM text translator that safely replaces known phrases in real-time
+ */
+function translateDomTree(root: Node, langCode: string, isArabic: boolean) {
+  if (!root) return;
+
+  const walker = document.createTreeWalker(
+    root,
+    NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
+    {
+      acceptNode: (node) => {
+        // Skip script, style, and code blocks
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const el = node as HTMLElement;
+          const tag = el.tagName.toLowerCase();
+          if (tag === 'script' || tag === 'style' || tag === 'svg' || tag === 'code') {
+            return NodeFilter.FILTER_REJECT;
+          }
+          if (el.getAttribute('data-no-translate') === 'true') {
+            return NodeFilter.FILTER_REJECT;
+          }
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    }
+  );
+
+  let currentNode: Node | null = walker.currentNode;
+  while (currentNode) {
+    if (currentNode.nodeType === Node.TEXT_NODE) {
+      const textNode = currentNode as Text;
+      const rawText = textNode.nodeValue || '';
+      const trimmed = rawText.trim();
+
+      if (trimmed.length > 0) {
+        if (!originalTextMap.has(textNode)) {
+          originalTextMap.set(textNode, rawText);
+        }
+        const originalText = originalTextMap.get(textNode) || rawText;
+
+        if (isArabic) {
+          // Restore original Arabic text
+          if (textNode.nodeValue !== originalText) {
+            textNode.nodeValue = originalText;
+          }
+        } else {
+          const translated = translateString(originalText, langCode, false);
+          if (textNode.nodeValue !== translated) {
+            textNode.nodeValue = translated;
+          }
+        }
+      }
+    } else if (currentNode.nodeType === Node.ELEMENT_NODE) {
+      const el = currentNode as HTMLElement;
+
+      // Translate title, placeholder, aria-label, and alt attributes (including all icon tooltips)
+      ['title', 'placeholder', 'aria-label', 'alt'].forEach((attr) => {
+        const val = el.getAttribute(attr);
+        if (val && val.trim().length > 0) {
+          let origAttrs = originalAttributeMap.get(el);
+          if (!origAttrs) {
+            origAttrs = {};
+            originalAttributeMap.set(el, origAttrs);
+          }
+          if (!(attr in origAttrs)) {
+            origAttrs[attr] = val;
+          }
+          const origVal = origAttrs[attr];
+
+          if (isArabic) {
+            el.setAttribute(attr, origVal);
+          } else {
+            const translated = translateString(origVal, langCode, false);
+            if (el.getAttribute(attr) !== translated) {
+              el.setAttribute(attr, translated);
+            }
+          }
+        }
+      });
+
+      // Special handling for HTMLSelectElement options
+      if (el.tagName && el.tagName.toLowerCase() === 'select') {
+        const select = el as HTMLSelectElement;
+        for (let i = 0; i < select.options.length; i++) {
+          const opt = select.options[i];
+          if (!opt.dataset.origText) {
+            opt.dataset.origText = opt.text;
+          }
+          if (isArabic) {
+            if (opt.text !== opt.dataset.origText) {
+              opt.text = opt.dataset.origText;
+            }
+          } else {
+            const trans = translateString(opt.dataset.origText, langCode, false);
+            if (opt.text !== trans) {
+              opt.text = trans;
+            }
+          }
+        }
+      }
+    }
+
+    currentNode = walker.nextNode();
+  }
+}
+
 interface LanguageTranslatorWidgetProps {
   buttonClassName?: string;
 }
 
 export const LanguageTranslatorWidget: React.FC<LanguageTranslatorWidgetProps> = ({
-  buttonClassName
+  buttonClassName,
 }) => {
+  const { language, setLanguage } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
-  const [currentLang, setCurrentLang] = useState<string>(() => {
-    return localStorage.getItem('svga_site_language') || 'ar';
-  });
   const [isTranslating, setIsTranslating] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+  const observerRef = useRef<MutationObserver | null>(null);
 
-  // Initialize Google Translate Script
+  // Apply real-time DOM translation whenever language changes
+  const runDomTranslation = useCallback((langCode: Language) => {
+    const isArabic = langCode === 'ar';
+    translateDomTree(document.body, langCode, isArabic);
+  }, []);
+
+  // Continuous MutationObserver to translate dynamically rendered elements (modals, new pages)
   useEffect(() => {
-    // Add Google Translate Script if not already added
+    runDomTranslation(language);
+
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+    }
+
+    if (language !== 'ar') {
+      observerRef.current = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.type === 'childList') {
+            mutation.addedNodes.forEach((node) => {
+              if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.TEXT_NODE) {
+                translateDomTree(node, language, false);
+              }
+            });
+          }
+        }
+      });
+
+      observerRef.current.observe(document.body, {
+        childList: true,
+        subtree: true,
+      });
+    }
+
+    // Also listen to tool changes and clicks across the window to translate newly mounted views
+    const handleGlobalAction = () => {
+      if (language !== 'ar') {
+        setTimeout(() => runDomTranslation(language), 50);
+        setTimeout(() => runDomTranslation(language), 300);
+      }
+    };
+
+    window.addEventListener('click', handleGlobalAction, { passive: true });
+    window.addEventListener('popstate', handleGlobalAction, { passive: true });
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+      window.removeEventListener('click', handleGlobalAction);
+      window.removeEventListener('popstate', handleGlobalAction);
+    };
+  }, [language, runDomTranslation]);
+
+  // Initialize Google Translate Script as secondary fallback
+  useEffect(() => {
     if (!document.getElementById('google-translate-script')) {
       const script = document.createElement('script');
       script.id = 'google-translate-script';
@@ -118,15 +282,6 @@ export const LanguageTranslatorWidget: React.FC<LanguageTranslatorWidgetProps> =
         }
       };
     }
-
-    // Apply saved language if any
-    const saved = localStorage.getItem('svga_site_language');
-    if (saved && saved !== 'ar') {
-      applyLanguage(saved, false);
-    } else {
-      document.documentElement.dir = 'rtl';
-      document.documentElement.lang = 'ar';
-    }
   }, []);
 
   // Close modal on click outside
@@ -144,97 +299,70 @@ export const LanguageTranslatorWidget: React.FC<LanguageTranslatorWidgetProps> =
     };
   }, [isOpen]);
 
-  // Function to apply translation
-  const applyLanguage = (langCode: string, isUserAction = true) => {
+  // Main translation trigger function
+  const applyLanguage = (langCode: Language) => {
     const target = SUPPORTED_LANGUAGES.find((l) => l.code === langCode) || SUPPORTED_LANGUAGES[0];
-    setCurrentLang(target.code);
-    localStorage.setItem('svga_site_language', target.code);
+    setIsTranslating(true);
 
-    if (isUserAction) {
-      setIsTranslating(true);
-    }
+    // 1. Update React Language Context & Local Storage
+    setLanguage(target.code);
 
-    // Set document direction & lang
+    // 2. Set HTML document direction & lang attributes
     document.documentElement.dir = target.dir;
     document.documentElement.lang = target.code;
 
-    // Cookie management for Google Translate
+    // 3. Immediately run deep in-DOM translation engine
+    runDomTranslation(target.code);
+
+    // 4. Secondary sync with Google Translate cookie & element if available
     const cookieDomain = window.location.hostname;
-    
+    const parts = cookieDomain.split('.');
+    const baseDomain = parts.length > 1 ? `.${parts.slice(-2).join('.')}` : cookieDomain;
+
     if (target.code === 'ar') {
-      // Clear translation cookie for default Arabic
       document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
       document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${cookieDomain};`;
-      document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=.${cookieDomain};`;
-      
-      // To revert to original without reloading, we look for the restore button in the iframe if it exists,
-      // or we just set the combo box to the default value.
-      try {
-        const iframe = document.querySelector('iframe.goog-te-banner-frame') as HTMLIFrameElement;
-        if (iframe && iframe.contentWindow) {
-          const innerDoc = iframe.contentWindow.document;
-          const restoreBtn = innerDoc.getElementById('restore') || innerDoc.querySelector('button');
-          if (restoreBtn) {
-            (restoreBtn as HTMLElement).click();
-          }
-        }
-      } catch (e) {
-        console.warn("Could not access iframe to restore original language");
-      }
-
+      document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${baseDomain};`;
       const selectElem = document.querySelector('.goog-te-combo') as HTMLSelectElement | null;
       if (selectElem) {
         selectElem.value = '';
         selectElem.dispatchEvent(new Event('change', { bubbles: true }));
       }
-
-      if (isUserAction) {
-        setTimeout(() => setIsTranslating(false), 500);
-      }
     } else {
       const gtVal = `/ar/${target.gtCode}`;
       document.cookie = `googtrans=${gtVal}; path=/;`;
       document.cookie = `googtrans=${gtVal}; path=/; domain=${cookieDomain};`;
-      document.cookie = `googtrans=${gtVal}; path=/; domain=.${cookieDomain};`;
-
-      const triggerTranslation = () => {
-        const selectElem = document.querySelector('.goog-te-combo') as HTMLSelectElement | null;
-        if (selectElem) {
-          selectElem.value = target.gtCode;
-          selectElem.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      };
-
-      triggerTranslation();
-      
-      if (isUserAction) {
-        // Re-trigger after a short delay to ensure it catches
-        setTimeout(() => {
-          triggerTranslation();
-          setIsTranslating(false);
-        }, 800);
+      document.cookie = `googtrans=${gtVal}; path=/; domain=${baseDomain};`;
+      const selectElem = document.querySelector('.goog-te-combo') as HTMLSelectElement | null;
+      if (selectElem) {
+        selectElem.value = target.gtCode;
+        selectElem.dispatchEvent(new Event('change', { bubbles: true }));
       }
     }
+
+    // 5. Run multiple translation passes to cover dynamic and asynchronous views
+    setTimeout(() => runDomTranslation(target.code), 100);
+    setTimeout(() => runDomTranslation(target.code), 300);
+    setTimeout(() => {
+      runDomTranslation(target.code);
+      setIsTranslating(false);
+      setToastMessage(`✓ تمت ترجمة كامل وظائف وصفحات الموقع إلى ${target.name} بنجاح`);
+      setTimeout(() => setToastMessage(null), 4000);
+    }, 600);
+    setTimeout(() => runDomTranslation(target.code), 1200);
   };
 
-  const currentLangObj = SUPPORTED_LANGUAGES.find((l) => l.code === currentLang) || SUPPORTED_LANGUAGES[0];
+  const currentLangObj = SUPPORTED_LANGUAGES.find((l) => l.code === language) || SUPPORTED_LANGUAGES[0];
 
   return (
     <>
-      {/* Hidden Google Translate container */}
-      <div 
-        id="google_translate_element" 
-        style={{ 
-          position: 'absolute', 
-          top: '-9999px', 
-          left: '-9999px', 
-          width: '1px', 
-          height: '1px', 
-          opacity: 0, 
-          pointerEvents: 'none',
-          overflow: 'hidden'
-        }} 
-      />
+      {/* Floating Confirmation Toast */}
+      {toastMessage && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[99999] bg-emerald-600/95 text-white px-5 py-2.5 rounded-full shadow-2xl border border-emerald-400/50 backdrop-blur-md text-xs font-bold flex items-center gap-2 animate-in fade-in slide-in-from-top-3 duration-300">
+          <Sparkles className="w-4 h-4 text-amber-300" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
 
       {/* Floating Button */}
       <div className="relative">
@@ -253,7 +381,7 @@ export const LanguageTranslatorWidget: React.FC<LanguageTranslatorWidgetProps> =
         >
           {/* Pulsing glow ring */}
           <span className="absolute -inset-1 rounded-full bg-cyan-400/20 blur-sm group-hover:bg-cyan-400/40 transition-all animate-pulse" />
-          
+
           <div className="relative flex flex-col items-center justify-center">
             <Globe className="w-7 h-7 text-cyan-100 group-hover:rotate-45 transition-transform duration-500" />
             <span className="absolute -bottom-1 -right-1 text-xs bg-slate-900/90 border border-white/20 rounded-full px-1 py-0.5 leading-none shadow-md">
@@ -267,20 +395,20 @@ export const LanguageTranslatorWidget: React.FC<LanguageTranslatorWidgetProps> =
           <div
             ref={modalRef}
             dir="rtl"
-            className="absolute bottom-16 left-0 sm:left-2 w-[320px] max-w-[calc(100vw-32px)] bg-slate-900/95 backdrop-blur-xl border border-cyan-500/30 rounded-2xl shadow-2xl p-4 z-[999] animate-in fade-in slide-in-from-bottom-4 duration-200 text-white"
+            className="absolute bottom-16 left-0 sm:left-2 w-[340px] max-w-[calc(100vw-32px)] bg-slate-900/95 backdrop-blur-xl border border-cyan-500/30 rounded-2xl shadow-2xl p-4 z-[999] animate-in fade-in slide-in-from-bottom-4 duration-200 text-white"
           >
             {/* Header */}
             <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-3">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-400/30 rounded-xl text-cyan-400">
-                  <Globe className="w-5 h-5 animate-spin-slow" />
+                  <Languages className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="font-bold text-sm text-white flex items-center gap-1.5">
                     <span>ترجمة الموقع بالكامل</span>
                     <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                   </h3>
-                  <p className="text-[11px] text-slate-400">Website Translation</p>
+                  <p className="text-[11px] text-cyan-300/80 font-medium">Full Website Translation</p>
                 </div>
               </div>
               <button
@@ -295,7 +423,7 @@ export const LanguageTranslatorWidget: React.FC<LanguageTranslatorWidgetProps> =
             {/* Language list */}
             <div className="space-y-1.5 max-h-[300px] overflow-y-auto custom-scrollbar pr-0.5">
               {SUPPORTED_LANGUAGES.map((lang) => {
-                const isSelected = currentLang === lang.code;
+                const isSelected = language === lang.code;
                 return (
                   <button
                     key={lang.code}
@@ -331,19 +459,35 @@ export const LanguageTranslatorWidget: React.FC<LanguageTranslatorWidgetProps> =
               })}
             </div>
 
-            {/* Footer / Status */}
-            <div className="mt-3 pt-2.5 border-t border-white/10 flex items-center justify-between text-[11px] text-slate-400">
-              <span className="flex items-center gap-1">
+            {/* Direct Translate Button */}
+            <div className="mt-3 pt-2.5 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => {
+                  applyLanguage(language);
+                  setIsOpen(false);
+                }}
+                disabled={isTranslating}
+                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-xs shadow-lg shadow-cyan-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 disabled:opacity-50"
+              >
                 {isTranslating ? (
                   <>
-                    <RefreshCw className="w-3 h-3 animate-spin text-cyan-400" />
-                    <span className="text-cyan-300">جارِ تطبيق الترجمة...</span>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>جاري ترجمة صفحات ووظائف الموقع...</span>
                   </>
                 ) : (
-                  <span>اللغة الحالية: <strong className="text-cyan-300">{currentLangObj.name}</strong></span>
+                  <>
+                    <Sparkles className="w-4 h-4 text-amber-300" />
+                    <span>تطبيق وترجمة الموقع بالكامل الآن</span>
+                  </>
                 )}
-              </span>
-              {currentLang !== 'ar' && (
+              </button>
+            </div>
+
+            {/* Footer / Status */}
+            <div className="mt-2.5 flex items-center justify-between text-[11px] text-slate-400">
+              <span>اللغة الحالية: <strong className="text-cyan-300">{currentLangObj.name}</strong></span>
+              {language !== 'ar' && (
                 <button
                   type="button"
                   onClick={() => {
@@ -352,7 +496,7 @@ export const LanguageTranslatorWidget: React.FC<LanguageTranslatorWidgetProps> =
                   }}
                   className="text-amber-400 hover:text-amber-300 underline font-medium cursor-pointer"
                 >
-                  استعادة الأصلية
+                  استعادة الأصلية (عربي)
                 </button>
               )}
             </div>

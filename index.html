@@ -57,9 +57,30 @@
           50% { opacity: 0.6; }
         }
         .animate-pulse-slow { animation: pulse-slow 4s infinite ease-in-out; }
+
+        /* Google Translate clean integration */
+        .goog-te-banner-frame, .goog-te-balloon-frame, #goog-gt-tt, .goog-tooltip, .goog-tooltip:hover { display: none !important; }
+        body { top: 0px !important; position: static !important; }
+        .goog-text-highlight { background: none !important; box-shadow: none !important; }
+        .skiptranslate { display: none !important; }
     </style>
 </head>
 <body>
+    <div id="google_translate_element" style="display:none;position:absolute;top:-9999px;left:-9999px;opacity:0;"></div>
+    <script type="text/javascript">
+      window.googleTranslateElementInit = function() {
+        try {
+          if (window.google && window.google.translate) {
+            new window.google.translate.TranslateElement({
+              pageLanguage: 'ar',
+              includedLanguages: 'ar,en,hi,ur,zh-CN,tl,id',
+              autoDisplay: false
+            }, 'google_translate_element');
+          }
+        } catch(e) {}
+      };
+    </script>
+    <script type="text/javascript" src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
     <div id="root"></div>
     <script src="https://cdn.jsdelivr.net/npm/pako@1.0.11/dist/pako.min.js" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.4/howler.min.js" crossorigin="anonymous"></script>

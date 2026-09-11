@@ -460,9 +460,26 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     if (layer.isMerged || (layer.mergedLayers && layer.mergedLayers.length > 0)) {
       return { isActive: true, frame: { alpha: 1, transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 } }, alpha: 1.0 };
     }
+
+    // Precise check for sequential / repeated layers with known active frame sets
+    if (layer.inFrame === undefined && layer.outFrame === undefined && layer.keyframeSummary?.activeFrames) {
+      if (!layer.keyframeSummary.activeFrames.includes(frameIdx)) {
+        return { isActive: false, frame: null, alpha: 0 };
+      }
+    }
+
     const frames = layer.spriteRef?.frames;
-    if (!frames || !frames[frameIdx]) return { isActive: false, frame: null, alpha: 0 };
-    const frame = frames[frameIdx];
+    if (!frames || frames.length === 0) return { isActive: false, frame: null, alpha: 0 };
+    
+    // Support single-frame static layers and repeated/looping sequence layers
+    let frame = frames[frameIdx];
+    if (!frame && frames.length === 1) {
+      frame = frames[0];
+    } else if (!frame && frames.length > 0 && frames.length < project.totalFrames) {
+      frame = frames[frameIdx % frames.length];
+    }
+
+    if (!frame) return { isActive: false, frame: null, alpha: 0 };
 
     let hasAnyExplicitAlpha = layer.keyframeSummary?.hasAnyExplicitAlpha;
     if (hasAnyExplicitAlpha === undefined) {
@@ -477,15 +494,28 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     }
 
     let isActive = false;
-    if (hasAnyExplicitAlpha) {
-      isActive = frame.alpha !== undefined && frame.alpha > 0.005;
+    if (frame.alpha !== undefined) {
+      isActive = frame.alpha > 0.005;
+    } else if (hasAnyExplicitAlpha) {
+      isActive = false;
     } else {
-      isActive = frame.alpha === undefined || frame.alpha > 0.005;
+      const hasShapes = frame.shapes && Array.isArray(frame.shapes) && frame.shapes.length > 0;
+      const hasLayout = frame.layout && (
+        (frame.layout.width !== undefined && frame.layout.width > 0) || 
+        (frame.layout.height !== undefined && frame.layout.height > 0)
+      );
+      const hasValidTransform = frame.transform && (
+        (frame.transform.a !== undefined && frame.transform.a !== 0) ||
+        (frame.transform.b !== undefined && frame.transform.b !== 0) ||
+        (frame.transform.c !== undefined && frame.transform.c !== 0) ||
+        (frame.transform.d !== undefined && frame.transform.d !== 0)
+      );
+      isActive = Boolean(hasShapes || hasLayout || hasValidTransform);
     }
 
     const frameAlpha = isActive ? (frame.alpha !== undefined ? frame.alpha : 1.0) : 0;
     return { isActive, frame, alpha: frameAlpha };
-  }, []);
+  }, [project.totalFrames]);
 
   // Zoom to Selected Element (Centers and focuses tightly on the selected element)
   const handleZoomToSelection = useCallback(() => {

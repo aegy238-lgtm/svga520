@@ -77,7 +77,7 @@ const App: React.FC = () => {
   const [initialLottieFile, setInitialLottieFile] = useState<File | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
-  const [showSplash, setShowSplash] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
 
   // Server-Enforced Version Control State
   const [versionBlockedState, setVersionBlockedState] = useState<{
@@ -171,10 +171,10 @@ const App: React.FC = () => {
   }, [currentUser?.id, currentUser?.role, currentUser?.allowedVersion, settings?.defaultAllowedVersion]);
 
   useEffect(() => {
-    // Hide splash screen after 1.5 seconds
+    // Show splash screen for 2.8 seconds on startup, then smoothly fade out
     const timer = setTimeout(() => {
       setShowSplash(false);
-    }, 1500);
+    }, 2800);
     return () => clearTimeout(timer);
   }, []);
 
@@ -631,7 +631,9 @@ const App: React.FC = () => {
           <motion.div 
             initial={{ opacity: 1 }}
             exit={{ opacity: 0, transition: { duration: 0.8, ease: "easeInOut" } }}
-            className="fixed inset-0 z-[2000] bg-[#020617] flex flex-col items-center justify-center pointer-events-none"
+            onClick={() => setShowSplash(false)}
+            className="fixed inset-0 z-[2000] bg-[#020617] flex flex-col items-center justify-center cursor-pointer select-none"
+            title="انقر لتخطي الإعلان والدخول فوراً"
           >
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20 mix-blend-overlay"></div>
             
@@ -677,6 +679,26 @@ const App: React.FC = () => {
                {/* 3D Core Loader Ring */}
                <div className="absolute inset-0 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] border-2 border-dashed border-indigo-500/30 rounded-full animate-[spin_10s_linear_infinite] -z-10"></div>
                <div className="absolute inset-0 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[140%] h-[140%] border border-purple-500/20 rounded-full animate-[spin_15s_linear_infinite_reverse] -z-10"></div>
+
+               {/* Dismiss hint & loading bar */}
+               <motion.div 
+                 initial={{ opacity: 0 }}
+                 animate={{ opacity: 0.8 }}
+                 transition={{ delay: 1 }}
+                 className="mt-8 flex flex-col items-center gap-2"
+               >
+                 <div className="w-36 h-1 bg-white/10 rounded-full overflow-hidden">
+                   <motion.div 
+                     initial={{ width: "0%" }}
+                     animate={{ width: "100%" }}
+                     transition={{ duration: 2.8, ease: "linear" }}
+                     className="h-full bg-gradient-to-r from-indigo-500 to-cyan-400 rounded-full"
+                   />
+                 </div>
+                 <span className="text-[10px] text-slate-400 font-mono tracking-wider">
+                   انقر في أي مكان للتخطي
+                 </span>
+               </motion.div>
             </motion.div>
           </motion.div>
         )}

@@ -105,14 +105,40 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
     const endF = layer.outFrame !== undefined ? layer.outFrame : (layer.keyframeSummary?.endFrame ?? (maxFrames - 1));
     if (currentFrame < startF || currentFrame > endF) return false;
 
+    // Precise check for sequential / repeated layers with known active frame sets
+    if (layer.inFrame === undefined && layer.outFrame === undefined && layer.keyframeSummary?.activeFrames) {
+      return layer.keyframeSummary.activeFrames.includes(currentFrame);
+    }
+
     const frames = layer.spriteRef?.frames;
-    if (!frames || !frames[currentFrame]) return false;
-    const frame = frames[currentFrame];
+    if (!frames || frames.length === 0) return false;
+    let frame = frames[currentFrame];
+    if (!frame && frames.length === 1) {
+      frame = frames[0];
+    } else if (!frame && frames.length > 0) {
+      frame = frames[currentFrame % frames.length];
+    }
+    if (!frame) return false;
+
+    if (frame.alpha !== undefined) {
+      return frame.alpha > 0.005;
+    }
     const hasAnyExplicitAlpha = layer.keyframeSummary?.hasAnyExplicitAlpha ?? frames.some((fr: any) => fr && fr.alpha !== undefined && fr.alpha > 0.005);
     if (hasAnyExplicitAlpha) {
-      return frame.alpha !== undefined && frame.alpha > 0.005;
+      return false;
     }
-    return frame.alpha === undefined || frame.alpha > 0.005;
+    const hasShapes = frame.shapes && Array.isArray(frame.shapes) && frame.shapes.length > 0;
+    const hasLayout = frame.layout && (
+      (frame.layout.width !== undefined && frame.layout.width > 0) || 
+      (frame.layout.height !== undefined && frame.layout.height > 0)
+    );
+    const hasValidTransform = frame.transform && (
+      (frame.transform.a !== undefined && frame.transform.a !== 0) ||
+      (frame.transform.b !== undefined && frame.transform.b !== 0) ||
+      (frame.transform.c !== undefined && frame.transform.c !== 0) ||
+      (frame.transform.d !== undefined && frame.transform.d !== 0)
+    );
+    return Boolean(hasShapes || hasLayout || hasValidTransform);
   };
 
   const filteredLayers = layers.filter(l => {

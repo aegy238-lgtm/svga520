@@ -159,13 +159,32 @@ export async function parseSvgaToProject(file: File): Promise<{
     // Check if sprite has any explicit alpha > 0
     const hasAnyExplicitAlpha = frames.some((fr: any) => fr && fr.alpha !== undefined && fr.alpha > 0.005);
 
-    // Helper to determine if a frame is active
+    // Robust helper to determine if a frame is active
     const isFrameActive = (fr: any): boolean => {
       if (!fr) return false;
-      if (hasAnyExplicitAlpha) {
-        return fr.alpha !== undefined && fr.alpha > 0.005;
+      // 1. If alpha is explicitly defined
+      if (fr.alpha !== undefined) {
+        return fr.alpha > 0.005;
       }
-      return fr.alpha === undefined || fr.alpha > 0.005;
+      // 2. If sprite has explicit alpha elsewhere in its frames, a frame with undefined alpha is inactive
+      if (hasAnyExplicitAlpha) {
+        return false;
+      }
+      // 3. If sprite has no explicit alpha anywhere: check if the frame has real visual content
+      const hasShapes = fr.shapes && Array.isArray(fr.shapes) && fr.shapes.length > 0;
+      const hasLayout = fr.layout && (
+        (fr.layout.width !== undefined && fr.layout.width > 0) || 
+        (fr.layout.height !== undefined && fr.layout.height > 0)
+      );
+      const hasValidTransform = fr.transform && (
+        (fr.transform.a !== undefined && fr.transform.a !== 0) ||
+        (fr.transform.b !== undefined && fr.transform.b !== 0) ||
+        (fr.transform.c !== undefined && fr.transform.c !== 0) ||
+        (fr.transform.d !== undefined && fr.transform.d !== 0)
+      );
+
+      // An empty frame {} without shapes, without layout dimensions, and without non-zero transform is NOT active!
+      return Boolean(hasShapes || hasLayout || hasValidTransform);
     };
 
     // Find representative layout and keyframe bounds
@@ -178,6 +197,7 @@ export async function parseSvgaToProject(file: File): Promise<{
     let endFrame = frames.length > 0 ? frames.length - 1 : totalFrames - 1;
     let hasShapes = false;
     let hasTransform = false;
+    const activeFrames: number[] = [];
 
     for (let f = 0; f < frames.length; f++) {
       const fr = frames[f];
@@ -188,25 +208,36 @@ export async function parseSvgaToProject(file: File): Promise<{
 
       const active = isFrameActive(fr);
 
-      if (!hasFoundValidBounds && active) {
-        const tx = fr.transform?.tx ?? 0;
-        const ty = fr.transform?.ty ?? 0;
-        const lx = fr.layout?.x ?? 0;
-        const ly = fr.layout?.y ?? 0;
-        const lw = fr.layout?.width;
-        const lh = fr.layout?.height;
-
-        initialX = tx + lx;
-        initialY = ty + ly;
-        initialW = (lw && lw > 0) ? lw : imgDims.width;
-        initialH = (lh && lh > 0) ? lh : imgDims.height;
-        hasFoundValidBounds = true;
-        startFrame = f;
-      }
-
       if (active) {
+        activeFrames.push(f);
+
+        if (!hasFoundValidBounds) {
+          const tx = fr.transform?.tx ?? 0;
+          const ty = fr.transform?.ty ?? 0;
+          const lx = fr.layout?.x ?? 0;
+          const ly = fr.layout?.y ?? 0;
+          const lw = fr.layout?.width;
+          const lh = fr.layout?.height;
+
+          initialX = tx + lx;
+          initialY = ty + ly;
+          initialW = (lw && lw > 0) ? lw : imgDims.width;
+          initialH = (lh && lh > 0) ? lh : imgDims.height;
+          hasFoundValidBounds = true;
+          startFrame = f;
+        }
+
         endFrame = f;
       }
+    }
+
+    if (activeFrames.length > 0) {
+      startFrame = activeFrames[0];
+      endFrame = activeFrames[activeFrames.length - 1];
+    } else if (frames.length === 1) {
+      // Single frame static layer valid across the animation
+      startFrame = 0;
+      endFrame = Math.max(0, totalFrames - 1);
     }
 
     // Fallback if no active frame found
@@ -280,7 +311,9 @@ export async function parseSvgaToProject(file: File): Promise<{
         endFrame,
         hasShapes,
         hasTransform,
-        hasAnyExplicitAlpha
+        hasAnyExplicitAlpha,
+        activeFrames: activeFrames.length > 0 ? activeFrames : undefined,
+        isSequenceOrRepeated: activeFrames.length > 0 && activeFrames.length < frames.length
       }
     });
   });

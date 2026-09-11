@@ -1,43 +1,43 @@
 export const svgaSchema = `
-syntax = "proto3";
+syntax = "proto2";
 package com.opensource.svga;
 
 message MovieParams {
-    float viewBoxWidth = 1;
-    float viewBoxHeight = 2;
-    int32 fps = 3;
-    int32 frames = 4;
+    optional float viewBoxWidth = 1;
+    optional float viewBoxHeight = 2;
+    optional int32 fps = 3;
+    optional int32 frames = 4;
 }
 
 message SpriteEntity {
-    string imageKey = 1;
+    optional string imageKey = 1;
     repeated FrameEntity frames = 2;
-    string matteKey = 3;
-    string blendMode = 4;
+    optional string matteKey = 3;
+    optional string blendMode = 4;
 }
 
 message AudioEntity {
-    string audioKey = 1;
-    int32 startFrame = 2;
-    int32 endFrame = 3;
-    int32 startTime = 4;
-    int32 totalTime = 5;
+    optional string audioKey = 1;
+    optional int32 startFrame = 2;
+    optional int32 endFrame = 3;
+    optional int32 startTime = 4;
+    optional int32 totalTime = 5;
 }
 
 message Layout {
-    float x = 1;
-    float y = 2;
-    float width = 3;
-    float height = 4;
+    optional float x = 1;
+    optional float y = 2;
+    optional float width = 3;
+    optional float height = 4;
 }
 
 message Transform {
-    float a = 1;
-    float b = 2;
-    float c = 3;
-    float d = 4;
-    float tx = 5;
-    float ty = 6;
+    optional float a = 1;
+    optional float b = 2;
+    optional float c = 3;
+    optional float d = 4;
+    optional float tx = 5;
+    optional float ty = 6;
 }
 
 message ShapeEntity {
@@ -48,59 +48,59 @@ message ShapeEntity {
         KEEP = 3;
     }
     message ShapeArgs {
-        string d = 1;
+        optional string d = 1;
     }
     message RectArgs {
-        float x = 1;
-        float y = 2;
-        float width = 3;
-        float height = 4;
-        float cornerRadius = 5;
+        optional float x = 1;
+        optional float y = 2;
+        optional float width = 3;
+        optional float height = 4;
+        optional float cornerRadius = 5;
     }
     message EllipseArgs {
-        float x = 1;
-        float y = 2;
-        float radiusX = 3;
-        float radiusY = 4;
+        optional float x = 1;
+        optional float y = 2;
+        optional float radiusX = 3;
+        optional float radiusY = 4;
     }
-    ShapeType type = 1;
-    ShapeArgs shape = 2;
-    RectArgs rect = 3;
-    EllipseArgs ellipse = 4;
-    ShapeStyle styles = 10;
-    Transform transform = 11;
+    optional ShapeType type = 1;
+    optional ShapeArgs shape = 2;
+    optional RectArgs rect = 3;
+    optional EllipseArgs ellipse = 4;
+    optional ShapeStyle styles = 10;
+    optional Transform transform = 11;
 }
 
 message ShapeStyle {
     message RGBAColor {
-        float r = 1;
-        float g = 2;
-        float b = 3;
-        float a = 4;
+        optional float r = 1;
+        optional float g = 2;
+        optional float b = 3;
+        optional float a = 4;
     }
-    RGBAColor fill = 1;
-    RGBAColor stroke = 2;
-    float strokeWidth = 3;
-    string lineCap = 4;
-    string lineJoin = 5;
-    float miterLimit = 6;
-    float lineDashI = 7;
-    float lineDashII = 8;
-    float lineDashIII = 9;
+    optional RGBAColor fill = 1;
+    optional RGBAColor stroke = 2;
+    optional float strokeWidth = 3;
+    optional string lineCap = 4;
+    optional string lineJoin = 5;
+    optional float miterLimit = 6;
+    optional float lineDashI = 7;
+    optional float lineDashII = 8;
+    optional float lineDashIII = 9;
 }
 
 message FrameEntity {
-    float alpha = 1;
-    Layout layout = 2;
-    Transform transform = 3;
-    string clipPath = 4;
+    optional float alpha = 1;
+    optional Layout layout = 2;
+    optional Transform transform = 3;
+    optional string clipPath = 4;
     repeated ShapeEntity shapes = 5;
-    string blendMode = 6;
+    optional string blendMode = 6;
 }
 
 message MovieEntity {
-    string version = 1;
-    MovieParams params = 2;
+    optional string version = 1;
+    optional MovieParams params = 2;
     map<string, bytes> images = 3;
     repeated SpriteEntity sprites = 4;
     repeated AudioEntity audios = 5;

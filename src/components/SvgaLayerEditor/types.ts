@@ -38,6 +38,8 @@ export interface SVGAKeyframeSummary {
   hasShapes: boolean;
   hasTransform: boolean;
   hasAnyExplicitAlpha?: boolean;
+  activeFrames?: number[];
+  isSequenceOrRepeated?: boolean;
 }
 
 export interface EditableLayer {
