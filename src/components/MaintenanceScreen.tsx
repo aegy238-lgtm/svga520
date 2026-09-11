@@ -59,8 +59,10 @@ export const MaintenanceScreen: React.FC<MaintenanceScreenProps> = ({
     }
   };
 
-  const title = settings?.maintenanceTitle || 'الموقع تحت التحديث والتطوير';
-  const message = settings?.maintenanceMessage || 'الموقع حالياً تحت التحديث والتطوير، يرجى الانتظار حتى انتهاء أعمال التطوير.';
+  const titleAr = settings?.maintenanceTitle || 'حالياً سيرفر التطبيق متعطل الآن';
+  const messageAr = settings?.maintenanceMessage || 'نعتذر لجميع المستخدمين عن هذا التوقف المؤقت. خوادم التطبيق تخضع حالياً لأعمال صيانة طارئة وفحص فني شامل لضمان أعلى مستويات الأداء والاستقرار. فريق الدعم الفني يعمل بكامل طاقته على استعادة كامل الخدمات في أقرب وقت ممكن. شكراً لتفهمكم وصبركم.';
+  const titleEn = settings?.maintenanceTitleEn || 'Currently, the application server is down now.';
+  const messageEn = settings?.maintenanceMessageEn || 'We sincerely apologize to all users for this temporary interruption. Our application servers are currently undergoing emergency maintenance and comprehensive technical inspections to ensure optimal performance and stability. Our technical team is actively working to restore all services as quickly as possible. Thank you for your understanding and patience.';
   const estimatedTime = settings?.maintenanceEstimatedTime;
   const appName = settings?.appName || 'SVGA Studio';
   const logoUrl = settings?.logoUrl;
@@ -69,9 +71,9 @@ export const MaintenanceScreen: React.FC<MaintenanceScreenProps> = ({
   return (
     <div className="min-h-screen w-full bg-[#030712] text-slate-100 flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-hidden font-sans" dir="rtl">
       {/* Background Animated Glows */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-purple-600/15 rounded-full blur-[140px] pointer-events-none" />
-      <div className="absolute bottom-10 right-10 w-[350px] h-[350px] bg-indigo-600/10 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute top-10 left-10 w-[300px] h-[300px] bg-amber-500/10 rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-rose-600/15 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute bottom-10 right-10 w-[350px] h-[350px] bg-amber-600/10 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute top-10 left-10 w-[300px] h-[300px] bg-indigo-600/10 rounded-full blur-[100px] pointer-events-none" />
 
       {/* Grid Pattern Overlay */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#1f29370a_1px,transparent_1px),linear-gradient(to_bottom,#1f29370a_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
@@ -80,7 +82,7 @@ export const MaintenanceScreen: React.FC<MaintenanceScreenProps> = ({
       <motion.div 
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-2xl flex items-center justify-between mb-8 z-10"
+        className="w-full max-w-3xl flex items-center justify-between mb-8 z-10"
       >
         <div className="flex items-center gap-3">
           {logoUrl ? (
@@ -91,23 +93,23 @@ export const MaintenanceScreen: React.FC<MaintenanceScreenProps> = ({
               referrerPolicy="no-referrer"
             />
           ) : (
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center font-bold text-white shadow-lg">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-rose-600 via-amber-600 to-indigo-600 flex items-center justify-center font-bold text-white shadow-lg">
               {appName.charAt(0)}
             </div>
           )}
           <div>
             <h1 className="font-extrabold text-lg text-white tracking-tight">{appName}</h1>
-            <p className="text-[11px] text-slate-400">المنصة الرسمية</p>
+            <p className="text-[11px] text-slate-400">Server Status Notification</p>
           </div>
         </div>
 
         {/* Live Status Badge */}
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold shadow-[0_0_15px_rgba(245,158,11,0.15)]">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-semibold shadow-[0_0_15px_rgba(244,63,94,0.15)]">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
           </span>
-          <span>وضع التحديث والتطوير</span>
+          <span>تعطل السيرفر مؤقتاً | Server Offline</span>
         </div>
       </motion.div>
 
@@ -116,66 +118,85 @@ export const MaintenanceScreen: React.FC<MaintenanceScreenProps> = ({
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ duration: 0.5, ease: "easeOut" }}
-        className="w-full max-w-2xl bg-slate-900/80 backdrop-blur-2xl border border-white/10 rounded-3xl p-6 sm:p-10 shadow-2xl relative z-10 flex flex-col items-center text-center overflow-hidden"
+        className="w-full max-w-3xl bg-slate-900/80 backdrop-blur-2xl border border-white/10 rounded-3xl p-6 sm:p-10 shadow-2xl relative z-10 flex flex-col items-center text-center overflow-hidden"
       >
         {/* Animated Accent Line */}
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-purple-500 to-indigo-500" />
+        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-rose-500 via-amber-500 to-indigo-500" />
 
-        {/* Floating Icons & Gears Graphic */}
+        {/* Floating Server Outage Graphic */}
         <div className="relative mb-6">
           <motion.div 
-            animate={{ rotate: 360 }}
-            transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
-            className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl bg-gradient-to-br from-amber-500/20 via-purple-600/20 to-indigo-600/20 border border-white/15 flex items-center justify-center shadow-inner"
+            animate={{ scale: [1, 1.05, 1] }}
+            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+            className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl bg-gradient-to-br from-rose-500/20 via-amber-500/20 to-indigo-600/20 border border-white/15 flex items-center justify-center shadow-inner"
           >
-            <Wrench className="w-12 h-12 sm:w-14 sm:h-14 text-amber-400 drop-shadow-[0_0_12px_rgba(245,158,11,0.5)]" />
+            <ShieldAlert className="w-12 h-12 sm:w-14 sm:h-14 text-rose-400 drop-shadow-[0_0_15px_rgba(244,63,94,0.6)]" />
           </motion.div>
 
           <motion.div 
             animate={{ scale: [1, 1.2, 1], rotate: [0, 10, -10, 0] }}
-            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-            className="absolute -top-2 -right-2 w-9 h-9 rounded-xl bg-purple-600 border border-white/20 flex items-center justify-center shadow-lg"
+            transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+            className="absolute -top-2 -right-2 w-9 h-9 rounded-xl bg-amber-600 border border-white/20 flex items-center justify-center shadow-lg"
           >
-            <Sparkles className="w-5 h-5 text-white" />
+            <Wrench className="w-5 h-5 text-white" />
           </motion.div>
 
-          <div className="absolute -bottom-2 -left-2 w-9 h-9 rounded-xl bg-indigo-600 border border-white/20 flex items-center justify-center shadow-lg">
+          <div className="absolute -bottom-2 -left-2 w-9 h-9 rounded-xl bg-rose-600 border border-white/20 flex items-center justify-center shadow-lg">
             <Radio className="w-5 h-5 text-white animate-pulse" />
           </div>
         </div>
 
-        {/* Title */}
-        <h2 className="text-2xl sm:text-3xl font-black text-white mb-3 tracking-tight">
-          {title}
-        </h2>
+        {/* Status Indicator Tag */}
+        <div className="inline-flex items-center gap-2 px-4 py-1 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-mono font-bold mb-4">
+          <span>HTTP 503 SERVICE TEMPORARILY UNAVAILABLE</span>
+        </div>
 
-        {/* Subtitle / Notification Text */}
-        <p className="text-slate-300 text-sm sm:text-base leading-relaxed max-w-lg mb-6">
-          {message}
-        </p>
+        {/* ================= Arabic Section ================= */}
+        <div className="w-full mb-6 pb-6 border-b border-white/10" dir="rtl">
+          <h2 className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-rose-100 to-rose-300 mb-3 tracking-tight">
+            {titleAr}
+          </h2>
+          <p className="text-slate-300 text-sm sm:text-base leading-relaxed max-w-xl mx-auto">
+            {messageAr}
+          </p>
+        </div>
+
+        {/* ================= English Section ================= */}
+        <div className="w-full mb-6 pb-6 border-b border-white/10" dir="ltr">
+          <div className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-rose-400/90 font-bold mb-2">
+            <AlertTriangle className="w-3.5 h-3.5" />
+            <span>Official Outage Notice</span>
+          </div>
+          <h3 className="text-xl sm:text-2xl font-black text-white mb-2 tracking-tight">
+            {titleEn}
+          </h3>
+          <p className="text-slate-300 text-xs sm:text-sm leading-relaxed max-w-xl mx-auto">
+            {messageEn}
+          </p>
+        </div>
 
         {/* Estimated Time Badge (if configured) */}
         {estimatedTime && (
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-indigo-950/60 border border-indigo-500/30 text-indigo-200 text-xs sm:text-sm font-medium mb-6 shadow-sm">
             <Clock className="w-4 h-4 text-indigo-400 flex-shrink-0" />
-            <span>الوقت المقدر للانتهاء: <strong className="text-white font-bold">{estimatedTime}</strong></span>
+            <span>الوقت المقدر لعودة الخدمة / Estimated Time: <strong className="text-white font-bold">{estimatedTime}</strong></span>
           </div>
         )}
 
-        {/* Interactive Progress / Loading Animation */}
-        <div className="w-full max-w-md bg-slate-950/60 rounded-2xl p-4 border border-white/5 mb-8">
+        {/* Interactive Progress / Health Pulse */}
+        <div className="w-full max-w-lg bg-slate-950/60 rounded-2xl p-4 border border-white/5 mb-8">
           <div className="flex items-center justify-between text-xs text-slate-400 mb-2 font-medium">
             <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-              تحديث البنية التحتية والميزات
+              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
+              فحص السيرفر والاتصال بالخادم
             </span>
-            <span className="text-purple-400 font-bold">جاري العمل...</span>
+            <span className="text-amber-400 font-bold font-mono">Server Sync: Standby</span>
           </div>
           <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden relative">
             <motion.div 
               animate={{ x: ['-100%', '100%'] }}
               transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-              className="w-1/2 h-full bg-gradient-to-r from-transparent via-purple-500 to-transparent"
+              className="w-1/2 h-full bg-gradient-to-r from-transparent via-rose-500 to-transparent"
             />
           </div>
         </div>
@@ -186,22 +207,22 @@ export const MaintenanceScreen: React.FC<MaintenanceScreenProps> = ({
           <button
             onClick={handleManualRefresh}
             disabled={isRefreshing}
-            className="flex-1 min-w-[140px] px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 transition-all text-xs sm:text-sm font-bold text-white border border-white/10 flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+            className="flex-1 min-w-[160px] px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 transition-all text-xs sm:text-sm font-bold text-white border border-white/10 flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
           >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-purple-400' : ''}`} />
-            <span>{isRefreshing ? 'جاري الفحص...' : 'فحص حالة الموقع'}</span>
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-rose-400' : ''}`} />
+            <span>{isRefreshing ? 'جاري الفحص...' : 'فحص حالة السيرفر / Check Server'}</span>
           </button>
 
           {/* WhatsApp Support Button */}
           {whatsappNumber && (
             <a
-              href={`https://wa.me/${whatsappNumber.replace(/[^0-9]/g, '')}?text=${encodeURIComponent('مرحباً، أستفسر عن موعد انتهاء تحديث وتطوير الموقع.')}`}
+              href={`https://wa.me/${whatsappNumber.replace(/[^0-9]/g, '')}?text=${encodeURIComponent('مرحباً، أستفسر عن حالة تعطل سيرفر التطبيق وموعد عودة الخدمة.')}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex-1 min-w-[140px] px-4 py-3 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 active:scale-95 transition-all text-xs sm:text-sm font-bold flex items-center justify-center gap-2"
+              className="flex-1 min-w-[160px] px-5 py-3 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 active:scale-95 transition-all text-xs sm:text-sm font-bold flex items-center justify-center gap-2"
             >
               <MessageSquare className="w-4 h-4" />
-              <span>الدعم الفني</span>
+              <span>الدعم الفني / Support</span>
             </a>
           )}
         </div>
@@ -229,7 +250,7 @@ export const MaintenanceScreen: React.FC<MaintenanceScreenProps> = ({
       >
         <button
           onClick={() => setShowAdminLogin(true)}
-          className="inline-flex items-center gap-2 text-xs text-slate-500 hover:text-purple-400 transition-colors px-3 py-1.5 rounded-lg hover:bg-white/5"
+          className="inline-flex items-center gap-2 text-xs text-slate-500 hover:text-rose-400 transition-colors px-3 py-1.5 rounded-lg hover:bg-white/5"
         >
           <Lock className="w-3.5 h-3.5" />
           <span>دخول إدارة النظام (Admin Login)</span>

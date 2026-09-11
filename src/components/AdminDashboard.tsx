@@ -24,7 +24,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (user) {
-      if (user.email?.toLowerCase() === 'uhbijnokmpl098900@gmail.com') {
+      if (user.email?.toLowerCase() === 'uhbijnokmpl098900@gmail.com' || user.email?.toLowerCase() === 'aegy238@gmail.com') {
         setIsAdmin(true);
         setLoading(false);
         return;

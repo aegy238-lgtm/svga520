@@ -42,7 +42,7 @@ service cloud.firestore {
       return isAuthenticated() && (
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
-        (request.auth.token.email == "uhbijnokmpl098900@gmail.com" && request.auth.token.email_verified == true)
+        ((request.auth.token.email == "uhbijnokmpl098900@gmail.com" || request.auth.token.email == "aegy238@gmail.com") && request.auth.token.email_verified == true)
       );
     }
 

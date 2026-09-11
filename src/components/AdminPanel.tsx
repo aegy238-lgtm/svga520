@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { UserRecord, UserRole, AppSettings, LicenseKey, PresetBackground, SubscriptionType, ActivityLog } from '../types';
 import { db, storage } from '../lib/firebase';
-import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, query, orderBy, Timestamp, setDoc, getDoc, limit } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, query, orderBy, Timestamp, setDoc, getDoc, limit, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { StoreManager } from './StoreManager';
-import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, BadgeCheck, Wifi, Smartphone, Store, UserPlus, Lock, Unlock, Shield, ShieldPlus, ShieldOff, GitBranch, Download, ShieldCheck } from 'lucide-react';
+import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, BadgeCheck, Wifi, Smartphone, Store, UserPlus, Lock, Unlock, Shield, ShieldPlus, ShieldOff, GitBranch, Download, ShieldCheck, PowerOff, Power, AlertTriangle, Eye, CheckCircle2, Loader2, Server, Clock } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { logActivity } from '../utils/logger';
 import { AccountVersionsTab } from './admin/AccountVersionsTab';
 import { FeatureAccessControlTab } from './admin/FeatureAccessControlTab';
+import { MaintenanceScreen } from './MaintenanceScreen';
 
 // Secondary app for creating users without logging out admin
 const secondaryApp = initializeApp(firebaseConfig, 'SecondaryApp');
@@ -24,7 +25,7 @@ interface AdminPanelProps {
 const EXPORT_FORMATS = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP 1.0.5', 'VAP (MP4)', 'SVGA → YYEVA'];
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'store' | 'keys' | 'assets' | 'settings' | 'records' | 'account_versions' | 'features_access'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'store' | 'keys' | 'assets' | 'settings' | 'records' | 'account_versions' | 'features_access' | 'server_outage'>('users');
   const [dropdownState, setDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
   const [subDropdownState, setSubDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -42,8 +43,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
     defaultFreeAttempts: 5,
     isSvgaExEnabled: false,
     isMaintenanceMode: false,
-    maintenanceMessage: 'الموقع حالياً تحت التحديث والتطوير، يرجى الانتظار حتى انتهاء أعمال التطوير.',
-    maintenanceTitle: 'الموقع تحت التحديث والتطوير',
+    maintenanceMessage: 'نعتذر لجميع المستخدمين عن هذا التوقف المؤقت. خوادم التطبيق تخضع حالياً لأعمال صيانة طارئة وفحص فني شامل لضمان أعلى مستويات الأداء والاستقرار. فريق الدعم الفني يعمل بكامل طاقته على استعادة كامل الخدمات في أقرب وقت ممكن. شكراً لتفهمكم وصبركم.',
+    maintenanceTitle: 'حالياً سيرفر التطبيق متعطل الآن',
+    maintenanceMessageEn: 'We sincerely apologize to all users for this temporary interruption. Our application servers are currently undergoing emergency maintenance and comprehensive technical inspections to ensure optimal performance and stability. Our technical team is actively working to restore all services as quickly as possible. Thank you for your understanding and patience.',
+    maintenanceTitleEn: 'Currently, the application server is down now.',
     maintenanceEstimatedTime: '',
     costs: {
       svgaProcess: 0,
@@ -58,9 +61,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
   const [creatingUser, setCreatingUser] = useState(false);
   const [permissionModal, setPermissionModal] = useState<{ userId: string; name: string; permissions: string[] } | null>(null);
 
+  // Outage / Server Control States
+  const [showOutageConfirmModal, setShowOutageConfirmModal] = useState(false);
+  const [showOutagePreviewModal, setShowOutagePreviewModal] = useState(false);
+  const [savingOutage, setSavingOutage] = useState(false);
+  const [outageSuccessMsg, setOutageSuccessMsg] = useState('');
+  const [outageTitleAr, setOutageTitleAr] = useState('');
+  const [outageTitleEn, setOutageTitleEn] = useState('');
+  const [outageMessageAr, setOutageMessageAr] = useState('');
+  const [outageMessageEn, setOutageMessageEn] = useState('');
+  const [outageEstimatedTime, setOutageEstimatedTime] = useState('');
+
   const TABS = [
     { id: 'users', label: 'المستخدمين', icon: <Users /> },
     { id: 'features_access', label: 'تحديد الوظائف', icon: <ShieldCheck /> },
+    { id: 'server_outage', label: 'تعطيل سيرفر التطبيق', icon: <PowerOff className="text-rose-400" /> },
     { id: 'store', label: 'المتجر', icon: <Store /> },
     { id: 'keys', label: 'الاشتراكات', icon: <Key /> },
     { id: 'assets', label: 'الوسائط', icon: <ImageIcon /> },
@@ -132,6 +147,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
   const [logoUrlInput, setLogoUrlInput] = useState('');
   const [bgUrlInput, setBgUrlInput] = useState('');
   const [presetUrlInput, setPresetUrlInput] = useState('');
+
+  // Real-time Settings Listener for instantaneous Outage state sync
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'settings', 'global'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data() as AppSettings;
+        setSettings(prev => ({ ...prev, ...data }));
+        if (data.logoUrl && !logoUrlInput) setLogoUrlInput(data.logoUrl);
+        if (data.backgroundUrl && !bgUrlInput) setBgUrlInput(data.backgroundUrl);
+        setOutageTitleAr(data.maintenanceTitle || 'حالياً سيرفر التطبيق متعطل الآن');
+        setOutageTitleEn(data.maintenanceTitleEn || 'Currently, the application server is down now.');
+        setOutageMessageAr(data.maintenanceMessage || 'نعتذر لجميع المستخدمين عن هذا التوقف المؤقت. خوادم التطبيق تخضع حالياً لأعمال صيانة طارئة وفحص فني شامل لضمان أعلى مستويات الأداء والاستقرار. فريق الدعم الفني يعمل بكامل طاقته على استعادة كامل الخدمات في أقرب وقت ممكن. شكراً لتفهمكم وصبركم.');
+        setOutageMessageEn(data.maintenanceMessageEn || 'We sincerely apologize to all users for this temporary interruption. Our application servers are currently undergoing emergency maintenance and comprehensive technical inspections to ensure optimal performance and stability. Our technical team is actively working to restore all services as quickly as possible. Thank you for your understanding and patience.');
+        setOutageEstimatedTime(data.maintenanceEstimatedTime || '');
+      }
+    }, (err) => console.warn("AdminPanel settings snapshot error:", err));
+
+    return () => unsub();
+  }, []);
 
   // Fetch Data
   useEffect(() => {
@@ -568,6 +602,79 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
       console.error("Error saving settings:", error);
       alert("فشل حفظ الإعدادات");
     }
+  };
+
+  // 🔴 Server Outage Management Functions
+  const handleToggleServerOutage = async (enable: boolean) => {
+    setSavingOutage(true);
+    setOutageSuccessMsg('');
+    try {
+      const payload = {
+        isMaintenanceMode: enable,
+        maintenanceTitle: (outageTitleAr || settings.maintenanceTitle || 'حالياً سيرفر التطبيق متعطل الآن').trim(),
+        maintenanceTitleEn: (outageTitleEn || settings.maintenanceTitleEn || 'Currently, the application server is down now.').trim(),
+        maintenanceMessage: (outageMessageAr || settings.maintenanceMessage || 'نعتذر لجميع المستخدمين عن هذا التوقف المؤقت. خوادم التطبيق تخضع حالياً لأعمال صيانة طارئة وفحص فني شامل لضمان أعلى مستويات الأداء والاستقرار. فريق الدعم الفني يعمل بكامل طاقته على استعادة كامل الخدمات في أقرب وقت ممكن. شكراً لتفهمكم وصبركم.').trim(),
+        maintenanceMessageEn: (outageMessageEn || settings.maintenanceMessageEn || 'We sincerely apologize to all users for this temporary interruption. Our application servers are currently undergoing emergency maintenance and comprehensive technical inspections to ensure optimal performance and stability. Our technical team is actively working to restore all services as quickly as possible. Thank you for your understanding and patience.').trim(),
+        maintenanceEstimatedTime: (outageEstimatedTime || settings.maintenanceEstimatedTime || '').trim(),
+        updatedAt: new Date().toISOString()
+      };
+
+      await Promise.all([
+        setDoc(doc(db, 'settings', 'global'), payload, { merge: true }),
+        setDoc(doc(db, 'settings', 'app_config'), payload, { merge: true })
+      ]);
+
+      setSettings(prev => ({ ...prev, ...payload }));
+      setShowOutageConfirmModal(false);
+      setOutageSuccessMsg(
+        enable 
+          ? 'تم تعطيل سيرفر التطبيق بنجاح! تظهر الآن رسالة التعطيل الاحترافية لجميع المستخدمين، وشغال فقط لحساب المدير.' 
+          : 'تمت إعادة تشغيل الموقع بنجاح! الموقع متاح الآن لجميع المستخدمين بشكل طبيعي.'
+      );
+      setTimeout(() => setOutageSuccessMsg(''), 5000);
+    } catch (err: any) {
+      console.error("Error toggling server outage:", err);
+      alert("حدث خطأ أثناء تغيير حالة السيرفر: " + err.message);
+    } finally {
+      setSavingOutage(false);
+    }
+  };
+
+  const handleSaveOutageDetails = async () => {
+    setSavingOutage(true);
+    setOutageSuccessMsg('');
+    try {
+      const payload = {
+        maintenanceTitle: outageTitleAr.trim() || 'حالياً سيرفر التطبيق متعطل الآن',
+        maintenanceTitleEn: outageTitleEn.trim() || 'Currently, the application server is down now.',
+        maintenanceMessage: outageMessageAr.trim() || 'نعتذر لجميع المستخدمين عن هذا التوقف المؤقت. خوادم التطبيق تخضع حالياً لأعمال صيانة طارئة وفحص فني شامل لضمان أعلى مستويات الأداء والاستقرار. فريق الدعم الفني يعمل بكامل طاقته على استعادة كامل الخدمات في أقرب وقت ممكن. شكراً لتفهمكم وصبركم.',
+        maintenanceMessageEn: outageMessageEn.trim() || 'We sincerely apologize to all users for this temporary interruption. Our application servers are currently undergoing emergency maintenance and comprehensive technical inspections to ensure optimal performance and stability. Our technical team is actively working to restore all services as quickly as possible. Thank you for your understanding and patience.',
+        maintenanceEstimatedTime: outageEstimatedTime.trim(),
+        updatedAt: new Date().toISOString()
+      };
+
+      await Promise.all([
+        setDoc(doc(db, 'settings', 'global'), payload, { merge: true }),
+        setDoc(doc(db, 'settings', 'app_config'), payload, { merge: true })
+      ]);
+
+      setSettings(prev => ({ ...prev, ...payload }));
+      setOutageSuccessMsg('تم حفظ وتحديث نصوص وبيانات رسالة التعطيل بنجاح.');
+      setTimeout(() => setOutageSuccessMsg(''), 4000);
+    } catch (err: any) {
+      console.error("Error saving outage details:", err);
+      alert("حدث خطأ أثناء حفظ التفاصيل: " + err.message);
+    } finally {
+      setSavingOutage(false);
+    }
+  };
+
+  const handleResetOutageDefaults = () => {
+    setOutageTitleAr('حالياً سيرفر التطبيق متعطل الآن');
+    setOutageTitleEn('Currently, the application server is down now.');
+    setOutageMessageAr('نعتذر لجميع المستخدمين عن هذا التوقف المؤقت. خوادم التطبيق تخضع حالياً لأعمال صيانة طارئة وفحص فني شامل لضمان أعلى مستويات الأداء والاستقرار. فريق الدعم الفني يعمل بكامل طاقته على استعادة كامل الخدمات في أقرب وقت ممكن. شكراً لتفهمكم وصبركم.');
+    setOutageMessageEn('We sincerely apologize to all users for this temporary interruption. Our application servers are currently undergoing emergency maintenance and comprehensive technical inspections to ensure optimal performance and stability. Our technical team is actively working to restore all services as quickly as possible. Thank you for your understanding and patience.');
+    setOutageEstimatedTime('');
   };
 
   return (
@@ -1159,6 +1266,231 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                 </div>
               )}
 
+              {activeTab === 'server_outage' && (
+                <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-300">
+                  {/* Top Header Card */}
+                  <div className={`p-6 sm:p-7 rounded-2xl border transition-all duration-300 ${
+                    settings.isMaintenanceMode
+                      ? 'bg-gradient-to-br from-rose-950/50 via-slate-900 to-rose-950/30 border-rose-500/50 shadow-2xl shadow-rose-950/40'
+                      : 'bg-slate-950/40 border-white/10 shadow-xl'
+                  }`}>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5 pb-6 border-b border-white/10">
+                      <div className="flex items-start gap-4">
+                        <div className={`p-3.5 rounded-2xl flex-shrink-0 ${
+                          settings.isMaintenanceMode
+                            ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/40 animate-pulse'
+                            : 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30'
+                        }`}>
+                          <PowerOff size={28} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2.5 flex-wrap">
+                            <h3 className="text-xl sm:text-2xl font-black text-white">
+                              منظومة تعطيل سيرفر التطبيق
+                            </h3>
+                            <span className={`text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5 ${
+                              settings.isMaintenanceMode
+                                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                                : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                            }`}>
+                              <span className={`w-2 h-2 rounded-full ${settings.isMaintenanceMode ? 'bg-rose-400 animate-ping' : 'bg-emerald-400'}`} />
+                              {settings.isMaintenanceMode ? 'السيرفر معطّل للعامة' : 'السيرفر يعمل بشكل طبيعي'}
+                            </span>
+                          </div>
+                          <p className="text-xs sm:text-sm text-slate-400 mt-1.5 leading-relaxed">
+                            تعطيل الوصول للموقع عند جميع المستخدمين والزوار مع إظهار رسالة العطل الفني، واستثناء حساب المدير ليعمل لديه بشكل طبيعي.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Main Outage Action Buttons */}
+                      <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => setShowOutagePreviewModal(true)}
+                          className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-bold border border-white/10 transition-all flex items-center gap-2 hover:text-white"
+                        >
+                          <Eye size={16} className="text-indigo-400" />
+                          <span>معاينة شاشة التعطيل</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={savingOutage}
+                          onClick={() => {
+                            if (settings.isMaintenanceMode) {
+                              if (window.confirm('هل أنت متأكد من إعادة تشغيل الموقع للجميع وإنهاء حالة التعطيل؟')) {
+                                handleToggleServerOutage(false);
+                              }
+                            } else {
+                              setShowOutageConfirmModal(true);
+                            }
+                          }}
+                          className={`px-5 py-2.5 rounded-xl font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-2 shadow-lg active:scale-95 disabled:opacity-50 whitespace-nowrap ${
+                            settings.isMaintenanceMode
+                              ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30'
+                              : 'bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white shadow-rose-600/30'
+                          }`}
+                        >
+                          {savingOutage ? (
+                            <Loader2 size={18} className="animate-spin" />
+                          ) : settings.isMaintenanceMode ? (
+                            <>
+                              <Power size={18} />
+                              <span>إعادة تشغيل الموقع للجميع 🟢</span>
+                            </>
+                          ) : (
+                            <>
+                              <PowerOff size={18} />
+                              <span>تعطيل سيرفر التطبيق للمستخدمين 🔴</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Admin Exemption Status Banner */}
+                    <div className="mt-5 p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs sm:text-sm flex items-start gap-3">
+                      <Server className="w-5 h-5 text-indigo-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold text-indigo-300">ميزة استثناء حساب المدير التلقائي:</span>{' '}
+                        <span className="text-slate-300">
+                          عند تعطيل السيرفر، يتم قفل الموقع فوراً أمام جميع المستخدمين والزوار وتظهر لهم شاشة التوقف. حساب المدير (
+                          <strong className="text-white underline">{currentUser?.email || 'حساب المدير'}</strong>
+                          ) يظل قادراً على تصفح واستخدام جميع أدوات الموقع ولوحة التحكم بحرية كاملة ودون أي انقطاع.
+                        </span>
+                      </div>
+                    </div>
+
+                    {outageSuccessMsg && (
+                      <div className="mt-4 p-3.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs sm:text-sm font-bold flex items-center gap-2 animate-in fade-in">
+                        <CheckCircle2 size={18} />
+                        <span>{outageSuccessMsg}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Outage Message Configuration Form */}
+                  <div className="bg-slate-950/40 border border-white/10 rounded-2xl p-6 space-y-6">
+                    <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                      <div>
+                        <h4 className="text-base font-bold text-white flex items-center gap-2">
+                          <AlertTriangle className="w-5 h-5 text-amber-400" />
+                          تخصيص رسالة عطل السيرفر المعروضة للمستخدمين
+                        </h4>
+                        <p className="text-xs text-slate-400 mt-1">
+                          تظهر هذه الرسالة الاحترافية باللغتين العربية والإنجليزية عند محاولة أي مستخدم فتح التطبيق أثناء التعطيل
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleResetOutageDefaults}
+                        className="text-xs font-semibold text-slate-400 hover:text-white px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                      >
+                        استعادة النصوص الافتراضية
+                      </button>
+                    </div>
+
+                    {/* Section 1: Arabic Outage Message */}
+                    <div className="space-y-3 p-4 rounded-xl bg-slate-900/60 border border-white/5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
+                          <span>العنوان الرئيسي باللغة العربية</span>
+                          <span className="text-[10px] text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-md">مطلوب</span>
+                        </label>
+                      </div>
+                      <input
+                        type="text"
+                        value={outageTitleAr}
+                        onChange={(e) => setOutageTitleAr(e.target.value)}
+                        placeholder="حالياً سيرفر التطبيق متعطل الآن"
+                        className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                      />
+
+                      <label className="block text-xs font-bold text-indigo-300 uppercase tracking-wider pt-2">
+                        نص رسالة العطل الفني والاعتذار (بالعربية)
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={outageMessageAr}
+                        onChange={(e) => setOutageMessageAr(e.target.value)}
+                        placeholder="نعتذر لجميع المستخدمين عن هذا التوقف المؤقت. خوادم التطبيق تخضع حالياً لأعمال صيانة طارئة وفحص فني شامل لضمان أعلى مستويات الأداء والاستقرار. فريق الدعم الفني يعمل بكامل طاقته على استعادة كامل الخدمات في أقرب وقت ممكن. شكراً لتفهمكم وصبركم."
+                        className="w-full bg-slate-950 border border-white/10 rounded-xl p-4 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors resize-none leading-relaxed"
+                      />
+                    </div>
+
+                    {/* Section 2: English Outage Message */}
+                    <div className="space-y-3 p-4 rounded-xl bg-slate-900/60 border border-white/5" dir="ltr">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
+                          <span>Outage Headline (English)</span>
+                          <span className="text-[10px] text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-md">Required</span>
+                        </label>
+                      </div>
+                      <input
+                        type="text"
+                        value={outageTitleEn}
+                        onChange={(e) => setOutageTitleEn(e.target.value)}
+                        placeholder="Currently, the application server is down now."
+                        className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors text-left"
+                      />
+
+                      <label className="block text-xs font-bold text-indigo-300 uppercase tracking-wider pt-2 text-left">
+                        Outage Notice & Apology (English)
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={outageMessageEn}
+                        onChange={(e) => setOutageMessageEn(e.target.value)}
+                        placeholder="We sincerely apologize to all users for this temporary interruption. Our application servers are currently undergoing emergency maintenance and comprehensive technical inspections to ensure optimal performance and stability. Our technical team is actively working to restore all services as quickly as possible. Thank you for your understanding and patience."
+                        className="w-full bg-slate-950 border border-white/10 rounded-xl p-4 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors resize-none leading-relaxed text-left"
+                      />
+                    </div>
+
+                    {/* Section 3: Estimated Time (Optional) */}
+                    <div className="space-y-2">
+                      <label className="block text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                        <Clock size={16} className="text-amber-400" />
+                        <span>الوقت المقدر للعودة للعمل (اختياري)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={outageEstimatedTime}
+                        onChange={(e) => setOutageEstimatedTime(e.target.value)}
+                        placeholder="مثال: 30 دقيقة / الساعة 10:00 مساءً / قريباً"
+                        className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                      />
+                    </div>
+
+                    {/* Save Buttons */}
+                    <div className="pt-3 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-white/10">
+                      <button
+                        type="button"
+                        onClick={() => setShowOutagePreviewModal(true)}
+                        className="w-full sm:w-auto px-5 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-2"
+                      >
+                        <Eye size={16} className="text-indigo-400" />
+                        <span>معاينة النتيجة المباشرة</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={savingOutage}
+                        onClick={handleSaveOutageDetails}
+                        className="w-full sm:w-auto px-7 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-black transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 disabled:opacity-50"
+                      >
+                        {savingOutage ? (
+                          <Loader2 size={18} className="animate-spin" />
+                        ) : (
+                          <CheckCircle2 size={18} />
+                        )}
+                        <span>حفظ وتحديث نصوص التعطيل</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {activeTab === 'settings' && (
                 <div className="max-w-2xl mx-auto">
                   <h3 className="text-xl font-bold mb-6">الإعدادات العامة</h3>
@@ -1217,51 +1549,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                         />
                     </div>
 
-                    {/* 🔴 وضع التحديث والتطوير */}
-                    <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 space-y-4">
+                    {/* 🔴 منظومة تعطيل سيرفر التطبيق */}
+                    <div className="p-4 rounded-xl border border-rose-500/30 bg-rose-500/10 space-y-3">
                       <div className="flex items-center justify-between">
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-white">تفعيل وضع التحديث والتطوير</span>
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${settings.isMaintenanceMode ? 'bg-amber-500 text-black' : 'bg-slate-700 text-slate-300'}`}>
-                              {settings.isMaintenanceMode ? 'نشط' : 'معطل'}
+                            <PowerOff className="w-4 h-4 text-rose-400" />
+                            <span className="text-sm font-bold text-white">حالة سيرفر التطبيق للمستخدمين</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${settings.isMaintenanceMode ? 'bg-rose-500 text-white' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'}`}>
+                              {settings.isMaintenanceMode ? 'السيرفر معطّل للعامة' : 'يعمل بشكل طبيعي'}
                             </span>
                           </div>
-                          <span className="text-[11px] text-slate-300">عند التفعيل، يتم إغلاق الموقع للمستخدمين العاديين وتظهر شاشة الصيانة، ويبقى متاحاً للمدير فقط</span>
+                          <span className="text-[11px] text-slate-300">يتم إغلاق الموقع لجميع المستخدمين وتظهر رسالة التوقف (شغال لحساب المدير فقط)</span>
                         </div>
                         <button 
                           type="button"
-                          onClick={() => setSettings({ ...settings, isMaintenanceMode: !settings.isMaintenanceMode })}
-                          className={`w-12 h-6 rounded-full transition-all relative flex-shrink-0 ${settings.isMaintenanceMode ? 'bg-amber-500' : 'bg-slate-700'}`}
+                          onClick={() => setActiveTab('server_outage')}
+                          className="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shadow flex items-center gap-1.5"
                         >
-                          <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings.isMaintenanceMode ? 'right-7' : 'right-1'}`}></div>
+                          <PowerOff size={14} />
+                          <span>إدارة التعطيل</span>
                         </button>
                       </div>
-
-                      {settings.isMaintenanceMode && (
-                        <div className="space-y-3 pt-2 border-t border-amber-500/20">
-                          <div>
-                            <label className="block text-xs font-semibold text-amber-200 mb-1">رسالة التحديث المخصصة</label>
-                            <input 
-                              type="text" 
-                              value={settings.maintenanceMessage || ''} 
-                              onChange={e => setSettings({ ...settings, maintenanceMessage: e.target.value })}
-                              className="w-full bg-slate-950/70 border border-amber-500/30 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
-                              placeholder="الموقع حالياً تحت التحديث والتطوير، يرجى الانتظار حتى انتهاء أعمال التطوير."
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-semibold text-amber-200 mb-1">الوقت المقدر للانتهاء (اختياري)</label>
-                            <input 
-                              type="text" 
-                              value={settings.maintenanceEstimatedTime || ''} 
-                              onChange={e => setSettings({ ...settings, maintenanceEstimatedTime: e.target.value })}
-                              className="w-full bg-slate-950/70 border border-amber-500/30 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
-                              placeholder="مثال: 30 دقيقة / قريباً"
-                            />
-                          </div>
-                        </div>
-                      )}
                     </div>
 
                     <div className="flex items-center justify-between p-4 bg-slate-950/30 border border-white/10 rounded-xl">
@@ -1424,6 +1733,96 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
             >
               حفظ الصلاحيات
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* 🔴 Confirmation Modal for Disabling the Site/Server */}
+      {showOutageConfirmModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200" dir="rtl">
+          <div className="bg-slate-900 border border-rose-500/40 rounded-3xl p-6 sm:p-7 w-full max-w-lg shadow-2xl space-y-5">
+            <div className="flex items-center gap-3 text-rose-500">
+              <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/30">
+                <AlertTriangle size={28} />
+              </div>
+              <div>
+                <h3 className="text-xl font-black text-white">تأكيد تعطيل سيرفر التطبيق</h3>
+                <p className="text-xs text-rose-300/80">إغلاق الموقع للعامة مع استثناء حساب المدير</p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-xs sm:text-sm text-rose-200 leading-relaxed space-y-2">
+              <p>
+                <strong>تنبيه فني:</strong> عند تأكيد التعطيل، سيتم فوراً حظر جميع المستخدمين والزوار من الدخول للتطبيق، وستظهر لهم شاشة العطل الفني الاحترافية:
+              </p>
+              <div className="p-3 rounded-xl bg-slate-950/80 border border-white/10 text-white font-mono text-xs">
+                "{outageTitleAr || 'حالياً سيرفر التطبيق متعطل الآن'}"
+                <br />
+                <span className="text-slate-400">"{outageTitleEn || 'Currently, the application server is down now.'}"</span>
+              </div>
+              <p className="text-emerald-300">
+                ✓ حساب المدير الخاص بك سيظل يعمل بكامل كفاءته وسيبقى بإمكانك إدارة وتشغيل الموقع دون انقطاع.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowOutageConfirmModal(false)}
+                className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-sm transition-colors"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={savingOutage}
+                onClick={() => handleToggleServerOutage(true)}
+                className="px-6 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-sm transition-all shadow-lg shadow-rose-600/30 flex items-center gap-2 disabled:opacity-50"
+              >
+                {savingOutage ? <Loader2 size={18} className="animate-spin" /> : <PowerOff size={18} />}
+                <span>نعم، تعطيل السيرفر الآن</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 👁️ Preview Modal for Outage Screen */}
+      {showOutagePreviewModal && (
+        <div className="fixed inset-0 z-[250] bg-black/95 flex flex-col animate-in fade-in duration-200 overflow-hidden" dir="rtl">
+          {/* Top Control Bar */}
+          <div className="w-full bg-slate-900/90 border-b border-white/10 px-6 py-3.5 flex items-center justify-between z-30 shadow-lg backdrop-blur-md">
+            <div className="flex items-center gap-3">
+              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                معاينة حية
+              </span>
+              <span className="text-sm font-bold text-white">
+                شاشة التعطيل كما تظهر للمستخدمين والزوار حالياً
+              </span>
+            </div>
+            <button
+              onClick={() => setShowOutagePreviewModal(false)}
+              className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shadow flex items-center gap-1.5"
+            >
+              <X size={16} />
+              <span>إغلاق المعاينة</span>
+            </button>
+          </div>
+
+          {/* Render MaintenanceScreen inside preview container */}
+          <div className="flex-1 overflow-y-auto">
+            <MaintenanceScreen
+              settings={{
+                ...settings,
+                maintenanceTitle: outageTitleAr || settings.maintenanceTitle || 'حالياً سيرفر التطبيق متعطل الآن',
+                maintenanceTitleEn: outageTitleEn || settings.maintenanceTitleEn || 'Currently, the application server is down now.',
+                maintenanceMessage: outageMessageAr || settings.maintenanceMessage,
+                maintenanceMessageEn: outageMessageEn || settings.maintenanceMessageEn,
+                maintenanceEstimatedTime: outageEstimatedTime || settings.maintenanceEstimatedTime
+              }}
+              currentUser={null}
+              onRefresh={() => {}}
+            />
           </div>
         </div>
       )}

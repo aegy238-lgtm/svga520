@@ -36,7 +36,7 @@ import { SubscriptionModal } from './components/SubscriptionModal';
 import { useAuth } from './contexts/AuthContext';
 import { AppState, FileMetadata, AppSettings } from './types';
 import { useAccessControl } from './hooks/useAccessControl';
-import { doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, updateDoc, setDoc } from 'firebase/firestore';
 import { db } from './lib/firebase';
 import { logActivity } from './utils/logger';
 import { MaintenanceScreen } from './components/MaintenanceScreen';
@@ -197,7 +197,7 @@ const App: React.FC = () => {
     localStorage.setItem('hasSeenOnboarding', 'true');
   };
 
-  const isSuperAdmin = currentUser?.email?.toLowerCase() === 'uhbijnokmpl098900@gmail.com' || currentUser?.isSuperAdmin === true;
+  const isSuperAdmin = currentUser?.email?.toLowerCase() === 'uhbijnokmpl098900@gmail.com' || currentUser?.email?.toLowerCase() === 'aegy238@gmail.com' || currentUser?.isSuperAdmin === true;
   const isAdminUser = isSuperAdmin || currentUser?.role === 'admin' || currentUser?.role === 'moderator';
   const isMaintenanceActive = Boolean(settings?.isMaintenanceMode);
 
@@ -674,17 +674,32 @@ const App: React.FC = () => {
       </AnimatePresence>
       
       {isMaintenanceActive && isAdminUser && (
-        <div className="fixed top-0 left-0 right-0 bg-gradient-to-r from-amber-600 via-orange-600 to-amber-600 text-white py-1.5 px-4 text-xs font-bold z-[300] flex items-center justify-between shadow-lg border-b border-amber-400/40">
+        <div className="fixed top-0 left-0 right-0 bg-gradient-to-r from-rose-700 via-amber-700 to-rose-700 text-white py-1.5 px-4 text-xs font-bold z-[300] flex items-center justify-between shadow-lg border-b border-rose-500/40">
           <div className="flex items-center gap-2">
-            <Wrench className="w-4 h-4 text-amber-200 animate-pulse" />
-            <span>⚠️ وضع التحديث والتطوير مفعّل حالياً: الموقع مغلق أمام المستخدمين العاديين، وتتصفح أنت كمسؤول.</span>
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+            </span>
+            <span>🔴 سيرفر التطبيق معطّل حالياً للعامة: تظهر للزوار رسالة "حالياً سيرفر التطبيق متعطل الآن" بالعربي والإنجليزي، وشغال لحساب المدير فقط.</span>
           </div>
-          <button
-            onClick={() => setState(AppState.ADMIN_PANEL)}
-            className="px-3 py-0.5 rounded-lg bg-black/40 hover:bg-black/60 text-white text-[11px] border border-white/20 transition-all font-bold"
-          >
-            فتح لوحة الإعدادات
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                if (window.confirm('هل أنت متأكد من إعادة تشغيل الموقع للجميع وإلغاء حالة التعطيل؟')) {
+                  await setDoc(doc(db, 'settings', 'global'), { isMaintenanceMode: false }, { merge: true });
+                }
+              }}
+              className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black border border-emerald-400/40 transition-all shadow"
+            >
+              إعادة تشغيل الموقع للجميع 🟢
+            </button>
+            <button
+              onClick={() => setState(AppState.ADMIN_PANEL)}
+              className="px-3 py-1 rounded-lg bg-black/40 hover:bg-black/60 text-white text-[11px] border border-white/20 transition-all font-bold"
+            >
+              فتح لوحة الإعدادات
+            </button>
+          </div>
         </div>
       )}
 
@@ -697,7 +712,7 @@ const App: React.FC = () => {
       <Header 
         onOpenGuide={() => setShowFeaturesGuide(true)}
         onLogoClick={handleReset} 
-        isAdmin={currentUser?.role === 'admin' || currentUser?.role === 'moderator'} 
+        isAdmin={isAdminUser} 
         currentUser={currentUser}
         settings={settings}
         onAdminToggle={() => setState(AppState.ADMIN_PANEL)}
@@ -786,6 +801,7 @@ const App: React.FC = () => {
               <div className="py-10 animate-in fade-in zoom-in duration-700 w-[100vw] relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]">
                 <Dashboard 
                   onUpload={handleFileUpload} 
+                  currentUser={currentUser}
                   onAction={(actionKey: string) => {
                      switch(actionKey) {
                         case 'animationManager': handleFeatureAccess(AppState.ANIMATION_MANAGER, 'Animation File Manager'); break;

@@ -118,6 +118,8 @@
         "isMaintenanceMode": { "type": "boolean" },
         "maintenanceMessage": { "type": "string" },
         "maintenanceTitle": { "type": "string" },
+        "maintenanceMessageEn": { "type": "string" },
+        "maintenanceTitleEn": { "type": "string" },
         "maintenanceEstimatedTime": { "type": "string" },
         "costs": { "type": "object" }
       },

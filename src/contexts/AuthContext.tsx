@@ -87,7 +87,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               // Create user record if it doesn't exist
               const deviceId = getDeviceId();
               const lastIp = await getClientIp();
-              const isAdmin = user.email === 'uhbijnokmpl098900@gmail.com';
+              const isAdmin = user.email?.toLowerCase() === 'uhbijnokmpl098900@gmail.com' || user.email?.toLowerCase() === 'aegy238@gmail.com';
               
               let defaultFreeAttempts = 5;
               let defaultAllowedVer = DEFAULT_ALLOWED_VERSION;
@@ -127,7 +127,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           } catch (e: any) {
             console.warn("Initial user fetch failed, using fallback:", e);
-            const isAdmin = user.email === 'uhbijnokmpl098900@gmail.com';
+            const isAdmin = user.email?.toLowerCase() === 'uhbijnokmpl098900@gmail.com' || user.email?.toLowerCase() === 'aegy238@gmail.com';
             if (isMounted) {
               setCurrentUser({
                 id: user.uid,
@@ -210,7 +210,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { user } = await createUserWithEmailAndPassword(auth, email, pass);
     const deviceId = getDeviceId();
     const lastIp = await getClientIp();
-    const isAdmin = email === 'uhbijnokmpl098900@gmail.com';
+    const isAdmin = email.toLowerCase() === 'uhbijnokmpl098900@gmail.com' || email.toLowerCase() === 'aegy238@gmail.com';
     const userName = name || email.split('@')[0] || 'User';
 
     const newUser: UserRecord = {

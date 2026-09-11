@@ -6,8 +6,10 @@ import { Save, Loader2, Image as ImageIcon, Wrench, AlertTriangle, CheckCircle2,
 export default function AppSettingsTab() {
   const [appName, setAppName] = useState('');
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
-  const [maintenanceMessage, setMaintenanceMessage] = useState('الموقع حالياً تحت التحديث والتطوير، يرجى الانتظار حتى انتهاء أعمال التطوير.');
-  const [maintenanceTitle, setMaintenanceTitle] = useState('الموقع تحت التحديث والتطوير');
+  const [maintenanceMessage, setMaintenanceMessage] = useState('نعتذر لجميع المستخدمين عن هذا التوقف المؤقت. خوادم التطبيق تخضع حالياً لأعمال صيانة طارئة وفحص فني شامل لضمان أعلى مستويات الأداء والاستقرار. فريق الدعم الفني يعمل بكامل طاقته على استعادة كامل الخدمات في أقرب وقت ممكن. شكراً لتفهمكم وصبركم.');
+  const [maintenanceTitle, setMaintenanceTitle] = useState('حالياً سيرفر التطبيق متعطل الآن');
+  const [maintenanceMessageEn, setMaintenanceMessageEn] = useState('We sincerely apologize to all users for this temporary interruption. Our application servers are currently undergoing emergency maintenance and comprehensive technical inspections to ensure optimal performance and stability. Our technical team is actively working to restore all services as quickly as possible. Thank you for your understanding and patience.');
+  const [maintenanceTitleEn, setMaintenanceTitleEn] = useState('Currently, the application server is down now.');
   const [maintenanceEstimatedTime, setMaintenanceEstimatedTime] = useState('');
   
   const [navIcons, setNavIcons] = useState({
@@ -39,6 +41,8 @@ export default function AppSettingsTab() {
         if (data.isMaintenanceMode !== undefined) setIsMaintenanceMode(data.isMaintenanceMode);
         if (data.maintenanceMessage) setMaintenanceMessage(data.maintenanceMessage);
         if (data.maintenanceTitle) setMaintenanceTitle(data.maintenanceTitle);
+        if (data.maintenanceMessageEn) setMaintenanceMessageEn(data.maintenanceMessageEn);
+        if (data.maintenanceTitleEn) setMaintenanceTitleEn(data.maintenanceTitleEn);
         if (data.maintenanceEstimatedTime !== undefined) setMaintenanceEstimatedTime(data.maintenanceEstimatedTime);
         if (data.appName && !appName) setAppName(data.appName);
       }
@@ -76,7 +80,9 @@ export default function AppSettingsTab() {
       const payload = {
         isMaintenanceMode: newMode,
         maintenanceMessage: maintenanceMessage.trim(),
-        maintenanceTitle: maintenanceTitle.trim() || 'الموقع تحت التحديث والتطوير',
+        maintenanceTitle: maintenanceTitle.trim() || 'حالياً سيرفر التطبيق متعطل الآن',
+        maintenanceMessageEn: maintenanceMessageEn.trim() || 'We sincerely apologize to all users for this temporary interruption. Our application servers are currently undergoing emergency maintenance and comprehensive technical inspections to ensure optimal performance and stability. Our technical team is actively working to restore all services as quickly as possible. Thank you for your understanding and patience.',
+        maintenanceTitleEn: maintenanceTitleEn.trim() || 'Currently, the application server is down now.',
         maintenanceEstimatedTime: maintenanceEstimatedTime.trim(),
         updatedAt: new Date().toISOString()
       };
@@ -89,8 +95,8 @@ export default function AppSettingsTab() {
       setIsMaintenanceMode(newMode);
       setMaintenanceSuccessMsg(
         newMode 
-          ? 'تم تفعيل وضع التحديث والتطوير بنجاح! الموقع مغلق الآن للمستخدمين العاديين.' 
-          : 'تم إلغاء وضع التحديث! الموقع متاح الآن لجميع المستخدمين بشكل طبيعي.'
+          ? 'تم تعطيل سيرفر التطبيق بنجاح! تظهر شاشة التوقف لجميع المستخدمين، وشغال فقط لحساب المدير.' 
+          : 'تم إلغاء التعطيل وإعادة تشغيل الموقع! الموقع متاح الآن لجميع المستخدمين بشكل طبيعي.'
       );
       setTimeout(() => setMaintenanceSuccessMsg(''), 5000);
     } catch (err: any) {
@@ -108,7 +114,9 @@ export default function AppSettingsTab() {
       const payload = {
         isMaintenanceMode,
         maintenanceMessage: maintenanceMessage.trim(),
-        maintenanceTitle: maintenanceTitle.trim() || 'الموقع تحت التحديث والتطوير',
+        maintenanceTitle: maintenanceTitle.trim() || 'حالياً سيرفر التطبيق متعطل الآن',
+        maintenanceMessageEn: maintenanceMessageEn.trim() || 'We sincerely apologize to all users for this temporary interruption. Our application servers are currently undergoing emergency maintenance and comprehensive technical inspections to ensure optimal performance and stability. Our technical team is actively working to restore all services as quickly as possible. Thank you for your understanding and patience.',
+        maintenanceTitleEn: maintenanceTitleEn.trim() || 'Currently, the application server is down now.',
         maintenanceEstimatedTime: maintenanceEstimatedTime.trim(),
         updatedAt: new Date().toISOString()
       };
@@ -118,7 +126,7 @@ export default function AppSettingsTab() {
         setDoc(doc(db, 'settings', 'app_config'), payload, { merge: true })
       ]);
 
-      setMaintenanceSuccessMsg('تم حفظ وتحديث بيانات رسالة الصيانة والتطوير بنجاح.');
+      setMaintenanceSuccessMsg('تم حفظ وتحديث بيانات رسالة الصيانة والتعطيل بنجاح.');
       setTimeout(() => setMaintenanceSuccessMsg(''), 4000);
     } catch (err: any) {
       console.error("Error saving maintenance details:", err);
@@ -257,7 +265,7 @@ export default function AppSettingsTab() {
         <div className="mt-6 space-y-4">
           <div>
             <label className={`block text-xs sm:text-sm font-bold mb-1.5 ${isMaintenanceMode ? 'text-slate-200' : 'text-gray-700'}`}>
-              عنوان صفحة التحديث
+              عنوان صفحة التوقف (باللغة العربية)
             </label>
             <input
               type="text"
@@ -268,13 +276,13 @@ export default function AppSettingsTab() {
                   ? 'bg-slate-950/80 border border-white/10 text-white focus:ring-2 focus:ring-amber-500' 
                   : 'bg-gray-50 border border-gray-200 text-gray-900 focus:ring-2 focus:ring-purple-500'
               }`}
-              placeholder="الموقع تحت التحديث والتطوير"
+              placeholder="حالياً سيرفر التطبيق متعطل الآن"
             />
           </div>
 
           <div>
             <label className={`block text-xs sm:text-sm font-bold mb-1.5 ${isMaintenanceMode ? 'text-slate-200' : 'text-gray-700'}`}>
-              رسالة التحديث المخصصة للمستخدمين
+              رسالة العطل والاعتذار الفني (باللغة العربية)
             </label>
             <textarea
               rows={3}
@@ -285,7 +293,41 @@ export default function AppSettingsTab() {
                   ? 'bg-slate-950/80 border border-white/10 text-white focus:ring-2 focus:ring-amber-500' 
                   : 'bg-gray-50 border border-gray-200 text-gray-900 focus:ring-2 focus:ring-purple-500'
               }`}
-              placeholder="الموقع حالياً تحت التحديث والتطوير، يرجى الانتظار حتى انتهاء أعمال التطوير."
+              placeholder="نعتذر لجميع المستخدمين عن هذا التوقف المؤقت. خوادم التطبيق تخضع حالياً لأعمال صيانة طارئة وفحص فني شامل لضمان أعلى مستويات الأداء والاستقرار. فريق الدعم الفني يعمل بكامل طاقته على استعادة كامل الخدمات في أقرب وقت ممكن. شكراً لتفهمكم وصبركم."
+            />
+          </div>
+
+          <div dir="ltr">
+            <label className={`block text-xs sm:text-sm font-bold mb-1.5 text-left ${isMaintenanceMode ? 'text-slate-200' : 'text-gray-700'}`}>
+              Outage Headline (English)
+            </label>
+            <input
+              type="text"
+              value={maintenanceTitleEn}
+              onChange={(e) => setMaintenanceTitleEn(e.target.value)}
+              className={`w-full rounded-xl px-4 py-2.5 text-sm focus:outline-none transition text-left ${
+                isMaintenanceMode 
+                  ? 'bg-slate-950/80 border border-white/10 text-white focus:ring-2 focus:ring-amber-500' 
+                  : 'bg-gray-50 border border-gray-200 text-gray-900 focus:ring-2 focus:ring-purple-500'
+              }`}
+              placeholder="Currently, the application server is down now."
+            />
+          </div>
+
+          <div dir="ltr">
+            <label className={`block text-xs sm:text-sm font-bold mb-1.5 text-left ${isMaintenanceMode ? 'text-slate-200' : 'text-gray-700'}`}>
+              Outage Notice & Apology (English)
+            </label>
+            <textarea
+              rows={3}
+              value={maintenanceMessageEn}
+              onChange={(e) => setMaintenanceMessageEn(e.target.value)}
+              className={`w-full rounded-xl p-4 text-sm focus:outline-none transition resize-none text-left ${
+                isMaintenanceMode 
+                  ? 'bg-slate-950/80 border border-white/10 text-white focus:ring-2 focus:ring-amber-500' 
+                  : 'bg-gray-50 border border-gray-200 text-gray-900 focus:ring-2 focus:ring-purple-500'
+              }`}
+              placeholder="We sincerely apologize to all users for this temporary interruption. Our application servers are currently undergoing emergency maintenance and comprehensive technical inspections to ensure optimal performance and stability. Our technical team is actively working to restore all services as quickly as possible. Thank you for your understanding and patience."
             />
           </div>
 

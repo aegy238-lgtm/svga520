@@ -145,6 +145,8 @@ export interface AppSettings {
   isMaintenanceMode?: boolean; // وضع التحديث والتطوير
   maintenanceMessage?: string; // رسالة التحديث المخصصة
   maintenanceTitle?: string; // عنوان شاشة التحديث
+  maintenanceMessageEn?: string; // رسالة التحديث بالإنجليزية
+  maintenanceTitleEn?: string; // عنوان شاشة التحديث بالإنجليزية
   maintenanceEstimatedTime?: string; // الوقت المقدر للانتهاء
   defaultAllowedVersion?: string; // الإصدار الافتراضي للحسابات الجديدة (e.g. 'v3.0.0')
   isDesignerInfoDownloadEnabled?: boolean; // تفعيل إمكانية تنزيل ملف التعريف في لوحة التحكم

@@ -12,7 +12,11 @@ interface DashboardProps {
   currentUser?: UserRecord | null;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ onUpload, onAction, currentUser }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ 
+  onUpload, 
+  onAction, 
+  currentUser
+}) => {
   const { isStarred, toggleStar } = useStarredTools();
 
   const isFeatureAllowed = (featureAccessKey: string) => {
@@ -42,7 +46,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onUpload, onAction, curren
 
   return (
     <div className="w-full flex justify-center pb-24 pt-4 px-4 sm:px-8 font-sans" dir="rtl">
-      <div className="max-w-[1600px] w-full flex flex-col gap-16">
+      <div className="max-w-[1600px] w-full flex flex-col gap-10 sm:gap-16">
         
         {/* Main Hero / Uploader */}
         <section className="relative w-full rounded-[3rem] p-1 sm:p-2 bg-gradient-to-b from-[#0d1220]/70 to-[#070A12]/40 border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-3xl animate-fade-in overflow-hidden group">
@@ -178,4 +182,5 @@ export const Dashboard: React.FC<DashboardProps> = ({ onUpload, onAction, curren
       </div>
     </div>
   );
-}
+};
+
