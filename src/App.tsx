@@ -201,6 +201,14 @@ const App: React.FC = () => {
   const isAdminUser = isSuperAdmin || currentUser?.role === 'admin' || currentUser?.role === 'moderator';
   const isMaintenanceActive = Boolean(settings?.isMaintenanceMode);
 
+  // Check if current user is explicitly allowed to use the app during server outage/maintenance
+  const isUserExemptFromOutage = Boolean(
+    isAdminUser ||
+    currentUser?.canBypassMaintenance === true ||
+    (currentUser?.id && Array.isArray(settings?.maintenanceAllowedUserIds) && settings.maintenanceAllowedUserIds.includes(currentUser.id)) ||
+    (currentUser?.email && Array.isArray(settings?.maintenanceAllowedEmails) && settings.maintenanceAllowedEmails.some(e => e.toLowerCase() === currentUser.email?.toLowerCase()))
+  );
+
   useEffect(() => {
     // Real-time listener for Global Settings
     const docRef = doc(db, 'settings', 'global');
@@ -546,8 +554,8 @@ const App: React.FC = () => {
     return <Loading />;
   }
 
-  // 🔴 Maintenance Mode Blocking for Non-Admin Users
-  if (isMaintenanceActive && !isAdminUser) {
+  // 🔴 Maintenance Mode Blocking for Non-Exempt Users
+  if (isMaintenanceActive && !isUserExemptFromOutage) {
     return (
       <MaintenanceScreen 
         settings={settings} 

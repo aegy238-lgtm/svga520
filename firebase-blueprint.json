@@ -121,6 +121,8 @@
         "maintenanceMessageEn": { "type": "string" },
         "maintenanceTitleEn": { "type": "string" },
         "maintenanceEstimatedTime": { "type": "string" },
+        "maintenanceAllowedUserIds": { "type": "array", "items": { "type": "string" } },
+        "maintenanceAllowedEmails": { "type": "array", "items": { "type": "string" } },
         "costs": { "type": "object" }
       },
       "required": ["appName", "whatsappNumber"]

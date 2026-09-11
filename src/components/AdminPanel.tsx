@@ -4,7 +4,7 @@ import { db, storage } from '../lib/firebase';
 import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, query, orderBy, Timestamp, setDoc, getDoc, limit, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { StoreManager } from './StoreManager';
-import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, BadgeCheck, Wifi, Smartphone, Store, UserPlus, Lock, Unlock, Shield, ShieldPlus, ShieldOff, GitBranch, Download, ShieldCheck, PowerOff, Power, AlertTriangle, Eye, CheckCircle2, Loader2, Server, Clock } from 'lucide-react';
+import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, BadgeCheck, Wifi, Smartphone, Store, UserPlus, Lock, Unlock, Shield, ShieldPlus, ShieldOff, GitBranch, Download, ShieldCheck, PowerOff, Power, AlertTriangle, Eye, CheckCircle2, Loader2, Server, Clock, UserCheck, Search, Filter } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -71,6 +71,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
   const [outageMessageAr, setOutageMessageAr] = useState('');
   const [outageMessageEn, setOutageMessageEn] = useState('');
   const [outageEstimatedTime, setOutageEstimatedTime] = useState('');
+
+  // Allowed Accounts During Server Outage
+  const [outageAllowedUserIds, setOutageAllowedUserIds] = useState<string[]>([]);
+  const [showAllowedUsersModal, setShowAllowedUsersModal] = useState(false);
+  const [allowedUsersSearch, setAllowedUsersSearch] = useState('');
+  const [allowedUsersFilter, setAllowedUsersFilter] = useState<'all' | 'allowed' | 'blocked'>('all');
+  const [savingAllowedUsers, setSavingAllowedUsers] = useState(false);
+  const [allowedUsersSuccessMsg, setAllowedUsersSuccessMsg] = useState('');
 
   const TABS = [
     { id: 'users', label: 'المستخدمين', icon: <Users /> },
@@ -161,6 +169,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
         setOutageMessageAr(data.maintenanceMessage || 'نعتذر لجميع المستخدمين عن هذا التوقف المؤقت. خوادم التطبيق تخضع حالياً لأعمال صيانة طارئة وفحص فني شامل لضمان أعلى مستويات الأداء والاستقرار. فريق الدعم الفني يعمل بكامل طاقته على استعادة كامل الخدمات في أقرب وقت ممكن. شكراً لتفهمكم وصبركم.');
         setOutageMessageEn(data.maintenanceMessageEn || 'We sincerely apologize to all users for this temporary interruption. Our application servers are currently undergoing emergency maintenance and comprehensive technical inspections to ensure optimal performance and stability. Our technical team is actively working to restore all services as quickly as possible. Thank you for your understanding and patience.');
         setOutageEstimatedTime(data.maintenanceEstimatedTime || '');
+        if (Array.isArray(data.maintenanceAllowedUserIds)) {
+          setOutageAllowedUserIds(data.maintenanceAllowedUserIds);
+        }
       }
     }, (err) => console.warn("AdminPanel settings snapshot error:", err));
 
@@ -172,6 +183,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
     fetchData();
   }, [activeTab]);
 
+  const fetchAllUsers = async () => {
+    try {
+      const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
+      const snapshot = await getDocs(q);
+      const usersData = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as UserRecord));
+      setUsers(usersData);
+      return usersData;
+    } catch (e) {
+      console.error("Error fetching all users for outage list:", e);
+      return [];
+    }
+  };
+
   const fetchData = async () => {
     const now = Date.now();
     if (cache[activeTab] && (now - cache[activeTab].timestamp) < CACHE_DURATION) {
@@ -180,6 +204,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
         setUsers(cached.users);
         setBannedIps(cached.bannedIps);
         setBannedDevices(cached.bannedDevices);
+      } else if (activeTab === 'server_outage') {
+        if (cached.users) setUsers(cached.users);
       } else if (activeTab === 'keys') {
         setKeys(cached);
       } else if (activeTab === 'assets') {
@@ -197,7 +223,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
 
     setLoading(true);
     try {
-      if (activeTab === 'users') {
+      if (activeTab === 'users' || activeTab === 'server_outage') {
         const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
         const snapshot = await getDocs(q);
         const usersData = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as UserRecord));
@@ -213,7 +239,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
         setBannedIps(ips);
         setBannedDevices(devices);
         
-        setCache(prev => ({ ...prev, users: { data: { users: usersData, bannedIps: ips, bannedDevices: devices }, timestamp: now } }));
+        setCache(prev => ({ ...prev, [activeTab]: { data: { users: usersData, bannedIps: ips, bannedDevices: devices }, timestamp: now } }));
       } else if (activeTab === 'keys') {
         const q = query(collection(db, 'licenseKeys'), orderBy('createdAt', 'desc'));
         const snapshot = await getDocs(q);
@@ -675,6 +701,105 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
     setOutageMessageAr('نعتذر لجميع المستخدمين عن هذا التوقف المؤقت. خوادم التطبيق تخضع حالياً لأعمال صيانة طارئة وفحص فني شامل لضمان أعلى مستويات الأداء والاستقرار. فريق الدعم الفني يعمل بكامل طاقته على استعادة كامل الخدمات في أقرب وقت ممكن. شكراً لتفهمكم وصبركم.');
     setOutageMessageEn('We sincerely apologize to all users for this temporary interruption. Our application servers are currently undergoing emergency maintenance and comprehensive technical inspections to ensure optimal performance and stability. Our technical team is actively working to restore all services as quickly as possible. Thank you for your understanding and patience.');
     setOutageEstimatedTime('');
+  };
+
+  // 🟢 User Outage Exemption Management
+  const isAccountAdmin = (u: UserRecord) =>
+    u.isSuperAdmin === true ||
+    u.role === 'admin' ||
+    u.email?.toLowerCase() === 'uhbijnokmpl098900@gmail.com' ||
+    u.email?.toLowerCase() === 'aegy238@gmail.com' ||
+    u.email?.toLowerCase() === 'iejehdgdig@gmail.com';
+
+  const handleToggleUserOutageExemption = async (targetUser: UserRecord) => {
+    const isCurrentlyAllowed = outageAllowedUserIds.includes(targetUser.id);
+    const updatedIds = isCurrentlyAllowed
+      ? outageAllowedUserIds.filter(id => id !== targetUser.id)
+      : [...outageAllowedUserIds, targetUser.id];
+
+    // Compute corresponding emails
+    const updatedEmails = users
+      .filter(u => updatedIds.includes(u.id))
+      .map(u => u.email?.toLowerCase())
+      .filter(Boolean) as string[];
+
+    if (!isCurrentlyAllowed && targetUser.email && !updatedEmails.includes(targetUser.email.toLowerCase())) {
+      updatedEmails.push(targetUser.email.toLowerCase());
+    }
+
+    setOutageAllowedUserIds(updatedIds);
+    setSavingAllowedUsers(true);
+
+    try {
+      const payload = {
+        maintenanceAllowedUserIds: updatedIds,
+        maintenanceAllowedEmails: updatedEmails,
+        updatedAt: new Date().toISOString()
+      };
+
+      await Promise.all([
+        setDoc(doc(db, 'settings', 'global'), payload, { merge: true }),
+        setDoc(doc(db, 'settings', 'app_config'), payload, { merge: true }),
+        updateDoc(doc(db, 'users', targetUser.id), {
+          canBypassMaintenance: !isCurrentlyAllowed
+        }).catch(err => console.warn("Notice updating user canBypassMaintenance:", err))
+      ]);
+
+      setUsers(prev => prev.map(u => u.id === targetUser.id ? { ...u, canBypassMaintenance: !isCurrentlyAllowed } : u));
+      setSettings(prev => ({ ...prev, ...payload }));
+      setAllowedUsersSuccessMsg(
+        !isCurrentlyAllowed
+          ? `تم استثناء الحساب (${targetUser.name || targetUser.email})! يمكنه الآن استخدام التطبيق أثناء التعطيل.`
+          : `تم إلغاء استثناء (${targetUser.name || targetUser.email})، سيتم حظره أثناء التعطيل.`
+      );
+      setTimeout(() => setAllowedUsersSuccessMsg(''), 4000);
+    } catch (err: any) {
+      console.error("Error updating user outage exemption:", err);
+      alert("حدث خطأ أثناء تحديث استثناء المستخدم: " + err.message);
+      setOutageAllowedUserIds(outageAllowedUserIds); // Revert on failure
+    } finally {
+      setSavingAllowedUsers(false);
+    }
+  };
+
+  const handleBulkSetOutageExemptions = async (allowAll: boolean) => {
+    if (allowAll) {
+      if (!window.confirm("هل أنت متأكد من استثناء جميع الحسابات المسجلة؟ سيتمكن جميع المستخدمين من فتح التطبيق واستخدامه أثناء التعطيل.")) return;
+    } else {
+      if (!window.confirm("هل أنت متأكد من إلغاء استثناء جميع الحسابات؟ سيتم قفل التطبيق على جميع المستخدمين ويفتح فقط لحساب المدير.")) return;
+    }
+
+    setSavingAllowedUsers(true);
+    try {
+      const updatedIds = allowAll ? users.map(u => u.id) : [];
+      const updatedEmails = allowAll ? users.map(u => u.email?.toLowerCase()).filter(Boolean) as string[] : [];
+
+      const payload = {
+        maintenanceAllowedUserIds: updatedIds,
+        maintenanceAllowedEmails: updatedEmails,
+        updatedAt: new Date().toISOString()
+      };
+
+      await Promise.all([
+        setDoc(doc(db, 'settings', 'global'), payload, { merge: true }),
+        setDoc(doc(db, 'settings', 'app_config'), payload, { merge: true })
+      ]);
+
+      setOutageAllowedUserIds(updatedIds);
+      setUsers(prev => prev.map(u => ({ ...u, canBypassMaintenance: allowAll })));
+      setSettings(prev => ({ ...prev, ...payload }));
+      setAllowedUsersSuccessMsg(
+        allowAll
+          ? "تم استثناء جميع الحسابات المسجلة بنجاح! سيتمكن الجميع من فتح التطبيق أثناء التعطيل."
+          : "تم إلغاء استثناء جميع الحسابات! التطبيق مقفل الآن على الجميع ويفتح فقط للمدير."
+      );
+      setTimeout(() => setAllowedUsersSuccessMsg(''), 4000);
+    } catch (err: any) {
+      console.error("Error updating bulk exemptions:", err);
+      alert("حدث خطأ أثناء التحديث الجماعي: " + err.message);
+    } finally {
+      setSavingAllowedUsers(false);
+    }
   };
 
   return (
@@ -1307,6 +1432,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                       <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
                         <button
                           type="button"
+                          onClick={async () => {
+                            if (users.length === 0) await fetchAllUsers();
+                            setShowAllowedUsersModal(true);
+                          }}
+                          className="px-4 py-2.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 text-purple-200 hover:text-white border border-purple-500/30 text-xs sm:text-sm font-bold transition-all flex items-center gap-2 shadow-sm active:scale-95"
+                          title="تحديد الحسابات المسموح لها بالدخول أثناء الإغلاق"
+                        >
+                          <UserCheck size={16} className="text-purple-400" />
+                          <span>الحسابات المستثناة</span>
+                          <span className="bg-purple-500 text-white text-[11px] px-2 py-0.5 rounded-full font-black">
+                            {outageAllowedUserIds.length}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
                           onClick={() => setShowOutagePreviewModal(true)}
                           className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-bold border border-white/10 transition-all flex items-center gap-2 hover:text-white"
                         >
@@ -1368,6 +1509,88 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                         <span>{outageSuccessMsg}</span>
                       </div>
                     )}
+                  </div>
+
+                  {/* Allowed Accounts During Outage Management Card */}
+                  <div className="bg-slate-950/40 border border-purple-500/30 rounded-2xl p-6 space-y-4 shadow-xl">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2.5 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/30 flex-shrink-0">
+                          <UserCheck size={22} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="text-base font-bold text-white">
+                              الحسابات المستثناة والمسموح لها بالدخول أثناء الإغلاق
+                            </h4>
+                            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                              {outageAllowedUserIds.length} مستثنى حالياً
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                            يمكنك اختيار وتحديد حسابات مسجلة معينة لفتح التطبيق واستخدامه بشكل طبيعي أثناء فترة تعطيل السيرفر، بينما يظل معطلاً أمام باقي الحسابات والزوار.
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (users.length === 0) await fetchAllUsers();
+                          setShowAllowedUsersModal(true);
+                        }}
+                        className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-purple-600/30 flex-shrink-0 active:scale-95"
+                      >
+                        <Users size={16} />
+                        <span>إدارة وتحديد الحسابات ({users.length})</span>
+                      </button>
+                    </div>
+
+                    {/* Preview list of currently allowed accounts */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2.5">
+                        <span className="text-xs font-bold text-slate-300">قائمة الحسابات المستثناة حالياً:</span>
+                        {outageAllowedUserIds.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleBulkSetOutageExemptions(false)}
+                            className="text-[11px] text-rose-400 hover:text-rose-300 underline font-medium"
+                          >
+                            إلغاء استثناء الجميع
+                          </button>
+                        )}
+                      </div>
+
+                      {outageAllowedUserIds.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {users
+                            .filter(u => outageAllowedUserIds.includes(u.id))
+                            .map(u => (
+                              <div
+                                key={u.id}
+                                className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-purple-950/50 border border-purple-500/30 text-xs text-purple-200"
+                              >
+                                <UserCheck size={14} className="text-purple-400" />
+                                <span className="font-medium">{u.name || u.email}</span>
+                                <span className="text-[10px] text-slate-400">({u.email})</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleUserOutageExemption(u)}
+                                  className="p-1 rounded-lg hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
+                                  title="إلغاء استثناء هذا الحساب"
+                                >
+                                  <X size={12} />
+                                </button>
+                              </div>
+                            ))}
+                        </div>
+                      ) : (
+                        <div className="p-3.5 rounded-xl bg-slate-900/60 border border-white/5 text-xs text-slate-400 flex items-center gap-2">
+                          <AlertTriangle size={15} className="text-amber-400 flex-shrink-0" />
+                          <span>لا توجد حسابات مستثناة حالياً (التطبيق مقفل على جميع المستخدمين ويفتح فقط لحساب المدير). اضغط على زر "إدارة وتحديد الحسابات" بالأعلى لتحديد الحسابات المسموح لها بالدخول.</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Outage Message Configuration Form */}
@@ -1781,6 +2004,318 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
               >
                 {savingOutage ? <Loader2 size={18} className="animate-spin" /> : <PowerOff size={18} />}
                 <span>نعم، تعطيل السيرفر الآن</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 👥 Manage Allowed Accounts During Outage Modal */}
+      {showAllowedUsersModal && (
+        <div className="fixed inset-0 z-[240] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" dir="rtl">
+          <div className="bg-slate-900 border border-purple-500/30 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="p-5 sm:p-6 border-b border-white/10 bg-gradient-to-r from-purple-950/40 via-slate-900 to-slate-900 flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <div className="p-3 rounded-2xl bg-purple-500/20 text-purple-400 border border-purple-500/30 flex-shrink-0 mt-0.5">
+                  <UserCheck size={26} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <h3 className="text-lg sm:text-xl font-black text-white">
+                      إدارة الحسابات المستثناة أثناء تعطيل السيرفر
+                    </h3>
+                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                      Bypass Server Outage
+                    </span>
+                  </div>
+                  <p className="text-xs sm:text-sm text-slate-400 mt-1 leading-relaxed">
+                    حدد الحسابات المسجلة التي يحق لها فتح التطبيق واستخدامه بشكل طبيعي أثناء فترة تعطل السيرفر، بينما تظهر شاشة التوقف لباقي الحسابات.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowAllowedUsersModal(false)}
+                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors flex-shrink-0"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Notification Banner */}
+            {allowedUsersSuccessMsg && (
+              <div className="mx-6 mt-4 p-3 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs sm:text-sm font-bold flex items-center gap-2 animate-in fade-in">
+                <CheckCircle2 size={18} className="flex-shrink-0" />
+                <span>{allowedUsersSuccessMsg}</span>
+              </div>
+            )}
+
+            {/* Quick Stats & Controls Bar */}
+            <div className="p-5 border-b border-white/10 bg-slate-950/40 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                {/* Search Box */}
+                <div className="relative flex-1">
+                  <Search size={17} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={allowedUsersSearch}
+                    onChange={(e) => setAllowedUsersSearch(e.target.value)}
+                    placeholder="ابحث بالاسم، أو البريد الإلكتروني..."
+                    className="w-full bg-slate-900 border border-white/10 rounded-xl pr-10 pl-4 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-colors"
+                  />
+                  {allowedUsersSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setAllowedUsersSearch('')}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Bulk Actions */}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    type="button"
+                    disabled={savingAllowedUsers || users.length === 0}
+                    onClick={() => handleBulkSetOutageExemptions(true)}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 hover:text-white border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <CheckCircle size={14} />
+                    <span>استثناء الجميع ({users.length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={savingAllowedUsers || outageAllowedUserIds.length === 0}
+                    onClick={() => handleBulkSetOutageExemptions(false)}
+                    className="px-3.5 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 hover:text-white border border-rose-500/30 text-xs font-bold transition-all flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <PowerOff size={14} />
+                    <span>إلغاء استثناء الجميع</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Filter Tabs & Counts */}
+              <div className="flex items-center justify-between gap-3 flex-wrap pt-1">
+                <div className="flex items-center gap-1.5 p-1 bg-slate-900 rounded-xl border border-white/5">
+                  <button
+                    type="button"
+                    onClick={() => setAllowedUsersFilter('all')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      allowedUsersFilter === 'all'
+                        ? 'bg-purple-600 text-white shadow'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    الكل ({users.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAllowedUsersFilter('allowed')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      allowedUsersFilter === 'allowed'
+                        ? 'bg-emerald-600 text-white shadow'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    المستثناة فقط ({outageAllowedUserIds.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAllowedUsersFilter('blocked')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      allowedUsersFilter === 'blocked'
+                        ? 'bg-rose-600 text-white shadow'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    المحظورة ({users.filter(u => !outageAllowedUserIds.includes(u.id) && !isAccountAdmin(u)).length})
+                  </button>
+                </div>
+
+                <div className="text-[11px] text-slate-400 flex items-center gap-3">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
+                    <span>مستثنى ومتاح له الدخول: <strong className="text-white">{outageAllowedUserIds.length}</strong></span>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-rose-400 inline-block" />
+                    <span>محظور بالتعطيل: <strong className="text-white">{users.filter(u => !outageAllowedUserIds.includes(u.id) && !isAccountAdmin(u)).length}</strong></span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Users List */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-2.5 divide-y divide-white/5">
+              {users
+                .filter(u => {
+                  const term = allowedUsersSearch.trim().toLowerCase();
+                  if (term) {
+                    const matchName = (u.name || '').toLowerCase().includes(term);
+                    const matchEmail = (u.email || '').toLowerCase().includes(term);
+                    const matchId = (u.id || '').toLowerCase().includes(term);
+                    if (!matchName && !matchEmail && !matchId) return false;
+                  }
+                  if (allowedUsersFilter === 'allowed') {
+                    return outageAllowedUserIds.includes(u.id) || isAccountAdmin(u);
+                  }
+                  if (allowedUsersFilter === 'blocked') {
+                    return !outageAllowedUserIds.includes(u.id) && !isAccountAdmin(u);
+                  }
+                  return true;
+                })
+                .map(user => {
+                  const isAdmin = isAccountAdmin(user);
+                  const isAllowed = isAdmin || outageAllowedUserIds.includes(user.id);
+
+                  return (
+                    <div
+                      key={user.id}
+                      className={`pt-2.5 pb-2.5 px-3.5 rounded-xl transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                        isAllowed
+                          ? 'bg-purple-950/20 border border-purple-500/20'
+                          : 'bg-slate-950/20 border border-white/5 hover:bg-white/[0.02]'
+                      }`}
+                    >
+                      {/* User Info */}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm flex-shrink-0 ${
+                          isAdmin 
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' 
+                            : isAllowed 
+                            ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' 
+                            : 'bg-slate-800 text-slate-400 border border-white/5'
+                        }`}>
+                          {user.name ? user.name[0].toUpperCase() : (user.email ? user.email[0].toUpperCase() : 'U')}
+                        </div>
+
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-sm text-white truncate max-w-[200px]">
+                              {user.name || 'مستخدم بدون اسم'}
+                            </span>
+
+                            {/* Role Badge */}
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                              user.role === 'admin' || user.isSuperAdmin
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                : user.role === 'moderator'
+                                ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40'
+                                : 'bg-slate-800 text-slate-400'
+                            }`}>
+                              {user.isSuperAdmin ? 'مدير عام' : user.role === 'admin' ? 'مسؤول' : user.role === 'moderator' ? 'مشرف' : 'مستخدم'}
+                            </span>
+
+                            {/* Exemption Status Badge */}
+                            {isAdmin ? (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                                <Shield size={11} />
+                                <span>مدير (مستثنى دائماً)</span>
+                              </span>
+                            ) : isAllowed ? (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1">
+                                <UserCheck size={11} />
+                                <span>مستثنى أثناء الإغلاق</span>
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 border border-white/5 flex items-center gap-1">
+                                <Lock size={11} />
+                                <span>محظور بالتعطيل</span>
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="text-xs text-slate-400 truncate mt-0.5">
+                            {user.email}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Exemption Action Controls */}
+                      <div className="flex items-center gap-2.5 flex-shrink-0 self-end sm:self-center">
+                        {isAdmin ? (
+                          <div className="text-xs font-semibold text-emerald-400/80 px-3 py-1.5 rounded-lg bg-emerald-950/40 border border-emerald-500/20 flex items-center gap-1.5">
+                            <Shield size={14} className="text-emerald-400" />
+                            <span>مستثنى تلقائياً</span>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={savingAllowedUsers}
+                            onClick={() => handleToggleUserOutageExemption(user)}
+                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-sm active:scale-95 disabled:opacity-50 ${
+                              isAllowed
+                                ? 'bg-purple-600 hover:bg-rose-600 text-white border border-purple-400/40 group'
+                                : 'bg-slate-800 hover:bg-emerald-600 text-slate-300 hover:text-white border border-white/10'
+                            }`}
+                          >
+                            {isAllowed ? (
+                              <>
+                                <UserCheck size={14} className="group-hover:hidden" />
+                                <X size={14} className="hidden group-hover:inline" />
+                                <span className="group-hover:hidden">مستثنى (مسموح بالدخول) 🟢</span>
+                                <span className="hidden group-hover:inline">إلغاء الاستثناء 🔴</span>
+                              </>
+                            ) : (
+                              <>
+                                <Unlock size={14} />
+                                <span>السماح له بالدخول أثناء الإغلاق</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+              {users.length === 0 && (
+                <div className="p-8 text-center text-slate-500 text-sm">
+                  جاري تحميل قائمة الحسابات المسجلة...
+                </div>
+              )}
+
+              {users.length > 0 && users.filter(u => {
+                const term = allowedUsersSearch.trim().toLowerCase();
+                if (term) {
+                  const matchName = (u.name || '').toLowerCase().includes(term);
+                  const matchEmail = (u.email || '').toLowerCase().includes(term);
+                  const matchId = (u.id || '').toLowerCase().includes(term);
+                  if (!matchName && !matchEmail && !matchId) return false;
+                }
+                if (allowedUsersFilter === 'allowed') {
+                  return outageAllowedUserIds.includes(u.id) || isAccountAdmin(u);
+                }
+                if (allowedUsersFilter === 'blocked') {
+                  return !outageAllowedUserIds.includes(u.id) && !isAccountAdmin(u);
+                }
+                return true;
+              }).length === 0 && (
+                <div className="p-8 text-center text-slate-500 text-sm">
+                  لا توجد حسابات تطابق خيارات البحث والتصفية المحددة.
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 sm:p-5 border-t border-white/10 bg-slate-950/60 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="text-[11px] text-slate-400 flex items-center gap-1.5 text-center sm:text-right">
+                <CheckCircle2 size={14} className="text-emerald-400 flex-shrink-0" />
+                <span>يتم حفظ وتطبيق التغييرات تلقائياً ولحظياً في السيرفر وقاعدة البيانات.</span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowAllowedUsersModal(false)}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs sm:text-sm transition-all shadow-lg shadow-purple-600/30"
+              >
+                إغلاق النافذة
               </button>
             </div>
           </div>

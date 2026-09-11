@@ -112,6 +112,7 @@ export interface UserRecord {
   lastUsedVersion?: string; // Version from which user last connected
   versionLastUpdated?: any; // Timestamp when version was last changed
   versionUpdatedBy?: string; // Admin who modified allowed version
+  canBypassMaintenance?: boolean; // إمكانية فتح التطبيق واستخدامه بشكل طبيعي أثناء تعطيل السيرفر
   [key: string]: any;
 }
 
@@ -148,6 +149,8 @@ export interface AppSettings {
   maintenanceMessageEn?: string; // رسالة التحديث بالإنجليزية
   maintenanceTitleEn?: string; // عنوان شاشة التحديث بالإنجليزية
   maintenanceEstimatedTime?: string; // الوقت المقدر للانتهاء
+  maintenanceAllowedUserIds?: string[]; // معرّفات الحسابات المسموح لها بفتح التطبيق أثناء تعطيل السيرفر
+  maintenanceAllowedEmails?: string[]; // إيميلات الحسابات المسموح لها بفتح التطبيق أثناء تعطيل السيرفر
   defaultAllowedVersion?: string; // الإصدار الافتراضي للحسابات الجديدة (e.g. 'v3.0.0')
   isDesignerInfoDownloadEnabled?: boolean; // تفعيل إمكانية تنزيل ملف التعريف في لوحة التحكم
   designerInfoName?: string;
