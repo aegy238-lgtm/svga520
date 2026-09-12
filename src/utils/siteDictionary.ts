@@ -2079,6 +2079,137 @@ export function getSortedDictionaryEntries(langCode: string): [string, string][]
   return entries;
 }
 
+// Persistent and in-memory cache for dynamic translations
+const dynamicTransCache = new Map<string, string>();
+
+// Initialize from localStorage if available
+if (typeof window !== 'undefined') {
+  try {
+    const saved = localStorage.getItem('svga_dynamic_trans_cache');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      Object.entries(parsed).forEach(([k, v]) => dynamicTransCache.set(k, v as string));
+    }
+  } catch (e) {}
+}
+
+function saveDynamicCache() {
+  if (typeof window !== 'undefined') {
+    try {
+      const obj: Record<string, string> = {};
+      let count = 0;
+      dynamicTransCache.forEach((v, k) => {
+        if (count < 1500) {
+          obj[k] = v;
+          count++;
+        }
+      });
+      localStorage.setItem('svga_dynamic_trans_cache', JSON.stringify(obj));
+    } catch (e) {}
+  }
+}
+
+// Batch queue for dynamic translation requests
+interface PendingRequest {
+  text: string;
+  lang: string;
+  callbacks: ((res: string) => void)[];
+}
+
+const pendingBatches: Record<string, Map<string, PendingRequest>> = {};
+let batchTimer: any = null;
+
+const GT_LANG_MAP: Record<string, string> = {
+  en: 'en',
+  hi: 'hi',
+  ur: 'ur',
+  zh: 'zh-CN',
+  tl: 'tl',
+  id: 'id',
+};
+
+async function processBatches() {
+  batchTimer = null;
+  const languages = Object.keys(pendingBatches);
+  
+  for (const lang of languages) {
+    const batchMap = pendingBatches[lang];
+    delete pendingBatches[lang];
+    if (!batchMap || batchMap.size === 0) continue;
+
+    const items = Array.from(batchMap.values());
+    const gtLang = GT_LANG_MAP[lang] || lang;
+
+    // Process in batches of 20 items for ultra-fast response
+    for (let i = 0; i < items.length; i += 20) {
+      const chunk = items.slice(i, i + 20);
+      const textBatch = chunk.map(it => it.text).join('\n');
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=ar&tl=${gtLang}&dt=t&q=` + encodeURIComponent(textBatch);
+
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 4000);
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeout);
+
+        if (res.ok) {
+          const data = await res.json();
+          const fullResult = (data[0] || []).map((x: any) => (x && x[0]) || '').join('');
+          const lines = fullResult.split('\n');
+
+          chunk.forEach((req, idx) => {
+            const translated = (lines[idx] || '').trim();
+            if (translated && translated !== req.text) {
+              const cKey = `${lang}:${req.text}`;
+              dynamicTransCache.set(cKey, translated);
+              req.callbacks.forEach(cb => {
+                try { cb(translated); } catch (e) {}
+              });
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('svga_dynamic_translated', {
+                  detail: { original: req.text, translated, lang }
+                }));
+              }
+            }
+          });
+          saveDynamicCache();
+        }
+      } catch (err) {
+        // Silently skip if network blocked
+      }
+    }
+  }
+}
+
+export function requestDynamicTranslation(text: string, langCode: string, onDone?: (res: string) => void): string | null {
+  if (!text || !text.trim() || langCode === 'ar') return null;
+  const trimmed = text.trim();
+  const cacheKey = `${langCode}:${trimmed}`;
+  
+  if (dynamicTransCache.has(cacheKey)) {
+    const cached = dynamicTransCache.get(cacheKey)!;
+    if (onDone) onDone(cached);
+    return cached;
+  }
+
+  if (!pendingBatches[langCode]) {
+    pendingBatches[langCode] = new Map();
+  }
+
+  const batchMap = pendingBatches[langCode];
+  if (!batchMap.has(trimmed)) {
+    batchMap.set(trimmed, { text: trimmed, lang: langCode, callbacks: onDone ? [onDone] : [] });
+  } else if (onDone) {
+    batchMap.get(trimmed)!.callbacks.push(onDone);
+  }
+
+  if (!batchTimer) {
+    batchTimer = setTimeout(processBatches, 40);
+  }
+
+  return null;
+}
+
 /**
  * Universal text transformer: converts any string containing Arabic words/phrases into the target language.
  */
@@ -2087,15 +2218,27 @@ export function translateString(text: string, langCode: string, isArabic: boolea
   const trimmed = text.trim();
   if (!trimmed) return text;
 
+  // If text has NO Arabic characters, return as is (already English/technical codes/numbers)
+  if (!/[\u0600-\u06FF]/.test(trimmed)) {
+    return text;
+  }
+
+  // 1. Check dynamic translation cache
+  const cacheKey = `${langCode}:${trimmed}`;
+  if (dynamicTransCache.has(cacheKey)) {
+    const cached = dynamicTransCache.get(cacheKey)!;
+    return text.replace(trimmed, cached);
+  }
+
   const dict = SITE_DICTIONARIES[langCode];
   if (!dict) return text;
 
-  // 1. Direct exact match
+  // 2. Direct exact match
   if (dict[trimmed]) {
     return text.replace(trimmed, dict[trimmed]);
   }
 
-  // 2. Comprehensive multi-phrase and token replacement from longest to shortest
+  // 3. Comprehensive multi-phrase and token replacement from longest to shortest
   const sortedEntries = getSortedDictionaryEntries(langCode);
   let current = trimmed;
   let replacedAny = false;
@@ -2108,7 +2251,32 @@ export function translateString(text: string, langCode: string, isArabic: boolea
     }
   }
 
-  if (replacedAny) {
+  // 4. Token & prefix morphological fallback for remaining Arabic words
+  if (/[\u0600-\u06FF]/.test(current)) {
+    current = current.replace(/[\u0600-\u06FF]+/g, (word) => {
+      if (dict[word]) return dict[word];
+      if (word.startsWith('ال') && word.length > 3 && dict[word.slice(2)]) {
+        return dict[word.slice(2)];
+      }
+      if (word.startsWith('و') && word.length > 2 && dict[word.slice(1)]) {
+        return dict[word.slice(1)];
+      }
+      if (word.startsWith('ب') && word.length > 2 && dict[word.slice(1)]) {
+        return dict[word.slice(1)];
+      }
+      if (word.startsWith('ل') && word.length > 2 && dict[word.slice(1)]) {
+        return dict[word.slice(1)];
+      }
+      return word;
+    });
+  }
+
+  // 5. If STILL contains Arabic characters, schedule background dynamic translation
+  if (/[\u0600-\u06FF]/.test(current)) {
+    requestDynamicTranslation(trimmed, langCode);
+  }
+
+  if (replacedAny || current !== trimmed) {
     return text.replace(trimmed, current);
   }
 

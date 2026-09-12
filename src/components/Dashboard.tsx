@@ -5,6 +5,7 @@ import { Uploader, UploadMode } from './Uploader';
 import { UserRecord } from '../types';
 import { TOOLS_REGISTRY, CATEGORIES_CONFIG, ToolCategory } from '../config/toolsRegistry';
 import { useStarredTools } from '../utils/starredTools';
+import { useLanguage } from '../contexts/LanguageContext';
 
 interface DashboardProps {
   onUpload: (files: File[], mode?: UploadMode) => void;
@@ -18,6 +19,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   currentUser
 }) => {
   const { isStarred, toggleStar } = useStarredTools();
+  const { language, dir } = useLanguage();
 
   const isFeatureAllowed = (featureAccessKey: string) => {
     if (!currentUser) return true;
@@ -45,7 +47,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   }).filter(cat => cat.tools.length > 0);
 
   return (
-    <div className="w-full flex justify-center pb-24 pt-4 px-4 sm:px-8 font-sans" dir="rtl">
+    <div className="w-full flex justify-center pb-24 pt-4 px-4 sm:px-8 font-sans" dir={dir}>
       <div className="max-w-[1600px] w-full flex flex-col gap-10 sm:gap-16">
         
         {/* Main Hero / Uploader */}
@@ -109,7 +111,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                onAction((tool as any).dashboardActionKey || (tool as any).actionKey);
                              }
                           }}
-                          className={`group relative text-right flex flex-col items-start gap-3 sm:gap-5 p-4 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] glass-panel transition-all duration-500 cursor-pointer overflow-hidden hover:-translate-y-2 active:translate-y-1 ${
+                          className={`group relative text-start flex flex-col items-start gap-3 sm:gap-5 p-4 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] glass-panel transition-all duration-500 cursor-pointer overflow-hidden hover:-translate-y-2 active:translate-y-1 ${
                              tool.highlight 
                               ? 'border-[#4DA3FF]/40 hover:border-[#4DA3FF] shadow-[0_0_20px_rgba(77,163,255,0.15)] hover:shadow-[0_0_40px_rgba(77,163,255,0.3)] bg-gradient-to-b from-[#0d1220]/90 to-[#0d1220]/60' 
                               : starred
@@ -150,19 +152,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
                              </h3>
                              
                              <div className="hidden sm:flex flex-col gap-3 mt-auto">
-                                {/* Arabic Description */}
-                                <div className="bg-[#070A12]/50 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/5 shadow-inner group-hover:bg-[#070A12]/30 transition-colors backdrop-blur-sm">
-                                   <p className="text-[10px] sm:text-[14px] leading-relaxed font-bold text-slate-300">
-                                      {tool.descAr}
-                                   </p>
-                                </div>
-                                
-                                {/* English Description */}
-                                <div className="bg-[#070A12]/30 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/5 shadow-inner transition-colors backdrop-blur-sm" dir="ltr">
-                                   <p className="text-[9px] sm:text-[12px] leading-relaxed font-bold text-slate-400 font-sans tracking-wide">
-                                      {tool.descEn}
-                                   </p>
-                                </div>
+                                {language === 'en' ? (
+                                   <div className="bg-[#070A12]/40 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/5 shadow-inner transition-colors backdrop-blur-sm">
+                                      <p className="text-[10px] sm:text-[14px] leading-relaxed font-bold text-slate-300 font-sans tracking-wide">
+                                         {tool.descEn}
+                                      </p>
+                                   </div>
+                                ) : (
+                                   <>
+                                      <div className="bg-[#070A12]/50 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/5 shadow-inner group-hover:bg-[#070A12]/30 transition-colors backdrop-blur-sm">
+                                         <p className="text-[10px] sm:text-[14px] leading-relaxed font-bold text-slate-300">
+                                            {tool.descAr}
+                                         </p>
+                                      </div>
+                                      {language === 'ar' && (
+                                         <div className="bg-[#070A12]/30 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/5 shadow-inner transition-colors backdrop-blur-sm" dir="ltr">
+                                            <p className="text-[9px] sm:text-[12px] leading-relaxed font-bold text-slate-400 font-sans tracking-wide">
+                                               {tool.descEn}
+                                            </p>
+                                         </div>
+                                      )}
+                                   </>
+                                )}
                              </div>
                           </div>
 

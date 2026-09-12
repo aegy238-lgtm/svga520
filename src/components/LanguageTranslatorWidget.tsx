@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Globe, Check, X, Sparkles, RefreshCw, Languages } from 'lucide-react';
 import { useLanguage, Language } from '../contexts/LanguageContext';
-import { SITE_DICTIONARIES, TranslationDictionary, translateString } from '../utils/siteDictionary';
+import { SITE_DICTIONARIES, TranslationDictionary, translateString, requestDynamicTranslation } from '../utils/siteDictionary';
 
 export interface LanguageOption {
   code: Language;
@@ -81,110 +81,172 @@ declare global {
 // Storage for original DOM text nodes to ensure 100% reversible translations
 const originalTextMap = new WeakMap<Node, string>();
 const originalAttributeMap = new WeakMap<Element, Record<string, string>>();
+let isTranslatingDom = false;
 
 /**
  * High-performance DOM text translator that safely replaces known phrases in real-time
  */
 function translateDomTree(root: Node, langCode: string, isArabic: boolean) {
-  if (!root) return;
+  if (!root || isTranslatingDom) return;
+  isTranslatingDom = true;
 
-  const walker = document.createTreeWalker(
-    root,
-    NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
-    {
-      acceptNode: (node) => {
-        // Skip script, style, and code blocks
-        if (node.nodeType === Node.ELEMENT_NODE) {
-          const el = node as HTMLElement;
-          const tag = el.tagName.toLowerCase();
-          if (tag === 'script' || tag === 'style' || tag === 'svg' || tag === 'code') {
-            return NodeFilter.FILTER_REJECT;
+  try {
+    const walker = document.createTreeWalker(
+      root,
+      NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
+      {
+        acceptNode: (node) => {
+          // Skip script, style, and code blocks
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            const el = node as HTMLElement;
+            const tag = el.tagName.toLowerCase();
+            if (tag === 'script' || tag === 'style' || tag === 'svg' || tag === 'code' || tag === 'canvas') {
+              return NodeFilter.FILTER_REJECT;
+            }
+            if (el.getAttribute('data-no-translate') === 'true') {
+              return NodeFilter.FILTER_REJECT;
+            }
           }
-          if (el.getAttribute('data-no-translate') === 'true') {
-            return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        },
+      }
+    );
+
+    let currentNode: Node | null = walker.currentNode;
+    while (currentNode) {
+      if (currentNode.nodeType === Node.TEXT_NODE) {
+        const textNode = currentNode as Text;
+        const rawText = textNode.nodeValue || '';
+        const trimmed = rawText.trim();
+
+        if (trimmed.length > 0) {
+          // If rawText contains Arabic characters, it must be saved as the original text
+          if (/[\u0600-\u06FF]/.test(rawText)) {
+            originalTextMap.set(textNode, rawText);
+          }
+          const originalText = originalTextMap.get(textNode) || rawText;
+
+          if (isArabic) {
+            // Restore original Arabic text
+            if (textNode.nodeValue !== originalText) {
+              textNode.nodeValue = originalText;
+            }
+          } else {
+            const translated = translateString(originalText, langCode, false);
+            if (textNode.nodeValue !== translated) {
+              textNode.nodeValue = translated;
+            }
+
+            // If original contains Arabic, queue dynamic translation with callback
+            if (/[\u0600-\u06FF]/.test(originalText)) {
+              requestDynamicTranslation(originalText.trim(), langCode, (liveVal) => {
+                if (document.body.contains(textNode) && textNode.nodeValue !== liveVal) {
+                  textNode.nodeValue = liveVal;
+                }
+              });
+            }
           }
         }
-        return NodeFilter.FILTER_ACCEPT;
-      },
-    }
-  );
+      } else if (currentNode.nodeType === Node.ELEMENT_NODE) {
+        const el = currentNode as HTMLElement;
 
-  let currentNode: Node | null = walker.currentNode;
-  while (currentNode) {
-    if (currentNode.nodeType === Node.TEXT_NODE) {
-      const textNode = currentNode as Text;
-      const rawText = textNode.nodeValue || '';
-      const trimmed = rawText.trim();
-
-      if (trimmed.length > 0) {
-        if (!originalTextMap.has(textNode)) {
-          originalTextMap.set(textNode, rawText);
-        }
-        const originalText = originalTextMap.get(textNode) || rawText;
-
-        if (isArabic) {
-          // Restore original Arabic text
-          if (textNode.nodeValue !== originalText) {
-            textNode.nodeValue = originalText;
+        // Manage layout direction for containers with hardcoded dir="rtl"
+        if (el.hasAttribute && el.hasAttribute('dir')) {
+          const currentDir = el.getAttribute('dir');
+          if (!el.dataset.origDir && currentDir) {
+            el.dataset.origDir = currentDir;
           }
-        } else {
-          const translated = translateString(originalText, langCode, false);
-          if (textNode.nodeValue !== translated) {
-            textNode.nodeValue = translated;
+          if (isArabic || langCode === 'ur') {
+            if (el.dataset.origDir && el.getAttribute('dir') !== el.dataset.origDir) {
+              el.setAttribute('dir', el.dataset.origDir);
+            }
+          } else {
+            if (el.dataset.origDir === 'rtl' && el.getAttribute('dir') !== 'ltr') {
+              el.setAttribute('dir', 'ltr');
+            }
+          }
+        }
+
+        // Translate title, placeholder, aria-label, and alt attributes
+        ['title', 'placeholder', 'aria-label', 'alt'].forEach((attr) => {
+          const val = el.getAttribute(attr);
+          if (val && val.trim().length > 0) {
+            let origAttrs = originalAttributeMap.get(el);
+            if (!origAttrs) {
+              origAttrs = {};
+              originalAttributeMap.set(el, origAttrs);
+            }
+            if (/[\u0600-\u06FF]/.test(val) || !(attr in origAttrs)) {
+              origAttrs[attr] = val;
+            }
+            const origVal = origAttrs[attr];
+
+            if (isArabic) {
+              if (el.getAttribute(attr) !== origVal) {
+                el.setAttribute(attr, origVal);
+              }
+            } else {
+              const translated = translateString(origVal, langCode, false);
+              if (el.getAttribute(attr) !== translated) {
+                el.setAttribute(attr, translated);
+              }
+              if (/[\u0600-\u06FF]/.test(origVal)) {
+                requestDynamicTranslation(origVal.trim(), langCode, (liveVal) => {
+                  if (document.body.contains(el) && el.getAttribute(attr) !== liveVal) {
+                    el.setAttribute(attr, liveVal);
+                  }
+                });
+              }
+            }
+          }
+        });
+
+        // Translate button values
+        if (el.tagName && el.tagName.toLowerCase() === 'input') {
+          const inputEl = el as HTMLInputElement;
+          if (inputEl.type === 'button' || inputEl.type === 'submit' || inputEl.type === 'reset') {
+            const val = inputEl.value;
+            if (val && val.trim().length > 0) {
+              if (!inputEl.dataset.origValue || /[\u0600-\u06FF]/.test(val)) {
+                inputEl.dataset.origValue = val;
+              }
+              const origVal = inputEl.dataset.origValue;
+              if (isArabic) {
+                if (inputEl.value !== origVal) inputEl.value = origVal;
+              } else {
+                const trans = translateString(origVal, langCode, false);
+                if (inputEl.value !== trans) inputEl.value = trans;
+              }
+            }
+          }
+        }
+
+        // Special handling for HTMLSelectElement options
+        if (el.tagName && el.tagName.toLowerCase() === 'select') {
+          const select = el as HTMLSelectElement;
+          for (let i = 0; i < select.options.length; i++) {
+            const opt = select.options[i];
+            if (!opt.dataset.origText || /[\u0600-\u06FF]/.test(opt.text)) {
+              opt.dataset.origText = opt.text;
+            }
+            if (isArabic) {
+              if (opt.text !== opt.dataset.origText) {
+                opt.text = opt.dataset.origText;
+              }
+            } else {
+              const trans = translateString(opt.dataset.origText, langCode, false);
+              if (opt.text !== trans) {
+                opt.text = trans;
+              }
+            }
           }
         }
       }
-    } else if (currentNode.nodeType === Node.ELEMENT_NODE) {
-      const el = currentNode as HTMLElement;
 
-      // Translate title, placeholder, aria-label, and alt attributes (including all icon tooltips)
-      ['title', 'placeholder', 'aria-label', 'alt'].forEach((attr) => {
-        const val = el.getAttribute(attr);
-        if (val && val.trim().length > 0) {
-          let origAttrs = originalAttributeMap.get(el);
-          if (!origAttrs) {
-            origAttrs = {};
-            originalAttributeMap.set(el, origAttrs);
-          }
-          if (!(attr in origAttrs)) {
-            origAttrs[attr] = val;
-          }
-          const origVal = origAttrs[attr];
-
-          if (isArabic) {
-            el.setAttribute(attr, origVal);
-          } else {
-            const translated = translateString(origVal, langCode, false);
-            if (el.getAttribute(attr) !== translated) {
-              el.setAttribute(attr, translated);
-            }
-          }
-        }
-      });
-
-      // Special handling for HTMLSelectElement options
-      if (el.tagName && el.tagName.toLowerCase() === 'select') {
-        const select = el as HTMLSelectElement;
-        for (let i = 0; i < select.options.length; i++) {
-          const opt = select.options[i];
-          if (!opt.dataset.origText) {
-            opt.dataset.origText = opt.text;
-          }
-          if (isArabic) {
-            if (opt.text !== opt.dataset.origText) {
-              opt.text = opt.dataset.origText;
-            }
-          } else {
-            const trans = translateString(opt.dataset.origText, langCode, false);
-            if (opt.text !== trans) {
-              opt.text = trans;
-            }
-          }
-        }
-      }
+      currentNode = walker.nextNode();
     }
-
-    currentNode = walker.nextNode();
+  } finally {
+    isTranslatingDom = false;
   }
 }
 
@@ -201,6 +263,7 @@ export const LanguageTranslatorWidget: React.FC<LanguageTranslatorWidgetProps> =
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<MutationObserver | null>(null);
+  const debounceTimerRef = useRef<number | null>(null);
 
   // Apply real-time DOM translation whenever language changes
   const runDomTranslation = useCallback((langCode: Language) => {
@@ -218,31 +281,65 @@ export const LanguageTranslatorWidget: React.FC<LanguageTranslatorWidgetProps> =
 
     if (language !== 'ar') {
       observerRef.current = new MutationObserver((mutations) => {
+        if (isTranslatingDom) return;
+        
+        let shouldTranslate = false;
         for (const mutation of mutations) {
-          if (mutation.type === 'childList') {
-            mutation.addedNodes.forEach((node) => {
-              if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.TEXT_NODE) {
-                translateDomTree(node, language, false);
-              }
-            });
+          if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+            shouldTranslate = true;
+            break;
           }
+          if (mutation.type === 'characterData') {
+            const text = mutation.target.nodeValue || '';
+            if (/[\u0600-\u06FF]/.test(text)) {
+              shouldTranslate = true;
+              break;
+            }
+          }
+          if (mutation.type === 'attributes') {
+            shouldTranslate = true;
+            break;
+          }
+        }
+
+        if (shouldTranslate) {
+          if (debounceTimerRef.current) cancelAnimationFrame(debounceTimerRef.current);
+          debounceTimerRef.current = requestAnimationFrame(() => {
+            runDomTranslation(language);
+          });
         }
       });
 
       observerRef.current.observe(document.body, {
         childList: true,
         subtree: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ['placeholder', 'title', 'aria-label', 'alt', 'value'],
       });
     }
+
+    // Listen to background dynamic translations resolving
+    const handleDynamicTranslated = () => {
+      if (language !== 'ar') {
+        if (debounceTimerRef.current) cancelAnimationFrame(debounceTimerRef.current);
+        debounceTimerRef.current = requestAnimationFrame(() => {
+          runDomTranslation(language);
+        });
+      }
+    };
 
     // Also listen to tool changes and clicks across the window to translate newly mounted views
     const handleGlobalAction = () => {
       if (language !== 'ar') {
-        setTimeout(() => runDomTranslation(language), 50);
-        setTimeout(() => runDomTranslation(language), 300);
+        setTimeout(() => runDomTranslation(language), 30);
+        setTimeout(() => runDomTranslation(language), 200);
       }
     };
 
+    window.addEventListener('svga_dynamic_translated', handleDynamicTranslated);
+    window.addEventListener('svga_language_changed', handleGlobalAction);
+    window.addEventListener('svga_tool_opened', handleGlobalAction);
     window.addEventListener('click', handleGlobalAction, { passive: true });
     window.addEventListener('popstate', handleGlobalAction, { passive: true });
 
@@ -250,6 +347,10 @@ export const LanguageTranslatorWidget: React.FC<LanguageTranslatorWidgetProps> =
       if (observerRef.current) {
         observerRef.current.disconnect();
       }
+      if (debounceTimerRef.current) cancelAnimationFrame(debounceTimerRef.current);
+      window.removeEventListener('svga_dynamic_translated', handleDynamicTranslated);
+      window.removeEventListener('svga_language_changed', handleGlobalAction);
+      window.removeEventListener('svga_tool_opened', handleGlobalAction);
       window.removeEventListener('click', handleGlobalAction);
       window.removeEventListener('popstate', handleGlobalAction);
     };
