@@ -76,6 +76,8 @@ const App: React.FC = () => {
   const [globalQuality, setGlobalQuality] = useState<'low' | 'medium' | 'high'>('high');
   const [initialLottieFile, setInitialLottieFile] = useState<File | null>(null);
   const [initialVapFile, setInitialVapFile] = useState<File | null>(null);
+  const [initialVideoFiles, setInitialVideoFiles] = useState<File[]>([]);
+  const [initialSvgaFiles, setInitialSvgaFiles] = useState<File[]>([]);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
@@ -296,8 +298,21 @@ const App: React.FC = () => {
     handleFeatureAccess(AppState.IMAGE_CONVERTER, 'Image Converter');
   };
 
-  const handleFileUpload = useCallback(async (files: File[]) => {
+  const handleFileUpload = useCallback(async (files: File[], uploadMode?: string) => {
     if (files.length === 0) return;
+
+    // Direct routing for explicit Batch Modes
+    if (uploadMode === 'batch-mp4') {
+      setInitialVideoFiles(files);
+      handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter');
+      return;
+    }
+
+    if (uploadMode === 'batch-svga') {
+      setInitialSvgaFiles(files);
+      handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview');
+      return;
+    }
 
     // Expand any PDF files (single or multiple) into their extracted SVGA files
     const expandedFiles: File[] = [];
@@ -324,37 +339,20 @@ const App: React.FC = () => {
 
     if (currentFiles.length > 1) {
       const svgaFiles = currentFiles.filter(f => (f?.name || '').toLowerCase().endsWith('.svga'));
-      if (svgaFiles.length > 0) {
-        // Multiple SVGA files uploaded - we'll just process the first one for now
-        // since Batch SVGA Converter was removed.
-        const file = svgaFiles[0];
-        const fileUrl = URL.createObjectURL(file);
-        
-        if (currentUser) {
-          logActivity(currentUser, 'upload', `Uploaded file: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`);
-        }
+      const videoFiles = currentFiles.filter(f => {
+        const name = (f?.name || '').toLowerCase();
+        return name.endsWith('.mp4') || name.endsWith('.vap') || name.endsWith('.webm') || name.endsWith('.mov');
+      });
 
-        const parser = new SVGA.Parser();
-        parser.load(fileUrl, (videoItem: any) => {
-          let extractedFps = videoItem.FPS || videoItem.fps || 30;
-          if (typeof extractedFps === 'string') extractedFps = parseFloat(extractedFps);
-          if (!extractedFps || extractedFps <= 0) extractedFps = 30;
+      if (svgaFiles.length === currentFiles.length || svgaFiles.length > 1) {
+        setInitialSvgaFiles(currentFiles);
+        handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview');
+        return;
+      }
 
-          const meta: FileMetadata = {
-            name: file.name, size: file.size, type: 'SVGA',
-            dimensions: { width: videoItem.videoSize?.width || 0, height: videoItem.videoSize?.height || 0 },
-            fps: extractedFps, frames: videoItem.frames || 0, assets: [], videoItem,
-            fileUrl: fileUrl,
-            originalFile: file
-          };
-          
-          setFileMetadata(meta);
-          setState(AppState.PROCESSING);
-        }, (err: any) => {
-          console.error("SVGA Load Error:", err);
-          alert("فشل في قراءة ملف SVGA.");
-          URL.revokeObjectURL(fileUrl);
-        });
+      if (videoFiles.length === currentFiles.length) {
+        setInitialVideoFiles(currentFiles);
+        handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter');
         return;
       }
     }
@@ -445,6 +443,8 @@ const App: React.FC = () => {
     setBatchFiles([]);
     setInitialLottieFile(null);
     setInitialVapFile(null);
+    setInitialVideoFiles([]);
+    setInitialSvgaFiles([]);
   }, [fileMetadata]);
 
   if (loading) {
@@ -816,6 +816,7 @@ const App: React.FC = () => {
                 onLoginRequired={() => {}}
                 onSubscriptionRequired={() => setShowSubscriptionModal(true)}
                 globalQuality={globalQuality}
+                initialFiles={initialVideoFiles}
               />
             )}
             {state === AppState.UNIVERSAL_CONVERTER && (
@@ -899,6 +900,7 @@ const App: React.FC = () => {
                 onCancel={handleReset} 
                 currentUser={currentUser}
                 onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                initialFiles={initialSvgaFiles}
               />
             )}
             {state === AppState.AUDIO_EXTRACTOR && (

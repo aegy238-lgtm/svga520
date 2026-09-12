@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, X, Download, Image as ImageIcon, ShieldCheck, Monitor, Smartphone, Loader2, Camera, Video, Film, FileVideo, Volume2, Music , SquareCheck, Gift, Sparkles, FileText, Lock, Key, Square, CheckSquare, Check } from 'lucide-react';
+import { Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, X, Download, Image as ImageIcon, ShieldCheck, Monitor, Smartphone, Loader2, Camera, Video, Film, FileVideo, Volume2, Music , SquareCheck, Gift, Sparkles, FileText, Lock, Key, Square, CheckSquare, Check, SlidersHorizontal, Sliders } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { PresetBackground, UserRecord } from '../types';
@@ -197,12 +197,17 @@ export interface MultiSvgaItem {
   presetId: string;
   folderName?: string;
   folderPath?: string;
+  opacity?: number;
+  scale?: number;
+  posX?: number;
+  posY?: number;
 }
 
 interface MultiSvgaViewerProps {
   onCancel: () => void;
   currentUser: UserRecord | null;
   onSubscriptionRequired?: () => void;
+  initialFiles?: File[];
 }
 
 interface DevicePreset {
@@ -326,7 +331,7 @@ const EmbeddedAudioPlayer: React.FC<{ item: any }> = ({ item }) => {
   );
 };
 
-export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, currentUser, onSubscriptionRequired }) => {
+export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, currentUser, onSubscriptionRequired, initialFiles = [] }) => {
   const { checkAccess } = useAccessControl();
   const [items, setItems] = useState<MultiSvgaItem[]>([]);
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
@@ -344,6 +349,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const [exportDuration, setExportDuration] = useState(10);
   const [gridCols, setGridCols] = useState(3);
   const [forceMobileSize, setForceMobileSize] = useState(false);
+  const initialFilesLoadedRef = useRef(false);
   const [exportResolution, setExportResolution] = useState<'natural' | '720p' | '1080p'>('natural');
   const [exportQuality, setExportQuality] = useState<'high' | 'medium' | 'low'>('medium');
   const [selectedPresetId, setSelectedPresetId] = useState<string>('auto');
@@ -694,6 +700,14 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     }
     setLoadProgress(null);
   }, []);
+
+  // Auto load initialFiles passed from Batch SVGA Uploader
+  useEffect(() => {
+    if (initialFiles && initialFiles.length > 0 && !initialFilesLoadedRef.current) {
+      initialFilesLoadedRef.current = true;
+      handleFiles(initialFiles.map(file => ({ file })));
+    }
+  }, [initialFiles, handleFiles]);
 
   const traverseFileTree = async (item: any, path: string = '', folderName: string = ''): Promise<{file: File, folderName?: string, folderPath?: string}[]> => {
     return new Promise((resolve) => {
@@ -3881,6 +3895,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                         onUpdatePreset={(presetId) => setItems(prev => prev.map(i => i.id === item.id ? { ...i, presetId } : i))}
                         isSelected={selectedItemIds.has(item.id)}
                         onToggleSelect={() => handleToggleSelect(item.id)}
+                        onUpdateItem={(updates) => setItems(prev => prev.map(i => i.id === item.id ? { ...i, ...updates } : i))}
                       />
                     ))}
                   </AnimatePresence>
@@ -4464,12 +4479,14 @@ const SvgaCard: React.FC<{
   onUpdatePreset: (presetId: string) => void;
   isSelected?: boolean;
   onToggleSelect?: () => void;
-}> = ({ item, customDimensions, onRemove, onMaximize, onDownload, onDownloadSvga, onDownloadGiftBundle, onExportVideo, previewBg, watermark, wmSettings, onUpdatePreset, isSelected, onToggleSelect }) => {
+  onUpdateItem?: (updates: Partial<MultiSvgaItem>) => void;
+}> = ({ item, customDimensions, onRemove, onMaximize, onDownload, onDownloadSvga, onDownloadGiftBundle, onExportVideo, previewBg, watermark, wmSettings, onUpdatePreset, isSelected, onToggleSelect, onUpdateItem }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
   const [isPlaying, setIsPlaying] = useState(true);
   const [showInfo, setShowInfo] = useState(false);
+  const [showItemControls, setShowItemControls] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasAudio, setHasAudio] = useState(false);
@@ -4890,7 +4907,12 @@ const SvgaCard: React.FC<{
         {previewBg && <img src={previewBg} alt="Background" className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none" referrerPolicy="no-referrer" />}
         <div 
           ref={containerRef} 
-          className="relative z-10"
+          className="relative z-10 transition-transform duration-100"
+          style={{
+            opacity: item.opacity !== undefined ? item.opacity : 1,
+            transform: `scale(${item.scale !== undefined ? item.scale : 1}) translate(${item.posX || 0}px, ${item.posY || 0}px)`,
+            transformOrigin: 'center center'
+          }}
         />
 
         {/* Watermark */}
@@ -5015,6 +5037,13 @@ const SvgaCard: React.FC<{
             </button>
           )}
           <button 
+            onClick={() => setShowItemControls(!showItemControls)}
+            className={`w-10 h-10 backdrop-blur-md rounded-xl flex items-center justify-center transition-all ${showItemControls ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30' : 'bg-purple-500/20 text-purple-300 hover:bg-purple-500 hover:text-white'}`}
+            title="أدوات تحكم الهدية المستقلة (الشفافية، الحجم، الموضع)"
+          >
+            <SlidersHorizontal className="w-5 h-5" />
+          </button>
+          <button 
             onClick={() => setShowInfo(!showInfo)}
             className={`w-10 h-10 backdrop-blur-md rounded-xl flex items-center justify-center transition-all ${showInfo ? 'bg-indigo-500 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
           >
@@ -5050,13 +5079,119 @@ const SvgaCard: React.FC<{
         <select 
           value={item.presetId}
           onChange={(e) => onUpdatePreset(e.target.value)}
-          className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white font-black uppercase tracking-widest focus:outline-none focus:border-indigo-500 transition-all mb-4"
+          className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white font-black uppercase tracking-widest focus:outline-none focus:border-indigo-500 transition-all mb-2"
         >
           <option value="auto">تلقائي (Native)</option>
           {DEVICE_PRESETS.map(p => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
+
+        {/* Toggle Independent Controls Panel Button */}
+        <button
+          type="button"
+          onClick={() => setShowItemControls(!showItemControls)}
+          className={`w-full py-2 px-3 rounded-xl border text-[11px] font-black flex items-center justify-between transition-all mb-3 cursor-pointer ${
+            showItemControls 
+              ? 'bg-purple-500/20 border-purple-500/50 text-purple-200 shadow-sm' 
+              : 'bg-white/5 border-white/10 text-slate-300 hover:text-white hover:bg-white/10'
+          }`}
+        >
+          <span className="flex items-center gap-2">
+            <SlidersHorizontal className="w-3.5 h-3.5 text-purple-400" />
+            تحكم الهدية (الشفافية، الحجم، الموضع)
+          </span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/30 text-purple-200">
+            مستقل
+          </span>
+        </button>
+
+        {/* Dedicated Independent Controls Panel for this SVGA Item */}
+        <AnimatePresence>
+          {showItemControls && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden mb-4 p-3.5 bg-slate-900/90 border border-purple-500/30 rounded-2xl space-y-3 shadow-inner"
+            >
+              <div className="flex items-center justify-between text-[10px] font-black text-purple-300 border-b border-white/5 pb-1.5">
+                <span>تخصيص الهدية الحالية فقط</span>
+                <button
+                  type="button"
+                  onClick={() => onUpdateItem?.({ opacity: 1, scale: 1, posX: 0, posY: 0 })}
+                  className="text-[9px] text-slate-400 hover:text-purple-300 underline cursor-pointer"
+                >
+                  إعادة ضبط
+                </button>
+              </div>
+
+              {/* Opacity Slider */}
+              <div className="space-y-1">
+                <div className="flex justify-between items-center text-[10px] font-bold">
+                  <span className="text-slate-300">الشفافية (Opacity)</span>
+                  <span className="text-purple-400 font-mono">{Math.round((item.opacity ?? 1) * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={Math.round((item.opacity ?? 1) * 100)}
+                  onChange={(e) => onUpdateItem?.({ opacity: Number(e.target.value) / 100 })}
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                />
+              </div>
+
+              {/* Scale Slider */}
+              <div className="space-y-1">
+                <div className="flex justify-between items-center text-[10px] font-bold">
+                  <span className="text-slate-300">الحجم والتكبير (Scale)</span>
+                  <span className="text-purple-400 font-mono">{Math.round((item.scale ?? 1) * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="20"
+                  max="250"
+                  value={Math.round((item.scale ?? 1) * 100)}
+                  onChange={(e) => onUpdateItem?.({ scale: Number(e.target.value) / 100 })}
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                />
+              </div>
+
+              {/* Position X Slider */}
+              <div className="space-y-1">
+                <div className="flex justify-between items-center text-[10px] font-bold">
+                  <span className="text-slate-300">الموضع الأفقي (X)</span>
+                  <span className="text-purple-400 font-mono">{item.posX || 0}px</span>
+                </div>
+                <input
+                  type="range"
+                  min="-150"
+                  max="150"
+                  value={item.posX || 0}
+                  onChange={(e) => onUpdateItem?.({ posX: Number(e.target.value) })}
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                />
+              </div>
+
+              {/* Position Y Slider */}
+              <div className="space-y-1">
+                <div className="flex justify-between items-center text-[10px] font-bold">
+                  <span className="text-slate-300">الموضع الرأسي (Y)</span>
+                  <span className="text-purple-400 font-mono">{item.posY || 0}px</span>
+                </div>
+                <input
+                  type="range"
+                  min="-150"
+                  max="150"
+                  value={item.posY || 0}
+                  onChange={(e) => onUpdateItem?.({ posY: Number(e.target.value) })}
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         
         <AnimatePresence>
           {showInfo && (

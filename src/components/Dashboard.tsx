@@ -1,13 +1,13 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeft, Star } from 'lucide-react';
-import { Uploader } from './Uploader';
+import { Uploader, UploadMode } from './Uploader';
 import { UserRecord } from '../types';
 import { TOOLS_REGISTRY, CATEGORIES_CONFIG, ToolCategory } from '../config/toolsRegistry';
 import { useStarredTools } from '../utils/starredTools';
 
 interface DashboardProps {
-  onUpload: (files: File[]) => void;
+  onUpload: (files: File[], mode?: UploadMode) => void;
   onAction: (actionKey: string) => void;
   currentUser?: UserRecord | null;
 }
