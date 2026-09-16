@@ -36,6 +36,7 @@ interface SvgaLayersListProps {
   onMergeSelectedLayers?: () => void;
   onMergeTwoLayers?: (sourceLayerId: string, targetLayerId: string, options?: { syncMotion?: boolean }) => void;
   onUngroupLayer?: (layerId: string) => void;
+  onSyncSequenceMotion?: (layerId: string) => void;
   isMerging?: boolean;
 }
 
@@ -67,6 +68,7 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
   onMergeSelectedLayers,
   onMergeTwoLayers,
   onUngroupLayer,
+  onSyncSequenceMotion,
   isMerging = false
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -100,33 +102,35 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
 
   // Check if a layer is active at current frame
   const isLayerActiveAtFrame = (layer: EditableLayer): boolean => {
-    const maxFrames = layer.framesCount || layer.spriteRef?.frames?.length || 9999;
+    const frames = layer.spriteRef?.frames;
+    const maxFrames = layer.framesCount || frames?.length || 9999;
+    const isSingleFrameStatic = frames?.length === 1 || layer.framesCount === 1;
     const startF = layer.inFrame !== undefined ? layer.inFrame : (layer.keyframeSummary?.startFrame ?? 0);
     const endF = layer.outFrame !== undefined ? layer.outFrame : (layer.keyframeSummary?.endFrame ?? (maxFrames - 1));
-    if (currentFrame < startF || currentFrame > endF) return false;
+    if (!isSingleFrameStatic && (currentFrame < startF || currentFrame > endF)) return false;
 
-    // Precise check for sequential / repeated layers with known active frame sets
-    if (layer.inFrame === undefined && layer.outFrame === undefined && layer.keyframeSummary?.activeFrames) {
-      return layer.keyframeSummary.activeFrames.includes(currentFrame);
-    }
-
-    const frames = layer.spriteRef?.frames;
     if (!frames || frames.length === 0) return false;
     let frame = frames[currentFrame];
-    if (!frame && frames.length === 1) {
+    if (!frame && isSingleFrameStatic) {
       frame = frames[0];
     } else if (!frame && frames.length > 0) {
       frame = frames[currentFrame % frames.length];
     }
     if (!frame) return false;
 
-    if (frame.alpha !== undefined) {
+    const hasAnyExplicitAlpha = Boolean(
+      (layer.spriteRef as any)?._hasExplicitAlpha ||
+      layer.keyframeSummary?.hasAnyExplicitAlpha ||
+      frames.some((fr: any) => fr && typeof fr.alpha === 'number' && fr.alpha > 0.005)
+    );
+
+    if (hasAnyExplicitAlpha) {
+      return typeof frame.alpha === 'number' ? frame.alpha > 0.005 : false;
+    }
+    if (typeof frame.alpha === 'number') {
       return frame.alpha > 0.005;
     }
-    const hasAnyExplicitAlpha = layer.keyframeSummary?.hasAnyExplicitAlpha ?? frames.some((fr: any) => fr && fr.alpha !== undefined && fr.alpha > 0.005);
-    if (hasAnyExplicitAlpha) {
-      return false;
-    }
+    const hasImage = Boolean(layer.imageKey || layer.thumbnailUrl);
     const hasShapes = frame.shapes && Array.isArray(frame.shapes) && frame.shapes.length > 0;
     const hasLayout = frame.layout && (
       (frame.layout.width !== undefined && frame.layout.width > 0) || 
@@ -138,7 +142,8 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
       (frame.transform.c !== undefined && frame.transform.c !== 0) ||
       (frame.transform.d !== undefined && frame.transform.d !== 0)
     );
-    return Boolean(hasShapes || hasLayout || hasValidTransform);
+    const hasClip = Boolean(frame.clipPath);
+    return Boolean(hasImage || hasShapes || hasLayout || hasValidTransform || hasClip);
   };
 
   const filteredLayers = layers.filter(l => {
@@ -911,10 +916,26 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
                       F{layer.keyframeSummary.startFrame}→{layer.keyframeSummary.endFrame}
                     </span>
                     {layer.keyframeSummary.isSequenceOrRepeated && (
-                      <span className="text-[9px] text-teal-300 font-bold bg-teal-500/15 border border-teal-500/30 px-1.5 py-0.5 rounded flex items-center gap-1" title="طبقة متسلسلة أو متكررة في الأنيميشن">
-                        <RotateCcw size={8} className="text-teal-300" />
-                        <span>تسلسل / متكررة</span>
-                      </span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[9px] text-teal-300 font-bold bg-teal-500/15 border border-teal-500/30 px-1.5 py-0.5 rounded flex items-center gap-1" title="طبقة متسلسلة أو متكررة في الأنيميشن">
+                          <RotateCcw size={8} className="text-teal-300" />
+                          <span>تسلسل / متكررة</span>
+                        </span>
+                        {onSyncSequenceMotion && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSyncSequenceMotion(layer.id);
+                            }}
+                            className="text-[9px] text-teal-200 hover:text-white bg-teal-600/30 hover:bg-teal-600 border border-teal-500/40 px-1.5 py-0.5 rounded flex items-center gap-1 transition-all cursor-pointer active:scale-95"
+                            title="مزامنة مسار الحركة عبر جميع طبقات التسلسل مثل SVGA 2.0"
+                          >
+                            <Sparkles size={8} />
+                            <span>مزامنة الحركة</span>
+                          </button>
+                        )}
+                      </div>
                     )}
                     {layer.groupId && (
                       <span className="text-[9px] text-purple-300 font-bold bg-purple-500/20 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1">

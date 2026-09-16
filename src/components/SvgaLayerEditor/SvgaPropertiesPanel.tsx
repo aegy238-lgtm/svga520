@@ -57,6 +57,7 @@ interface SvgaPropertiesPanelProps {
   onToggleGroupVisibility?: (groupId: string) => void;
   groupLayersCount?: number;
   onUpdateProjectDimensions?: (width: number, height: number, scaleLayers?: boolean) => void;
+  onSyncSequenceMotion?: (layerIdOrGroupId: string) => void;
 }
 
 export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
@@ -84,7 +85,8 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
   onToggleGroupLock,
   onToggleGroupVisibility,
   groupLayersCount = 0,
-  onUpdateProjectDimensions
+  onUpdateProjectDimensions,
+  onSyncSequenceMotion
 }) => {
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const [panelNudgeStep, setPanelNudgeStep] = useState<number>(1);
@@ -1143,6 +1145,47 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Sequence & Repeated Layers Motion Sync Card (SVGA 2.0) */}
+      {(layer.keyframeSummary?.isSequenceOrRepeated || layer.sequenceGroupId) && (
+        <div className="bg-gradient-to-br from-teal-950/70 via-slate-900/90 to-indigo-950/70 border border-teal-500/40 rounded-2xl p-3.5 space-y-3 shadow-xl">
+          <div className="flex items-center justify-between border-b border-teal-500/25 pb-2">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-xl bg-teal-500/20 text-teal-300 flex items-center justify-center border border-teal-400/40">
+                <RotateCcw size={15} className="text-teal-300" />
+              </div>
+              <div>
+                <span className="text-xs font-black text-white block">مزامنة حركة التسلسل (SVGA 2.0)</span>
+                <span className="text-[10px] text-teal-300 font-mono">
+                  {layer.sequenceIndex && layer.sequenceTotal 
+                    ? `إطار تسلسلي ${layer.sequenceIndex} من ${layer.sequenceTotal}` 
+                    : 'طبقات متسلسلة / صور متكررة'}
+                </span>
+              </div>
+            </div>
+            <span className="text-[9px] font-bold text-teal-300 bg-teal-500/20 border border-teal-500/35 px-2 py-0.5 rounded-full">
+              SVGA 2.0 Motion
+            </span>
+          </div>
+
+          <div className="text-[11px] text-teal-200/90 leading-relaxed bg-black/40 border border-teal-500/20 rounded-xl p-2.5 space-y-2">
+            <p className="text-[10px] text-slate-300">
+              هذه الطبقة تنتمي إلى تسلسل صور متحركة. عند تحريكها أو تغيير موضعها يتم تحريك كامل التسلسل بنفس المسار، ويمكنك أخذ نفس مسار الحركة ومزامنته بضغطة واحدة:
+            </p>
+
+            {onSyncSequenceMotion && (
+              <button
+                type="button"
+                onClick={() => onSyncSequenceMotion(layer.id)}
+                className="w-full py-2 bg-gradient-to-r from-teal-600 via-emerald-600 to-indigo-600 hover:from-teal-500 hover:to-emerald-500 text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-lg shadow-teal-600/30 transition-all cursor-pointer active:scale-95 border border-teal-400/40"
+              >
+                <Sparkles size={14} className="text-teal-200" />
+                <span>أخذ نفس الحركة وتطبيقها على كامل التسلسل</span>
+              </button>
+            )}
+          </div>
         </div>
       )}
 

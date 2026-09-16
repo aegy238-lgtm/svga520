@@ -246,6 +246,108 @@ function applySvgPathToContext(ctx: CanvasRenderingContext2D, pathStr: string): 
   }
 }
 
+// Trace path for drawing/filling shapes without clipping context
+function traceSvgPathToContext(ctx: CanvasRenderingContext2D, pathStr: string): boolean {
+  if (!pathStr || typeof pathStr !== 'string') return false;
+  const str = pathStr.trim();
+  if (!str) return false;
+
+  try {
+    ctx.beginPath();
+    const segments = str
+      .replace(/([a-zA-Z])/g, '|||$1 ')
+      .replace(/,/g, ' ')
+      .split('|||');
+
+    let curX = 0;
+    let curY = 0;
+
+    for (const seg of segments) {
+      if (!seg) continue;
+      const trimmed = seg.trim();
+      if (!trimmed) continue;
+      const cmd = trimmed.charAt(0);
+      const args = trimmed.slice(1).trim().split(/\s+/).map(Number).filter(n => !isNaN(n));
+
+      switch (cmd) {
+        case 'M':
+          curX = args[0] || 0;
+          curY = args[1] || 0;
+          ctx.moveTo(curX, curY);
+          break;
+        case 'm':
+          curX += args[0] || 0;
+          curY += args[1] || 0;
+          ctx.moveTo(curX, curY);
+          break;
+        case 'L':
+          curX = args[0] || 0;
+          curY = args[1] || 0;
+          ctx.lineTo(curX, curY);
+          break;
+        case 'l':
+          curX += args[0] || 0;
+          curY += args[1] || 0;
+          ctx.lineTo(curX, curY);
+          break;
+        case 'H':
+          curX = args[0] || 0;
+          ctx.lineTo(curX, curY);
+          break;
+        case 'h':
+          curX += args[0] || 0;
+          ctx.lineTo(curX, curY);
+          break;
+        case 'V':
+          curY = args[0] || 0;
+          ctx.lineTo(curX, curY);
+          break;
+        case 'v':
+          curY += args[0] || 0;
+          ctx.lineTo(curX, curY);
+          break;
+        case 'C':
+          ctx.bezierCurveTo(args[0] || 0, args[1] || 0, args[2] || 0, args[3] || 0, args[4] || 0, args[5] || 0);
+          curX = args[4] || 0;
+          curY = args[5] || 0;
+          break;
+        case 'c':
+          ctx.bezierCurveTo(curX + (args[0] || 0), curY + (args[1] || 0), curX + (args[2] || 0), curY + (args[3] || 0), curX + (args[4] || 0), curY + (args[5] || 0));
+          curX += args[4] || 0;
+          curY += args[5] || 0;
+          break;
+        case 'S':
+          ctx.quadraticCurveTo(args[0] || 0, args[1] || 0, args[2] || 0, args[3] || 0);
+          curX = args[2] || 0;
+          curY = args[3] || 0;
+          break;
+        case 's':
+          ctx.quadraticCurveTo(curX + (args[0] || 0), curY + (args[1] || 0), curX + (args[2] || 0), curY + (args[3] || 0));
+          curX += args[2] || 0;
+          curY += args[3] || 0;
+          break;
+        case 'Q':
+          ctx.quadraticCurveTo(args[0] || 0, args[1] || 0, args[2] || 0, args[3] || 0);
+          curX = args[2] || 0;
+          curY = args[3] || 0;
+          break;
+        case 'q':
+          ctx.quadraticCurveTo(curX + (args[0] || 0), curY + (args[1] || 0), curX + (args[2] || 0), curY + (args[3] || 0));
+          curX += args[2] || 0;
+          curY += args[3] || 0;
+          break;
+        case 'Z':
+        case 'z':
+          ctx.closePath();
+          break;
+      }
+    }
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
 // Helper to render SVGA vector shapes if present
 function renderSvgaShapes(ctx: CanvasRenderingContext2D, shapes: any[]) {
   if (!shapes || !Array.isArray(shapes)) return;
@@ -281,12 +383,17 @@ function renderSvgaShapes(ctx: CanvasRenderingContext2D, shapes: any[]) {
 
     const pathD = shape.shape?.d || shape.args?.d || shape.pathArgs?.d;
     if (pathD) {
+      let drawn = false;
       try {
         const p = new Path2D(pathD);
         if (styles.fill) ctx.fill(p);
         if (styles.stroke) ctx.stroke(p);
+        drawn = true;
       } catch (e) {
-        applySvgPathToContext(ctx, pathD);
+        drawn = false;
+      }
+      if (!drawn) {
+        traceSvgPathToContext(ctx, pathD);
         if (styles.fill) ctx.fill();
         if (styles.stroke) ctx.stroke();
       }
@@ -449,31 +556,27 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
   // Helper to determine if a layer's frame is visible/active at given frameIndex
   const getLayerFrameState = useCallback((layer: EditableLayer, frameIdx: number) => {
-    // Check if layer has custom in/out duration span or keyframeSummary bounds
-    const startF = layer.inFrame !== undefined ? layer.inFrame : (layer.keyframeSummary?.startFrame ?? 0);
-    const endF = layer.outFrame !== undefined ? layer.outFrame : (layer.keyframeSummary?.endFrame ?? (project.totalFrames - 1));
-
-    if (frameIdx < startF || frameIdx > endF) {
-      return { isActive: false, frame: null, alpha: 0 };
-    }
-
     if (layer.isMerged || (layer.mergedLayers && layer.mergedLayers.length > 0)) {
       return { isActive: true, frame: { alpha: 1, transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 } }, alpha: 1.0 };
     }
 
-    // Precise check for sequential / repeated layers with known active frame sets
-    if (layer.inFrame === undefined && layer.outFrame === undefined && layer.keyframeSummary?.activeFrames) {
-      if (!layer.keyframeSummary.activeFrames.includes(frameIdx)) {
-        return { isActive: false, frame: null, alpha: 0 };
-      }
-    }
-
     const frames = layer.spriteRef?.frames;
     if (!frames || frames.length === 0) return { isActive: false, frame: null, alpha: 0 };
-    
+
+    const isSingleFrameStatic = frames.length === 1 || layer.framesCount === 1;
+
+    // Check custom in/out duration span or keyframeSummary bounds
+    const startF = layer.inFrame !== undefined ? layer.inFrame : (layer.keyframeSummary?.startFrame ?? 0);
+    const endF = layer.outFrame !== undefined ? layer.outFrame : (layer.keyframeSummary?.endFrame ?? (project.totalFrames - 1));
+
+    // For non-static layers, check if outside duration span
+    if (!isSingleFrameStatic && (frameIdx < startF || frameIdx > endF)) {
+      return { isActive: false, frame: null, alpha: 0 };
+    }
+
     // Support single-frame static layers and repeated/looping sequence layers
     let frame = frames[frameIdx];
-    if (!frame && frames.length === 1) {
+    if (!frame && isSingleFrameStatic) {
       frame = frames[0];
     } else if (!frame && frames.length > 0 && frames.length < project.totalFrames) {
       frame = frames[frameIdx % frames.length];
@@ -481,41 +584,49 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
     if (!frame) return { isActive: false, frame: null, alpha: 0 };
 
-    let hasAnyExplicitAlpha = layer.keyframeSummary?.hasAnyExplicitAlpha;
-    if (hasAnyExplicitAlpha === undefined) {
-      if (layer.spriteRef && (layer.spriteRef as any)._hasExplicitAlpha !== undefined) {
-        hasAnyExplicitAlpha = (layer.spriteRef as any)._hasExplicitAlpha;
+    let isActive = false;
+    let frameAlpha = 0;
+
+    // Check if layer has any explicit alpha > 0
+    const hasAnyExplicitAlpha = Boolean(
+      (layer.spriteRef as any)?._hasExplicitAlpha ||
+      layer.keyframeSummary?.hasAnyExplicitAlpha ||
+      frames.some((fr: any) => fr && typeof fr.alpha === 'number' && fr.alpha > 0.005)
+    );
+
+    if (hasAnyExplicitAlpha) {
+      if (typeof frame.alpha === 'number') {
+        frameAlpha = frame.alpha;
+        isActive = frameAlpha > 0.005;
       } else {
-        hasAnyExplicitAlpha = frames.some((fr: any) => fr && fr.alpha !== undefined && fr.alpha > 0.005);
-        if (layer.spriteRef) {
-          (layer.spriteRef as any)._hasExplicitAlpha = hasAnyExplicitAlpha;
-        }
+        isActive = false;
+        frameAlpha = 0;
+      }
+    } else if (typeof frame.alpha === 'number') {
+      frameAlpha = frame.alpha;
+      isActive = frameAlpha > 0.005;
+    } else {
+      // In rare SVGA files where alpha was never written, check if frame has content
+      const hasImage = Boolean(layer.imageKey && (project.imagesMap[layer.imageKey] || layer.thumbnailUrl));
+      const hasShapes = Boolean(frame.shapes && Array.isArray(frame.shapes) && frame.shapes.length > 0);
+      const hasLayout = Boolean(frame.layout && (
+        (frame.layout.width !== undefined && frame.layout.width > 0) || 
+        (frame.layout.height !== undefined && frame.layout.height > 0)
+      ));
+      const hasTransform = Boolean(frame.transform);
+      const hasClip = Boolean(frame.clipPath);
+
+      if (hasImage || hasShapes || hasLayout || hasTransform || hasClip) {
+        isActive = true;
+        frameAlpha = 1.0;
+      } else {
+        isActive = false;
+        frameAlpha = 0;
       }
     }
 
-    let isActive = false;
-    if (frame.alpha !== undefined) {
-      isActive = frame.alpha > 0.005;
-    } else if (hasAnyExplicitAlpha) {
-      isActive = false;
-    } else {
-      const hasShapes = frame.shapes && Array.isArray(frame.shapes) && frame.shapes.length > 0;
-      const hasLayout = frame.layout && (
-        (frame.layout.width !== undefined && frame.layout.width > 0) || 
-        (frame.layout.height !== undefined && frame.layout.height > 0)
-      );
-      const hasValidTransform = frame.transform && (
-        (frame.transform.a !== undefined && frame.transform.a !== 0) ||
-        (frame.transform.b !== undefined && frame.transform.b !== 0) ||
-        (frame.transform.c !== undefined && frame.transform.c !== 0) ||
-        (frame.transform.d !== undefined && frame.transform.d !== 0)
-      );
-      isActive = Boolean(hasShapes || hasLayout || hasValidTransform);
-    }
-
-    const frameAlpha = isActive ? (frame.alpha !== undefined ? frame.alpha : 1.0) : 0;
     return { isActive, frame, alpha: frameAlpha };
-  }, [project.totalFrames]);
+  }, [project.totalFrames, project.imagesMap]);
 
   // Zoom to Selected Element (Centers and focuses tightly on the selected element)
   const handleZoomToSelection = useCallback(() => {
@@ -724,8 +835,23 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
       // Draw Image (standard SVGA 2.0: drawn with exact layout offset without distortion)
       let cachedImg = imagesCache.current[layerItem.imageKey];
-      if (!cachedImg && (layerItem.thumbnailUrl || project.imagesMap[layerItem.imageKey])) {
-        const src = layerItem.thumbnailUrl || project.imagesMap[layerItem.imageKey];
+      if (!cachedImg) {
+        let src = layerItem.thumbnailUrl || project.imagesMap[layerItem.imageKey];
+        if (!src && project.imagesMap) {
+          const rawK = layerItem.imageKey;
+          const cleanK = rawK.replace(/\.(png|jpe?g|webp|svg)$/i, '');
+          src = project.imagesMap[cleanK] || 
+                project.imagesMap[`${cleanK}.png`] || 
+                project.imagesMap[rawK.toLowerCase()] || 
+                project.imagesMap[`img_${cleanK}`];
+          if (!src) {
+            const entry = Object.entries(project.imagesMap).find(([k]) => 
+              k.toLowerCase() === rawK.toLowerCase() ||
+              k.replace(/\.(png|jpe?g|webp|svg)$/i, '').toLowerCase() === cleanK.toLowerCase()
+            );
+            if (entry) src = entry[1];
+          }
+        }
         if (src) {
           const tempImg = new Image();
           tempImg.src = src;
@@ -735,14 +861,10 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       }
 
       if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
-        let drawX = 0;
-        let drawY = 0;
         let drawW = cachedImg.naturalWidth;
         let drawH = cachedImg.naturalHeight;
         
         if (frame.layout) {
-          drawX = frame.layout.x ?? 0;
-          drawY = frame.layout.y ?? 0;
           if (frame.layout.width && frame.layout.width > 0) {
             drawW = frame.layout.width;
           }
@@ -751,7 +873,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
           }
         }
         
-        targetCtx.drawImage(cachedImg, 0, 0, cachedImg.naturalWidth, cachedImg.naturalHeight, drawX, drawY, drawW, drawH);
+        targetCtx.drawImage(cachedImg, 0, 0, drawW, drawH);
       }
 
       targetCtx.restore();
@@ -908,21 +1030,25 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       if (l.matteKey) {
         maskTemplateKeySet.add(String(l.matteKey).trim());
       }
+      if (l.spriteRef?.matteKey) {
+        maskTemplateKeySet.add(String(l.spriteRef.matteKey).trim());
+      }
     }
 
     const isLayerMatteTemplate = (layer: EditableLayer): boolean => {
+      // If user selected this layer, always allow it to be rendered on canvas
+      if (layer.id === selectedLayer?.id || selectedLayerIds.includes(layer.id)) return false;
       if (layer.isMatteMask) return true;
-      if (maskTemplateKeySet.has(layer.imageKey)) return true;
-      if (maskTemplateKeySet.has(layer.id)) return true;
-      if (maskTemplateKeySet.has(layer.name)) return true;
       const rawIdx = String(layer.originalIndex);
-      if (maskTemplateKeySet.has(rawIdx)) return true;
-      if (maskTemplateKeySet.has(`img_${rawIdx}`)) return true;
-      if (maskTemplateKeySet.has(`layer_${rawIdx}`)) return true;
-      if (layer.spriteRef && maskTemplateKeySet.has(layer.spriteRef.imageKey)) return true;
-      for (const k of maskTemplateKeySet) {
-        if (layer.imageKey && (layer.imageKey.endsWith(`_${k}`) || k.endsWith(`_${layer.imageKey}`))) return true;
-        if (layer.name && (layer.name.endsWith(`_${k}`) || k.endsWith(`_${layer.name}`))) return true;
+      if (
+        maskTemplateKeySet.has(layer.id) || 
+        maskTemplateKeySet.has(rawIdx) || 
+        maskTemplateKeySet.has(`layer_${rawIdx}`) ||
+        (layer.imageKey && maskTemplateKeySet.has(layer.imageKey)) ||
+        (layer.name && maskTemplateKeySet.has(layer.name)) ||
+        (layer.spriteRef?.imageKey && maskTemplateKeySet.has(layer.spriteRef.imageKey))
+      ) {
+        return true;
       }
       return false;
     };

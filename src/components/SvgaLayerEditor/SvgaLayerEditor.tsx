@@ -232,19 +232,83 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   }, [successToast]);
   // Layer Update Handlers
   const handleUpdateLayerTransform = useCallback((layerId: string, deltaTransform: Partial<EditableLayer['transform']>) => {
-    setLayers(prev => prev.map(l => {
-      if (l.id === layerId) {
-        return {
-          ...l,
-          transform: {
-            ...l.transform,
-            ...deltaTransform
-          }
-        };
+    setLayers(prev => {
+      const target = prev.find(l => l.id === layerId);
+      if (!target) return prev;
+
+      const isSequence = Boolean(target.sequenceGroupId || (target.keyframeSummary?.isSequenceOrRepeated && target.imageKey));
+      const targetSeqGroupId = target.sequenceGroupId;
+      const targetImageKey = target.imageKey;
+
+      const dx = deltaTransform.x !== undefined ? deltaTransform.x - target.transform.x : 0;
+      const dy = deltaTransform.y !== undefined ? deltaTransform.y - target.transform.y : 0;
+      const dScaleX = deltaTransform.scaleX !== undefined ? deltaTransform.scaleX - target.transform.scaleX : 0;
+      const dScaleY = deltaTransform.scaleY !== undefined ? deltaTransform.scaleY - target.transform.scaleY : 0;
+      const dRot = deltaTransform.rotation !== undefined ? deltaTransform.rotation - target.transform.rotation : 0;
+
+      return prev.map(l => {
+        if (l.id === layerId) {
+          return {
+            ...l,
+            transform: {
+              ...l.transform,
+              ...deltaTransform
+            }
+          };
+        }
+        // If part of sequence/repeated group, propagate delta so sequential images move together like SVGA 2.0
+        if (isSequence && (
+          (targetSeqGroupId && l.sequenceGroupId === targetSeqGroupId) ||
+          (targetImageKey && l.imageKey === targetImageKey && l.keyframeSummary?.isSequenceOrRepeated)
+        )) {
+          return {
+            ...l,
+            transform: {
+              ...l.transform,
+              x: l.transform.x + dx,
+              y: l.transform.y + dy,
+              scaleX: Math.max(0.01, l.transform.scaleX + dScaleX),
+              scaleY: Math.max(0.01, l.transform.scaleY + dScaleY),
+              rotation: l.transform.rotation + dRot,
+              opacity: deltaTransform.opacity !== undefined ? deltaTransform.opacity : l.transform.opacity
+            }
+          };
+        }
+        return l;
+      });
+    });
+  }, []);
+
+  // Synchronize motion path across all layers in a sequence/repeated group (SVGA 2.0 Motion Sync)
+  const handleSyncSequenceMotion = useCallback((layerIdOrGroupId: string) => {
+    if (!project) return;
+    const targetLayer = layers.find(l => l.id === layerIdOrGroupId || l.sequenceGroupId === layerIdOrGroupId);
+    if (!targetLayer) return;
+
+    const seqGroup = layers.filter(l => 
+      (targetLayer.sequenceGroupId && l.sequenceGroupId === targetLayer.sequenceGroupId) ||
+      (l.imageKey && l.imageKey === targetLayer.imageKey && (l.keyframeSummary?.isSequenceOrRepeated || l.sequenceGroupId))
+    );
+
+    if (seqGroup.length <= 1) {
+      setSuccessToast('لا توجد طبقات تسلسلية متكررة أخرى مرتبطة بهذه الطبقة');
+      return;
+    }
+
+    const refLayer = seqGroup.find(l => l.id === targetLayer.id) || seqGroup[0];
+    const totalFrames = project.totalFrames || 60;
+
+    const updatedLayers = layers.map(l => {
+      if (seqGroup.some(member => member.id === l.id) && l.id !== refLayer.id) {
+        return syncLayerMotionWithReference(l, refLayer, totalFrames);
       }
       return l;
-    }));
-  }, []);
+    });
+
+    setLayers(updatedLayers);
+    pushHistory(updatedLayers);
+    setSuccessToast(`تمت مزامنة مسار الحركة بدقة SVGA 2.0 عبر جميع طبقات التسلسل (${seqGroup.length} طبقات)`);
+  }, [project, layers, pushHistory]);
 
   // Bulk Transforms Handler (e.g. from Canvas mouse drag or Properties Panel)
   const handleBulkUpdateTransforms = useCallback((updates: Array<{ id: string; transform: Partial<EditableLayer['transform']> }>) => {
@@ -1681,6 +1745,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               onMergeSelectedLayers={handleMergeSelectedLayers}
               onMergeTwoLayers={handleMergeTwoLayers}
               onUngroupLayer={handleUngroupMergedLayer}
+              onSyncSequenceMotion={handleSyncSequenceMotion}
               isMerging={isMergingLayers}
             />
           </aside>
@@ -1768,6 +1833,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               onToggleGroupVisibility={handleToggleGroupVisibility}
               groupLayersCount={selectedLayer?.groupId ? layers.filter(l => l.groupId === selectedLayer.groupId).length : 0}
               onUpdateProjectDimensions={handleUpdateProjectDimensions}
+              onSyncSequenceMotion={handleSyncSequenceMotion}
             />
           </aside>
         </div>

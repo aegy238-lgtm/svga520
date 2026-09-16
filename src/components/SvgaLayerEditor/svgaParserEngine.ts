@@ -79,6 +79,32 @@ export async function parseSvgaToProject(file: File): Promise<{
     oneofs: true
   } as any);
 
+  // Critical SVGA 2.0 Fidelity: Protobuf toObject with defaults:false strips numeric 0 values,
+  // which causes frame.alpha to be undefined for inactive/hidden frames (alpha: 0).
+  // In the raw protobuf decoded message, alpha is explicitly decoded as 0, 1, or fractional float.
+  // We restore and preserve each frame's exact alpha value from decoded.
+  if ((decoded as any).sprites && Array.isArray((decoded as any).sprites) && movie.sprites) {
+    for (let s = 0; s < (decoded as any).sprites.length; s++) {
+      const decSprite = (decoded as any).sprites[s];
+      const movSprite = movie.sprites[s];
+      if (decSprite && movSprite && decSprite.frames && movSprite.frames) {
+        // Detect if this sprite has ANY frame with alpha > 0 in decoded data
+        const hasPositiveAlpha = decSprite.frames.some((f: any) => typeof f.alpha === 'number' && f.alpha > 0.005);
+        for (let f = 0; f < decSprite.frames.length; f++) {
+          const decFrame = decSprite.frames[f];
+          const movFrame = movSprite.frames[f];
+          if (decFrame && movFrame) {
+            if (typeof decFrame.alpha === 'number') {
+              movFrame.alpha = decFrame.alpha;
+            } else if (hasPositiveAlpha) {
+              movFrame.alpha = 0;
+            }
+          }
+        }
+      }
+    }
+  }
+
   const width = Math.round(movie.params?.viewBoxWidth || 500);
   const height = Math.round(movie.params?.viewBoxHeight || 500);
   const fps = Math.max(1, Math.round(movie.params?.fps || 30));
@@ -136,10 +162,19 @@ export async function parseSvgaToProject(file: File): Promise<{
 
   // Count identical imageKeys to identify repeated layers/sequences in SVGA 2.0
   const imageKeyCounts: Record<string, number> = {};
-  sprites.forEach((s: any) => {
+  const sequencePrefixGroups: Record<string, number[]> = {};
+
+  sprites.forEach((s: any, sIdx: number) => {
     const k = s.imageKey || '';
     if (k) {
       imageKeyCounts[k] = (imageKeyCounts[k] || 0) + 1;
+      // Also detect numbered sequence pattern like img_01, frame_02, etc.
+      const match = k.match(/^(.*?)_?(\d+)(\.[a-z0-9]+)?$/i);
+      if (match) {
+        const prefix = match[1] || 'seq';
+        if (!sequencePrefixGroups[prefix]) sequencePrefixGroups[prefix] = [];
+        sequencePrefixGroups[prefix].push(sIdx);
+      }
     }
   });
   const imageKeyIndexTracker: Record<string, number> = {};
@@ -148,7 +183,23 @@ export async function parseSvgaToProject(file: File): Promise<{
     const originalIndex = rawSprites.length - 1 - idx;
     const imageKey = sprite.imageKey || `layer_${originalIndex}`;
     const frames = sprite.frames || [];
-    const imgDims = imageDimensions[imageKey] || { width: 100, height: 100 };
+
+    // Helper to find image dimensions with fuzzy fallback
+    let imgDims = imageDimensions[imageKey];
+    if (!imgDims) {
+      const cleanKey = imageKey.replace(/\.(png|jpe?g|webp|svg)$/i, '');
+      imgDims = imageDimensions[cleanKey] || 
+                imageDimensions[`${cleanKey}.png`] || 
+                imageDimensions[imageKey.toLowerCase()];
+      if (!imgDims) {
+        const foundEntry = Object.entries(imageDimensions).find(([k]) =>
+          k.toLowerCase() === imageKey.toLowerCase() ||
+          k.replace(/\.(png|jpe?g|webp|svg)$/i, '').toLowerCase() === cleanKey.toLowerCase()
+        );
+        if (foundEntry) imgDims = foundEntry[1];
+      }
+    }
+    if (!imgDims) imgDims = { width: 100, height: 100 };
 
     // Resolve SVGA 2.0 KEEP shapes across frames (SVGA 2.0 type: 3 / "keep")
     let lastShapes: any[] = [];
@@ -167,34 +218,31 @@ export async function parseSvgaToProject(file: File): Promise<{
     }
     
     // Check if sprite has any explicit alpha > 0
-    const hasAnyExplicitAlpha = frames.some((fr: any) => fr && fr.alpha !== undefined && fr.alpha > 0.005);
+    const hasAnyExplicitAlpha = frames.some((fr: any) => fr && typeof fr.alpha === 'number' && fr.alpha > 0.005);
 
-    // Robust helper to determine if a frame is active
+    // Robust helper to determine if a frame is active in SVGA 2.0
     const isFrameActive = (fr: any): boolean => {
       if (!fr) return false;
-      // 1. If alpha is explicitly defined
-      if (fr.alpha !== undefined) {
+      // 1. If this sprite has explicit alpha keyframing (standard in SVGA 2.0),
+      // only frames with alpha > 0.005 are active.
+      if (hasAnyExplicitAlpha) {
+        return typeof fr.alpha === 'number' ? fr.alpha > 0.005 : false;
+      }
+      // 2. If alpha is explicitly defined on this frame
+      if (typeof fr.alpha === 'number') {
         return fr.alpha > 0.005;
       }
-      // 2. If sprite has explicit alpha elsewhere in its frames, a frame with undefined alpha is inactive
-      if (hasAnyExplicitAlpha) {
-        return false;
-      }
-      // 3. If sprite has no explicit alpha anywhere: check if the frame has real visual content
-      const hasShapes = fr.shapes && Array.isArray(fr.shapes) && fr.shapes.length > 0;
-      const hasLayout = fr.layout && (
+      // 3. Fallback only if this sprite has NO alpha anywhere in the file
+      const hasImage = Boolean(sprite.imageKey && (imagesMap[sprite.imageKey] || imageDimensions[sprite.imageKey]));
+      const hasShapes = Boolean(fr.shapes && Array.isArray(fr.shapes) && fr.shapes.length > 0);
+      const hasLayout = Boolean(fr.layout && (
         (fr.layout.width !== undefined && fr.layout.width > 0) || 
         (fr.layout.height !== undefined && fr.layout.height > 0)
-      );
-      const hasValidTransform = fr.transform && (
-        (fr.transform.a !== undefined && fr.transform.a !== 0) ||
-        (fr.transform.b !== undefined && fr.transform.b !== 0) ||
-        (fr.transform.c !== undefined && fr.transform.c !== 0) ||
-        (fr.transform.d !== undefined && fr.transform.d !== 0)
-      );
+      ));
+      const hasTransform = Boolean(fr.transform);
+      const hasClip = Boolean(fr.clipPath);
 
-      // An empty frame {} without shapes, without layout dimensions, and without non-zero transform is NOT active!
-      return Boolean(hasShapes || hasLayout || hasValidTransform);
+      return Boolean(hasImage || hasShapes || hasLayout || hasTransform || hasClip);
     };
 
     // Find representative layout and keyframe bounds
@@ -242,12 +290,21 @@ export async function parseSvgaToProject(file: File): Promise<{
     }
 
     if (activeFrames.length > 0) {
-      startFrame = activeFrames[0];
-      endFrame = activeFrames[activeFrames.length - 1];
+      if (frames.length === 1) {
+        // Single frame static layer valid across the entire animation in SVGA 2.0
+        startFrame = 0;
+        endFrame = Math.max(0, totalFrames - 1);
+      } else {
+        startFrame = activeFrames[0];
+        endFrame = activeFrames[activeFrames.length - 1];
+      }
     } else if (frames.length === 1) {
       // Single frame static layer valid across the animation
       startFrame = 0;
       endFrame = Math.max(0, totalFrames - 1);
+    } else {
+      startFrame = 0;
+      endFrame = frames.length > 0 ? frames.length - 1 : Math.max(0, totalFrames - 1);
     }
 
     // Fallback if no active frame found
@@ -259,11 +316,25 @@ export async function parseSvgaToProject(file: File): Promise<{
       initialH = (firstFr.layout?.height && firstFr.layout.height > 0) ? firstFr.layout.height : imgDims.height;
     }
 
+    // Determine thumbnail URL with fuzzy fallback
+    let thumb = imagesMap[imageKey];
+    if (!thumb) {
+      const cleanKey = imageKey.replace(/\.(png|jpe?g|webp|svg)$/i, '');
+      thumb = imagesMap[cleanKey] || imagesMap[`${cleanKey}.png`] || imagesMap[imageKey.toLowerCase()];
+      if (!thumb) {
+        const foundEntry = Object.entries(imagesMap).find(([k]) =>
+          k.toLowerCase() === imageKey.toLowerCase() ||
+          k.replace(/\.(png|jpe?g|webp|svg)$/i, '').toLowerCase() === cleanKey.toLowerCase()
+        );
+        if (foundEntry) thumb = foundEntry[1];
+      }
+    }
+
     // Determine layer type
     let layerType: 'image' | 'shape' | 'composite' = 'image';
-    if (hasShapes && !imagesMap[imageKey]) {
+    if (hasShapes && !thumb) {
       layerType = 'shape';
-    } else if (hasShapes && imagesMap[imageKey]) {
+    } else if (hasShapes && thumb) {
       layerType = 'composite';
     }
 
@@ -274,8 +345,33 @@ export async function parseSvgaToProject(file: File): Promise<{
       sequenceIndex = imageKeyIndexTracker[sprite.imageKey];
     }
 
+    // Check numbered sequence grouping
+    let seqGroupId: string | undefined;
+    let seqIndex = sequenceIndex;
+    let seqTotal = totalWithSameKey;
+
+    if (totalWithSameKey > 1) {
+      seqGroupId = `seq_same_${sprite.imageKey}`;
+    } else if (sprite.imageKey) {
+      const match = sprite.imageKey.match(/^(.*?)_?(\d+)(\.[a-z0-9]+)?$/i);
+      if (match && match[1]) {
+        const pfx = match[1];
+        const groupMembers = sequencePrefixGroups[pfx];
+        if (groupMembers && groupMembers.length > 1) {
+          seqGroupId = `seq_pfx_${pfx}`;
+          seqIndex = groupMembers.indexOf(idx) + 1;
+          seqTotal = groupMembers.length;
+        }
+      }
+    }
+
     const baseName = sprite.imageKey ? sprite.imageKey : `Layer_${idx + 1}`;
-    const layerName = totalWithSameKey > 1 ? `${baseName} [${sequenceIndex}/${totalWithSameKey}]` : baseName;
+    let layerName = baseName;
+    if (totalWithSameKey > 1) {
+      layerName = `${baseName} [${sequenceIndex}/${totalWithSameKey}]`;
+    } else if (seqGroupId && seqTotal > 1) {
+      layerName = `${baseName} (تسلسل ${seqIndex}/${seqTotal})`;
+    }
 
     layers.push({
       id: `layer_${originalIndex}_${imageKey}`,
@@ -285,9 +381,12 @@ export async function parseSvgaToProject(file: File): Promise<{
       type: layerType,
       visible: true,
       locked: false,
-      thumbnailUrl: imagesMap[imageKey] || undefined,
+      thumbnailUrl: thumb || undefined,
       inFrame: startFrame,
       outFrame: endFrame,
+      sequenceGroupId: seqGroupId,
+      sequenceIndex: seqIndex,
+      sequenceTotal: seqTotal,
       transform: {
         x: initialX,
         y: initialY,
@@ -333,27 +432,31 @@ export async function parseSvgaToProject(file: File): Promise<{
         hasTransform,
         hasAnyExplicitAlpha,
         activeFrames: activeFrames.length > 0 ? activeFrames : undefined,
-        isSequenceOrRepeated: totalWithSameKey > 1 || (activeFrames.length > 0 && activeFrames.length < frames.length)
+        isSequenceOrRepeated: Boolean(seqGroupId || totalWithSameKey > 1 || (activeFrames.length > 0 && activeFrames.length < frames.length)),
+        sequenceGroupId: seqGroupId,
+        sequenceIndex: seqIndex,
+        sequenceTotal: seqTotal
       }
     });
   });
 
-  // Mark all layers that act as a matte mask template for another layer
+  // Mark specific layers that act as a matte mask template for another layer.
+  // In SVGA 2.0, matteKey references the mask layer by its originalIndex or layer ID.
+  // We strictly match by exact ID or originalIndex so repeated layers sharing imageKey are NEVER falsely masked!
   const matteKeys = new Set<string>();
   layers.forEach(l => {
     if (l.matteKey) matteKeys.add(String(l.matteKey).trim());
+    if (l.spriteRef?.matteKey) matteKeys.add(String(l.spriteRef.matteKey).trim());
   });
   layers.forEach(l => {
     const rawIdx = String(l.originalIndex);
     if (
-      matteKeys.has(l.imageKey) || 
-      matteKeys.has(l.name) || 
       matteKeys.has(l.id) || 
-      matteKeys.has(rawIdx) ||
-      (l.spriteRef && matteKeys.has(l.spriteRef.imageKey)) ||
-      matteKeys.has(`img_${rawIdx}`) ||
+      matteKeys.has(rawIdx) || 
       matteKeys.has(`layer_${rawIdx}`) ||
-      (l.imageKey && (matteKeys.has(l.imageKey.replace(/^img_/, '')) || matteKeys.has(l.imageKey.replace(/^layer_/, ''))))
+      (l.imageKey && matteKeys.has(l.imageKey)) ||
+      (l.name && matteKeys.has(l.name)) ||
+      (l.spriteRef?.imageKey && matteKeys.has(l.spriteRef.imageKey))
     ) {
       l.isMatteMask = true;
     }

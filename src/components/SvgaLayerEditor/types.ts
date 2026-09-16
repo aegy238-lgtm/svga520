@@ -40,6 +40,9 @@ export interface SVGAKeyframeSummary {
   hasAnyExplicitAlpha?: boolean;
   activeFrames?: number[];
   isSequenceOrRepeated?: boolean;
+  sequenceGroupId?: string;
+  sequenceIndex?: number;
+  sequenceTotal?: number;
 }
 
 export interface EditableLayer {
@@ -53,6 +56,9 @@ export interface EditableLayer {
   thumbnailUrl?: string;
   groupId?: string;
   groupName?: string;
+  sequenceGroupId?: string;
+  sequenceIndex?: number;
+  sequenceTotal?: number;
   
   // Transform properties
   transform: LayerTransform;

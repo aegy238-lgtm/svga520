@@ -162,6 +162,7 @@ export async function mergeSvgaFileIntoProject(
 
       if (sourceFrame) {
         const frameClone = JSON.parse(JSON.stringify(sourceFrame));
+        frameClone.alpha = typeof sourceFrame.alpha === 'number' ? sourceFrame.alpha : (sourceFrame.alpha !== undefined ? Number(sourceFrame.alpha) : 0);
 
         // Pre-multiply canvas placement matrix directly into frame native transform
         // This guarantees that relative coordinates of all layers remain 100% pixel-perfect!
