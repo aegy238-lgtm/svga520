@@ -25,9 +25,15 @@ export const loadFFmpegWithFallbacks = async (ffmpeg: FFmpeg, onLog?: (msg: stri
     for (const base of cdnBases) {
       try {
         console.log(`[FFmpeg Loader] Attempting to load FFmpeg from ${base}...`);
-        const coreURL = await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript');
-        const wasmURL = await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm');
-        await ffmpeg.load({ coreURL, wasmURL });
+        const loadWithTimeout = async () => {
+          const coreURL = await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript');
+          const wasmURL = await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm');
+          await ffmpeg.load({ coreURL, wasmURL });
+        };
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error(`Timeout loading from ${base}`)), 6000)
+        );
+        await Promise.race([loadWithTimeout(), timeoutPromise]);
         console.log("[FFmpeg Loader] FFmpeg loaded successfully from:", base);
         return;
       } catch (e) {

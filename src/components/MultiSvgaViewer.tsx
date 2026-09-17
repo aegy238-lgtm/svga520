@@ -4,7 +4,8 @@ import { Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, X, Dow
 import { db } from '../lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { PresetBackground, UserRecord } from '../types';
-import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
+import { Muxer as Mp4Muxer, ArrayBufferTarget as Mp4ArrayBufferTarget } from 'mp4-muxer';
+import { Muxer as WebMMuxer, ArrayBufferTarget as WebmArrayBufferTarget } from 'webm-muxer';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { loadFFmpegWithFallbacks } from '../utils/ffmpegLoader';
 import JSZip from 'jszip';
@@ -12,7 +13,16 @@ import { jsPDF } from 'jspdf';
 import { createStreamingZip } from '../utils/streamZip';
 import { calculateSafeDimensions } from '../utils/dimensions';
 import { getPAG, convertPagToSvga } from '../utils/pagEngine';
-import { ensureMp3WithId3, extractAudioFromSvga } from '../utils/svgaAudio';
+import { normalizeSvgaFile } from "../utils/svgaNormalizer";
+import { ensureMp3WithId3, extractAllAudiosFromSvga } from '../utils/svgaAudio';
+import {
+  extractAllSvgaAudioTracks,
+  mixAudioTracksToBuffer,
+  encodeAudioBufferToMuxer,
+  muxAudioWithFFmpegFallback,
+  verifyExportedVideo,
+  ExtractedAudioTrack
+} from '../utils/svgaVideoAudioExporter';
 import Vap from 'video-animation-player';
 import { extractVapConfigFromBlob, convertVapToMp4, WebGLVapRenderer, seekVideoToFrame, VapConfig } from '../utils/vapEngine';
 import { downloadDesignerInfoFile } from '../utils/designerInfo';
@@ -338,6 +348,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const [isDragging, setIsDragging] = useState(false);
   const [previewBg, setPreviewBg] = useState<string | null>(null);
   const [watermark, setWatermark] = useState<string | null>(null);
+  const [exportFormat, setExportFormat] = useState<'mp4' | 'webm'>('mp4');
   const [presetBgs, setPresetBgs] = useState<PresetBackground[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -601,7 +612,11 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           const isPag = lowerName.endsWith('.pag');
           const isVap = lowerName.endsWith('.vap') || lowerName.endsWith('.mp4');
           const itemType: 'svga' | 'pag' | 'vap' = isPag ? 'pag' : (isVap ? 'vap' : 'svga');
-          const url = URL.createObjectURL(item.file);
+          let normalizedFile = item.file;
+          if (itemType === 'svga') {
+            normalizedFile = await normalizeSvgaFile(item.file);
+          }
+          const url = URL.createObjectURL(normalizedFile);
           
           let vapConfig: any = null;
           let dimensions: { width: number; height: number } | undefined = undefined;
@@ -1000,36 +1015,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         });
       }
 
-      const muxer = new Muxer({
-        target: new ArrayBufferTarget(),
-        video: { codec: "avc", width: finalWidth, height: finalHeight },
-        fastStart: "in-memory"
-      });
-
-      let hasEncoderError = false;
-      const videoEncoder = new VideoEncoder({
-        output: (chunk, metadata) => {
-          let safeMetadata: any = undefined;
-          if (metadata) {
-            safeMetadata = { ...metadata };
-            if (safeMetadata.decoderConfig) {
-              safeMetadata.decoderConfig = { ...safeMetadata.decoderConfig };
-              if (safeMetadata.decoderConfig.colorSpace === null) {
-                delete safeMetadata.decoderConfig.colorSpace;
-              }
-            } else if (safeMetadata.decoderConfig === null) {
-              delete safeMetadata.decoderConfig;
-            }
-          }
-          muxer.addVideoChunk(chunk, safeMetadata);
-        },
-        error: (e) => {
-          console.error("Encoder Error:", e);
-          hasEncoderError = true;
-          if (videoEncoder.state !== "closed") alert("خطأ في ترميز الفيديو: " + e.message);
-        }
-      });
-
+      const isWebM = exportFormat === 'webm';
+      const durationSec = totalFrames / targetFps;
+      let audiosToMux: ExtractedAudioTrack[] = [];
       const offscreenPlayers = [];
       for (let i = 0; i < activeItems.length; i++) {
         const item = activeItems[i];
@@ -1101,6 +1089,12 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             await player.flush();
           } else {
             const videoItem = await parseSvgaIfNeeded(item);
+            try {
+              const audioData = await extractAllSvgaAudioTracks(videoItem);
+              if (audioData.length > 0) {
+                audiosToMux.push(...audioData);
+              }
+            } catch (e) {}
             player = new SVGA.Player(div);
             player.setVideoItem(videoItem);
             player.setContentMode(DEVICE_PRESETS.find(p => p.id === item.presetId) ? 'AspectFill' : 'AspectFit');
@@ -1126,9 +1120,80 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         }
       }
 
+      // Mix audio tracks if present
+      let mixedAudioBuffer: AudioBuffer | null = null;
+      let hasNativeAudioTrack = false;
+      if (audiosToMux.length > 0) {
+        setExportProgress(4);
+        try {
+          mixedAudioBuffer = await mixAudioTracksToBuffer(audiosToMux, {
+            durationSec,
+            fps: targetFps,
+            loopShorterAudio: true,
+          });
+          // @ts-ignore
+          if (mixedAudioBuffer && typeof AudioEncoder !== 'undefined') {
+            const codec = isWebM ? 'opus' : 'mp4a.40.2';
+            // @ts-ignore
+            const check = await AudioEncoder.isConfigSupported({
+              codec,
+              numberOfChannels: 2,
+              sampleRate: mixedAudioBuffer.sampleRate,
+              bitrate: 128000
+            });
+            if (check.supported) {
+              hasNativeAudioTrack = true;
+            }
+          }
+        } catch (audioErr) {
+          console.warn("[SVGA Export] Audio mixing notice:", audioErr);
+        }
+      }
+
+      const muxer = isWebM 
+        ? new WebMMuxer({
+            target: new WebmArrayBufferTarget(),
+            video: { codec: 'V_VP9', width: finalWidth, height: finalHeight },
+            audio: hasNativeAudioTrack && mixedAudioBuffer ? { codec: 'A_OPUS', numberOfChannels: 2, sampleRate: mixedAudioBuffer.sampleRate } : undefined
+          })
+        : new Mp4Muxer({
+            target: new Mp4ArrayBufferTarget(),
+            video: { codec: "avc", width: finalWidth, height: finalHeight },
+            audio: hasNativeAudioTrack && mixedAudioBuffer ? { codec: 'aac', numberOfChannels: 2, sampleRate: mixedAudioBuffer.sampleRate } : undefined,
+            fastStart: "in-memory"
+          });
+
+      let hasEncoderError = false;
+      const videoEncoder = new VideoEncoder({
+        output: (chunk, metadata) => {
+          let safeMetadata: any = undefined;
+          if (metadata) {
+            safeMetadata = { ...metadata };
+            if (safeMetadata.decoderConfig) {
+              safeMetadata.decoderConfig = { ...safeMetadata.decoderConfig };
+              if (safeMetadata.decoderConfig.colorSpace === null) {
+                delete safeMetadata.decoderConfig.colorSpace;
+              }
+            } else if (safeMetadata.decoderConfig === null) {
+              delete safeMetadata.decoderConfig;
+            }
+          }
+          muxer.addVideoChunk(chunk, safeMetadata);
+        },
+        error: (e) => {
+          console.error("Encoder Error:", e);
+          hasEncoderError = true;
+          if (videoEncoder.state !== "closed") alert("خطأ في ترميز الفيديو: " + e.message);
+        }
+      });
+
+      if (hasNativeAudioTrack && mixedAudioBuffer) {
+        await encodeAudioBufferToMuxer(mixedAudioBuffer, muxer, isWebM);
+      }
+
       try {
         videoEncoder.configure({
-          codec: "avc1.4D002A",
+          codec: exportFormat === 'webm' ? "vp09.00.10.08" : "avc1.4D002A",
           width: finalWidth,
           height: finalHeight,
           bitrate: 2_500_000,
@@ -1261,7 +1326,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         videoEncoder.encode(videoFrame, { keyFrame: frame % 30 === 0 });
         videoFrame.close();
 
-        if (frame % 15 === 0) { await new Promise(r => setTimeout(r, 0)); setExportProgress(Math.round((frame / totalFrames) * 100));
+        if (frame % 5 === 0 || frame === totalFrames - 1) {
+          await new Promise(r => setTimeout(r, 0));
+          setExportProgress(Math.min(88, Math.round(5 + (frame / totalFrames) * 83)));
         }
       }
 
@@ -1271,23 +1338,37 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         }
         throw new Error("حدث خطأ أثناء تشفير الفيديو. يرجى تقليل الجودة أو استخدام متصفح أحدث.");
       } else {
+        setExportProgress(89);
         if (videoEncoder.state !== "closed") {
           await videoEncoder.flush();
           videoEncoder.close();
         }
+        setExportProgress(92);
         muxer.finalize();
       }
 
-      let { buffer } = muxer.target as ArrayBufferTarget;
+      let { buffer } = muxer.target as any;
+      let finalMp4Buffer = buffer;
 
-      // Audio export disabled as requested by the user
-      // if (itemWithAudio) { ... }
+      // If audio was present but not encoded via native AudioEncoder, run safe FFmpeg fallback
+      if (mixedAudioBuffer && !hasNativeAudioTrack) {
+        setExportProgress(94);
+        finalMp4Buffer = await muxAudioWithFFmpegFallback(buffer, mixedAudioBuffer, isWebM, ensureFFmpeg);
+      }
 
-      const blob = new Blob([buffer], { type: "video/mp4" });
+      // Verification stage
+      setExportProgress(98);
+      const verification = await verifyExportedVideo(finalMp4Buffer, isWebM ? 'webm' : 'mp4');
+      console.log("[SVGA Grid Export] Video verified:", verification);
+
+      setExportProgress(100);
+      const ext = isWebM ? 'webm' : 'mp4';
+      const mime = isWebM ? 'video/webm' : 'video/mp4';
+      const blob = new Blob([finalMp4Buffer], { type: mime });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `SVGA_Record_${Date.now()}.mp4`;
+      a.download = `SVGA_Record_${Date.now()}.${ext}`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (error) {
@@ -1387,7 +1468,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     try {
       
       let completedCount = 0;
-      const CONCURRENCY = 2; // Reduced to save memory
+      const CONCURRENCY = 1; // Sequential for ffmpeg
       for (let batchStart = 0; batchStart < list.length; batchStart += CONCURRENCY) {
         const batch = list.slice(batchStart, batchStart + CONCURRENCY);
         await Promise.all(batch.map(async (item, batchIdx) => {
@@ -1467,43 +1548,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           ? Math.round(exportDuration * targetFps)
           : Math.max(1, Math.round(durationSec * targetFps));
 
-        const muxer = new Muxer({
-          target: new ArrayBufferTarget(),
-          video: { codec: "avc", width: finalWidth, height: finalHeight },
-          fastStart: "in-memory"
-        });
-
-        let hasEncoderError = false;
-        const videoEncoder = new VideoEncoder({
-          output: (chunk, metadata) => {
-            let safeMetadata: any = undefined;
-            if (metadata) {
-              safeMetadata = { ...metadata };
-              if (safeMetadata.decoderConfig) {
-                safeMetadata.decoderConfig = { ...safeMetadata.decoderConfig };
-                if (safeMetadata.decoderConfig.colorSpace === null) {
-                  delete safeMetadata.decoderConfig.colorSpace;
-                }
-              } else if (safeMetadata.decoderConfig === null) {
-                delete safeMetadata.decoderConfig;
-              }
-            }
-            muxer.addVideoChunk(chunk, safeMetadata);
-          },
-          error: (e) => {
-            console.error("Encoder Error:", e);
-            hasEncoderError = true;
-          }
-        });
-
-        videoEncoder.configure({
-          codec: "avc1.4D002A",
-          width: finalWidth,
-          height: finalHeight,
-          bitrate: 2_500_000,
-          framerate: targetFps
-        });
-
+        const isWebM = exportFormat === 'webm';
         const div = document.createElement("div");
         div.style.width = finalWidth + "px";
         div.style.height = finalHeight + "px";
@@ -1514,7 +1559,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
         let player: any = null;
         let internalCanvas: HTMLCanvasElement | null = null;
-        let audioBytesToMux: Uint8Array | null = null;
+        let audiosToMux: ExtractedAudioTrack[] = [];
 
         if (item.type === "pag") {
           const PAG = await getPAG();
@@ -1545,21 +1590,97 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           await player.flush();
         } else {
           const videoItem = await parseSvgaIfNeeded(item);
+          try {
+            const audioData = await extractAllSvgaAudioTracks(videoItem);
+            if (audioData.length > 0) {
+              audiosToMux = audioData;
+            }
+          } catch (e) {
+            console.warn("Could not extract audio for export", e);
+          }
           player = new SVGA.Player(div);
           player.setVideoItem(videoItem);
           player.setContentMode('AspectFit');
           player.stepToFrame(0, false);
           internalCanvas = div.querySelector("canvas");
-          
+        }
+
+        // Mix audio for this item if present
+        let mixedAudioBuffer: AudioBuffer | null = null;
+        let hasNativeAudioTrack = false;
+        if (audiosToMux.length > 0) {
           try {
-            const audioData = await extractAudioFromSvga(videoItem);
-            if (audioData.audioBytes) {
-               audioBytesToMux = audioData.audioBytes;
+            mixedAudioBuffer = await mixAudioTracksToBuffer(audiosToMux, {
+              durationSec,
+              fps: targetFps,
+              loopShorterAudio: true,
+            });
+            // @ts-ignore
+            if (mixedAudioBuffer && typeof AudioEncoder !== 'undefined') {
+              const codec = isWebM ? 'opus' : 'mp4a.40.2';
+              // @ts-ignore
+              const check = await AudioEncoder.isConfigSupported({
+                codec,
+                numberOfChannels: 2,
+                sampleRate: mixedAudioBuffer.sampleRate,
+                bitrate: 128000
+              });
+              if (check.supported) {
+                hasNativeAudioTrack = true;
+              }
             }
-          } catch (e) {
-            console.warn("Could not extract audio for export", e);
+          } catch (audioErr) {
+            console.warn("[SVGA Individual Export] Audio mixing notice:", audioErr);
           }
         }
+
+        const muxer = isWebM 
+          ? new WebMMuxer({
+              target: new WebmArrayBufferTarget(),
+              video: { codec: 'V_VP9', width: finalWidth, height: finalHeight },
+              audio: hasNativeAudioTrack && mixedAudioBuffer ? { codec: 'A_OPUS', numberOfChannels: 2, sampleRate: mixedAudioBuffer.sampleRate } : undefined
+            })
+          : new Mp4Muxer({
+              target: new Mp4ArrayBufferTarget(),
+              video: { codec: "avc", width: finalWidth, height: finalHeight },
+              audio: hasNativeAudioTrack && mixedAudioBuffer ? { codec: 'aac', numberOfChannels: 2, sampleRate: mixedAudioBuffer.sampleRate } : undefined,
+              fastStart: "in-memory"
+            });
+
+        let hasEncoderError = false;
+        const videoEncoder = new VideoEncoder({
+          output: (chunk, metadata) => {
+            let safeMetadata: any = undefined;
+            if (metadata) {
+              safeMetadata = { ...metadata };
+              if (safeMetadata.decoderConfig) {
+                safeMetadata.decoderConfig = { ...safeMetadata.decoderConfig };
+                if (safeMetadata.decoderConfig.colorSpace === null) {
+                  delete safeMetadata.decoderConfig.colorSpace;
+                }
+              } else if (safeMetadata.decoderConfig === null) {
+                delete safeMetadata.decoderConfig;
+              }
+            }
+            muxer.addVideoChunk(chunk, safeMetadata);
+          },
+          error: (e) => {
+            console.error("Encoder Error:", e);
+            hasEncoderError = true;
+          }
+        });
+
+        if (hasNativeAudioTrack && mixedAudioBuffer) {
+          await encodeAudioBufferToMuxer(mixedAudioBuffer, muxer, isWebM);
+        }
+
+        videoEncoder.configure({
+          codec: exportFormat === 'webm' ? "vp09.00.10.08" : "avc1.4D002A",
+          width: finalWidth,
+          height: finalHeight,
+          bitrate: 2_500_000,
+          framerate: targetFps
+        });
 
         await new Promise(r => setTimeout(r, 200));
 
@@ -1634,7 +1755,12 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           videoEncoder.encode(videoFrame, { keyFrame: frame % 30 === 0 });
           videoFrame.close();
 
-          if (frame % 15 === 0) { await new Promise(r => setTimeout(r, 0)); }
+          if (frame % 5 === 0 || frame === totalFrames - 1) {
+            await new Promise(r => setTimeout(r, 0));
+            const baseProg = (i / list.length) * 88;
+            const frameProg = ((frame / totalFrames) / list.length) * 88;
+            setExportProgress(Math.max(1, Math.min(88, Math.round(baseProg + frameProg))));
+          }
         }
 
         if (hasEncoderError) {
@@ -1650,65 +1776,39 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           muxer.finalize();
         }
 
-        let { buffer } = muxer.target as ArrayBufferTarget;
-        
+        let { buffer } = muxer.target as any;
         let finalMp4Buffer = buffer;
 
-        if (audioBytesToMux) {
-            try {
-                const ffmpeg = await ensureFFmpeg();
-                if (ffmpeg) {
-                    const videoName = `vid_${item.id}.mp4`;
-                    const audioName = `aud_${item.id}.mp3`;
-                    const outputName = `out_${item.id}.mp4`;
-                    
-                    await ffmpeg.writeFile(videoName, new Uint8Array(buffer));
-                    await ffmpeg.writeFile(audioName, audioBytesToMux);
-                    
-                    const durationSec = totalFrames / targetFps;
-                    
-                    await ffmpeg.exec([
-                        '-i', videoName,
-                        '-i', audioName,
-                        '-c:v', 'copy',
-                        '-c:a', 'aac',
-                        '-map', '0:v:0',
-                        '-map', '1:a:0',
-                        '-t', durationSec.toString(),
-                        outputName
-                    ]);
-                    
-                    const outData = await ffmpeg.readFile(outputName);
-                    finalMp4Buffer = (outData as Uint8Array).buffer;
-                    
-                    ffmpeg.deleteFile(videoName);
-                    ffmpeg.deleteFile(audioName);
-                    ffmpeg.deleteFile(outputName);
-                }
-            } catch (e) {
-                console.error("FFmpeg audio muxing failed for", item.name, e);
-            }
+        // If audio was present but not encoded via native AudioEncoder, run safe FFmpeg fallback
+        if (mixedAudioBuffer && !hasNativeAudioTrack) {
+          finalMp4Buffer = await muxAudioWithFFmpegFallback(buffer, mixedAudioBuffer, isWebM, ensureFFmpeg);
         }
+
+        // Post-export verification
+        const verification = await verifyExportedVideo(finalMp4Buffer, isWebM ? 'webm' : 'mp4');
+        console.log("[SVGA Individual Export] Video verified:", item.name, verification);
 
         renderContainer.removeChild(div);
         if (item.type === "pag" && player) {
           try { player.destroy?.(); } catch (e) {}
         }
 
+        const ext = isWebM ? 'webm' : 'mp4';
+        const mime = isWebM ? 'video/webm' : 'video/mp4';
         const cleanName = uniqueNames[item.id];
         const folderPrefix = item.folderPath ? `${item.folderPath}/` : '';
-        const mp4Filename = `${folderPrefix}${cleanName}.mp4`;
+        const videoFilename = `${folderPrefix}${cleanName}.${ext}`;
 
         if (streamZip) {
-          // ONLY Add MP4 video file to ZIP archive
-          streamZip.addFile(mp4Filename, new Uint8Array(finalMp4Buffer));
+          // Add video file to ZIP archive
+          streamZip.addFile(videoFilename, new Uint8Array(finalMp4Buffer));
         } else {
           // Single video direct download
-          const blob = new Blob([finalMp4Buffer], { type: "video/mp4" });
+          const blob = new Blob([finalMp4Buffer], { type: mime });
           const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
           a.href = url;
-          a.download = `${cleanName}.mp4`;
+          a.download = `${cleanName}.${ext}`;
           a.click();
           URL.revokeObjectURL(url);
         }
@@ -1717,7 +1817,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           item.videoItem = null;
         }
           } catch (e) { console.warn("Failed individual export", e); } completedCount++;
-          setExportProgress(Math.round((completedCount / list.length) * 100));
+          setExportProgress(Math.round(88 + (completedCount / list.length) * 12));
         }));
       }
 
@@ -3413,6 +3513,17 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                   <option value="natural" className="bg-slate-900 text-white">طبيعي</option>
                   <option value="720p" className="bg-slate-900 text-white">720p</option>
                   <option value="1080p" className="bg-slate-900 text-white">1080p</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2">
+                <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">صيغة التصدير:</span>
+                <select 
+                  value={exportFormat}
+                  onChange={(e) => setExportFormat(e.target.value as 'mp4' | 'webm')}
+                  className="bg-transparent text-white font-black text-xs focus:outline-none"
+                >
+                  <option value="mp4" className="bg-slate-900 text-white">MP4</option>
+                  <option value="webm" className="bg-slate-900 text-white">WebM</option>
                 </select>
               </div>
               <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2" title="التحكم في ضغط الفيديو وحجم الملف وسرعة التصدير">

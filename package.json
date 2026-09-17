@@ -48,7 +48,8 @@
     "tsx": "^4.21.0",
     "upng-js": "^2.1.0",
     "video-animation-player": "^1.0.5",
-    "wavesurfer.js": "^7.12.8"
+    "wavesurfer.js": "^7.12.8",
+    "webm-muxer": "^5.1.4"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",

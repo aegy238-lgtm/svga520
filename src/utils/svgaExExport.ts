@@ -172,7 +172,7 @@ export const handleSvgaExExport = async (params: {
         try {
           inflated = pako.inflate(uint8Array);
         } catch (e) {
-          console.warn("Failed to inflate SVGA, trying uncompressed:", e);
+          try { inflated = pako.inflateRaw(uint8Array); } catch(e2) { console.warn("Failed to inflate SVGA, trying uncompressed:", e2); inflated = uint8Array; }
           inflated = uint8Array;
         }
         message = MovieEntity.decode(inflated);

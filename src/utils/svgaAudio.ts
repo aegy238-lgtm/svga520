@@ -25,7 +25,32 @@ export function ensureMp3WithId3(buffer: Uint8Array): Uint8Array {
     return buffer;
   }
 
-  // Prepend ID3 header
+  // Check if buffer is WAV (RIFF: 0x52, 0x49, 0x46, 0x46)
+  if (buffer.length >= 4 && buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46) {
+    return buffer;
+  }
+
+  // Check if buffer is OGG (OggS: 0x4F, 0x67, 0x67, 0x53)
+  if (buffer.length >= 4 && buffer[0] === 0x4F && buffer[1] === 0x67 && buffer[2] === 0x67 && buffer[3] === 0x53) {
+    return buffer;
+  }
+
+  // Check if buffer is FLAC (fLaC: 0x66, 0x4C, 0x61, 0x43)
+  if (buffer.length >= 4 && buffer[0] === 0x66 && buffer[1] === 0x4C && buffer[2] === 0x61 && buffer[3] === 0x43) {
+    return buffer;
+  }
+
+  // Check if buffer is AAC ADTS sync (0xFF 0xF1 or 0xFF 0xF9)
+  if (buffer.length >= 2 && buffer[0] === 0xFF && (buffer[1] & 0xF6) === 0xF0) {
+    return buffer;
+  }
+
+  // Check if buffer is MP4/M4A container (ftyp at offset 4)
+  if (buffer.length >= 8 && buffer[4] === 0x66 && buffer[5] === 0x74 && buffer[6] === 0x79 && buffer[7] === 0x70) {
+    return buffer;
+  }
+
+  // Prepend ID3 header for raw MP3 streams
   const taggedBuffer = new Uint8Array(ID3V2_EMPTY_HEADER.length + buffer.length);
   taggedBuffer.set(ID3V2_EMPTY_HEADER, 0);
   taggedBuffer.set(buffer, ID3V2_EMPTY_HEADER.length);
@@ -73,15 +98,18 @@ export async function extractAudioFromSvga(videoItem: any): Promise<{
 
   // Find candidate audio keys
   let targetKey: string | null = null;
-  if (audios.length > 0 && audios[0].audioKey) {
-    targetKey = audios[0].audioKey;
-  } else {
-    for (const key of Object.keys(images)) {
-      if (isAudioKey(key, audios)) {
-        targetKey = key;
-        break;
-      }
+  
+  // First, check if any image key matches known audio formats or explicit audios array
+  for (const key of Object.keys(images)) {
+    if (isAudioKey(key, audios)) {
+      targetKey = key;
+      break;
     }
+  }
+  
+  // Fallback to audios array just in case it maps exactly
+  if (!targetKey && audios.length > 0 && audios[0].audioKey) {
+    targetKey = audios[0].audioKey;
   }
 
   if (!targetKey || !images[targetKey]) {
@@ -309,4 +337,67 @@ export function setupSvgaAudioPolyfill(): void {
     setTimeout(patch, 500);
     setTimeout(patch, 1500);
   }
+}
+
+export async function extractAllAudiosFromSvga(videoItem: any): Promise<{
+  audioKey: string;
+  audioBytes: Uint8Array;
+  startFrame: number;
+  endFrame: number;
+}[]> {
+  if (!videoItem || !videoItem.images) return [];
+  
+  const audios = Array.isArray(videoItem.audios) ? [...videoItem.audios] : [];
+  
+  // Ensure we capture all image keys that might be audio even if not in audios array
+  Object.keys(videoItem.images).forEach((key) => {
+    if (isAudioKey(key, audios) && !audios.find(a => a.audioKey === key)) {
+      audios.push({
+        audioKey: key,
+        startFrame: 0,
+        endFrame: videoItem.frames || 0
+      });
+    }
+  });
+
+  const results = [];
+  for (const audio of audios) {
+    const rawData = videoItem.images[audio.audioKey];
+    if (!rawData) continue;
+    
+    let bytes: Uint8Array | null = null;
+    try {
+      if (rawData instanceof Uint8Array) {
+        bytes = rawData;
+      } else if (typeof rawData === "string") {
+        let binaryStr = "";
+        if (rawData.startsWith("data:")) {
+          const parts = rawData.split(",");
+          binaryStr = atob(parts[1] || "");
+        } else {
+          try {
+            binaryStr = atob(rawData);
+          } catch {
+            binaryStr = rawData;
+          }
+        }
+        bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to decode audio bytes from SVGA for key:", audio.audioKey, err);
+    }
+    
+    if (bytes && bytes.length > 0) {
+      results.push({
+        audioKey: audio.audioKey,
+        audioBytes: ensureMp3WithId3(bytes),
+        startFrame: audio.startFrame || 0,
+        endFrame: audio.endFrame || videoItem.frames || 0
+      });
+    }
+  }
+  return results;
 }

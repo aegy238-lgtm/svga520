@@ -40,7 +40,7 @@ function isValidSvgaZlib(bytes: Uint8Array): boolean {
   try {
     // Check zlib header (0x78)
     if (bytes[0] === 0x78) {
-      const inflated = pako.inflate(bytes);
+      let inflated = bytes; try { inflated = pako.inflate(bytes); } catch { inflated = pako.inflateRaw(bytes); }
       const decoded = MovieEntity.decode(inflated) as any;
       if (decoded && (decoded.version || decoded.params)) {
         return true;

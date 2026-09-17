@@ -139,7 +139,7 @@ export const SvgaCompressor: React.FC<{ onCancel: () => void, currentUser: UserR
           try {
              inflatedData = pako.inflate(new Uint8Array(arrayBuffer));
           } catch (e) {
-             console.warn("Failed to inflate SVGA, trying uncompressed:", e);
+             try { inflatedData = pako.inflateRaw(new Uint8Array(arrayBuffer)); } catch(e2) { console.warn("Failed to inflate SVGA, trying uncompressed:", e2); inflatedData = new Uint8Array(arrayBuffer); }
              inflatedData = new Uint8Array(arrayBuffer);
           }
 
