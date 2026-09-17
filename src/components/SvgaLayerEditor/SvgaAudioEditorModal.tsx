@@ -76,6 +76,8 @@ export const SvgaAudioEditorModal: React.FC<SvgaAudioEditorModalProps> = ({
   const [currentTimeSec, setCurrentTimeSec] = useState<number>(0);
   const [playerVolume, setPlayerVolume] = useState<number>(1);
   const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [autoPlayOnSelect, setAutoPlayOnSelect] = useState<boolean>(true);
+  const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
 
   // Rename & Delete State
   const [renameKey, setRenameKey] = useState<string>(existingAudio?.audioKey || `audio_${Date.now()}`);
@@ -157,9 +159,112 @@ export const SvgaAudioEditorModal: React.FC<SvgaAudioEditorModalProps> = ({
     }
   }, [trimMode, audioBuffer, svgaDurationSec]);
 
-  // Handle File Selection
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  // Playback Control: Stop Playback
+  const stopPlayback = useCallback(() => {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (activeSourceRef.current) {
+      try {
+        activeSourceRef.current.stop();
+        activeSourceRef.current.disconnect();
+      } catch (e) {}
+      activeSourceRef.current = null;
+    }
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    setIsPlaying(false);
+  }, []);
+
+  // Playback Control: Play any specific AudioBuffer immediately
+  const playAudioBufferInstance = useCallback((
+    buf: AudioBuffer,
+    fromSec: number = 0,
+    customStart?: number,
+    customEnd?: number
+  ) => {
+    if (!buf) return;
+    stopPlayback();
+
+    const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+    const audioCtx = new AudioCtxClass();
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(() => {});
+    }
+    audioContextRef.current = audioCtx;
+
+    const source = audioCtx.createBufferSource();
+    source.buffer = buf;
+
+    const gainNode = audioCtx.createGain();
+    const effectiveVolume = isMuted ? 0 : (volumePercent / 100) * playerVolume;
+    gainNode.gain.setValueAtTime(effectiveVolume, audioCtx.currentTime);
+
+    source.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    activeSourceRef.current = source;
+    gainNodeRef.current = gainNode;
+
+    const clipStart = customStart !== undefined ? customStart : startSec;
+    const clipEnd = customEnd !== undefined ? customEnd : endSec;
+
+    let startOffset = fromSec >= clipStart && fromSec < clipEnd ? fromSec : clipStart;
+    const duration = Math.max(0.01, clipEnd - startOffset);
+
+    playbackStartTimeRef.current = audioCtx.currentTime;
+    playbackOffsetRef.current = startOffset;
+
+    try {
+      source.start(0, startOffset, duration);
+      setIsPlaying(true);
+    } catch (err) {
+      console.warn('Failed to start audio source:', err);
+    }
+
+    const updatePlayhead = () => {
+      if (!audioContextRef.current || !activeSourceRef.current) return;
+      const elapsed = audioContextRef.current.currentTime - playbackStartTimeRef.current;
+      const cur = playbackOffsetRef.current + elapsed;
+
+      if (cur >= clipEnd) {
+        setCurrentTimeSec(clipStart);
+        setIsPlaying(false);
+        return;
+      }
+
+      setCurrentTimeSec(cur);
+      animFrameRef.current = requestAnimationFrame(updatePlayhead);
+    };
+
+    animFrameRef.current = requestAnimationFrame(updatePlayhead);
+
+    source.onended = () => {
+      setIsPlaying(false);
+    };
+  }, [stopPlayback, isMuted, volumePercent, playerVolume, startSec, endSec]);
+
+  // General Playback toggle for current audioBuffer
+  const startPlayback = useCallback((fromSec: number = 0) => {
+    if (!audioBuffer) return;
+    playAudioBufferInstance(audioBuffer, fromSec, startSec, endSec);
+  }, [audioBuffer, playAudioBufferInstance, startSec, endSec]);
+
+  // Live volume & mute adjustment while playing
+  useEffect(() => {
+    if (gainNodeRef.current && audioContextRef.current && isPlaying) {
+      const effectiveVolume = isMuted ? 0 : (volumePercent / 100) * playerVolume;
+      try {
+        gainNodeRef.current.gain.setValueAtTime(effectiveVolume, audioContextRef.current.currentTime);
+      } catch (e) {}
+    }
+  }, [volumePercent, playerVolume, isMuted, isPlaying]);
+
+  // Process selected or dropped audio file
+  const processAudioFile = async (file: File) => {
     if (!file) return;
 
     const fileName = file.name;
@@ -170,15 +275,9 @@ export const SvgaAudioEditorModal: React.FC<SvgaAudioEditorModalProps> = ({
     setSelectedFileName(fileName);
     setSelectedFileSize(`${Math.round(file.size / 1024)} KB`);
     setFileOriginalFormat(extension ? `.${extension.toUpperCase()}` : 'غير معروف');
-
-    if (!isMp3) {
-      setIsNotMp3Warning(true);
-    } else {
-      setIsNotMp3Warning(false);
-    }
-
+    setIsNotMp3Warning(!isMp3);
     setIsMarkedForDeletion(false);
-    setStatusMessage(`Ready: Add Audio (${fileName})`);
+    setStatusMessage(`جاري فك تشفير الصوت: ${fileName}...`);
     stopPlayback();
 
     try {
@@ -203,85 +302,31 @@ export const SvgaAudioEditorModal: React.FC<SvgaAudioEditorModalProps> = ({
       setEndSec(initialEnd);
       setCurrentTimeSec(0);
 
+      // Auto-play immediately in interface so user hears it!
+      if (autoPlayOnSelect) {
+        setTimeout(() => {
+          playAudioBufferInstance(buffer, 0, 0, initialEnd);
+          setStatusMessage(`🔊 جاري تشغيل ومعاينة الصوت في الواجهة: ${fileName}`);
+        }, 60);
+      } else {
+        setStatusMessage(`جاهز: تم اختيار الصوت (${fileName})`);
+      }
+
+      onShowToast(`🎵 تم تحميل الصوت وبدء تشغيله في الواجهة: ${fileName}`);
     } catch (err: any) {
       console.error('Audio decode error:', err);
       onShowToast('تعذر فك تشفير الملف الصوتي. يرجى تجربة ملف آخر.');
     }
   };
 
-  // Playback Control
-  const startPlayback = useCallback((fromSec: number = 0) => {
-    if (!audioBuffer) return;
-    stopPlayback();
-
-    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    audioContextRef.current = audioCtx;
-
-    const source = audioCtx.createBufferSource();
-    source.buffer = audioBuffer;
-
-    const gainNode = audioCtx.createGain();
-    const effectiveVolume = isMuted ? 0 : (volumePercent / 100) * playerVolume;
-    gainNode.gain.setValueAtTime(effectiveVolume, audioCtx.currentTime);
-
-    source.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-
-    activeSourceRef.current = source;
-    gainNodeRef.current = gainNode;
-
-    const clipStart = startSec;
-    const clipEnd = endSec;
-
-    let startOffset = fromSec >= clipStart && fromSec < clipEnd ? fromSec : clipStart;
-    const duration = Math.max(0.01, clipEnd - startOffset);
-
-    playbackStartTimeRef.current = audioCtx.currentTime;
-    playbackOffsetRef.current = startOffset;
-
-    source.start(0, startOffset, duration);
-    setIsPlaying(true);
-
-    const updatePlayhead = () => {
-      if (!audioContextRef.current || !activeSourceRef.current) return;
-      const elapsed = audioContextRef.current.currentTime - playbackStartTimeRef.current;
-      const cur = playbackOffsetRef.current + elapsed;
-
-      if (cur >= clipEnd) {
-        setCurrentTimeSec(clipStart);
-        setIsPlaying(false);
-        return;
-      }
-
-      setCurrentTimeSec(cur);
-      animFrameRef.current = requestAnimationFrame(updatePlayhead);
-    };
-
-    animFrameRef.current = requestAnimationFrame(updatePlayhead);
-
-    source.onended = () => {
-      setIsPlaying(false);
-    };
-  }, [audioBuffer, startSec, endSec, volumePercent, playerVolume, isMuted]);
-
-  const stopPlayback = useCallback(() => {
-    if (animFrameRef.current) {
-      cancelAnimationFrame(animFrameRef.current);
-      animFrameRef.current = null;
+  // Handle File Selection from Input
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processAudioFile(file);
     }
-    if (activeSourceRef.current) {
-      try {
-        activeSourceRef.current.stop();
-        activeSourceRef.current.disconnect();
-      } catch (e) {}
-      activeSourceRef.current = null;
-    }
-    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      audioContextRef.current.close().catch(() => {});
-      audioContextRef.current = null;
-    }
-    setIsPlaying(false);
-  }, []);
+    e.target.value = '';
+  };
 
   const togglePlay = () => {
     if (isPlaying) {
@@ -693,16 +738,35 @@ export const SvgaAudioEditorModal: React.FC<SvgaAudioEditorModalProps> = ({
               onPointerMove={handleContainerPointerMove}
               onPointerUp={handleContainerPointerUp}
               onPointerLeave={handleContainerPointerUp}
-              className={`w-full h-52 bg-[#04060a] border border-[#161d2b] rounded-lg relative overflow-hidden flex flex-col items-center justify-center p-3 select-none ${
-                audioBuffer ? 'cursor-crosshair' : ''
-              }`}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingFile(true); }}
+              onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingFile(false); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsDraggingFile(false);
+                const file = e.dataTransfer.files?.[0];
+                if (file) {
+                  processAudioFile(file);
+                }
+              }}
+              className={`w-full h-52 bg-[#04060a] border rounded-lg relative overflow-hidden flex flex-col items-center justify-center p-3 select-none transition-colors ${
+                isDraggingFile ? 'border-emerald-400 bg-emerald-950/30' : 'border-[#161d2b]'
+              } ${audioBuffer ? 'cursor-crosshair' : ''}`}
             >
               <canvas ref={canvasRef} className="w-full h-full block pointer-events-none" />
 
+              {isDraggingFile && (
+                <div className="absolute inset-0 bg-emerald-950/80 backdrop-blur-xs flex flex-col items-center justify-center gap-2 text-emerald-300 pointer-events-none z-30">
+                  <Music size={28} className="animate-bounce" />
+                  <span className="text-xs font-bold">أفلت الملف الصوتي هنا للاستماع والدمج المباشر</span>
+                </div>
+              )}
+
               {!audioBuffer ? (
-                <div className="absolute inset-0 flex items-center justify-center gap-2 text-slate-500 text-xs pointer-events-none">
-                  <VolumeX size={14} />
-                  <span>No audio to preview</span>
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-500 text-xs pointer-events-none">
+                  <VolumeX size={18} />
+                  <span>لا يوجد صوت محدد للمعاينة</span>
+                  <span className="text-[10px] text-slate-600">يمكنك النقر على + Add Audio أو سحب ملف صوتي هنا</span>
                 </div>
               ) : (
                 <>
@@ -1082,6 +1146,49 @@ export const SvgaAudioEditorModal: React.FC<SvgaAudioEditorModalProps> = ({
                     </button>
                   </div>
 
+                  {/* Immediate Audition & Live Audio State */}
+                  {audioBuffer && (
+                    <div className="flex items-center justify-between p-2.5 bg-emerald-950/40 border border-emerald-500/40 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={togglePlay}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow cursor-pointer ${
+                            isPlaying 
+                              ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/30' 
+                              : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30'
+                          }`}
+                        >
+                          {isPlaying ? <Pause size={13} className="fill-current" /> : <Play size={13} className="fill-current" />}
+                          <span>{isPlaying ? 'إيقاف الاستماع' : 'استماع للصوت الآن'}</span>
+                        </button>
+                        <span className="text-[11px] text-emerald-300 font-medium">
+                          {isPlaying ? '🔊 جاري تشغيل ومعاينة الصوت في الواجهة...' : 'جاهز: اضغط للاستماع'}
+                        </span>
+                      </div>
+                      {isPlaying && (
+                        <div className="flex items-center gap-1">
+                          <div className="w-1 h-3 bg-emerald-400 animate-pulse rounded-full" />
+                          <div className="w-1 h-5 bg-emerald-400 animate-pulse delay-75 rounded-full" />
+                          <div className="w-1 h-2.5 bg-emerald-400 animate-pulse delay-150 rounded-full" />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Auto-play toggle on selection */}
+                  <div className="pt-1">
+                    <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer select-none hover:text-white">
+                      <input
+                        type="checkbox"
+                        checked={autoPlayOnSelect}
+                        onChange={(e) => setAutoPlayOnSelect(e.target.checked)}
+                        className="rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer"
+                      />
+                      <span className="font-semibold text-emerald-400">تشغيل الصوت تلقائياً عند الإضافة / الاختيار للاستماع</span>
+                    </label>
+                  </div>
+
                   {/* Warning: If file is NOT MP3 */}
                   {isNotMp3Warning && (
                     <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-2.5 flex items-start gap-2 text-[11px] text-amber-300">
@@ -1260,10 +1367,10 @@ export const SvgaAudioEditorModal: React.FC<SvgaAudioEditorModalProps> = ({
               type="button"
               onClick={handleExecute}
               disabled={isExecuting || (!audioBuffer && !isMarkedForDeletion)}
-              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-lg text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-lg shadow-emerald-600/30 hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed"
+              className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-500 text-white rounded-lg text-xs font-black flex items-center gap-2 transition-all cursor-pointer shadow-lg shadow-emerald-600/30 hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed"
             >
-              <Play size={13} className="fill-current" />
-              <span>Execute</span>
+              <Play size={14} className="fill-current" />
+              <span>دمج الصوت وتشغيله في الواجهة</span>
             </button>
           </div>
 

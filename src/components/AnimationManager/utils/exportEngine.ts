@@ -2,6 +2,7 @@ import JSZip from 'jszip';
 import UPNG from 'upng-js';
 import lottie from 'lottie-web';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
+import { Muxer as WebMMuxer, ArrayBufferTarget as WebmArrayBufferTarget } from 'webm-muxer';
 import protobuf from 'protobufjs';
 import pako from 'pako';
 import { GIFEncoder, quantize, applyPalette } from 'gifenc';
@@ -10,6 +11,8 @@ import { Player as SvgaPlayer, Parser as SvgaParser } from 'svga.lite';
 import { svgaSchema } from '../../../svga-proto';
 import { AnimationItem, BatchExportOptions, ExportFormat, UnifiedVideoOptions } from '../types';
 import { deduplicateItems } from './hashUtils';
+import { convertFramesToLottieSequence } from '../../../utils/svgaToLottie';
+import { encodeAudioBufferToMuxer } from '../../../utils/svgaVideoAudioExporter';
 
 /**
  * Trigger browser file download for a Blob
@@ -180,7 +183,7 @@ export async function extractSvgaFrames(
   player.set({
     loop: 1,
     fillMode: 'forwards' as any,
-    cacheFrames: true,
+    cacheFrames: false,
     intersectionObserverRender: false
   });
 
@@ -191,6 +194,7 @@ export async function extractSvgaFrames(
 
   for (let i = 0; i < totalFrames; i++) {
     try {
+      (player as any).currentFrame = i;
       if ((player as any)._renderer && typeof (player as any)._renderer.drawFrame === 'function') {
         (player as any)._renderer.drawFrame(i);
       }
@@ -917,14 +921,17 @@ export async function exportAsMp4(
   height: number,
   fps: number = 30,
   bgColor: string = '#000000',
-  compressionLevel: number = 80
+  compressionLevel: number = 100,
+  audioBuffer?: AudioBuffer | null,
+  onProgress?: (progress0to1: number, phaseText?: string) => void
 ): Promise<Blob> {
   // Ensure even dimensions for H.264
   const evenWidth = width % 2 === 0 ? width : width + 1;
   const evenHeight = height % 2 === 0 ? height : height + 1;
 
-  const minBitrate = 500_000;
-  const maxBitrate = 12_000_000;
+  // Optimal bitrate with high quality headroom
+  const minBitrate = 1_500_000;
+  const maxBitrate = Math.max(14_000_000, Math.round(evenWidth * evenHeight * 4.5));
   const calculatedBitrate = Math.round(minBitrate + (compressionLevel / 100) * (maxBitrate - minBitrate));
 
   // Try WebCodecs VideoEncoder + mp4-muxer if available
@@ -938,6 +945,11 @@ export async function exportAsMp4(
           width: evenWidth,
           height: evenHeight
         },
+        audio: audioBuffer ? {
+          codec: 'aac',
+          numberOfChannels: 2,
+          sampleRate: audioBuffer.sampleRate
+        } : undefined,
         fastStart: 'in-memory'
       });
 
@@ -946,33 +958,81 @@ export async function exportAsMp4(
         error: (e) => console.error('VideoEncoder error:', e)
       });
 
-      await videoEncoder.configure({
-        codec: 'avc1.42001f',
-        width: evenWidth,
-        height: evenHeight,
-        bitrate: calculatedBitrate,
-        framerate: fps
-      });
+      // Prefer hardware-accelerated H.264 encoder for maximum speed and zero CPU lag
+      let codecConfigured = false;
+      const candidateCodecs = ['avc1.4D002A', 'avc1.42E01F', 'avc1.42001f'];
+      for (const candCodec of candidateCodecs) {
+        try {
+          // @ts-ignore
+          if (typeof VideoEncoder.isConfigSupported === 'function') {
+            // @ts-ignore
+            const check = await VideoEncoder.isConfigSupported({
+              codec: candCodec,
+              width: evenWidth,
+              height: evenHeight,
+              bitrate: calculatedBitrate,
+              framerate: fps,
+              hardwareAcceleration: 'prefer-hardware'
+            });
+            if (check && check.supported) {
+              videoEncoder.configure(check.config);
+              codecConfigured = true;
+              break;
+            }
+          }
+        } catch {
+          // continue fallback
+        }
+      }
+
+      if (!codecConfigured) {
+        videoEncoder.configure({
+          codec: 'avc1.4D002A',
+          width: evenWidth,
+          height: evenHeight,
+          bitrate: calculatedBitrate,
+          framerate: fps,
+          hardwareAcceleration: 'prefer-hardware'
+        });
+      }
+
+      // Mux audio stream into the MP4 file
+      if (audioBuffer) {
+        try {
+          await encodeAudioBufferToMuxer(audioBuffer, muxer, false);
+        } catch (audioErr) {
+          console.warn('Audio mux failed in exportAsMp4, continuing video encoding:', audioErr);
+        }
+      }
 
       let timestampMicros = 0;
-      const frameDurationMicros = Math.round(1_000_000 / fps);
+      let scratchCanvas: HTMLCanvasElement | null = null;
+      let scratchCtx: CanvasRenderingContext2D | null = null;
 
       for (let i = 0; i < canvases.length; i++) {
         const srcCanvas = canvases[i];
-        const renderCanvas = document.createElement('canvas');
-        renderCanvas.width = evenWidth;
-        renderCanvas.height = evenHeight;
-        const ctx = renderCanvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = bgColor || '#000000';
-          ctx.fillRect(0, 0, evenWidth, evenHeight);
-          ctx.drawImage(srcCanvas, 0, 0, evenWidth, evenHeight);
+        let frameSource: CanvasImageSource = srcCanvas;
+
+        // Only draw onto scratch canvas if dimension padding or specific non-black background fill is needed
+        if (srcCanvas.width !== evenWidth || srcCanvas.height !== evenHeight || (bgColor && bgColor !== '#000000' && bgColor !== 'transparent')) {
+          if (!scratchCanvas) {
+            scratchCanvas = document.createElement('canvas');
+            scratchCanvas.width = evenWidth;
+            scratchCanvas.height = evenHeight;
+            scratchCtx = scratchCanvas.getContext('2d');
+          }
+          if (scratchCtx) {
+            scratchCtx.fillStyle = bgColor || '#000000';
+            scratchCtx.fillRect(0, 0, evenWidth, evenHeight);
+            scratchCtx.drawImage(srcCanvas, 0, 0, evenWidth, evenHeight);
+            frameSource = scratchCanvas;
+          }
         }
 
         const frameDelay = delays[i] || Math.round(1000 / fps);
         const frameDurMicros = Math.round(frameDelay * 1000);
 
-        const frame = new VideoFrame(renderCanvas, {
+        const frame = new VideoFrame(frameSource, {
           timestamp: timestampMicros,
           duration: frameDurMicros
         });
@@ -981,6 +1041,17 @@ export async function exportAsMp4(
         frame.close();
 
         timestampMicros += frameDurMicros;
+
+        // Keep encoder queue responsive & yield to event loop so the UI updates in real time
+        if (videoEncoder.encodeQueueSize > 4) {
+          await new Promise(r => setTimeout(r, 0));
+        } else if (i % 6 === 0 || i === canvases.length - 1) {
+          await new Promise(r => setTimeout(r, 0));
+        }
+
+        if (onProgress) {
+          onProgress((i + 1) / canvases.length, `ترميز MP4 عالي السرعة: إطار ${i + 1} من ${canvases.length}...`);
+        }
       }
 
       await videoEncoder.flush();
@@ -1025,9 +1096,169 @@ export async function exportAsMp4(
         recorder.stop();
         return;
       }
+
       if (ctx) {
         ctx.fillStyle = bgColor || '#000000';
         ctx.fillRect(0, 0, evenWidth, evenHeight);
+        ctx.drawImage(canvases[frameIdx], 0, 0, evenWidth, evenHeight);
+      }
+
+      const delay = delays[frameIdx] || Math.round(1000 / fps);
+      frameIdx++;
+      setTimeout(drawNext, delay);
+    };
+
+    drawNext();
+  });
+}
+
+/**
+ * Export frame sequence as WebM video (supports full alpha transparency via VP9)
+ */
+export async function exportAsWebm(
+  canvases: HTMLCanvasElement[],
+  delays: number[],
+  width: number,
+  height: number,
+  fps: number = 30,
+  quality: number = 100,
+  audioBuffer?: AudioBuffer | null,
+  onProgress?: (progress0to1: number, phaseText?: string) => void
+): Promise<Blob> {
+  const evenWidth = width % 2 === 0 ? width : width + 1;
+  const evenHeight = height % 2 === 0 ? height : height + 1;
+
+  if (typeof VideoEncoder !== 'undefined') {
+    try {
+      const target = new WebmArrayBufferTarget();
+      const muxer = new WebMMuxer({
+        target,
+        video: {
+          codec: 'V_VP9',
+          width: evenWidth,
+          height: evenHeight,
+          alpha: true
+        },
+        audio: audioBuffer ? {
+          codec: 'A_OPUS',
+          numberOfChannels: 2,
+          sampleRate: audioBuffer.sampleRate
+        } : undefined
+      });
+
+      const videoEncoder = new VideoEncoder({
+        output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+        error: (e) => console.error('VideoEncoder VP9 error:', e)
+      });
+
+      const maxBitrate = Math.max(12_000_000, Math.round(evenWidth * evenHeight * 4));
+      videoEncoder.configure({
+        codec: 'vp09.00.10.08',
+        width: evenWidth,
+        height: evenHeight,
+        bitrate: Math.round(1_500_000 + (quality / 100) * (maxBitrate - 1_500_000)),
+        framerate: fps,
+        alpha: 'keep',
+        hardwareAcceleration: 'prefer-hardware'
+      });
+
+      // Mux audio stream into WebM if provided
+      if (audioBuffer) {
+        try {
+          await encodeAudioBufferToMuxer(audioBuffer, muxer, true);
+        } catch (audioErr) {
+          console.warn('WebM audio mux failed, continuing video encoding:', audioErr);
+        }
+      }
+
+      let timestampMicros = 0;
+      let scratchCanvas: HTMLCanvasElement | null = null;
+      let scratchCtx: CanvasRenderingContext2D | null = null;
+
+      for (let i = 0; i < canvases.length; i++) {
+        const srcCanvas = canvases[i];
+        let frameSource: CanvasImageSource = srcCanvas;
+
+        if (srcCanvas.width !== evenWidth || srcCanvas.height !== evenHeight) {
+          if (!scratchCanvas) {
+            scratchCanvas = document.createElement('canvas');
+            scratchCanvas.width = evenWidth;
+            scratchCanvas.height = evenHeight;
+            scratchCtx = scratchCanvas.getContext('2d');
+          }
+          if (scratchCtx) {
+            scratchCtx.clearRect(0, 0, evenWidth, evenHeight);
+            scratchCtx.drawImage(srcCanvas, 0, 0, evenWidth, evenHeight);
+            frameSource = scratchCanvas;
+          }
+        }
+
+        const frameDelay = delays[i] || Math.round(1000 / fps);
+        const frameDurMicros = Math.round(frameDelay * 1000);
+
+        const frame = new VideoFrame(frameSource, {
+          timestamp: timestampMicros,
+          duration: frameDurMicros
+        });
+
+        videoEncoder.encode(frame, { keyFrame: i % 30 === 0 });
+        frame.close();
+
+        timestampMicros += frameDurMicros;
+
+        if (videoEncoder.encodeQueueSize > 4) {
+          await new Promise(r => setTimeout(r, 0));
+        } else if (i % 6 === 0 || i === canvases.length - 1) {
+          await new Promise(r => setTimeout(r, 0));
+        }
+
+        if (onProgress) {
+          onProgress((i + 1) / canvases.length, `ترميز WebM شفاف عالي السرعة: إطار ${i + 1} من ${canvases.length}...`);
+        }
+      }
+
+      await videoEncoder.flush();
+      muxer.finalize();
+
+      return new Blob([target.buffer], { type: 'video/webm' });
+    } catch (e) {
+      console.warn('WebCodecs VP9 export failed, falling back to MediaRecorder:', e);
+    }
+  }
+
+  // MediaRecorder WebM fallback
+  return new Promise((resolve) => {
+    const renderCanvas = document.createElement('canvas');
+    renderCanvas.width = evenWidth;
+    renderCanvas.height = evenHeight;
+    const ctx = renderCanvas.getContext('2d');
+
+    const stream = renderCanvas.captureStream(fps);
+    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+      ? 'video/webm;codecs=vp9'
+      : 'video/webm';
+
+    const recorder = new MediaRecorder(stream, { mimeType });
+    const chunks: Blob[] = [];
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+
+    recorder.onstop = () => {
+      resolve(new Blob(chunks, { type: 'video/webm' }));
+    };
+
+    recorder.start();
+
+    let frameIdx = 0;
+    const drawNext = () => {
+      if (frameIdx >= canvases.length) {
+        recorder.stop();
+        return;
+      }
+      if (ctx) {
+        ctx.clearRect(0, 0, evenWidth, evenHeight);
         ctx.drawImage(canvases[frameIdx], 0, 0, evenWidth, evenHeight);
       }
       const delay = delays[frameIdx] || Math.round(1000 / fps);
@@ -1037,6 +1268,299 @@ export async function exportAsMp4(
 
     drawNext();
   });
+}
+
+/**
+ * Export frame sequence as true Tencent VAP MP4 with RGB + Alpha mask and vapc box metadata
+ */
+export async function exportAsVap(
+  canvases: HTMLCanvasElement[],
+  delays: number[],
+  width: number,
+  height: number,
+  fps: number = 30,
+  version: '1.0.5' | '2.0' = '1.0.5',
+  audioBuffer?: AudioBuffer | null,
+  onProgress?: (progress0to1: number, phaseText?: string) => void
+): Promise<Blob> {
+  const gap = 4;
+  const alphaWidth = Math.floor(width / 2);
+  const alphaHeight = Math.floor(height / 2);
+
+  const videoW = Math.ceil((width + gap + alphaWidth) / 16) * 16;
+  const videoH = Math.ceil(height / 16) * 16;
+  const totalFrames = canvases.length;
+
+  const compCanvases: HTMLCanvasElement[] = [];
+
+  // Pre-allocate a single reusable scratch canvas and ImageData for ultra-fast alpha extraction
+  const scratchAlphaCanvas = document.createElement('canvas');
+  scratchAlphaCanvas.width = width;
+  scratchAlphaCanvas.height = height;
+  const scratchAlphaCtx = scratchAlphaCanvas.getContext('2d');
+  const scratchAlphaImg = scratchAlphaCtx?.createImageData(width, height) || null;
+
+  for (let i = 0; i < totalFrames; i++) {
+    const src = canvases[i];
+    const comp = document.createElement('canvas');
+    comp.width = videoW;
+    comp.height = videoH;
+    const cCtx = comp.getContext('2d');
+    if (cCtx) {
+      cCtx.fillStyle = '#000000';
+      cCtx.fillRect(0, 0, videoW, videoH);
+
+      // Left: RGB
+      cCtx.drawImage(src, 0, 0, width, height);
+
+      // Right: Grayscale Alpha mask via high-speed 32-bit register operations
+      const sCtx = src.getContext('2d');
+      if (sCtx && scratchAlphaCtx && scratchAlphaImg) {
+        const frameData = sCtx.getImageData(0, 0, width, height);
+        const srcU32 = new Uint32Array(frameData.data.buffer);
+        const dstU32 = new Uint32Array(scratchAlphaImg.data.buffer);
+        const len = srcU32.length;
+
+        for (let p = 0; p < len; p++) {
+          const a = (srcU32[p] >>> 24);
+          // Duplicate alpha channel into R, G, B with full opacity 0xFF
+          dstU32[p] = (0xFF000000 | (a << 16) | (a << 8) | a) >>> 0;
+        }
+
+        scratchAlphaCtx.putImageData(scratchAlphaImg, 0, 0);
+        cCtx.drawImage(scratchAlphaCanvas, width + gap, 0, alphaWidth, alphaHeight);
+      }
+    }
+    compCanvases.push(comp);
+
+    if (i % 6 === 0 || i === totalFrames - 1) {
+      onProgress?.(((i + 1) / totalFrames) * 0.4, `تجهيز قناع شفافية VAP عالي السرعة: إطار ${i + 1} من ${totalFrames}...`);
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+
+  // Base MP4 encode with full original quality (100) and embedded audioBuffer
+  const baseMp4 = await exportAsMp4(
+    compCanvases,
+    delays,
+    videoW,
+    videoH,
+    fps,
+    '#000000',
+    100,
+    audioBuffer,
+    (p, msg) => {
+      onProgress?.(0.4 + p * 0.55, msg || 'ترميز فيديو VAP...');
+    }
+  );
+  const mp4ArrayBuffer = await baseMp4.arrayBuffer();
+
+  onProgress?.(0.97, 'بناء صندوق VAPc وبيانات التوافق...');
+
+  // Build vapc box
+  const vapConfig = {
+    info: {
+      v: version === '2.0' ? 2 : 1,
+      f: totalFrames,
+      w: width,
+      h: height,
+      fps: fps,
+      videoW: videoW,
+      videoH: videoH,
+      aFrame: [width + gap, 0, alphaWidth, alphaHeight],
+      rgbFrame: [0, 0, width, height],
+      isVapx: 0,
+      codeTag: ["common"],
+      orien: 0
+    }
+  };
+
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(vapConfig));
+  const boxSize = 8 + jsonBytes.length;
+  const boxBuffer = new Uint8Array(boxSize);
+  const view = new DataView(boxBuffer.buffer);
+
+  view.setUint32(0, boxSize);
+  view.setUint8(4, 0x76); // 'v'
+  view.setUint8(5, 0x61); // 'a'
+  view.setUint8(6, 0x70); // 'p'
+  view.setUint8(7, 0x63); // 'c'
+  boxBuffer.set(jsonBytes, 8);
+
+  const finalBuffer = new Uint8Array(mp4ArrayBuffer.byteLength + boxSize);
+  finalBuffer.set(new Uint8Array(mp4ArrayBuffer), 0);
+  finalBuffer.set(boxBuffer, mp4ArrayBuffer.byteLength);
+
+  onProgress?.(1.0, 'اكتمل تصدير VAP بنجاح!');
+
+  return new Blob([finalBuffer], { type: 'video/mp4' });
+}
+
+/**
+ * Export frame sequence as YYEVA (YY SVA) dual-stream MP4
+ */
+export async function exportAsYyeva(
+  canvases: HTMLCanvasElement[],
+  delays: number[],
+  width: number,
+  height: number,
+  fps: number = 30,
+  audioBuffer?: AudioBuffer | null,
+  onProgress?: (progress0to1: number, phaseText?: string) => void
+): Promise<Blob> {
+  const safeW = Math.ceil(width / 2) * 2;
+  const safeH = Math.ceil(height / 2) * 2;
+  const videoW = safeW * 2;
+  const videoH = safeH;
+  const totalFrames = canvases.length;
+
+  const compCanvases: HTMLCanvasElement[] = [];
+
+  // Pre-allocate a single reusable scratch canvas and ImageData for YYEVA alpha extraction
+  const scratchAlphaCanvas = document.createElement('canvas');
+  scratchAlphaCanvas.width = safeW;
+  scratchAlphaCanvas.height = safeH;
+  const scratchAlphaCtx = scratchAlphaCanvas.getContext('2d');
+  const scratchAlphaImg = scratchAlphaCtx?.createImageData(safeW, safeH) || null;
+
+  for (let i = 0; i < totalFrames; i++) {
+    const src = canvases[i];
+    const comp = document.createElement('canvas');
+    comp.width = videoW;
+    comp.height = videoH;
+    const cCtx = comp.getContext('2d');
+    if (cCtx) {
+      cCtx.fillStyle = '#000000';
+      cCtx.fillRect(0, 0, videoW, videoH);
+
+      // Left: RGB
+      cCtx.drawImage(src, 0, 0, safeW, safeH);
+
+      // Right: Grayscale Alpha mask via high-speed 32-bit register operations
+      const sCtx = src.getContext('2d');
+      if (sCtx && scratchAlphaCtx && scratchAlphaImg) {
+        const frameData = sCtx.getImageData(0, 0, Math.min(src.width, safeW), Math.min(src.height, safeH));
+        const srcU32 = new Uint32Array(frameData.data.buffer);
+        const dstU32 = new Uint32Array(scratchAlphaImg.data.buffer);
+        const len = Math.min(srcU32.length, dstU32.length);
+
+        for (let p = 0; p < len; p++) {
+          const a = (srcU32[p] >>> 24);
+          dstU32[p] = (0xFF000000 | (a << 16) | (a << 8) | a) >>> 0;
+        }
+
+        scratchAlphaCtx.putImageData(scratchAlphaImg, 0, 0);
+        cCtx.drawImage(scratchAlphaCanvas, safeW, 0, safeW, safeH);
+      }
+    }
+    compCanvases.push(comp);
+
+    if (i % 6 === 0 || i === totalFrames - 1) {
+      onProgress?.(((i + 1) / totalFrames) * 0.4, `تجهيز قناع شفافية YYEVA عالي السرعة: إطار ${i + 1} من ${totalFrames}...`);
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+
+  const baseMp4 = await exportAsMp4(
+    compCanvases,
+    delays,
+    videoW,
+    videoH,
+    fps,
+    '#000000',
+    100,
+    audioBuffer,
+    (p, msg) => {
+      onProgress?.(0.4 + p * 0.55, msg || 'ترميز فيديو YYEVA...');
+    }
+  );
+  const mp4ArrayBuffer = await baseMp4.arrayBuffer();
+
+  const yyevaConfig = {
+    descript: {
+      width: safeW,
+      height: safeH,
+      isEffect: 0,
+      version: 1,
+      rgbFrame: [0, 0, safeW, safeH],
+      alphaFrame: [safeW, 0, safeW, safeH],
+      totalFrame: totalFrames,
+      fps: fps
+    }
+  };
+
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(yyevaConfig));
+  const boxSize = 8 + jsonBytes.length;
+  const boxBuffer = new Uint8Array(boxSize);
+  const view = new DataView(boxBuffer.buffer);
+
+  view.setUint32(0, boxSize);
+  view.setUint8(4, 0x79); // 'y'
+  view.setUint8(5, 0x79); // 'y'
+  view.setUint8(6, 0x65); // 'e'
+  view.setUint8(7, 0x76); // 'v'
+  boxBuffer.set(jsonBytes, 8);
+
+  const finalBuffer = new Uint8Array(mp4ArrayBuffer.byteLength + boxSize);
+  finalBuffer.set(new Uint8Array(mp4ArrayBuffer), 0);
+  finalBuffer.set(boxBuffer, mp4ArrayBuffer.byteLength);
+
+  return new Blob([finalBuffer], { type: 'video/mp4' });
+}
+
+/**
+ * Export frame sequence as valid, infinite looping Animated SVG with embedded PNG frames
+ */
+export async function exportAsAnimatedSvg(
+  canvases: HTMLCanvasElement[],
+  delays: number[],
+  width: number,
+  height: number
+): Promise<Blob> {
+  const totalFrames = canvases.length;
+  const totalDuration = delays.reduce((acc, d) => acc + d, 0) / 1000 || (totalFrames / 30);
+
+  let svg = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+  svg += `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">\n`;
+  svg += `<style>\n`;
+  svg += `  .f { opacity: 0; }\n`;
+
+  let accumulatedTime = 0;
+  for (let i = 0; i < totalFrames; i++) {
+    const dur = delays[i] / 1000;
+    const pStart = ((accumulatedTime / totalDuration) * 100).toFixed(3);
+    accumulatedTime += dur;
+    const pEnd = ((accumulatedTime / totalDuration) * 100).toFixed(3);
+
+    svg += `  .f${i} { animation: a${i} ${totalDuration.toFixed(3)}s infinite; }\n`;
+    svg += `  @keyframes a${i} { 0%, ${pStart}% { opacity: 0; } ${pStart}.001%, ${pEnd}% { opacity: 1; } ${pEnd}.001%, 100% { opacity: 0; } }\n`;
+  }
+  svg += `</style>\n`;
+
+  for (let i = 0; i < totalFrames; i++) {
+    const dataUrl = canvases[i].toDataURL('image/png');
+    svg += `  <image class="f f${i}" href="${dataUrl}" width="${width}" height="${height}" />\n`;
+  }
+
+  svg += `</svg>`;
+  return new Blob([svg], { type: 'image/svg+xml' });
+}
+
+/**
+ * Export frame sequence as true Lottie JSON animation
+ */
+export async function exportAsLottie(
+  canvases: HTMLCanvasElement[],
+  fps: number = 30
+): Promise<Blob> {
+  const frames = canvases.map(c => ({
+    data: c.toDataURL('image/png', 1.0),
+    w: c.width,
+    h: c.height
+  }));
+
+  const lottieJson = await convertFramesToLottieSequence(frames, fps);
+  return new Blob([JSON.stringify(lottieJson, null, 2)], { type: 'application/json' });
 }
 
 /**

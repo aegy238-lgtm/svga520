@@ -9,6 +9,7 @@ import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import { SvgaAudioEditorModal } from './SvgaLayerEditor/SvgaAudioEditorModal';
 import { SVGAProjectData, SVGAAudioTrack } from './SvgaLayerEditor/types';
+import { applyTransparencyEffects as sharedApplyTransparencyEffects } from './SvgaLayerEditor/transparencyEngine';
 
 declare var SVGA: any;
 declare var JSZip: any;
@@ -1527,64 +1528,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   }, [videoWidth, videoHeight]);
 
   const applyTransparencyEffects = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number) => {
-    const hasFade = fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0;
-    const hasCrop = cropConfig.top > 0 || cropConfig.bottom > 0 || cropConfig.left > 0 || cropConfig.right > 0;
-    
-    if (!hasFade && !hasCrop) return;
-
-    const imageData = ctx.getImageData(0, 0, width, height);
-    const data = imageData.data;
-
-    const fadeTopLimit = (height * fadeConfig.top) / 100;
-    const fadeBottomLimit = height - (height * fadeConfig.bottom) / 100;
-    const fadeLeftLimit = (width * fadeConfig.left) / 100;
-    const fadeRightLimit = width - (width * fadeConfig.right) / 100;
-
-    const cropTopLimit = (height * cropConfig.top) / 100;
-    const cropBottomLimit = height - (height * cropConfig.bottom) / 100;
-    const cropLeftLimit = (width * cropConfig.left) / 100;
-    const cropRightLimit = width - (width * cropConfig.right) / 100;
-
-    const featherTop = (height * cropFeather.top) / 100;
-    const featherBottom = (height * cropFeather.bottom) / 100;
-    const featherLeft = (width * cropFeather.left) / 100;
-    const featherRight = (width * cropFeather.right) / 100;
-
-    for (let i = 0; i < data.length; i += 4) {
-      const x = (i / 4) % width;
-      const y = Math.floor((i / 4) / width);
-
-      let a = data[i + 3];
-
-      let alphaMult = 1.0;
-
-      // 1. Crop + Feather
-      if (hasCrop) {
-          if (y <= cropTopLimit) alphaMult = 0;
-          else if (cropFeather.top > 0 && y < cropTopLimit + featherTop) alphaMult *= ((y - cropTopLimit) / featherTop);
-          
-          if (y >= cropBottomLimit) alphaMult = 0;
-          else if (cropFeather.bottom > 0 && y > cropBottomLimit - featherBottom) alphaMult *= ((cropBottomLimit - y) / featherBottom);
-
-          if (x <= cropLeftLimit) alphaMult = 0;
-          else if (cropFeather.left > 0 && x < cropLeftLimit + featherLeft) alphaMult *= ((x - cropLeftLimit) / featherLeft);
-
-          if (x >= cropRightLimit) alphaMult = 0;
-          else if (cropFeather.right > 0 && x > cropRightLimit - featherRight) alphaMult *= ((cropRightLimit - x) / featherRight);
-      }
-
-      // 2. Edge Fade
-      if (hasFade && alphaMult > 0) {
-          if (fadeConfig.top > 0 && y < fadeTopLimit) alphaMult *= (y / fadeTopLimit);
-          if (fadeConfig.bottom > 0 && y > fadeBottomLimit) alphaMult *= ((height - y) / (height - fadeBottomLimit));
-          if (fadeConfig.left > 0 && x < fadeLeftLimit) alphaMult *= (x / fadeLeftLimit);
-          if (fadeConfig.right > 0 && x > fadeRightLimit) alphaMult *= ((width - x) / (width - fadeRightLimit));
-      }
-
-      const finalAlpha = (a / 255) * alphaMult;
-      data[i + 3] = Math.round(finalAlpha * 255);
-    }
-    ctx.putImageData(imageData, 0, 0);
+    sharedApplyTransparencyEffects(ctx, width, height, fadeConfig, cropConfig, cropFeather);
   }, [fadeConfig, cropConfig, cropFeather]);
 
   const [isOptimizing, setIsOptimizing] = useState(false);
@@ -7615,7 +7559,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   }
 
   return (
-    <div className="flex flex-col gap-6 sm:gap-8 pb-32 animate-in fade-in slide-in-from-bottom-8 duration-1000 font-arabic select-none text-right" dir="rtl">
+    <div className="flex flex-col gap-6 sm:gap-8 pb-32 animate-in fade-in slide-in-from-bottom-8 duration-1000 font-arabic text-right" dir="rtl">
       <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleReplaceImage} />
       <input type="file" ref={replaceSvgaInputRef} className="hidden" accept=".svga" onChange={handleReplaceSvgaFile} />
       <input type="file" ref={bgInputRef} className="hidden" accept="image/*, video/mp4, video/webm" onChange={handleBgUpload} />

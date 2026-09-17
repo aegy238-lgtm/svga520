@@ -363,7 +363,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const [forceMobileSize, setForceMobileSize] = useState(false);
   const initialFilesLoadedRef = useRef(false);
   const [exportResolution, setExportResolution] = useState<'natural' | '720p' | '1080p'>('natural');
-  const [exportQuality, setExportQuality] = useState<'high' | 'medium' | 'low'>('medium');
+  const [exportQuality, setExportQuality] = useState<'high' | 'medium' | 'low'>('high');
   const [selectedPresetId, setSelectedPresetId] = useState<string>('auto');
   const [showPresetMenu, setShowPresetMenu] = useState(false);
   const [customWidth, setCustomWidth] = useState<number | null>(null);
@@ -1195,11 +1195,18 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       }
 
       try {
+        const totalPixels = finalWidth * finalHeight;
+        const gridBitrate = exportQuality === 'high'
+          ? Math.max(14_000_000, Math.round(totalPixels * 4.5))
+          : exportQuality === 'medium'
+          ? Math.max(6_000_000, Math.round(totalPixels * 2))
+          : Math.max(2_500_000, Math.round(totalPixels * 1));
+
         videoEncoder.configure({
           codec: exportFormat === 'webm' ? "vp09.00.10.08" : "avc1.4D002A",
           width: finalWidth,
           height: finalHeight,
-          bitrate: 2_500_000,
+          bitrate: gridBitrate,
           framerate: targetFps
         });
       } catch (e) {
@@ -1677,11 +1684,18 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           await encodeAudioBufferToMuxer(mixedAudioBuffer, muxer, isWebM);
         }
 
+        const totalPixels = finalWidth * finalHeight;
+        const targetBitrate = exportQuality === 'high'
+          ? Math.max(12_000_000, Math.round(totalPixels * 4))
+          : exportQuality === 'medium'
+          ? Math.max(5_000_000, Math.round(totalPixels * 1.8))
+          : Math.max(2_000_000, Math.round(totalPixels * 0.9));
+
         videoEncoder.configure({
           codec: exportFormat === 'webm' ? "vp09.00.10.08" : "avc1.4D002A",
           width: finalWidth,
           height: finalHeight,
-          bitrate: 2_500_000,
+          bitrate: targetBitrate,
           framerate: targetFps
         });
 

@@ -25,6 +25,18 @@ dist-ssr
 uploads/*
 !uploads/.gitkeep
 
+# Backup & Nested Repos / Archive duplicates
+svga00001-main/
+LiveTalk-main/
+app/
+*.jsxbin
+*.py
+*.cjs
+*.sh
+*.patch
+*.txt.bak
+__pycache__/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

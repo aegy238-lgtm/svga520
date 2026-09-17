@@ -120,7 +120,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
 
   const handleResetTransparency = useCallback(() => {
     setFadeConfig({ top: 0, bottom: 0, left: 0, right: 0 });
-    setCropConfig({ top: 0, bottom: 0, left: 0, right: 0 });
+    setCropConfig({ top: 0, bottom: 0, left: 0, right: 0, shape: 'rect', cornerRadius: 25 });
     setCropFeather({ top: 0, bottom: 0, left: 0, right: 0 });
   }, []);
 
@@ -143,16 +143,24 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
 
     project.audios.forEach((track) => {
       let audio = activeAudioMapRef.current.get(track.audioKey);
-      let src = project.imagesMap[track.audioKey];
-      if (!src && project.rawImages && project.rawImages[track.audioKey]) {
-        const blob = new Blob([project.rawImages[track.audioKey]], { type: 'audio/mp3' });
-        src = URL.createObjectURL(blob);
-      }
-
-      if (!src) return;
-
+      
       if (!audio) {
+        let src = track.dataUrl;
+        if (!src && project.imagesMap && project.imagesMap[track.audioKey] && !project.imagesMap[track.audioKey].startsWith('data:image/')) {
+          src = project.imagesMap[track.audioKey];
+        }
+        if (!src && project.rawImages && project.rawImages[track.audioKey]) {
+          const blob = new Blob([project.rawImages[track.audioKey]], { type: 'audio/mp3' });
+          src = URL.createObjectURL(blob);
+        }
+        if (!src && project.imagesMap && project.imagesMap[track.audioKey]) {
+          src = project.imagesMap[track.audioKey].replace(/^data:[^;]+;base64,/, 'data:audio/mp3;base64,');
+        }
+
+        if (!src) return;
+
         audio = new Audio(src);
+        audio.preload = 'auto';
         activeAudioMapRef.current.set(track.audioKey, audio);
       }
 
@@ -160,11 +168,17 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       const endSec = (track.endFrame || project.totalFrames) / fps;
 
       if (currentSec >= startSec && currentSec <= endSec) {
+        const startOffset = (track.startTime ? track.startTime / 1000 : 0);
+        const expectedOffset = Math.max(0, currentSec - startSec + startOffset);
+
         if (audio.paused) {
-          const startOffset = (track.startTime ? track.startTime / 1000 : 0);
-          const offset = currentSec - startSec + startOffset;
-          audio.currentTime = Math.max(0, offset);
-          audio.play().catch(() => {});
+          audio.currentTime = expectedOffset;
+          audio.play().catch((e) => console.warn('Audio auto-play error or blocked:', e));
+        } else {
+          // If frame looped back to 0 or drifted
+          if (Math.abs(audio.currentTime - expectedOffset) > 0.15) {
+            audio.currentTime = expectedOffset;
+          }
         }
       } else {
         if (!audio.paused) {
@@ -1540,7 +1554,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#070b14] text-white flex flex-col font-sans overflow-hidden select-none" dir="ltr">
+    <div className="fixed inset-0 z-50 bg-[#070b14] text-white flex flex-col font-sans overflow-hidden" dir="ltr">
       <input
         type="file"
         ref={fileInputRef}
@@ -2214,7 +2228,16 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             onClose={() => setShowAudioStudioModal(false)}
             onUpdateProject={(updatedProj) => {
               setProject(updatedProj);
-              setSuccessToast('تم تحديث المسارات الصوتية للمشروع بنجاح!');
+              // Clean previous audio cache so newly added audio plays cleanly
+              activeAudioMapRef.current.forEach((audio) => {
+                audio.pause();
+                audio.currentTime = 0;
+              });
+              activeAudioMapRef.current.clear();
+              // Reset frame and auto-play in the workspace interface
+              setCurrentFrame(0);
+              setIsPlaying(true);
+              setSuccessToast('🎵 تم دمج الصوت وتشغيله في الواجهة للاستماع مباشرة!');
             }}
             onShowToast={(msg) => setSuccessToast(msg)}
           />

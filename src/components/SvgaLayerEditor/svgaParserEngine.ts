@@ -115,23 +115,30 @@ export async function parseSvgaToProject(file: File): Promise<{
   const imagesMap: Record<string, string> = {};
   const rawImages: Record<string, Uint8Array> = {};
   const imageDimensions: Record<string, { width: number; height: number }> = {};
+  const audioKeysSet = new Set((movie.audios || []).map((a: any) => a.audioKey));
 
   if (movie.images) {
     for (const [key, val] of Object.entries(movie.images)) {
+      const isAudio = audioKeysSet.has(key) || key.endsWith('.mp3') || key.endsWith('.wav') || key.startsWith('audio_');
+      const defaultMime = isAudio ? 'audio/mp3' : 'image/png';
+
       if (typeof val === 'string') {
-        const url = (val as string).startsWith('data:') ? (val as string) : `data:image/png;base64,${val}`;
+        const url = (val as string).startsWith('data:') ? (val as string) : `data:${defaultMime};base64,${val}`;
         imagesMap[key] = url;
         rawImages[key] = base64ToUint8Array(url);
       } else if (val instanceof Uint8Array || Array.isArray(val)) {
         const bytes = val instanceof Uint8Array ? val : new Uint8Array(val);
         rawImages[key] = bytes;
-        imagesMap[key] = `data:image/png;base64,${uint8ArrayToBase64(bytes)}`;
+        imagesMap[key] = `data:${defaultMime};base64,${uint8ArrayToBase64(bytes)}`;
       }
     }
 
-    // Preload image dimensions
+    // Preload image dimensions only for non-audio entries
     await Promise.all(
       Object.entries(imagesMap).map(async ([key, url]) => {
+        if (audioKeysSet.has(key) || key.endsWith('.mp3') || key.endsWith('.wav') || key.startsWith('audio_')) {
+          return;
+        }
         const dims = await getImageDimensions(url);
         imageDimensions[key] = dims;
       })

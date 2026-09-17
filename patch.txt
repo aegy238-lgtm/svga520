@@ -1,0 +1,34 @@
+  const handleFastAudioReplace = async () => {
+    if (!sourceFile || !audioFile || sourceFormat !== 'vap') return;
+    
+    setIsExporting(true);
+    setExportProgress(0);
+    setExportSuccess(false);
+    setExportedBlob(null);
+    setExportStats(null);
+    cancelExportRef.current = false;
+    setExportStatusText('جاري دمج الصوت الجديد مع ملف VAP الأصلي بدون إعادة معالجة...');
+    
+    try {
+        const finalVapBlob = await fastReplaceAudioInVap(
+            sourceFile, 
+            audioFile, 
+            (progress) => {
+                setExportProgress(progress);
+                setExportStatusText(`جاري دمج الصوت: ${progress}%`);
+            }
+        );
+        
+        setExportedBlob(finalVapBlob);
+        setExportedFileSize((finalVapBlob.size / (1024 * 1024)).toFixed(2) + ' MB');
+        setExportSuccess(true);
+        setExportProgress(100);
+        setExportStatusText('تم دمج الصوت بنجاح!');
+        
+    } catch (e) {
+        console.error("Fast audio replace error:", e);
+        setExportStatusText('حدث خطأ أثناء دمج الصوت.');
+    } finally {
+        setIsExporting(false);
+    }
+  };

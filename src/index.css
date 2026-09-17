@@ -18,6 +18,18 @@
     color: #f8fafc;
     top: 0px !important;
   }
+
+  /* Make all text, labels, numbers, titles, and codes freely selectable and copyable with mouse */
+  p, span, h1, h2, h3, h4, h5, h6, label, input, textarea, code, pre, td, th, dt, dd, li, b, strong, em, small {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+  }
+
+  ::selection {
+    background-color: rgba(14, 165, 233, 0.45);
+    color: #ffffff;
+  }
+
   .goog-te-banner-frame.skiptranslate,
   .goog-te-banner-frame,
   #goog-gt-tt,

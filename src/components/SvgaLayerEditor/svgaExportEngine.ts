@@ -171,14 +171,14 @@ export async function exportEditedSvga(
 
   // Guarantee every layer has its image asset exported
   for (const ctx of exportContexts) {
-    const key = ctx.layer.imageKey;
-    if (key && !exportImages[key] && ctx.layer.thumbnailUrl) {
-      const src = ctx.layer.thumbnailUrl;
-      if (src.startsWith('data:')) {
+    const key = ctx.layer.imageKey || ctx.layer.spriteRef?.imageKey;
+    if (key && !exportImages[key]) {
+      const src = ctx.layer.thumbnailUrl || (project.imagesMap && project.imagesMap[key]);
+      if (src && src.startsWith('data:')) {
         try {
           exportImages[key] = base64ToUint8ArrayFast(src);
         } catch (e) {}
-      } else if (src.startsWith('blob:')) {
+      } else if (src && src.startsWith('blob:')) {
         try {
           const res = await fetch(src);
           const ab = await res.arrayBuffer();
@@ -262,7 +262,7 @@ export async function exportEditedSvga(
     }
 
     const spriteClone = layer.spriteRef ? JSON.parse(JSON.stringify(layer.spriteRef)) : {};
-    spriteClone.imageKey = layer.imageKey;
+    spriteClone.imageKey = layer.imageKey || spriteClone.imageKey;
     if (layer.matteKey) {
       spriteClone.matteKey = layer.matteKey;
     } else {
@@ -429,7 +429,23 @@ export async function exportEditedSvga(
     newSprites.push(spriteClone);
   }
 
+  // Ensure every sprite has its imageKey in exportImages if available
+  for (const s of newSprites) {
+    const k = s.imageKey;
+    if (k && !exportImages[k]) {
+      const cleanK = k.replace(/\.(png|jpe?g|webp|svg)$/i, '');
+      const found = exportImages[cleanK] || 
+                    exportImages[`${cleanK}.png`] || 
+                    exportImages[k.toLowerCase()] || 
+                    exportImages[`img_${cleanK}`];
+      if (found) {
+        exportImages[k] = found;
+      }
+    }
+  }
+
   exportMovie.sprites = newSprites;
+  exportMovie.images = exportImages;
 
   exportMovie.audios = (project.audios || []).map((a: any) => ({
     audioKey: a.audioKey,
@@ -445,6 +461,13 @@ export async function exportEditedSvga(
     fps: project.fps,
     frames: project.totalFrames
   };
+
+  console.log('Export Movie Debug:', {
+    version: exportMovie.version,
+    spritesCount: exportMovie.sprites?.length,
+    imagesCount: Object.keys(exportMovie.images || {}).length,
+    params: exportMovie.params
+  });
 
   const errMsg = MovieEntity.verify(exportMovie);
   if (errMsg) {

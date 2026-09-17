@@ -5,11 +5,22 @@ export interface FadeConfig {
   right: number;
 }
 
+export type CropShape = 
+  | 'rect' 
+  | 'square' 
+  | 'circle' 
+  | 'ellipse' 
+  | 'rounded-rect' 
+  | 'capsule' 
+  | 'diamond';
+
 export interface CropConfig {
   top: number;
   bottom: number;
   left: number;
   right: number;
+  shape?: CropShape;
+  cornerRadius?: number;
 }
 
 export interface CropFeather {
@@ -30,7 +41,9 @@ export const DEFAULT_CROP_CONFIG: CropConfig = {
   top: 0,
   bottom: 0,
   left: 0,
-  right: 0
+  right: 0,
+  shape: 'rect',
+  cornerRadius: 25
 };
 
 export const DEFAULT_CROP_FEATHER: CropFeather = {
@@ -44,7 +57,7 @@ export function isTransparencyActive(fade?: FadeConfig, crop?: CropConfig): bool
   if (fade && (fade.top > 0 || fade.bottom > 0 || fade.left > 0 || fade.right > 0)) {
     return true;
   }
-  if (crop && (crop.top > 0 || crop.bottom > 0 || crop.left > 0 || crop.right > 0)) {
+  if (crop && (crop.top > 0 || crop.bottom > 0 || crop.left > 0 || crop.right > 0 || (crop.shape && crop.shape !== 'rect'))) {
     return true;
   }
   return false;
@@ -59,6 +72,129 @@ function base64ToUint8(dataUrl: string): Uint8Array {
 }
 
 /**
+ * Computes shape mask alpha multiplier taking into account geometry (circle, square, rounded-rect, capsule, etc.)
+ */
+export function computeShapeAlphaMultiplier(
+  px: number,
+  py: number,
+  boxLeft: number,
+  boxRight: number,
+  boxTop: number,
+  boxBottom: number,
+  shape: CropShape = 'rect',
+  cornerRadius: number = 25,
+  cropFeather: CropFeather,
+  canvasWidth: number,
+  canvasHeight: number
+): number {
+  const cx = (boxLeft + boxRight) / 2;
+  const cy = (boxTop + boxBottom) / 2;
+  const boxW = Math.max(1, boxRight - boxLeft);
+  const boxH = Math.max(1, boxBottom - boxTop);
+
+  if (shape === 'circle') {
+    const r = Math.min(boxW, boxH) / 2;
+    const dist = Math.hypot(px - cx, py - cy);
+    const maxFeatherPct = Math.max(cropFeather.top, cropFeather.bottom, cropFeather.left, cropFeather.right);
+    const fDist = Math.max(1.5, (r * maxFeatherPct) / 100);
+    if (dist >= r) return 0;
+    if (dist > r - fDist) return (r - dist) / fDist;
+    return 1.0;
+  }
+
+  if (shape === 'ellipse') {
+    const rx = boxW / 2;
+    const ry = boxH / 2;
+    const nd = Math.hypot((px - cx) / rx, (py - cy) / ry);
+    const maxFeatherPct = Math.max(cropFeather.top, cropFeather.bottom, cropFeather.left, cropFeather.right);
+    const fRatio = Math.max(0.015, maxFeatherPct / 100);
+    if (nd >= 1.0) return 0;
+    if (nd > 1.0 - fRatio) return (1.0 - nd) / fRatio;
+    return 1.0;
+  }
+
+  if (shape === 'rounded-rect') {
+    const hw = boxW / 2;
+    const hh = boxH / 2;
+    const cr = Math.min(hw, hh) * (Math.max(2, Math.min(95, cornerRadius)) / 100);
+    const qx = Math.abs(px - cx) - (hw - cr);
+    const qy = Math.abs(py - cy) - (hh - cr);
+    const d = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - cr;
+    const maxFeatherPct = Math.max(cropFeather.top, cropFeather.bottom, cropFeather.left, cropFeather.right);
+    const fDist = Math.max(1.5, (Math.min(hw, hh) * maxFeatherPct) / 100);
+    if (d >= 0) return 0;
+    if (d > -fDist) return (-d) / fDist;
+    return 1.0;
+  }
+
+  if (shape === 'capsule') {
+    const hw = boxW / 2;
+    const hh = boxH / 2;
+    const cr = Math.min(hw, hh);
+    const qx = Math.abs(px - cx) - (hw - cr);
+    const qy = Math.abs(py - cy) - (hh - cr);
+    const d = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - cr;
+    const maxFeatherPct = Math.max(cropFeather.top, cropFeather.bottom, cropFeather.left, cropFeather.right);
+    const fDist = Math.max(1.5, (cr * maxFeatherPct) / 100);
+    if (d >= 0) return 0;
+    if (d > -fDist) return (-d) / fDist;
+    return 1.0;
+  }
+
+  if (shape === 'square') {
+    const halfSide = Math.min(boxW, boxH) / 2;
+    const sqLeft = cx - halfSide;
+    const sqRight = cx + halfSide;
+    const sqTop = cy - halfSide;
+    const sqBottom = cy + halfSide;
+
+    const fTop = (canvasHeight * cropFeather.top) / 100;
+    const fBottom = (canvasHeight * cropFeather.bottom) / 100;
+    const fLeft = (canvasWidth * cropFeather.left) / 100;
+    const fRight = (canvasWidth * cropFeather.right) / 100;
+
+    let a = 1.0;
+    if (py <= sqTop) return 0;
+    if (fTop > 0 && py < sqTop + fTop) a *= ((py - sqTop) / fTop);
+    if (py >= sqBottom) return 0;
+    if (fBottom > 0 && py > sqBottom - fBottom) a *= ((sqBottom - py) / fBottom);
+    if (px <= sqLeft) return 0;
+    if (fLeft > 0 && px < sqLeft + fLeft) a *= ((px - sqLeft) / fLeft);
+    if (px >= sqRight) return 0;
+    if (fRight > 0 && px > sqRight - fRight) a *= ((sqRight - px) / fRight);
+    return Math.max(0, Math.min(1, a));
+  }
+
+  if (shape === 'diamond') {
+    const rx = boxW / 2;
+    const ry = boxH / 2;
+    const nd = Math.abs(px - cx) / rx + Math.abs(py - cy) / ry;
+    const maxFeatherPct = Math.max(cropFeather.top, cropFeather.bottom, cropFeather.left, cropFeather.right);
+    const fRatio = Math.max(0.015, maxFeatherPct / 100);
+    if (nd >= 1.0) return 0;
+    if (nd > 1.0 - fRatio) return (1.0 - nd) / fRatio;
+    return 1.0;
+  }
+
+  // Default: Standard Rectangle Crop + Feather
+  const fTop = (canvasHeight * cropFeather.top) / 100;
+  const fBottom = (canvasHeight * cropFeather.bottom) / 100;
+  const fLeft = (canvasWidth * cropFeather.left) / 100;
+  const fRight = (canvasWidth * cropFeather.right) / 100;
+
+  let a = 1.0;
+  if (py <= boxTop) return 0;
+  if (fTop > 0 && py < boxTop + fTop) a *= ((py - boxTop) / fTop);
+  if (py >= boxBottom) return 0;
+  if (fBottom > 0 && py > boxBottom - fBottom) a *= ((boxBottom - py) / fBottom);
+  if (px <= boxLeft) return 0;
+  if (fLeft > 0 && px < boxLeft + fLeft) a *= ((px - boxLeft) / fLeft);
+  if (px >= boxRight) return 0;
+  if (fRight > 0 && px > boxRight - fRight) a *= ((boxRight - px) / fRight);
+  return Math.max(0, Math.min(1, a));
+}
+
+/**
  * High-performance direct canvas pixel manipulation for real-time edge fade & crop
  */
 export function applyTransparencyEffects(
@@ -69,8 +205,9 @@ export function applyTransparencyEffects(
   cropConfig: CropConfig,
   cropFeather: CropFeather
 ) {
+  const shape = cropConfig.shape || 'rect';
+  const hasCrop = (cropConfig.top > 0 || cropConfig.bottom > 0 || cropConfig.left > 0 || cropConfig.right > 0 || shape !== 'rect');
   const hasFade = (fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0);
-  const hasCrop = (cropConfig.top > 0 || cropConfig.bottom > 0 || cropConfig.left > 0 || cropConfig.right > 0);
   
   if (!hasFade && !hasCrop) return;
 
@@ -87,45 +224,30 @@ export function applyTransparencyEffects(
   const cropLeftLimit = (width * cropConfig.left) / 100;
   const cropRightLimit = width - (width * cropConfig.right) / 100;
 
-  const featherTop = (height * cropFeather.top) / 100;
-  const featherBottom = (height * cropFeather.bottom) / 100;
-  const featherLeft = (width * cropFeather.left) / 100;
-  const featherRight = (width * cropFeather.right) / 100;
-
   for (let i = 0; i < data.length; i += 4) {
     const x = (i / 4) % width;
     const y = Math.floor((i / 4) / width);
 
     let alphaMult = 1.0;
 
-    // 1. Crop + Feather
+    // 1. Geometric Shape Crop + Feather
     if (hasCrop) {
-      if (y <= cropTopLimit) {
-        alphaMult = 0;
-      } else if (cropFeather.top > 0 && y < cropTopLimit + featherTop) {
-        alphaMult *= ((y - cropTopLimit) / featherTop);
-      }
-      
-      if (y >= cropBottomLimit) {
-        alphaMult = 0;
-      } else if (cropFeather.bottom > 0 && y > cropBottomLimit - featherBottom) {
-        alphaMult *= ((cropBottomLimit - y) / featherBottom);
-      }
-
-      if (x <= cropLeftLimit) {
-        alphaMult = 0;
-      } else if (cropFeather.left > 0 && x < cropLeftLimit + featherLeft) {
-        alphaMult *= ((x - cropLeftLimit) / featherLeft);
-      }
-
-      if (x >= cropRightLimit) {
-        alphaMult = 0;
-      } else if (cropFeather.right > 0 && x > cropRightLimit - featherRight) {
-        alphaMult *= ((cropRightLimit - x) / featherRight);
-      }
+      alphaMult = computeShapeAlphaMultiplier(
+        x,
+        y,
+        cropLeftLimit,
+        cropRightLimit,
+        cropTopLimit,
+        cropBottomLimit,
+        shape,
+        cropConfig.cornerRadius ?? 25,
+        cropFeather,
+        width,
+        height
+      );
     }
 
-    // 2. Edge Fade
+    // 2. Edge Fade (Smooth gradient over the edges)
     if (hasFade && alphaMult > 0) {
       if (fadeConfig.top > 0 && y < fadeTopLimit) {
         alphaMult *= (y / fadeTopLimit);
@@ -161,8 +283,9 @@ export async function applyTransparencyToImage(
   canvasWidth = 750,
   canvasHeight = 1334
 ): Promise<Uint8Array> {
+  const shape = cropConfig.shape || 'rect';
   const hasFade = (fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0);
-  const hasCrop = (cropConfig.top > 0 || cropConfig.bottom > 0 || cropConfig.left > 0 || cropConfig.right > 0);
+  const hasCrop = (cropConfig.top > 0 || cropConfig.bottom > 0 || cropConfig.left > 0 || cropConfig.right > 0 || shape !== 'rect');
 
   if (!hasFade && !hasCrop) {
     if (dataUrlOrBytes instanceof Uint8Array) return dataUrlOrBytes;
@@ -228,28 +351,21 @@ export async function applyTransparencyToImage(
 
           let alphaMult = 1.0;
 
-          // 1. Crop + Feather
+          // 1. Geometric Shape Crop + Feather
           if (hasCrop) {
-            if (cy <= cropTopLimit) {
-              alphaMult = 0;
-            } else if (cropFeather.top > 0 && cy < cropTopLimit + featherTop) {
-              alphaMult *= ((cy - cropTopLimit) / featherTop);
-            }
-            if (cy >= cropBottomLimit) {
-              alphaMult = 0;
-            } else if (cropFeather.bottom > 0 && cy > cropBottomLimit - featherBottom) {
-              alphaMult *= ((cropBottomLimit - cy) / featherBottom);
-            }
-            if (cx <= cropLeftLimit) {
-              alphaMult = 0;
-            } else if (cropFeather.left > 0 && cx < cropLeftLimit + featherLeft) {
-              alphaMult *= ((cx - cropLeftLimit) / featherLeft);
-            }
-            if (cx >= cropRightLimit) {
-              alphaMult = 0;
-            } else if (cropFeather.right > 0 && cx > cropRightLimit - featherRight) {
-              alphaMult *= ((cropRightLimit - cx) / featherRight);
-            }
+            alphaMult = computeShapeAlphaMultiplier(
+              cx,
+              cy,
+              cropLeftLimit,
+              cropRightLimit,
+              cropTopLimit,
+              cropBottomLimit,
+              shape,
+              cropConfig.cornerRadius ?? 25,
+              cropFeather,
+              canvasWidth,
+              canvasHeight
+            );
           }
 
           // 2. Edge Fade

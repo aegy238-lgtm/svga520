@@ -71,6 +71,7 @@ export default defineConfig(({ mode }) => {
                 if (id.includes('react') || id.includes('react-dom') || id.includes('motion')) return 'react-vendor';
                 if (id.includes('pdfjs-dist') || id.includes('jspdf')) return 'pdf-vendor';
                 if (id.includes('@breezystack') || id.includes('wavesurfer.js')) return 'audio-vendor';
+                if (id.includes('agora-rtc-sdk-ng')) return 'agora-vendor';
                 if (id.includes('@mediapipe')) return 'mediapipe-vendor';
                 return 'vendor';
               }

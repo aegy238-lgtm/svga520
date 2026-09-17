@@ -15,9 +15,17 @@ import {
   exportAsWebp, 
   exportAsPngFramesZip, 
   exportAsMp4, 
+  exportAsWebm,
+  exportAsVap,
+  exportAsYyeva,
+  exportAsAnimatedSvg,
+  exportAsLottie,
   downloadBlob 
 } from '../AnimationManager/utils/exportEngine';
+import { renderAllProjectFrames } from './svgaProjectRenderer';
 import { generateAEProject } from '../../services/aeExportService';
+import { mixAudioTracksToBuffer, ExtractedAudioTrack } from '../../utils/svgaVideoAudioExporter';
+import { ensureMp3WithId3 } from '../../utils/svgaAudio';
 
 export type ExportFormatType = 
   | 'SVGA 2.0'
@@ -57,9 +65,9 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
   onOpenViewer,
   onSuccessToast
 }) => {
-  // Compression presets & numeric state
+  // Compression presets & numeric state (Defaults to pristine / uncompressed original quality)
   const [compressionMode, setCompressionMode] = useState<'high' | 'medium' | 'low' | 'custom'>('high');
-  const [customQuality, setCustomQuality] = useState<number>(85); // 10 to 100
+  const [customQuality, setCustomQuality] = useState<number>(100); // 10 to 100
   const [zlibLevel, setZlibLevel] = useState<number>(6); // 0 to 9
   const [compressImages, setCompressImages] = useState<boolean>(false);
 
@@ -83,12 +91,14 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
     switch (selectedFormat) {
       case 'SVGA 2.0':
       case 'SVGA 2.0 EX':
-      case 'SVGA – YYSVA':
         return '.svga';
+      case 'SVGA – YYSVA':
+        return '.mp4';
       case 'AE Project':
       case 'Image Sequence':
-      case 'Lottie (Sequence)':
         return '.zip';
+      case 'Lottie (Sequence)':
+        return '.json';
       case 'GIF (Animation)':
         return '.gif';
       case 'APNG (Animation)':
@@ -145,22 +155,19 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
         compressImages: compressionMode === 'custom' ? compressImages : compressionMode === 'low'
       };
 
-      // 1. First generate pristine or compressed SVGA Blob with transparency & layer replacements
-      setProgressPercent(25);
-      setExportPhase('جاري ضغط وتحزيم بنية الـ SVGA...');
-      const svgaResult = await exportEditedSvga(
-        project,
-        layers,
-        fileNameBase,
-        { fadeConfig, cropConfig, cropFeather },
-        activeOptions
-      );
+      // 1. Direct SVGA Downloads: Only encode protobuf & zlib when exporting SVGA format directly
+      if (formatToExport === 'SVGA 2.0' || formatToExport === 'SVGA 2.0 EX') {
+        setProgressPercent(25);
+        setExportPhase('جاري ضغط وتحزيم بنية الـ SVGA...');
+        const svgaResult = await exportEditedSvga(
+          project,
+          layers,
+          fileNameBase,
+          { fadeConfig, cropConfig, cropFeather },
+          activeOptions
+        );
 
-      setExportedSvgaBlob(svgaResult);
-      setProgressPercent(45);
-
-      // Handle Direct SVGA Downloads
-      if (formatToExport === 'SVGA 2.0' || formatToExport === 'SVGA 2.0 EX' || formatToExport === 'SVGA – YYSVA') {
+        setExportedSvgaBlob(svgaResult);
         setProgressPercent(90);
         setExportPhase('جاري إنهاء وتحميل الملف...');
         downloadBlob(svgaResult.blob, fullFileName);
@@ -177,7 +184,7 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
       // 2. Handle After Effects Project Export (JSX + manifest.json + assets zip)
       if (formatToExport === 'AE Project') {
         setExportPhase('جاري بناء مشروع After Effects (JSX + Assets)...');
-        setProgressPercent(60);
+        setProgressPercent(30);
 
         const rawImagesData: { [key: string]: Uint8Array } = {};
         if (project.rawImages) {
@@ -203,7 +210,7 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
           audioUrl: project.audios?.[0]?.audioKey ? (project.imagesMap?.[project.audios[0].audioKey] || null) : null,
           bgPos: { x: 0, y: 0 },
           bgScale: 1,
-          setProgress: (p) => setProgressPercent(50 + Math.round(p * 0.45))
+          setProgress: (p) => setProgressPercent(30 + Math.round(p * 0.65))
         });
 
         setProgressPercent(100);
@@ -216,34 +223,63 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
         return;
       }
 
-      // 3. Extract frames from the rendered SVGA for visual media formats
-      setExportPhase('جاري استخراج إطارات الرسوم بدقة عالية...');
-      setProgressPercent(55);
-      const { canvases, delays, fps } = await extractSvgaFrames(svgaResult.blob);
+      // 3. Render exact project canvas frames with hardware optimization and progress tracking
+      setExportPhase('جاري معالجة وتصيير كافة طبقات الهدية والرسوم...');
+      setProgressPercent(10);
+      let rendered = await renderAllProjectFrames(project, layers, {
+        fadeConfig,
+        cropConfig,
+        cropFeather,
+        onProgress: (p, cur, tot) => {
+          setProgressPercent(10 + Math.round(p * 55));
+          if (cur && tot) {
+            setExportPhase(`تصيير طبقات الهدية: إطار ${cur} من ${tot}...`);
+          }
+        }
+      });
+
+      let canvases = rendered.canvases;
+      let delays = rendered.delays;
+      let fps = rendered.fps;
+
+      if (!canvases || canvases.length === 0) {
+        // Fallback: only encode edited SVGA if frame renderer returned empty
+        const fallbackSvga = await exportEditedSvga(
+          project,
+          layers,
+          fileNameBase,
+          { fadeConfig, cropConfig, cropFeather },
+          activeOptions
+        );
+        const svgaExtracted = await extractSvgaFrames(fallbackSvga.blob);
+        canvases = svgaExtracted.canvases;
+        delays = svgaExtracted.delays;
+        fps = svgaExtracted.fps;
+      }
 
       if (!canvases || canvases.length === 0) {
         throw new Error('لم يتم العثور على إطارات لعرضها للتصدير.');
       }
 
-      // 4. Formats based on frame sequences
+      // 4. Dedicated export per selected format
       if (formatToExport === 'Image Sequence') {
         setExportPhase('جاري تحزيم إطارات PNG في ملف ZIP...');
-        setProgressPercent(70);
+        setProgressPercent(75);
         const zipBlob = await exportAsPngFramesZip(canvases, fileNameBase, delays);
         downloadBlob(zipBlob, fullFileName);
       } else if (formatToExport === 'GIF (Animation)') {
-        setExportPhase('جاري ترميز صورة GIF المتحركة وضغط الألوان...');
-        setProgressPercent(70);
+        setExportPhase('جاري ترميز صورة GIF المتحركة مع الشفافية وضغط الألوان...');
+        setProgressPercent(75);
         const gifBlob = await exportAsGif(canvases, delays, project.width, project.height);
         downloadBlob(gifBlob, fullFileName);
       } else if (formatToExport === 'APNG (Animation)') {
         setExportPhase('جاري إنشاء صورة APNG فائقة الدقة والشفافية...');
-        setProgressPercent(70);
+        setProgressPercent(75);
         const apngBlob = await exportAsApng(canvases, delays, project.width, project.height);
         downloadBlob(apngBlob, fullFileName);
       } else if (formatToExport === 'WebP (Animated)') {
-        setExportPhase('جاري تصدير WebP المتحرك عالي الضغط...');
-        setProgressPercent(70);
+        setExportPhase('جاري تصدير WebP المتحرك فائق الضغط...');
+        setProgressPercent(75);
         const webpBlob = await exportAsWebp(
           canvases, 
           delays, 
@@ -252,28 +288,115 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
           activeOptions.quality || 85
         );
         downloadBlob(webpBlob, fullFileName);
-      } else if (formatToExport === 'VAP (MP4)' || formatToExport === 'VAP 1.0.5' || formatToExport === 'WebM (Video)') {
-        setExportPhase(`جاري تسجيل وترميز فيديو ${formatToExport}...`);
-        setProgressPercent(70);
-        const mp4Blob = await exportAsMp4(canvases, delays, project.width, project.height, fps);
-        downloadBlob(mp4Blob, fullFileName);
+      } else if (formatToExport === 'WebM (Video)' || formatToExport === 'VAP (MP4)' || formatToExport === 'VAP 1.0.5' || formatToExport === 'SVGA – YYSVA') {
+        // Extract and mix any audio tracks attached to the SVGA project
+        let mixedAudioBuffer: AudioBuffer | null = null;
+        try {
+          const extractedTracks: ExtractedAudioTrack[] = [];
+          if (project.audios && Array.isArray(project.audios)) {
+            for (const track of project.audios) {
+              const key = track.audioKey;
+              let rawBytes: Uint8Array | null = null;
+              if (project.rawImages && project.rawImages[key]) {
+                const r = project.rawImages[key];
+                rawBytes = r instanceof Uint8Array ? r : new Uint8Array((r as any).buffer);
+              } else if (project.imagesMap && project.imagesMap[key]) {
+                const src = project.imagesMap[key];
+                if (typeof src === 'string' && src.startsWith('data:')) {
+                  const base64 = src.split(',')[1] || '';
+                  const binary = atob(base64);
+                  rawBytes = new Uint8Array(binary.length);
+                  for (let i = 0; i < binary.length; i++) rawBytes[i] = binary.charCodeAt(i);
+                }
+              }
+              if (rawBytes && rawBytes.length > 0) {
+                const startFrame = typeof track.startFrame === 'number' ? Math.max(0, track.startFrame) : 0;
+                const endFrame = typeof track.endFrame === 'number' ? Math.min(project.totalFrames, track.endFrame) : project.totalFrames;
+                extractedTracks.push({
+                  audioKey: key,
+                  audioBytes: ensureMp3WithId3(rawBytes),
+                  startFrame,
+                  endFrame,
+                  startTimeSec: startFrame / Math.max(1, fps)
+                });
+              }
+            }
+          }
+          if (extractedTracks.length > 0) {
+            setExportPhase('جاري تجهيز ودمج المسارات الصوتية في ملف الفيديو...');
+            setProgressPercent(68);
+            mixedAudioBuffer = await mixAudioTracksToBuffer(extractedTracks, {
+              durationSec: project.totalFrames / Math.max(1, fps),
+              fps: fps,
+              loopShorterAudio: true
+            });
+          }
+        } catch (audioErr) {
+          console.warn('Audio preparation notice for video export:', audioErr);
+        }
+
+        if (formatToExport === 'WebM (Video)') {
+          setExportPhase('جاري ترميز فيديو WebM شفاف (VP9 Alpha) بمسرع العتاد...');
+          setProgressPercent(70);
+          const webmBlob = await exportAsWebm(
+            canvases,
+            delays,
+            project.width,
+            project.height,
+            fps,
+            activeOptions.quality || 100,
+            mixedAudioBuffer,
+            (p, phase) => {
+              setProgressPercent(70 + Math.round(p * 29));
+              if (phase) setExportPhase(phase);
+            }
+          );
+          downloadBlob(webmBlob, fullFileName);
+        } else if (formatToExport === 'VAP (MP4)' || formatToExport === 'VAP 1.0.5') {
+          setExportPhase(`جاري تشكيل فيديو Tencent VAP الشفاف (${formatToExport}) بمسرع العتاد...`);
+          setProgressPercent(70);
+          const vapVersion = formatToExport === 'VAP 1.0.5' ? '1.0.5' : '2.0';
+          const vapBlob = await exportAsVap(
+            canvases, 
+            delays, 
+            project.width, 
+            project.height, 
+            fps, 
+            vapVersion, 
+            mixedAudioBuffer,
+            (p, phase) => {
+              setProgressPercent(70 + Math.round(p * 29));
+              if (phase) setExportPhase(phase);
+            }
+          );
+          downloadBlob(vapBlob, fullFileName);
+        } else if (formatToExport === 'SVGA – YYSVA') {
+          setExportPhase('جاري تجهيز فيديو YYEVA / YYSVA المزدوج الشفاف بمسرع العتاد...');
+          setProgressPercent(70);
+          const yyevaBlob = await exportAsYyeva(
+            canvases, 
+            delays, 
+            project.width, 
+            project.height, 
+            fps, 
+            mixedAudioBuffer,
+            (p, phase) => {
+              setProgressPercent(70 + Math.round(p * 29));
+              if (phase) setExportPhase(phase);
+            }
+          );
+          downloadBlob(yyevaBlob, fullFileName);
+        }
       } else if (formatToExport === 'SVGA – Animated SVG') {
-        setExportPhase('جاري إنشاء ملف Animated SVG...');
+        setExportPhase('جاري إنشاء ملف Animated SVG بكافة الإطارات ومتحركات CSS...');
         setProgressPercent(75);
-        // Generate clean Animated SVG
-        const firstCanvas = canvases[0];
-        const dataUrl = firstCanvas.toDataURL('image/png');
-        const svgContent = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${project.width} ${project.height}" width="100%" height="100%">
-  <image href="${dataUrl}" width="${project.width}" height="${project.height}" />
-</svg>`;
-        const svgBlob = new Blob([svgContent], { type: 'image/svg+xml' });
+        const svgBlob = await exportAsAnimatedSvg(canvases, delays, project.width, project.height);
         downloadBlob(svgBlob, fullFileName);
       } else if (formatToExport === 'Lottie (Sequence)') {
-        setExportPhase('جاري تجهيز حزمة تسلسل Lottie...');
+        setExportPhase('جاري تحويل وتصدير الرسوم إلى ملف Lottie JSON كامل...');
         setProgressPercent(75);
-        const zipBlob = await exportAsPngFramesZip(canvases, `${fileNameBase}_lottie_frames`, delays);
-        downloadBlob(zipBlob, fullFileName);
+        const lottieBlob = await exportAsLottie(canvases, fps);
+        downloadBlob(lottieBlob, fullFileName);
       }
 
       setProgressPercent(100);

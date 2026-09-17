@@ -129,11 +129,22 @@ export interface FadeConfig {
   right: number;
 }
 
+export type CropShape = 
+  | 'rect' 
+  | 'square' 
+  | 'circle' 
+  | 'ellipse' 
+  | 'rounded-rect' 
+  | 'capsule' 
+  | 'diamond';
+
 export interface CropConfig {
   top: number;
   bottom: number;
   left: number;
   right: number;
+  shape?: CropShape;
+  cornerRadius?: number;
 }
 
 export interface CropFeather {
