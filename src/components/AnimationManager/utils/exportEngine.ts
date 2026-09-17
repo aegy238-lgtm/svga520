@@ -563,7 +563,7 @@ export async function exportAsWebp(
   delays: number[],
   width: number,
   height: number,
-  quality: number = 85
+  quality: number = 100
 ): Promise<Blob> {
   if (canvases.length === 0) throw new Error('لا توجد إطارات متوفرة للتصدير');
 
@@ -747,7 +747,7 @@ export async function exportAsSvga(
   height: number,
   fps: number = 30,
   lottieData?: any,
-  compressionLevel: number = 80
+  compressionLevel: number = 100
 ): Promise<Blob> {
   // If Lottie data is available, try vector rebuilder first
   if (lottieData) {
@@ -929,10 +929,11 @@ export async function exportAsMp4(
   const evenWidth = width % 2 === 0 ? width : width + 1;
   const evenHeight = height % 2 === 0 ? height : height + 1;
 
-  // Optimal bitrate with high quality headroom
-  const minBitrate = 1_500_000;
+  // Optimal bitrate scaling based on quality level (10% to 100%)
+  const minBitrate = Math.max(300_000, Math.round(evenWidth * evenHeight * 0.4));
   const maxBitrate = Math.max(14_000_000, Math.round(evenWidth * evenHeight * 4.5));
-  const calculatedBitrate = Math.round(minBitrate + (compressionLevel / 100) * (maxBitrate - minBitrate));
+  const validQuality = Math.max(10, Math.min(100, compressionLevel));
+  const calculatedBitrate = Math.round(minBitrate + (validQuality / 100) * (maxBitrate - minBitrate));
 
   // Try WebCodecs VideoEncoder + mp4-muxer if available
   if (typeof VideoEncoder !== 'undefined') {
@@ -1281,7 +1282,8 @@ export async function exportAsVap(
   fps: number = 30,
   version: '1.0.5' | '2.0' = '1.0.5',
   audioBuffer?: AudioBuffer | null,
-  onProgress?: (progress0to1: number, phaseText?: string) => void
+  onProgress?: (progress0to1: number, phaseText?: string) => void,
+  quality: number = 100
 ): Promise<Blob> {
   const gap = 4;
   const alphaWidth = Math.floor(width / 2);
@@ -1339,7 +1341,7 @@ export async function exportAsVap(
     }
   }
 
-  // Base MP4 encode with full original quality (100) and embedded audioBuffer
+  // Base MP4 encode with selected quality level and embedded audioBuffer
   const baseMp4 = await exportAsMp4(
     compCanvases,
     delays,
@@ -1347,7 +1349,7 @@ export async function exportAsVap(
     videoH,
     fps,
     '#000000',
-    100,
+    quality,
     audioBuffer,
     (p, msg) => {
       onProgress?.(0.4 + p * 0.55, msg || 'ترميز فيديو VAP...');
@@ -1406,7 +1408,8 @@ export async function exportAsYyeva(
   height: number,
   fps: number = 30,
   audioBuffer?: AudioBuffer | null,
-  onProgress?: (progress0to1: number, phaseText?: string) => void
+  onProgress?: (progress0to1: number, phaseText?: string) => void,
+  quality: number = 100
 ): Promise<Blob> {
   const safeW = Math.ceil(width / 2) * 2;
   const safeH = Math.ceil(height / 2) * 2;
@@ -1468,7 +1471,7 @@ export async function exportAsYyeva(
     videoH,
     fps,
     '#000000',
-    100,
+    quality,
     audioBuffer,
     (p, msg) => {
       onProgress?.(0.4 + p * 0.55, msg || 'ترميز فيديو YYEVA...');

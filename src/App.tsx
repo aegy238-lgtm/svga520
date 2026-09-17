@@ -27,6 +27,10 @@ const AudioExtractor = lazy(() => import('./components/AudioExtractor').then(m =
 const AIVideoMattingStudio = lazy(() => import('./components/AIVideoMattingStudio').then(m => ({ default: m.AIVideoMattingStudio })));
 const AnimationManager = lazy(() => import('./components/AnimationManager/AnimationManager').then(m => ({ default: m.AnimationManager })));
 const AdminPanel = lazy(() => import('./components/AdminPanel').then(m => ({ default: m.AdminPanel })));
+const Store = lazy(() => import('./components/Store').then(m => ({ default: m.Store })));
+const VapHub = lazy(() => import('./components/VapHub').then(m => ({ default: m.VapHub })));
+
+import { LanguageTranslatorWidget } from './components/LanguageTranslatorWidget';
 
 
 import { Login } from './components/Auth/Login';
@@ -49,7 +53,7 @@ import { extractSvgaFromPdfFile } from './utils/pdfSvgaExtractor';
 declare var SVGA: any;
 
 import { OnboardingModal } from './components/OnboardingModal';
-import { HelpCircle, BookOpen, Wrench, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { HelpCircle, BookOpen, Wrench, AlertTriangle, ShieldAlert, ShoppingBag } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 const videoWidth = 1334;
@@ -715,6 +719,8 @@ const App: React.FC = () => {
         onAiVideoMattingOpen={() => handleFeatureAccess(AppState.AI_VIDEO_MATTING, 'AI Video Matting Studio')}
         onSvgaBatchCompressorOpen={() => handleFeatureAccess(AppState.SVGA_BATCH_COMPRESSOR, 'SVGA Batch Compressor')}
         onAnimationManagerOpen={() => handleFeatureAccess(AppState.ANIMATION_MANAGER, 'Animation File Manager')}
+        onStoreOpen={() => handleFeatureAccess(AppState.STORE, 'SVGA Store & Library')}
+        onVapHubOpen={() => handleFeatureAccess(AppState.VAP_HUB, 'VAP Hub')}
         onSvgaLayerEditorOpen={() => {
           setLayerEditorInitialFile(fileMetadata?.originalFile || null);
           handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
@@ -969,6 +975,15 @@ const App: React.FC = () => {
             {state === AppState.ANIMATION_MANAGER && (
               <AnimationManager onBack={handleReset} />
             )}
+            {state === AppState.STORE && (
+              <Store 
+                currentUser={currentUser} 
+                onLoginRequired={() => {}} 
+              />
+            )}
+            {state === AppState.VAP_HUB && (
+              <VapHub />
+            )}
             {state === AppState.ADMIN_PANEL && (currentUser?.role === 'admin' || currentUser?.role === 'moderator') && (
               <AdminPanel currentUser={currentUser} onCancel={handleReset} />
             )}
@@ -980,6 +995,9 @@ const App: React.FC = () => {
       <div className="fixed bottom-6 left-6 z-[100] flex flex-col-reverse gap-4">
         {state !== AppState.SVGA_LAYER_EDITOR && (
           <>
+            {/* Language Translator Globe Widget */}
+            <LanguageTranslatorWidget />
+
             {/* WhatsApp Floating Button */}
             {settings?.whatsappNumber && (
               <a 
@@ -1002,6 +1020,15 @@ const App: React.FC = () => {
               title="شرح الموقع"
             >
               <HelpCircle className="w-8 h-8" />
+            </button>
+
+            {/* SVGA Store & Asset Library Floating Button */}
+            <button 
+              onClick={() => setState(AppState.STORE)}
+              className="w-14 h-14 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-full flex items-center justify-center shadow-lg shadow-fuchsia-600/30 transition-all hover:scale-110 hover:-translate-y-1 group cursor-pointer"
+              title="مكتبة ومتجر الأصول والقوالب"
+            >
+              <ShoppingBag className="w-7 h-7" />
             </button>
 
             {/* Features Guide Button */}

@@ -291,6 +291,45 @@ export const TOOLS_REGISTRY: ToolRegistryItem[] = [
     highlight: true
   },
   {
+    id: 'animation-manager',
+    label: 'مدير ومحول الأنميشن',
+    icon: <Box className="w-4 h-4 text-cyan-400" />,
+    category: 'svga',
+    categoryNameAr: 'أنيميشن و SVGA',
+    actionKey: 'onAnimationManagerOpen',
+    dashboardActionKey: 'animationManager',
+    featureAccessKey: 'animationManager',
+    descAr: 'رفع ومعاينة وإدارة وفحص وتصدير جميع صيغ الأنميشن (GIF, WebP, APNG, PNG, Lottie, SVGA, PAG).',
+    descEn: 'Professional Animation Manager to preview, manage and export all animation formats.',
+    highlight: true
+  },
+  {
+    id: 'vap-hub',
+    label: 'VAP & YYEVA Hub',
+    icon: <Film className="w-4 h-4 text-pink-400" />,
+    category: 'svga',
+    categoryNameAr: 'أنيميشن و SVGA',
+    actionKey: 'onVapHubOpen' as any,
+    dashboardActionKey: 'vapHub',
+    featureAccessKey: 'vapHub',
+    descAr: 'مستكشف ومحول ومكتبة هدايا VAP و YYEVA و SVGA عالية الدقة مع كروما الشفافية.',
+    descEn: 'VAP & YYEVA gift player, converter and asset library.',
+    highlight: true
+  },
+  {
+    id: 'store',
+    label: 'مكتبة ومتجر أصول SVGA',
+    icon: <ShoppingBag className="w-4 h-4 text-fuchsia-400" />,
+    category: 'store',
+    categoryNameAr: 'المتجر والأصول',
+    actionKey: 'onStoreOpen' as any,
+    dashboardActionKey: 'store',
+    featureAccessKey: 'store',
+    descAr: 'مكتبة ومتجر أصول وهدايا وقوالب SVGA الجاهزة للاستعراض والتحميل والاستخدام المباشر.',
+    descEn: 'SVGA Store & Asset Library for ready-to-use gifts, templates, and motion assets.',
+    highlight: true
+  },
+  {
     id: 'converter',
     label: 'Video Converter',
     icon: <Video className="w-4 h-4 text-red-400" />,
@@ -302,7 +341,6 @@ export const TOOLS_REGISTRY: ToolRegistryItem[] = [
     descAr: 'أداة سريعة لتحويل مقاطع الفيديو وتفريغها إلى صيغ أخرى كـ SVGA.',
     descEn: 'Fast tool to convert videos and composite them to other formats like SVGA.'
   },
-
  ];
 
 export const getToolById = (id: string) => TOOLS_REGISTRY.find(t => t.id === id);

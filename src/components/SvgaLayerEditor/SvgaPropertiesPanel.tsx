@@ -1,8 +1,9 @@
 import React, { useRef, useState } from 'react';
-import { EditableLayer, SVGAProjectData, LayerKeyframe } from './types';
+import { EditableLayer, SVGAProjectData, LayerKeyframe, ShineEffectConfig } from './types';
 import { upsertKeyframe, deleteKeyframe } from './motionEngine';
 import { FadeConfig, CropConfig, CropFeather, isTransparencyActive } from './transparencyEngine';
 import { SvgaTransparencyPanel } from './SvgaTransparencyPanel';
+import { SvgaShinePanel } from './SvgaShinePanel';
 import { 
   Sliders, Link, Unlink, RotateCcw, 
   AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter,
@@ -67,6 +68,8 @@ interface SvgaPropertiesPanelProps {
   onUpdateCropConfig?: (config: CropConfig) => void;
   onUpdateCropFeather?: (feather: CropFeather) => void;
   onResetTransparency?: () => void;
+  onUpdateShineConfig?: (layerId: string, config: Partial<ShineEffectConfig>) => void;
+  onResetShine?: (layerId: string) => void;
 }
 
 export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
@@ -102,7 +105,9 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
   onUpdateFadeConfig,
   onUpdateCropConfig,
   onUpdateCropFeather,
-  onResetTransparency
+  onResetTransparency,
+  onUpdateShineConfig,
+  onResetShine
 }) => {
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const [panelNudgeStep, setPanelNudgeStep] = useState<number>(1);
@@ -114,7 +119,7 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
   const [pairSyncMotion, setPairSyncMotion] = useState<boolean>(true);
   const [previewModalLayer, setPreviewModalLayer] = useState<EditableLayer | null>(null);
   const [autoRecordScaleKeyframe, setAutoRecordScaleKeyframe] = useState<boolean>(true);
-  const [panelActiveTab, setPanelActiveTab] = useState<'layer' | 'transparency'>('layer');
+  const [panelActiveTab, setPanelActiveTab] = useState<'layer' | 'shine' | 'transparency'>('layer');
 
   // Project Dimension Settings State for Panel
   const [panelWidthInput, setPanelWidthInput] = useState<number>(project?.width || 500);
@@ -1047,12 +1052,12 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
         }}
       />
 
-      {/* Top Tab Bar: Layer Properties vs Edge Fade & Crop */}
+      {/* Top Tab Bar: Layer Properties vs Shine Effect vs Edge Fade & Crop */}
       <div className="flex items-center p-1 bg-black/40 rounded-xl border border-white/10 gap-1 shrink-0">
         <button
           type="button"
           onClick={() => setPanelActiveTab('layer')}
-          className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+          className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
             panelActiveTab === 'layer'
               ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
               : 'text-slate-400 hover:text-white'
@@ -1063,15 +1068,30 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
         </button>
         <button
           type="button"
+          onClick={() => setPanelActiveTab('shine')}
+          className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer relative ${
+            panelActiveTab === 'shine'
+              ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Sparkles size={13} className="text-amber-300" />
+          <span>لمعة الطبقة</span>
+          {layer?.shineConfig?.enabled && (
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+          )}
+        </button>
+        <button
+          type="button"
           onClick={() => setPanelActiveTab('transparency')}
-          className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer relative ${
+          className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer relative ${
             panelActiveTab === 'transparency'
               ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/30'
               : 'text-slate-400 hover:text-white'
           }`}
         >
           <Sliders size={13} className="text-cyan-400" />
-          <span>تدرج الشفافية والقص</span>
+          <span>الشفافية والقص</span>
           {isTransparencyActive(fadeConfig, cropConfig) && (
             <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
           )}
@@ -1091,6 +1111,23 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
               onResetTransparency={onResetTransparency}
             />
           )}
+        </div>
+      ) : panelActiveTab === 'shine' ? (
+        <div className="space-y-4">
+          <SvgaShinePanel
+            layerName={layer?.name || 'الطبقة المحددة'}
+            shineConfig={layer?.shineConfig}
+            onUpdateShineConfig={(cfg) => {
+              if (layer && onUpdateShineConfig) {
+                onUpdateShineConfig(layer.id, cfg);
+              }
+            }}
+            onResetShine={() => {
+              if (layer && onResetShine) {
+                onResetShine(layer.id);
+              }
+            }}
+          />
         </div>
       ) : (
         <>

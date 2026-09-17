@@ -1,6 +1,7 @@
 import { EditableLayer, SVGAProjectData, FadeConfig, CropConfig, CropFeather } from './types';
 import { getLayerAnimatedTransform } from './motionEngine';
 import { applyTransparencyEffects } from './transparencyEngine';
+import { renderLayerShine } from './shineEngine';
 
 // Affine Matrix multiplication: M1 * M2
 function multiplyMatrices(
@@ -536,6 +537,10 @@ export async function renderAllProjectFrames(
         }
 
         targetCtx.drawImage(cachedImg, 0, 0, drawW, drawH);
+
+        if (layerItem.shineConfig && layerItem.shineConfig.enabled) {
+          renderLayerShine(targetCtx, drawW, drawH, f, totalFrames, layerItem.shineConfig);
+        }
       }
 
       targetCtx.restore();

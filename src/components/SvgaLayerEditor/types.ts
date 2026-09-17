@@ -97,6 +97,9 @@ export interface EditableLayer {
   motionReferenceLayerId?: string;
   isMotionSynced?: boolean;
 
+  // Layer Shine Effect Configuration
+  shineConfig?: ShineEffectConfig;
+
   // Original immutable snapshot for absolute reset independent of copies/merges
   originalInitialBounds?: {
     x: number;
@@ -177,3 +180,17 @@ export interface GuideLine {
 }
 
 export type CanvasTool = 'select' | 'hand' | 'zoom';
+
+export interface ShineEffectConfig {
+  enabled: boolean;
+  beamWidth?: number;          // width in px (default 50)
+  angleDeg?: number;           // angle deg (default 90)
+  opacity?: number;            // max opacity (0.1 to 1.0)
+  featherSides?: number;       // side feather (0 to 1)
+  featherTopBottom?: number;   // top/bottom feather (0 to 1)
+  maskToAlpha?: boolean;       // mask to layer image boundary
+  color?: string;              // RGB color string e.g. "255, 255, 255"
+  keyframeStart?: number;      // 0.0 to 1.0 (default 0.0)
+  keyframeEnd?: number;        // 0.0 to 1.0 (default 1.0)
+  durationSeconds?: number;    // duration (default 2.0)
+}

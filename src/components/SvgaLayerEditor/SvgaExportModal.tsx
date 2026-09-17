@@ -285,7 +285,7 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
           delays, 
           project.width, 
           project.height, 
-          activeOptions.quality || 85
+          activeOptions.quality || 100
         );
         downloadBlob(webpBlob, fullFileName);
       } else if (formatToExport === 'WebM (Video)' || formatToExport === 'VAP (MP4)' || formatToExport === 'VAP 1.0.5' || formatToExport === 'SVGA – YYSVA') {
@@ -367,7 +367,8 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
             (p, phase) => {
               setProgressPercent(70 + Math.round(p * 29));
               if (phase) setExportPhase(phase);
-            }
+            },
+            activeOptions.quality || 100
           );
           downloadBlob(vapBlob, fullFileName);
         } else if (formatToExport === 'SVGA – YYSVA') {
@@ -383,7 +384,8 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
             (p, phase) => {
               setProgressPercent(70 + Math.round(p * 29));
               if (phase) setExportPhase(phase);
-            }
+            },
+            activeOptions.quality || 100
           );
           downloadBlob(yyevaBlob, fullFileName);
         }
@@ -543,7 +545,7 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
                     min={10}
                     max={100}
                     value={customQuality}
-                    onChange={(e) => setCustomQuality(Math.min(100, Math.max(10, parseInt(e.target.value) || 85)))}
+                    onChange={(e) => setCustomQuality(Math.min(100, Math.max(10, parseInt(e.target.value) || 100)))}
                     className="w-16 bg-slate-900 border border-indigo-500/40 rounded-lg px-2 py-0.5 text-xs font-mono text-cyan-300 text-center outline-none"
                   />
                   <span className="text-xs text-indigo-300 font-mono">%</span>

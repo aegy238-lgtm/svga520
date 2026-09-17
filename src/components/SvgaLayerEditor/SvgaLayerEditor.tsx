@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   EditableLayer, SVGAProjectData, CanvasTool, LayerKeyframe,
-  FadeConfig, CropConfig, CropFeather
+  FadeConfig, CropConfig, CropFeather, ShineEffectConfig
 } from './types';
 import { 
   DEFAULT_FADE_CONFIG, 
@@ -338,6 +338,66 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       });
     });
   }, []);
+
+  const handleUpdateLayerShineConfig = useCallback((layerId: string, shineDelta: Partial<ShineEffectConfig>) => {
+    setLayers(prev => {
+      const updated = prev.map(l => {
+        if (l.id === layerId) {
+          const currentShine: ShineEffectConfig = l.shineConfig || {
+            enabled: true,
+            beamWidth: 50,
+            angleDeg: 90,
+            opacity: 0.85,
+            featherSides: 0.85,
+            featherTopBottom: 0.7,
+            maskToAlpha: true,
+            color: '255, 255, 255',
+            keyframeStart: 0.0,
+            keyframeEnd: 1.0,
+            durationSeconds: 2.0
+          };
+          return {
+            ...l,
+            shineConfig: {
+              ...currentShine,
+              ...shineDelta
+            }
+          };
+        }
+        return l;
+      });
+      pushHistory(updated);
+      return updated;
+    });
+  }, [pushHistory]);
+
+  const handleResetShine = useCallback((layerId: string) => {
+    setLayers(prev => {
+      const updated = prev.map(l => {
+        if (l.id === layerId) {
+          return {
+            ...l,
+            shineConfig: {
+              enabled: true,
+              beamWidth: 50,
+              angleDeg: 90,
+              opacity: 0.85,
+              featherSides: 0.85,
+              featherTopBottom: 0.7,
+              maskToAlpha: true,
+              color: '255, 255, 255',
+              keyframeStart: 0.0,
+              keyframeEnd: 1.0,
+              durationSeconds: 2.0
+            }
+          };
+        }
+        return l;
+      });
+      pushHistory(updated);
+      return updated;
+    });
+  }, [pushHistory]);
 
   // Synchronize motion path across all layers in a sequence/repeated group (SVGA 2.0 Motion Sync)
   const handleSyncSequenceMotion = useCallback((layerIdOrGroupId: string) => {
@@ -1965,6 +2025,8 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               onUpdateCropConfig={setCropConfig}
               onUpdateCropFeather={setCropFeather}
               onResetTransparency={handleResetTransparency}
+              onUpdateShineConfig={handleUpdateLayerShineConfig}
+              onResetShine={handleResetShine}
             />
           </aside>
         </div>

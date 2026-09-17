@@ -58,6 +58,8 @@ export interface HeaderProps {
   onSvgaBatchCompressorOpen?: () => void;
   onSvgaLayerEditorOpen?: () => void;
   onAnimationManagerOpen?: () => void;
+  onStoreOpen?: () => void;
+  onVapHubOpen?: () => void;
   onBatchImageOpen: () => void;
   onLoginClick: () => void;
   onProfileClick: () => void;

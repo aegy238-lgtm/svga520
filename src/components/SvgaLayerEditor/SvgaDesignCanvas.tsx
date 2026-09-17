@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { EditableLayer, SVGAProjectData, CanvasTool, GuideLine, FadeConfig, CropConfig, CropFeather } from './types';
 import { getLayerAnimatedTransform } from './motionEngine';
 import { applyTransparencyEffects } from './transparencyEngine';
+import { renderLayerShine } from './shineEngine';
 import { 
   ZoomIn, ZoomOut, RefreshCw, Maximize2, 
   Grid, Compass, Eye, Shield, RotateCcw,
@@ -921,6 +922,10 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         }
         
         targetCtx.drawImage(cachedImg, 0, 0, drawW, drawH);
+
+        if (layerItem.shineConfig && layerItem.shineConfig.enabled) {
+          renderLayerShine(targetCtx, drawW, drawH, currentFrame, project.totalFrames, layerItem.shineConfig);
+        }
       }
 
       targetCtx.restore();
