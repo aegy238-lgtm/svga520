@@ -929,11 +929,14 @@ export async function exportAsMp4(
   const evenWidth = width % 2 === 0 ? width : width + 1;
   const evenHeight = height % 2 === 0 ? height : height + 1;
 
-  // Optimal bitrate scaling based on quality level (10% to 100%)
-  const minBitrate = Math.max(300_000, Math.round(evenWidth * evenHeight * 0.4));
-  const maxBitrate = Math.max(14_000_000, Math.round(evenWidth * evenHeight * 4.5));
+  // Calibrated bitrate scaling with power factor for H.264 VBR video encoding
+  const pixelCount = evenWidth * evenHeight;
+  const maxBitrate = Math.min(8_500_000, Math.max(3_000_000, Math.round(pixelCount * 3.0)));
+  const minBitrate = Math.max(200_000, Math.round(pixelCount * 0.12));
   const validQuality = Math.max(10, Math.min(100, compressionLevel));
-  const calculatedBitrate = Math.round(minBitrate + (validQuality / 100) * (maxBitrate - minBitrate));
+  const qRatio = validQuality / 100;
+  // Power exponent 2.4 produces effective compression across 100% (High), 80% (Medium), 60% (Low) & Custom
+  const calculatedBitrate = Math.round(minBitrate + Math.pow(qRatio, 2.4) * (maxBitrate - minBitrate));
 
   // Try WebCodecs VideoEncoder + mp4-muxer if available
   if (typeof VideoEncoder !== 'undefined') {
@@ -1078,7 +1081,7 @@ export async function exportAsMp4(
       ? 'video/webm;codecs=h264'
       : 'video/webm';
 
-    const recorder = new MediaRecorder(stream, { mimeType });
+    const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: calculatedBitrate });
     const chunks: Blob[] = [];
 
     recorder.ondataavailable = (e) => {
@@ -1285,22 +1288,35 @@ export async function exportAsVap(
   onProgress?: (progress0to1: number, phaseText?: string) => void,
   quality: number = 100
 ): Promise<Blob> {
-  const gap = 4;
-  const alphaWidth = Math.floor(width / 2);
-  const alphaHeight = Math.floor(height / 2);
+  // Scale video resolution dynamically based on selected quality level
+  const scale = quality >= 100
+    ? 1.0
+    : Math.max(0.45, Math.min(1.0, 0.45 + (quality / 100) * 0.5));
 
-  const videoW = Math.ceil((width + gap + alphaWidth) / 16) * 16;
-  const videoH = Math.ceil(height / 16) * 16;
+  const scaledW = Math.max(32, Math.round(width * scale));
+  const scaledH = Math.max(32, Math.round(height * scale));
+
+  const gap = 4;
+  const alphaWidth = Math.floor(scaledW / 2);
+  const alphaHeight = Math.floor(scaledH / 2);
+
+  const videoW = Math.ceil((scaledW + gap + alphaWidth) / 16) * 16;
+  const videoH = Math.ceil(scaledH / 16) * 16;
   const totalFrames = canvases.length;
 
   const compCanvases: HTMLCanvasElement[] = [];
 
-  // Pre-allocate a single reusable scratch canvas and ImageData for ultra-fast alpha extraction
+  // Pre-allocate scratch canvases for high-speed scaled alpha extraction
   const scratchAlphaCanvas = document.createElement('canvas');
-  scratchAlphaCanvas.width = width;
-  scratchAlphaCanvas.height = height;
+  scratchAlphaCanvas.width = scaledW;
+  scratchAlphaCanvas.height = scaledH;
   const scratchAlphaCtx = scratchAlphaCanvas.getContext('2d');
-  const scratchAlphaImg = scratchAlphaCtx?.createImageData(width, height) || null;
+  const scratchAlphaImg = scratchAlphaCtx?.createImageData(scaledW, scaledH) || null;
+
+  const scratchSrcCanvas = document.createElement('canvas');
+  scratchSrcCanvas.width = scaledW;
+  scratchSrcCanvas.height = scaledH;
+  const scratchSrcCtx = scratchSrcCanvas.getContext('2d');
 
   for (let i = 0; i < totalFrames; i++) {
     const src = canvases[i];
@@ -1312,13 +1328,14 @@ export async function exportAsVap(
       cCtx.fillStyle = '#000000';
       cCtx.fillRect(0, 0, videoW, videoH);
 
-      // Left: RGB
-      cCtx.drawImage(src, 0, 0, width, height);
+      // Left: RGB (scaled)
+      cCtx.drawImage(src, 0, 0, scaledW, scaledH);
 
       // Right: Grayscale Alpha mask via high-speed 32-bit register operations
-      const sCtx = src.getContext('2d');
-      if (sCtx && scratchAlphaCtx && scratchAlphaImg) {
-        const frameData = sCtx.getImageData(0, 0, width, height);
+      if (scratchSrcCtx && scratchAlphaCtx && scratchAlphaImg) {
+        scratchSrcCtx.clearRect(0, 0, scaledW, scaledH);
+        scratchSrcCtx.drawImage(src, 0, 0, scaledW, scaledH);
+        const frameData = scratchSrcCtx.getImageData(0, 0, scaledW, scaledH);
         const srcU32 = new Uint32Array(frameData.data.buffer);
         const dstU32 = new Uint32Array(scratchAlphaImg.data.buffer);
         const len = srcU32.length;
@@ -1330,7 +1347,7 @@ export async function exportAsVap(
         }
 
         scratchAlphaCtx.putImageData(scratchAlphaImg, 0, 0);
-        cCtx.drawImage(scratchAlphaCanvas, width + gap, 0, alphaWidth, alphaHeight);
+        cCtx.drawImage(scratchAlphaCanvas, scaledW + gap, 0, alphaWidth, alphaHeight);
       }
     }
     compCanvases.push(comp);
@@ -1359,7 +1376,7 @@ export async function exportAsVap(
 
   onProgress?.(0.97, 'بناء صندوق VAPc وبيانات التوافق...');
 
-  // Build vapc box
+  // Build vapc box with exact frame parameters
   const vapConfig = {
     info: {
       v: version === '2.0' ? 2 : 1,
@@ -1369,8 +1386,8 @@ export async function exportAsVap(
       fps: fps,
       videoW: videoW,
       videoH: videoH,
-      aFrame: [width + gap, 0, alphaWidth, alphaHeight],
-      rgbFrame: [0, 0, width, height],
+      aFrame: [scaledW + gap, 0, alphaWidth, alphaHeight],
+      rgbFrame: [0, 0, scaledW, scaledH],
       isVapx: 0,
       codeTag: ["common"],
       orien: 0
@@ -1411,20 +1428,33 @@ export async function exportAsYyeva(
   onProgress?: (progress0to1: number, phaseText?: string) => void,
   quality: number = 100
 ): Promise<Blob> {
-  const safeW = Math.ceil(width / 2) * 2;
-  const safeH = Math.ceil(height / 2) * 2;
+  // Scale video resolution dynamically based on selected quality level
+  const scale = quality >= 100
+    ? 1.0
+    : Math.max(0.45, Math.min(1.0, 0.45 + (quality / 100) * 0.5));
+
+  const scaledW = Math.max(32, Math.round(width * scale));
+  const scaledH = Math.max(32, Math.round(height * scale));
+
+  const safeW = Math.ceil(scaledW / 2) * 2;
+  const safeH = Math.ceil(scaledH / 2) * 2;
   const videoW = safeW * 2;
   const videoH = safeH;
   const totalFrames = canvases.length;
 
   const compCanvases: HTMLCanvasElement[] = [];
 
-  // Pre-allocate a single reusable scratch canvas and ImageData for YYEVA alpha extraction
+  // Scratch canvases for YYEVA alpha extraction at scaled resolution
   const scratchAlphaCanvas = document.createElement('canvas');
   scratchAlphaCanvas.width = safeW;
   scratchAlphaCanvas.height = safeH;
   const scratchAlphaCtx = scratchAlphaCanvas.getContext('2d');
   const scratchAlphaImg = scratchAlphaCtx?.createImageData(safeW, safeH) || null;
+
+  const scratchSrcCanvas = document.createElement('canvas');
+  scratchSrcCanvas.width = safeW;
+  scratchSrcCanvas.height = safeH;
+  const scratchSrcCtx = scratchSrcCanvas.getContext('2d');
 
   for (let i = 0; i < totalFrames; i++) {
     const src = canvases[i];
@@ -1436,16 +1466,17 @@ export async function exportAsYyeva(
       cCtx.fillStyle = '#000000';
       cCtx.fillRect(0, 0, videoW, videoH);
 
-      // Left: RGB
+      // Left: RGB (scaled to safeW x safeH)
       cCtx.drawImage(src, 0, 0, safeW, safeH);
 
       // Right: Grayscale Alpha mask via high-speed 32-bit register operations
-      const sCtx = src.getContext('2d');
-      if (sCtx && scratchAlphaCtx && scratchAlphaImg) {
-        const frameData = sCtx.getImageData(0, 0, Math.min(src.width, safeW), Math.min(src.height, safeH));
+      if (scratchSrcCtx && scratchAlphaCtx && scratchAlphaImg) {
+        scratchSrcCtx.clearRect(0, 0, safeW, safeH);
+        scratchSrcCtx.drawImage(src, 0, 0, safeW, safeH);
+        const frameData = scratchSrcCtx.getImageData(0, 0, safeW, safeH);
         const srcU32 = new Uint32Array(frameData.data.buffer);
         const dstU32 = new Uint32Array(scratchAlphaImg.data.buffer);
-        const len = Math.min(srcU32.length, dstU32.length);
+        const len = srcU32.length;
 
         for (let p = 0; p < len; p++) {
           const a = (srcU32[p] >>> 24);
