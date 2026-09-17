@@ -41,7 +41,6 @@ export interface HeaderProps {
   onLogout: () => void;
   isAdminOpen: boolean;
   onBatchOpen: () => void;
-  onStoreOpen: () => void;
   onConverterOpen: () => void;
   onImageConverterOpen: () => void;
   onImageEditorOpen: () => void;
@@ -53,7 +52,6 @@ export interface HeaderProps {
   onImageEnhancerOpen: () => void;
   onBatchImageProcessorOpen: () => void;
   onUniversalConverterOpen: () => void;
-  onPagConverterOpen: () => void;
   onName3DEditorOpen: () => void;
   onAudioExtractorOpen: () => void;
   onAiVideoMattingOpen?: () => void;

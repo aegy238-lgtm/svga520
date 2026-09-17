@@ -1,7 +1,14 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
-  EditableLayer, SVGAProjectData, CanvasTool, LayerKeyframe 
+  EditableLayer, SVGAProjectData, CanvasTool, LayerKeyframe,
+  FadeConfig, CropConfig, CropFeather
 } from './types';
+import { 
+  DEFAULT_FADE_CONFIG, 
+  DEFAULT_CROP_CONFIG, 
+  DEFAULT_CROP_FEATHER, 
+  isTransparencyActive 
+} from './transparencyEngine';
 import { parseSvgaToProject, createNewSvgaProject } from './svgaParserEngine';
 import { exportEditedSvga } from './svgaExportEngine';
 import { mergeSvgaFileIntoProject, transformLayerGroup, mergeLayersIntoSingleLayer, ungroupMergedLayer, syncLayerMotionWithReference } from './svgaMergeEngine';
@@ -18,12 +25,14 @@ import { SvgaLayersList } from './SvgaLayersList';
 import { SvgaPropertiesPanel } from './SvgaPropertiesPanel';
 import { SvgaMotionTimeline } from './SvgaMotionTimeline';
 import { SvgaAudioEditorModal } from './SvgaAudioEditorModal';
+import { SvgaExportModal } from './SvgaExportModal';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { 
   Upload, Layers, Download, ArrowLeft, RotateCcw, 
   Sparkles, MousePointer, Hand, ZoomIn, Grid, Compass, 
   FileCode, Check, AlertCircle, RefreshCw, X, Shield, Eye,
-  Sliders, Play, Film, CheckCircle2, Music, Plus, FilePlus, Package
+  Sliders, Play, Film, CheckCircle2, Music, Plus, FilePlus, Package,
+  Image as ImageIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -59,6 +68,27 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const [showRulers, setShowRulers] = useState<boolean>(true);
   const [showGuides, setShowGuides] = useState<boolean>(true);
   const [bgColor, setBgColor] = useState<string>('transparent');
+  const [bgImageUrl, setBgImageUrl] = useState<string | null>(null);
+  const bgFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleBackgroundUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('يرجى اختيار ملف صورة صالح (PNG, JPG, WEBP)');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      if (result) {
+        setBgImageUrl(result);
+        setSuccessToast('تم رفع وتثبيت صورة الخلفية بنجاح للمعاينة خلف الهدية');
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }, []);
 
   // Animation & Timeline State
   const [currentFrame, setCurrentFrame] = useState<number>(0);
@@ -82,6 +112,17 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const [lastExportedBlob, setLastExportedBlob] = useState<{ blob: Blob; fileName: string } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
+
+  // Edge Fade & Advanced Crop State
+  const [fadeConfig, setFadeConfig] = useState<FadeConfig>(DEFAULT_FADE_CONFIG);
+  const [cropConfig, setCropConfig] = useState<CropConfig>(DEFAULT_CROP_CONFIG);
+  const [cropFeather, setCropFeather] = useState<CropFeather>(DEFAULT_CROP_FEATHER);
+
+  const handleResetTransparency = useCallback(() => {
+    setFadeConfig({ top: 0, bottom: 0, left: 0, right: 0 });
+    setCropConfig({ top: 0, bottom: 0, left: 0, right: 0 });
+    setCropFeather({ top: 0, bottom: 0, left: 0, right: 0 });
+  }, []);
 
   // Synchronized Audio Playback Cache & Nodes
   const activeAudioMapRef = useRef<Map<string, HTMLAudioElement>>(new Map());
@@ -154,6 +195,11 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       setCurrentFrame(0);
       setIsPlaying(false);
       setExportFileName(file.name.replace(/\.svga$/i, '') + '_edited.svga');
+
+      // Initialize Edge Fade & Crop configs from project if present, or reset to 0
+      setFadeConfig(parsedProject.fadeConfig ? { ...parsedProject.fadeConfig } : { top: 0, bottom: 0, left: 0, right: 0 });
+      setCropConfig(parsedProject.cropConfig ? { ...parsedProject.cropConfig } : { top: 0, bottom: 0, left: 0, right: 0 });
+      setCropFeather(parsedProject.cropFeather ? { ...parsedProject.cropFeather } : { top: 0, bottom: 0, left: 0, right: 0 });
       
       // Auto-fit zoom based on screen size
       const maxW = window.innerWidth - 700;
@@ -1417,7 +1463,11 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     if (!project) return;
     setIsExporting(true);
     try {
-      const { blob, fileName } = await exportEditedSvga(project, layers, exportFileName);
+      const { blob, fileName } = await exportEditedSvga(project, layers, exportFileName, {
+        fadeConfig,
+        cropConfig,
+        cropFeather
+      });
       setLastExportedBlob({ blob, fileName });
       
       const url = URL.createObjectURL(blob);
@@ -1442,7 +1492,11 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     if (!project) return;
     setIsExporting(true);
     try {
-      const { blob, fileName } = await exportEditedSvga(project, layers, exportFileName);
+      const { blob, fileName } = await exportEditedSvga(project, layers, exportFileName, {
+        fadeConfig,
+        cropConfig,
+        cropFeather
+      });
       const exportedFile = new File([blob], fileName, { type: 'application/octet-stream' });
       if (onOpenViewer) {
         onOpenViewer(exportedFile);
@@ -1604,14 +1658,19 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               </button>
             </div>
 
-            {/* Background Color Swatches */}
+            {/* Background Color Swatches & Custom Image Upload */}
             <div className="flex items-center gap-1.5 pl-1">
               {bgSwatches.map(swatch => (
                 <button
                   key={swatch.label}
-                  onClick={() => setBgColor(swatch.value)}
+                  onClick={() => {
+                    setBgColor(swatch.value);
+                    if (bgImageUrl) {
+                      setBgImageUrl(null);
+                    }
+                  }}
                   className={`w-4 h-4 rounded-full border transition-all cursor-pointer ${
-                    bgColor === swatch.value ? 'scale-125 border-white ring-2 ring-indigo-500/50' : 'border-white/20 hover:scale-110'
+                    bgColor === swatch.value && !bgImageUrl ? 'scale-125 border-white ring-2 ring-indigo-500/50' : 'border-white/20 hover:scale-110'
                   }`}
                   style={{
                     backgroundColor: swatch.isChecker ? '#1e293b' : swatch.value,
@@ -1621,6 +1680,53 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                   title={swatch.label}
                 />
               ))}
+
+              <div className="h-3 w-px bg-white/10 mx-0.5" />
+
+              {/* Upload Background Image for Gift Preview (Fixed & Uncropped) */}
+              <input
+                type="file"
+                ref={bgFileInputRef}
+                onChange={handleBackgroundUpload}
+                accept="image/png,image/jpeg,image/webp,image/jpg"
+                className="hidden"
+              />
+
+              {bgImageUrl ? (
+                <div className="flex items-center gap-1 bg-indigo-950/80 border border-indigo-500/50 rounded-xl px-1.5 py-0.5 shadow-sm">
+                  <button
+                    onClick={() => bgFileInputRef.current?.click()}
+                    className="flex items-center gap-1 text-[10px] text-cyan-300 hover:text-white font-bold cursor-pointer"
+                    title="تغيير صورة الخلفية المعاينة (الخلفية ثابتة وكاملة)"
+                  >
+                    <img
+                      src={bgImageUrl}
+                      alt="Background Preview"
+                      className="w-4 h-4 rounded object-cover border border-cyan-400/50"
+                    />
+                    <span className="hidden xl:inline text-[9px]">خلفية ثابتة ✓</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setBgImageUrl(null);
+                      setSuccessToast('تمت إزالة صورة الخلفية والعودة للوضع الافتراضي');
+                    }}
+                    className="p-0.5 text-slate-400 hover:text-rose-400 rounded transition-colors cursor-pointer"
+                    title="إزالة صورة الخلفية"
+                  >
+                    <X size={11} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => bgFileInputRef.current?.click()}
+                  className="flex items-center gap-1 px-2 py-1 bg-white/5 hover:bg-indigo-600/20 text-slate-300 hover:text-indigo-200 rounded-xl text-[10px] font-medium border border-white/10 hover:border-indigo-500/40 transition-all cursor-pointer"
+                  title="رفع صورة خلفية للمعاينة (تثبيت خلفية حية للهدية بدون قصها)"
+                >
+                  <ImageIcon size={12} className="text-indigo-400" />
+                  <span className="hidden lg:inline text-[9px] font-bold">رفع خلفية</span>
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -1773,6 +1879,10 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                 onPanChange={setPanOffset}
                 onDeleteLayer={handleDeleteLayer}
                 onUpdateProjectDimensions={handleUpdateProjectDimensions}
+                fadeConfig={fadeConfig}
+                cropConfig={cropConfig}
+                cropFeather={cropFeather}
+                bgImageUrl={bgImageUrl}
               />
             </div>
 
@@ -1834,6 +1944,13 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               groupLayersCount={selectedLayer?.groupId ? layers.filter(l => l.groupId === selectedLayer.groupId).length : 0}
               onUpdateProjectDimensions={handleUpdateProjectDimensions}
               onSyncSequenceMotion={handleSyncSequenceMotion}
+              fadeConfig={fadeConfig}
+              cropConfig={cropConfig}
+              cropFeather={cropFeather}
+              onUpdateFadeConfig={setFadeConfig}
+              onUpdateCropConfig={setCropConfig}
+              onUpdateCropFeather={setCropFeather}
+              onResetTransparency={handleResetTransparency}
             />
           </aside>
         </div>
@@ -2072,100 +2189,19 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       {/* Export Confirmation & Download Modal */}
       <AnimatePresence>
         {showExportModal && project && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" dir="rtl">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-[#0b1020] border border-white/15 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-5"
-            >
-              {/* Modal Header */}
-              <div className="flex items-center justify-between border-b border-white/10 pb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
-                    <Download size={20} />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-bold text-white">تصدير ملف SVGA المعدل</h3>
-                    <p className="text-[11px] text-slate-400">تصدير الأنميشن بصيغة SVGA 2.0 مع كامل الحركات والأصوات</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowExportModal(false)}
-                  className="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-xl transition-colors cursor-pointer"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              {/* File details summary cards */}
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="bg-slate-900/80 border border-white/5 rounded-2xl p-3">
-                  <span className="text-[10px] text-slate-400 block mb-1">الأبعاد</span>
-                  <span className="text-xs font-mono font-bold text-white">{project.width} × {project.height}</span>
-                </div>
-                <div className="bg-slate-900/80 border border-white/5 rounded-2xl p-3">
-                  <span className="text-[10px] text-slate-400 block mb-1">عدد الفريمات / FPS</span>
-                  <span className="text-xs font-mono font-bold text-white">{project.totalFrames} F @ {project.fps} fps</span>
-                </div>
-                <div className="bg-slate-900/80 border border-white/5 rounded-2xl p-3">
-                  <span className="text-[10px] text-slate-400 block mb-1">عدد الطبقات</span>
-                  <span className="text-xs font-mono font-bold text-indigo-400">{layers.filter(l => l.visible).length} طبقة</span>
-                </div>
-              </div>
-
-              {/* File Name Input */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-300">اسم الملف عند الحفظ:</label>
-                <div className="bg-slate-900 border border-white/10 focus-within:border-indigo-500 rounded-2xl px-4 py-2.5 flex items-center gap-2">
-                  <FileCode size={16} className="text-indigo-400 shrink-0" />
-                  <input
-                    type="text"
-                    value={exportFileName}
-                    onChange={(e) => setExportFileName(e.target.value)}
-                    placeholder="my_animation_edited.svga"
-                    className="w-full bg-transparent text-xs font-mono text-white outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* Features preserved pill */}
-              <div className="bg-indigo-950/40 border border-indigo-500/20 rounded-2xl p-3 space-y-1.5 text-[11px] text-indigo-200">
-                <div className="flex items-center gap-2 font-bold text-indigo-300">
-                  <CheckCircle2 size={14} className="text-emerald-400" />
-                  <span>الميزات المحفوظة في التصدير:</span>
-                </div>
-                <ul className="grid grid-cols-2 gap-1 text-[10px] text-slate-300 pr-5 list-disc">
-                  <li>مسارات وتحولات الحركة الأصلية</li>
-                  <li>المسارات الصوتية المدمجة ({project.audios?.length || 0})</li>
-                  <li>الشفافية والتأثيرات النواقل (Shapes)</li>
-                  <li>الصور والطبقات المستبدلة</li>
-                </ul>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex items-center gap-3 pt-2">
-                <button
-                  onClick={handleExport}
-                  disabled={isExporting}
-                  className="flex-1 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold rounded-2xl shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 transition-all cursor-pointer hover:scale-[1.02] disabled:opacity-50"
-                >
-                  <Download size={15} /> {isExporting ? 'جاري إنشاء الملف...' : 'تصدير وتحميل الآن'}
-                </button>
-
-                {onOpenViewer && (
-                  <button
-                    onClick={handlePreviewExported}
-                    disabled={isExporting}
-                    className="px-4 py-3 bg-white/10 hover:bg-white/15 text-slate-200 hover:text-white text-xs font-bold rounded-2xl border border-white/10 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                    title="معاينة الملف المعدل في مشغل SVGA"
-                  >
-                    <Play size={14} /> معاينة في المشغل
-                  </button>
-                )}
-              </div>
-            </motion.div>
-          </div>
+          <ErrorBoundary fallbackTitle="حدث خطأ في واجهة التصدير" onReset={() => setShowExportModal(false)}>
+            <SvgaExportModal
+              isOpen={showExportModal}
+              onClose={() => setShowExportModal(false)}
+              project={project}
+              layers={layers}
+              fadeConfig={fadeConfig}
+              cropConfig={cropConfig}
+              cropFeather={cropFeather}
+              onOpenViewer={onOpenViewer}
+              onSuccessToast={(msg) => setSuccessToast(msg)}
+            />
+          </ErrorBoundary>
         )}
       </AnimatePresence>
 

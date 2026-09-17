@@ -1,6 +1,8 @@
 import React, { useRef, useState } from 'react';
 import { EditableLayer, SVGAProjectData, LayerKeyframe } from './types';
 import { upsertKeyframe, deleteKeyframe } from './motionEngine';
+import { FadeConfig, CropConfig, CropFeather, isTransparencyActive } from './transparencyEngine';
+import { SvgaTransparencyPanel } from './SvgaTransparencyPanel';
 import { 
   Sliders, Link, Unlink, RotateCcw, 
   AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter,
@@ -58,6 +60,13 @@ interface SvgaPropertiesPanelProps {
   groupLayersCount?: number;
   onUpdateProjectDimensions?: (width: number, height: number, scaleLayers?: boolean) => void;
   onSyncSequenceMotion?: (layerIdOrGroupId: string) => void;
+  fadeConfig?: FadeConfig;
+  cropConfig?: CropConfig;
+  cropFeather?: CropFeather;
+  onUpdateFadeConfig?: (config: FadeConfig) => void;
+  onUpdateCropConfig?: (config: CropConfig) => void;
+  onUpdateCropFeather?: (feather: CropFeather) => void;
+  onResetTransparency?: () => void;
 }
 
 export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
@@ -86,7 +95,14 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
   onToggleGroupVisibility,
   groupLayersCount = 0,
   onUpdateProjectDimensions,
-  onSyncSequenceMotion
+  onSyncSequenceMotion,
+  fadeConfig,
+  cropConfig,
+  cropFeather,
+  onUpdateFadeConfig,
+  onUpdateCropConfig,
+  onUpdateCropFeather,
+  onResetTransparency
 }) => {
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const [panelNudgeStep, setPanelNudgeStep] = useState<number>(1);
@@ -98,6 +114,7 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
   const [pairSyncMotion, setPairSyncMotion] = useState<boolean>(true);
   const [previewModalLayer, setPreviewModalLayer] = useState<EditableLayer | null>(null);
   const [autoRecordScaleKeyframe, setAutoRecordScaleKeyframe] = useState<boolean>(true);
+  const [panelActiveTab, setPanelActiveTab] = useState<'layer' | 'transparency'>('layer');
 
   // Project Dimension Settings State for Panel
   const [panelWidthInput, setPanelWidthInput] = useState<number>(project?.width || 500);
@@ -906,6 +923,19 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
           </div>
         </div>
 
+        {/* Edge Fade & Advanced Edge Crop System */}
+        {fadeConfig && cropConfig && cropFeather && onUpdateFadeConfig && onUpdateCropConfig && onUpdateCropFeather && onResetTransparency && (
+          <SvgaTransparencyPanel
+            fadeConfig={fadeConfig}
+            cropConfig={cropConfig}
+            cropFeather={cropFeather}
+            onUpdateFadeConfig={onUpdateFadeConfig}
+            onUpdateCropConfig={onUpdateCropConfig}
+            onUpdateCropFeather={onUpdateCropFeather}
+            onResetTransparency={onResetTransparency}
+          />
+        )}
+
         {/* Help Note */}
         <div className="flex flex-col items-center justify-center p-4 text-center text-slate-500">
           <Sliders size={18} className="text-slate-500 mb-1.5" />
@@ -1017,6 +1047,53 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
         }}
       />
 
+      {/* Top Tab Bar: Layer Properties vs Edge Fade & Crop */}
+      <div className="flex items-center p-1 bg-black/40 rounded-xl border border-white/10 gap-1 shrink-0">
+        <button
+          type="button"
+          onClick={() => setPanelActiveTab('layer')}
+          className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+            panelActiveTab === 'layer'
+              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Layers size={13} />
+          <span>خصائص الطبقة</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setPanelActiveTab('transparency')}
+          className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer relative ${
+            panelActiveTab === 'transparency'
+              ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/30'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Sliders size={13} className="text-cyan-400" />
+          <span>تدرج الشفافية والقص</span>
+          {isTransparencyActive(fadeConfig, cropConfig) && (
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+          )}
+        </button>
+      </div>
+
+      {panelActiveTab === 'transparency' ? (
+        <div className="space-y-4">
+          {fadeConfig && cropConfig && cropFeather && onUpdateFadeConfig && onUpdateCropConfig && onUpdateCropFeather && onResetTransparency && (
+            <SvgaTransparencyPanel
+              fadeConfig={fadeConfig}
+              cropConfig={cropConfig}
+              cropFeather={cropFeather}
+              onUpdateFadeConfig={onUpdateFadeConfig}
+              onUpdateCropConfig={onUpdateCropConfig}
+              onUpdateCropFeather={onUpdateCropFeather}
+              onResetTransparency={onResetTransparency}
+            />
+          )}
+        </div>
+      ) : (
+        <>
       {/* Merged Layer Card if this layer is a composite merged layer */}
       {layer.isMerged && (
         <div className="bg-gradient-to-br from-purple-950/90 to-indigo-950/90 border border-purple-500/50 rounded-2xl p-3.5 space-y-3 shadow-xl">
@@ -2196,6 +2273,8 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
           </div>
         </div>
       </div>
+      </>
+      )}
 
       {/* Full Screen Image Preview Modal (لوحة الخصائص) */}
       {previewModalLayer && previewModalLayer.thumbnailUrl && (

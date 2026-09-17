@@ -122,6 +122,27 @@ export interface SVGAAudioTrack {
   durationSec?: number;
 }
 
+export interface FadeConfig {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+export interface CropConfig {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+export interface CropFeather {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
 export interface SVGAProjectData {
   fileName: string;
   fileSize: number;
@@ -134,6 +155,9 @@ export interface SVGAProjectData {
   rawImages: Record<string, Uint8Array>; // key -> bytes
   audios: SVGAAudioTrack[];
   rawMovie: any; // Raw protobuf object
+  fadeConfig?: FadeConfig;
+  cropConfig?: CropConfig;
+  cropFeather?: CropFeather;
 }
 
 export interface GuideLine {

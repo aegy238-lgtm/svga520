@@ -74,7 +74,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     onConverterOpen={isFeatureAllowed('videoConverter') ? () => onAction('videoConverter') : undefined}
                     onMultiSvgaOpen={isFeatureAllowed('multiSvga') ? () => onAction('multiSvga') : undefined}
                     onBatchImageOpen={isFeatureAllowed('batchImageProcessor') ? () => onAction('batchImageOpen') : undefined}
-                    onPagConverterOpen={isFeatureAllowed('pagConverterOpen') ? () => onAction('pagConverterOpen') : undefined} 
                 />
             </div>
         </section>

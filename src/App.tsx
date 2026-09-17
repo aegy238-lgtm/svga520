@@ -2,7 +2,6 @@ import React, { useState, useCallback, useEffect, useRef, Suspense, lazy } from 
 import { motion, AnimatePresence } from 'motion/react';
 import { Header } from './components/Header';
 import { FeaturesGuideModal } from './components/FeaturesGuideModal';
-import { WelcomeGuideModal } from './components/WelcomeGuideModal';
 import { Uploader } from './components/Uploader';
 import { Dashboard } from './components/Dashboard';
 
@@ -18,18 +17,17 @@ const ImageProcessor = lazy(() => import('./components/ImageProcessor').then(m =
 const ImageEnhancer = lazy(() => import('./components/ImageEnhancer').then(m => ({ default: m.ImageEnhancer })));
 const BatchImageProcessor = lazy(() => import('./components/BatchImageProcessor').then(m => ({ default: m.BatchImageProcessor })));
 const BatchImageConverter = lazy(() => import('./components/BatchImageConverter').then(m => ({ default: m.BatchImageConverter })));
-const PagConverter = lazy(() => import('./components/PagConverter').then(m => ({ default: m.PagConverter })));
 const PagToSvgaStudio = lazy(() => import('./components/PagToSvgaStudio').then(m => ({ default: m.PagToSvgaStudio })));
 const SvgaBatchCompressor = lazy(() => import('./components/SvgaBatchCompressor').then(m => ({ default: m.SvgaBatchCompressor })));
 const SvgaLayerEditor = lazy(() => import('./components/SvgaLayerEditor/SvgaLayerEditor').then(m => ({ default: m.SvgaLayerEditor })));
 const ImageEditor = lazy(() => import('./components/ImageEditor').then(m => ({ default: m.ImageEditor })));
 const Name3DEditor = lazy(() => import('./components/Name3DEditor/Name3DEditor'));
 const ImageMatcher = lazy(() => import('./components/ImageMatcher').then(m => ({ default: m.ImageMatcher })));
-const Store = lazy(() => import('./components/Store').then(m => ({ default: m.Store })));
 const AudioExtractor = lazy(() => import('./components/AudioExtractor').then(m => ({ default: m.AudioExtractor })));
 const AIVideoMattingStudio = lazy(() => import('./components/AIVideoMattingStudio').then(m => ({ default: m.AIVideoMattingStudio })));
 const AnimationManager = lazy(() => import('./components/AnimationManager/AnimationManager').then(m => ({ default: m.AnimationManager })));
 const AdminPanel = lazy(() => import('./components/AdminPanel').then(m => ({ default: m.AdminPanel })));
+
 
 import { Login } from './components/Auth/Login';
 import { Signup } from './components/Auth/Signup';
@@ -72,7 +70,6 @@ const App: React.FC = () => {
   const [showFeaturesGuide, setShowFeaturesGuide] = useState(false);
   const [showWelcomeGuide, setShowWelcomeGuide] = useState(false);
   const [showBatchImage, setShowBatchImage] = useState(false);
-  const [showPagConverter, setShowPagConverter] = useState(false);
   const [uploadedPagFile, setUploadedPagFile] = useState<File | null>(null);
   const [layerEditorInitialFile, setLayerEditorInitialFile] = useState<File | null>(null);
   const [globalQuality, setGlobalQuality] = useState<'low' | 'medium' | 'high'>('high');
@@ -114,14 +111,12 @@ const App: React.FC = () => {
         () => import('./components/ImageEnhancer'),
         () => import('./components/BatchImageProcessor'),
         () => import('./components/BatchImageConverter'),
-        () => import('./components/PagConverter'),
         () => import('./components/PagToSvgaStudio'),
         () => import('./components/SvgaBatchCompressor'),
         () => import('./components/SvgaLayerEditor/SvgaLayerEditor'),
         () => import('./components/ImageEditor'),
         () => import('./components/Name3DEditor/Name3DEditor'),
         () => import('./components/ImageMatcher'),
-        () => import('./components/Store'),
         () => import('./components/AudioExtractor'),
         () => import('./components/AIVideoMattingStudio'),
         () => import('./components/AnimationManager/AnimationManager'),
@@ -433,7 +428,6 @@ const App: React.FC = () => {
     // Check for PAG file
     if ((file?.name || '').toLowerCase().endsWith('.pag')) {
       setUploadedPagFile(file);
-      setShowPagConverter(true);
       return;
     }
 
@@ -572,18 +566,7 @@ const App: React.FC = () => {
       <div className="fixed inset-0 bg-[#020617]/30 backdrop-blur-[4px] -z-10 pointer-events-none" />
       
       {/* 3D Splash Screen */}
-      {showWelcomeGuide && (
-        <WelcomeGuideModal 
-          onOpenGuide={() => {
-            setShowWelcomeGuide(false);
-            setShowFeaturesGuide(true);
-          }} 
-          onSkip={() => {
-            setShowWelcomeGuide(false);
-            localStorage.setItem('guide_skipped', 'true');
-          }}
-        />
-      )}
+      
       
       {showFeaturesGuide && (
         <FeaturesGuideModal onClose={() => {
@@ -716,7 +699,6 @@ const App: React.FC = () => {
         onLogout={logout}
         isAdminOpen={state === AppState.ADMIN_PANEL}
         onBatchOpen={() => handleFeatureAccess(AppState.BATCH_COMPRESSOR, 'Batch Compressor')}
-        onStoreOpen={() => setState(AppState.STORE)}
         onConverterOpen={() => handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter')}
         onImageConverterOpen={() => handleImageConverterOpen()}
         onImageEditorOpen={() => handleFeatureAccess(AppState.IMAGE_EDITOR, 'Image Editor')}
@@ -728,7 +710,6 @@ const App: React.FC = () => {
         onImageEnhancerOpen={() => handleFeatureAccess(AppState.IMAGE_ENHANCER, 'AI Image Enhancer')}
         onBatchImageProcessorOpen={() => handleFeatureAccess(AppState.BATCH_IMAGE_PROCESSOR, 'Batch Image Processor')}
         onUniversalConverterOpen={() => handleFeatureAccess(AppState.UNIVERSAL_CONVERTER, 'Universal Motion Tools')}
-        onPagConverterOpen={() => setShowPagConverter(true)}
         onName3DEditorOpen={() => handleFeatureAccess(AppState.NAME_3D_EDITOR, '3D Name Editor')}
         onAudioExtractorOpen={() => handleFeatureAccess(AppState.AUDIO_EXTRACTOR, 'Audio Extractor')}
         onAiVideoMattingOpen={() => handleFeatureAccess(AppState.AI_VIDEO_MATTING, 'AI Video Matting Studio')}
@@ -761,7 +742,6 @@ const App: React.FC = () => {
           state === AppState.NAME_3D_EDITOR ? 'name-3d' :
           state === AppState.AUDIO_EXTRACTOR ? 'audio-extractor' :
           state === AppState.UNIVERSAL_CONVERTER ? 'universal' :
-          showPagConverter ? 'pag-to-svga' :
           'svga'
         }
       />
@@ -822,7 +802,6 @@ const App: React.FC = () => {
                         case 'batchImageOpen': setShowBatchImage(true); break;
                         case 'name3DEditor': handleFeatureAccess(AppState.NAME_3D_EDITOR, '3D Name Editor'); break;
                         case 'audioExtractor': handleFeatureAccess(AppState.AUDIO_EXTRACTOR, 'Audio Extractor'); break;
-                        case 'pagConverterOpen': setShowPagConverter(true); break;
                      }
                   }}
                 />
@@ -877,9 +856,7 @@ const App: React.FC = () => {
                 />
               </ErrorBoundary>
             )}
-            {state === AppState.STORE && (
-              <Store currentUser={currentUser} onLoginRequired={() => {}} />
-            )}
+            
             {state === AppState.VIDEO_CONVERTER && (
               <VideoConverter 
                 currentUser={currentUser} 
@@ -1045,15 +1022,7 @@ const App: React.FC = () => {
         />
       )}
 
-      {showPagConverter && (
-        <PagToSvgaStudio
-          initialFile={uploadedPagFile}
-          onClose={() => {
-            setShowPagConverter(false);
-            setUploadedPagFile(null);
-          }}
-        />
-      )}
+        
 
       {/* Onboarding Modal */}
       <OnboardingModal 

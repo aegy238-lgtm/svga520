@@ -9,7 +9,6 @@ interface UploaderProps {
   onConverterOpen?: () => void;
   onMultiSvgaOpen?: () => void;
   onBatchImageOpen?: () => void;
-  onPagConverterOpen?: () => void;
   onAnimationManagerOpen?: () => void;
   globalQuality?: 'low' | 'medium' | 'high';
   setGlobalQuality?: (q: 'low' | 'medium' | 'high') => void;
@@ -22,7 +21,6 @@ export const Uploader: React.FC<UploaderProps> = ({
   onConverterOpen, 
   onMultiSvgaOpen, 
   onBatchImageOpen, 
-  onPagConverterOpen, 
   onAnimationManagerOpen, 
   globalQuality = 'high', 
   setGlobalQuality,
@@ -241,16 +239,7 @@ export const Uploader: React.FC<UploaderProps> = ({
               </button>
             )}
 
-            {onPagConverterOpen && (
-              <button 
-                onClick={(e) => { e.stopPropagation(); onPagConverterOpen(); }}
-                className="flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-b from-purple-500/20 to-purple-600/10 hover:from-purple-400/30 hover:to-purple-500/20 rounded-2xl border-t border-purple-400/30 border-b-4 border-b-purple-900/50 shadow-lg hover:shadow-[0_10px_20px_rgba(168,85,247,0.2)] hover:-translate-y-1 active:translate-y-1 active:border-b-0 transition-all group/btn"
-                title="محول PAG إلى SVGA"
-              >
-                 <Layers className="w-5 h-5 text-purple-400 group-hover/btn:scale-110 transition-transform drop-shadow-md" />
-                 <span className="text-xs text-purple-300 font-bold uppercase tracking-wide drop-shadow-sm whitespace-nowrap">محول PAG إلى SVGA</span>
-              </button>
-            )}
+              
 
             <button 
               onClick={(e) => {

@@ -1,5 +1,4 @@
 import React from 'react';
-import { FoodIcon } from './FoodIcon';
 
 interface ResultsBarProps {
   results: string[]; // array of foodIds from newest to oldest
@@ -38,7 +37,6 @@ export const ResultsBar: React.FC<ResultsBarProps> = ({ results }) => {
                         : 'bg-white/90 border border-amber-300/80 hover:bg-white'
                     }`}
                   >
-                    <FoodIcon id={foodId} size={22} />
                   </div>
                 </div>
               );

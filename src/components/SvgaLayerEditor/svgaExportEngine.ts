@@ -1,9 +1,16 @@
 import pako from 'pako';
 import protobuf from 'protobufjs';
 import { svgaSchema } from '../../svga-proto';
-import { EditableLayer, SVGAProjectData } from './types';
+import { EditableLayer, SVGAProjectData, FadeConfig, CropConfig, CropFeather } from './types';
 import { getLayerAnimatedTransform } from './motionEngine';
 import { ensureMp3WithId3 } from '../../utils/mp3Encoder';
+import { 
+  applyTransparencyToImage, 
+  isTransparencyActive, 
+  DEFAULT_FADE_CONFIG, 
+  DEFAULT_CROP_CONFIG, 
+  DEFAULT_CROP_FEATHER 
+} from './transparencyEngine';
 
 const root = protobuf.parse(svgaSchema).root;
 const MovieEntity = root.lookupType("com.opensource.svga.MovieEntity");
@@ -37,6 +44,41 @@ function buildExportContexts(layers: EditableLayer[], parents: EditableLayer[] =
   return result;
 }
 
+export interface SvgaCompressionOptions {
+  mode?: 'high' | 'medium' | 'low' | 'custom';
+  quality?: number; // 10 to 100
+  zlibLevel?: number; // 0 to 9 (0: store, 1: fastest, 6: balanced, 9: max compression)
+  compressImages?: boolean;
+}
+
+/**
+ * Helper to optionally compress image bytes using HTML5 Canvas WebP encoding
+ */
+async function optimizeImageBytes(bytes: Uint8Array, qualityRatio: number): Promise<Uint8Array> {
+  if (bytes.length < 2048) return bytes; // Skip tiny images
+  try {
+    const blob = new Blob([bytes]);
+    const bmp = await createImageBitmap(blob);
+    const canvas = document.createElement('canvas');
+    canvas.width = bmp.width;
+    canvas.height = bmp.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return bytes;
+    ctx.drawImage(bmp, 0, 0);
+    const q = Math.max(0.1, Math.min(1.0, qualityRatio));
+    const compressedBlob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, 'image/webp', q);
+    });
+    if (compressedBlob && compressedBlob.size < bytes.length * 0.95) {
+      const arr = await compressedBlob.arrayBuffer();
+      return new Uint8Array(arr);
+    }
+    return bytes;
+  } catch {
+    return bytes;
+  }
+}
+
 /**
  * Exports the edited SVGA project with all animations, audios, and layer modifications preserved.
  * Optimized for high performance and large file support (no memory exhaustion).
@@ -44,7 +86,13 @@ function buildExportContexts(layers: EditableLayer[], parents: EditableLayer[] =
 export async function exportEditedSvga(
   project: SVGAProjectData,
   layers: EditableLayer[],
-  customFileName?: string
+  customFileName?: string,
+  transparencyOptions?: {
+    fadeConfig?: FadeConfig;
+    cropConfig?: CropConfig;
+    cropFeather?: CropFeather;
+  },
+  compressionOptions?: SvgaCompressionOptions
 ): Promise<{ blob: Blob; fileName: string }> {
   const exportMovie: any = {
     version: "2.0"
@@ -136,6 +184,63 @@ export async function exportEditedSvga(
           const ab = await res.arrayBuffer();
           exportImages[key] = new Uint8Array(ab);
         } catch (e) {}
+      }
+    }
+  }
+
+  // Apply Edge Fade and Advanced Crop to image assets if active
+  const activeFade = transparencyOptions?.fadeConfig || project.fadeConfig || DEFAULT_FADE_CONFIG;
+  const activeCrop = transparencyOptions?.cropConfig || project.cropConfig || DEFAULT_CROP_CONFIG;
+  const activeFeather = transparencyOptions?.cropFeather || project.cropFeather || DEFAULT_CROP_FEATHER;
+
+  if (isTransparencyActive(activeFade, activeCrop)) {
+    const audioKeys = new Set((project.audios || []).map(a => a.audioKey));
+    
+    for (const [key, bytes] of Object.entries(exportImages)) {
+      if (audioKeys.has(key)) {
+        continue; // Protect audio tracks from image processing
+      }
+      
+      const matchingCtx = exportContexts.find(c => c.layer.imageKey === key);
+      const layerBounds = matchingCtx?.layer?.initialBounds || (matchingCtx ? {
+        x: matchingCtx.layer.transform?.x || 0,
+        y: matchingCtx.layer.transform?.y || 0,
+        width: matchingCtx.layer.transform?.width || project.width,
+        height: matchingCtx.layer.transform?.height || project.height
+      } : undefined);
+
+      try {
+        const processedBytes = await applyTransparencyToImage(
+          bytes,
+          activeFade,
+          activeCrop,
+          activeFeather,
+          layerBounds,
+          project.width,
+          project.height
+        );
+        exportImages[key] = processedBytes;
+      } catch (err) {
+        console.warn(`Could not apply transparency to image asset ${key}:`, err);
+      }
+    }
+  }
+
+  // Apply optional image compression if requested by the user
+  const shouldCompressImages = Boolean(
+    compressionOptions?.compressImages ||
+    compressionOptions?.mode === 'low' ||
+    (compressionOptions?.quality && compressionOptions.quality < 95)
+  );
+  if (shouldCompressImages) {
+    const audioKeys = new Set((project.audios || []).map(a => a.audioKey));
+    const qualityRatio = (compressionOptions?.quality ? compressionOptions.quality : (compressionOptions?.mode === 'low' ? 60 : 80)) / 100;
+    for (const [key, bytes] of Object.entries(exportImages)) {
+      if (audioKeys.has(key)) continue; // Never compress audio as images
+      try {
+        exportImages[key] = await optimizeImageBytes(bytes, qualityRatio);
+      } catch (e) {
+        console.warn(`Could not optimize image asset ${key}:`, e);
       }
     }
   }
@@ -349,7 +454,19 @@ export async function exportEditedSvga(
   const message = MovieEntity.create(exportMovie);
   const encodedBuffer = MovieEntity.encode(message).finish();
 
-  const deflated = pako.deflate(encodedBuffer, { level: 6 });
+  // Determine zlib compression level (0 - 9)
+  let targetZlibLevel: pako.DeflateFunctionOptions["level"] = 6;
+  if (typeof compressionOptions?.zlibLevel === 'number') {
+    targetZlibLevel = Math.max(0, Math.min(9, Math.round(compressionOptions.zlibLevel))) as any;
+  } else if (compressionOptions?.mode === 'low') {
+    targetZlibLevel = 9; // maximum compression
+  } else if (compressionOptions?.mode === 'medium') {
+    targetZlibLevel = 6; // balanced
+  } else if (compressionOptions?.mode === 'high') {
+    targetZlibLevel = 6; // standard lossless
+  }
+
+  const deflated = pako.deflate(encodedBuffer, { level: targetZlibLevel });
   const blob = new Blob([deflated], { type: 'application/octet-stream' });
 
   const finalName = customFileName 

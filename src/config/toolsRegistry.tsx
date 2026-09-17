@@ -72,7 +72,7 @@ export const CATEGORIES_CONFIG: Record<ToolCategory, CategoryInfo> = {
   },
   store: {
     id: 'store',
-    label: 'المتجر والأصول المساعدة',
+    label: 'المتجر والأصول',
     icon: <ShoppingBag className="w-5 h-5" />,
     color: 'from-fuchsia-500/10 to-pink-600/10',
     hoverColor: 'group-hover:from-fuchsia-500/20 group-hover:to-pink-600/20',
@@ -81,31 +81,7 @@ export const CATEGORIES_CONFIG: Record<ToolCategory, CategoryInfo> = {
   }
 };
 
-/**
- * 🌟 Central Unified Tools Registry
- * Every single tool in the platform is registered here.
- * Any new feature added here will automatically appear:
- * 1. In the top navigation header bar
- * 2. In the Dashboard tools cards
- * 3. In the Search Command Palette (Ctrl+K)
- * 4. In the All Tools mega-grid
- * 5. In the Mobile navigation menu
- */
 export const TOOLS_REGISTRY: ToolRegistryItem[] = [
-  // --- أنيميشن و SVGA ---
-  {
-    id: 'animation-manager',
-    label: 'Animation File Manager & Studio',
-    icon: <Film className="w-4 h-4 text-cyan-400" />,
-    category: 'svga',
-    categoryNameAr: 'أنيميشن و SVGA',
-    actionKey: 'onAnimationManagerOpen',
-    dashboardActionKey: 'animationManager',
-    featureAccessKey: 'animationManager',
-    descAr: 'مركز احترافي متكامل لرفع ومعاينة وإدارة وتحويل وتصدير ملفات الأنيميشن (GIF, WebP, APNG, PNG, Lottie, DotLottie, MP4) مع منع التكرار (Content Hash) والتصدير الجماعي ZIP.',
-    descEn: 'Professional hub to upload, preview, manage, convert, and batch export animation files (GIF, WebP, APNG, PNG, Lottie, DotLottie, MP4) with hash deduplication and ZIP packaging.',
-    highlight: true
-  },
   {
     id: 'svga-layer-editor',
     label: 'تحرير طبقات SVGA',
@@ -145,20 +121,7 @@ export const TOOLS_REGISTRY: ToolRegistryItem[] = [
     descEn: 'Professional editor for complex compositions of multiple SVGA files.',
     highlight: true
   },
-  {
-    id: 'pag-to-svga',
-    label: 'PAG to SVGA Converter',
-    icon: <Box className="w-4 h-4 text-fuchsia-400" />,
-    category: 'svga',
-    categoryNameAr: 'أنيميشن و SVGA',
-    actionKey: 'onPagConverterOpen',
-    dashboardActionKey: 'pagConverterOpen',
-    featureAccessKey: 'pagConverterOpen',
-    descAr: 'تحويل ملفات PAG إلى SVGA مع الحفاظ الكامل على الطبقات والحركة والشفافية.',
-    descEn: 'Convert PAG files to SVGA preserving layers, keyframes and alpha.',
-    highlight: true,
-    hideFromTopNav: true
-  },
+  
   {
     id: 'multi-svga',
     label: 'Multi SVGA Preview',
@@ -340,22 +303,14 @@ export const TOOLS_REGISTRY: ToolRegistryItem[] = [
     descEn: 'Fast tool to convert videos and composite them to other formats like SVGA.'
   },
 
-  // --- المتجر والأصول ---
-  {
-    id: 'store',
-    label: 'SVGA Store',
-    icon: <ShoppingBag className="w-4 h-4 text-pink-400" />,
-    category: 'store',
-    categoryNameAr: 'المتجر والأصول المساعدة',
-    actionKey: 'onStoreOpen',
-    dashboardActionKey: 'store',
-    featureAccessKey: 'store',
-    descAr: 'متجر احترافي ضخم يحتوي على مئات المؤثرات، الإطارات، والتركيبات الجاهزة.',
-    descEn: 'Huge professional store with hundreds of effects, frames, and ready-to-use assets.',
-    highlight: true
-  }
-];
+ ];
 
+export const getToolById = (id: string) => TOOLS_REGISTRY.find(t => t.id === id);
+
+export const categoryNamesAr = TOOLS_REGISTRY.reduce((acc, tool) => {
+  acc[tool.category] = tool.categoryNameAr;
+  return acc;
+}, {} as Record<string, string>);
 export const TOOL_FEATURE_MAP: Record<string, string> = TOOLS_REGISTRY.reduce((acc, tool) => {
   acc[tool.id] = tool.featureAccessKey;
   return acc;

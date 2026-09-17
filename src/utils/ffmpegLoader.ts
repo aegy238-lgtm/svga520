@@ -14,9 +14,7 @@ export const loadFFmpegWithFallbacks = async (ffmpeg: FFmpeg, onLog?: (msg: stri
         });
     }
 
-    const localBase = typeof window !== 'undefined' ? `${window.location.origin}/vendor/ffmpeg-core` : '/vendor/ffmpeg-core';
     const cdnBases = [
-      localBase,
       'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd',
       'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd',
       'https://fastly.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd'
@@ -30,7 +28,7 @@ export const loadFFmpegWithFallbacks = async (ffmpeg: FFmpeg, onLog?: (msg: stri
           const wasmURL = await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm');
           await ffmpeg.load({ coreURL, wasmURL });
         };
-        const timeoutMs = base === localBase ? 15000 : 30000;
+        const timeoutMs = 30000;
         const timeoutPromise = new Promise((_, reject) => 
           setTimeout(() => reject(new Error(`Timeout loading from ${base}`)), timeoutMs)
         );
@@ -41,5 +39,5 @@ export const loadFFmpegWithFallbacks = async (ffmpeg: FFmpeg, onLog?: (msg: stri
         console.warn(`[FFmpeg Loader] Load failed from ${base}:`, e);
       }
     }
-    throw new Error('فشل تحميل محرك المعالجة المحلي من الخوادم السحابية والمحلية');
+    throw new Error('فشل تحميل محرك المعالجة المحلي من الخوادم السحابية و');
 };

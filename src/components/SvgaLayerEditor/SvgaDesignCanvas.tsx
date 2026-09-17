@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
-import { EditableLayer, SVGAProjectData, CanvasTool, GuideLine } from './types';
+import { EditableLayer, SVGAProjectData, CanvasTool, GuideLine, FadeConfig, CropConfig, CropFeather } from './types';
 import { getLayerAnimatedTransform } from './motionEngine';
+import { applyTransparencyEffects } from './transparencyEngine';
 import { 
   ZoomIn, ZoomOut, RefreshCw, Maximize2, 
   Grid, Compass, Eye, Shield, RotateCcw,
@@ -28,6 +29,10 @@ interface SvgaDesignCanvasProps {
   onPanChange: (offset: { x: number; y: number }) => void;
   onDeleteLayer?: (layerId: string) => void;
   onUpdateProjectDimensions?: (width: number, height: number, scaleLayers?: boolean) => void;
+  fadeConfig?: FadeConfig;
+  cropConfig?: CropConfig;
+  cropFeather?: CropFeather;
+  bgImageUrl?: string | null;
 }
 
 type DragHandleType = 'move' | 'nw' | 'ne' | 'se' | 'sw' | 'n' | 's' | 'e' | 'w' | 'rot' | 'pan';
@@ -442,12 +447,18 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
   onZoomChange,
   onPanChange,
   onDeleteLayer,
-  onUpdateProjectDimensions
+  onUpdateProjectDimensions,
+  fadeConfig,
+  cropConfig,
+  cropFeather,
+  bgImageUrl
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const layersCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const patternCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const bgImageRef = useRef<HTMLImageElement | null>(null);
   const imagesCache = useRef<Record<string, HTMLImageElement>>({});
 
   // Project Dimensions Controls State
@@ -503,6 +514,25 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       setCacheVersion(v => v + 1);
     }
   }, [project.imagesMap]);
+
+  // Preload and cache background image for preview
+  useEffect(() => {
+    if (!bgImageUrl) {
+      bgImageRef.current = null;
+      setCacheVersion(v => v + 1);
+      return;
+    }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      bgImageRef.current = img;
+      setCacheVersion(v => v + 1);
+    };
+    img.onerror = () => {
+      console.warn("Could not load background image for preview:", bgImageUrl);
+    };
+    img.src = bgImageUrl;
+  }, [bgImageUrl]);
 
   // Helper to convert screen client coords to Canvas design coordinates (viewBox)
   const clientToCanvasCoords = useCallback((clientX: number, clientY: number) => {
@@ -738,8 +768,11 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
     ctx.clearRect(0, 0, width, height);
 
-    // 1. Draw Checkerboard background if transparent (high-performance cached pattern)
-    if (bgColor === 'transparent') {
+    // 1. Draw Background:
+    // If a custom background image is uploaded, draw it firmly, uncropped, and fixed to fill the canvas
+    if (bgImageRef.current && bgImageRef.current.complete && bgImageRef.current.naturalWidth > 0) {
+      ctx.drawImage(bgImageRef.current, 0, 0, width, height);
+    } else if (bgColor === 'transparent') {
       if (!patternCanvasRef.current) {
         const pCanvas = document.createElement('canvas');
         pCanvas.width = 32;
@@ -787,6 +820,20 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       }
       ctx.restore();
     }
+
+    // 3. Prepare Layer Buffer Canvas to isolate gift layers from background
+    // (This guarantees that Edge Fade & Advanced Crop apply ONLY to the gift layers, leaving background pristine!)
+    if (!layersCanvasRef.current) {
+      layersCanvasRef.current = document.createElement('canvas');
+    }
+    const layersCanvas = layersCanvasRef.current;
+    if (layersCanvas.width !== width || layersCanvas.height !== height) {
+      layersCanvas.width = width;
+      layersCanvas.height = height;
+    }
+    const layersCtx = layersCanvas.getContext('2d');
+    if (!layersCtx) return;
+    layersCtx.clearRect(0, 0, width, height);
 
     // 3. Leaf sprite drawing helper
     const renderLeafSprite = (
@@ -1006,22 +1053,22 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
             renderLeafSprite(offCtx, maskLayer, mMaskTotalMatrix, maskAlpha, true /* isMask */);
             offCtx.restore();
 
-            // 3. Draw masked result to main canvas, respecting layer blend mode
-            ctx.save();
+            // 3. Draw masked result to layers canvas, respecting layer blend mode
+            layersCtx.save();
             const rawBlend = layerItem.blendMode || layerItem.spriteRef?.blendMode;
             const bm = mapBlendMode(rawBlend);
             if (bm) {
-              ctx.globalCompositeOperation = bm;
+              layersCtx.globalCompositeOperation = bm;
             }
-            ctx.drawImage(offCanvas, 0, 0);
-            ctx.restore();
+            layersCtx.drawImage(offCanvas, 0, 0);
+            layersCtx.restore();
             return;
           }
         }
       }
 
-      // Standard leaf sprite drawing
-      renderLeafSprite(ctx, layerItem, currentTotalMatrix, currentAlpha);
+      // Standard leaf sprite drawing to layers canvas
+      renderLeafSprite(layersCtx, layerItem, currentTotalMatrix, currentAlpha);
     };
 
     // Identify all layers serving as matte/mask templates
@@ -1053,7 +1100,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       return false;
     };
 
-    // Render all visible top-level layers in visual stacking order:
+    // Render all visible top-level layers in visual stacking order into layersCtx:
     // layers[last] (background) is drawn first -> layers[0] (foreground/top of stack) is drawn last (in front)!
     const layersToRender = [...layers].reverse();
     for (const layer of layersToRender) {
@@ -1063,6 +1110,15 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       }
       renderLayerRecursive(layer, null, 1.0);
     }
+
+    // 3.5 Apply Edge Fade & Advanced Edge Crop to the GIFT LAYERS ONLY on layersCtx!
+    // (Notice: The uploaded background image on ctx is untouched, so it remains full, crisp, and fixed!)
+    if (fadeConfig && cropConfig && cropFeather) {
+      applyTransparencyEffects(layersCtx, width, height, fadeConfig, cropConfig, cropFeather);
+    }
+
+    // 3.6 Draw the rendered & faded gift layers directly on top of the pristine background!
+    ctx.drawImage(layersCanvas, 0, 0);
 
     // 4. Draw Active Smart Alignment Guides
     if (showGuides && activeGuides.length > 0) {
@@ -1206,7 +1262,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         ctx.restore();
       }
     }
-  }, [project, layers, selectedLayer, activeSelectedIds, selectedLayerId, currentFrame, bgColor, showGrid, showGuides, activeGuides, computeLayerMatrix, getLayerFrameState, cacheVersion]);
+  }, [project, layers, selectedLayer, activeSelectedIds, selectedLayerId, currentFrame, bgColor, showGrid, showGuides, activeGuides, computeLayerMatrix, getLayerFrameState, cacheVersion, fadeConfig, cropConfig, cropFeather]);
 
   useEffect(() => {
     drawScene();
