@@ -27,6 +27,7 @@ import Vap from 'video-animation-player';
 import { extractVapConfigFromBlob, convertVapToMp4, WebGLVapRenderer, seekVideoToFrame, VapConfig } from '../utils/vapEngine';
 import { downloadDesignerInfoFile } from '../utils/designerInfo';
 import { extractSvgaFromPdfFile, PdfUnlockRequest } from '../utils/pdfSvgaExtractor';
+import { generateSvgaAllInOnePdf, SvgaPdfItem } from '../utils/svgaAllInOnePdfGenerator';
 
 const decodeDataToBytes = (data: any): Uint8Array | null => {
   if (!data) return null;
@@ -369,6 +370,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const [customHeight, setCustomHeight] = useState<number | null>(null);
   const [isCustomDimensionsActive, setIsCustomDimensionsActive] = useState<boolean>(false);
   const [includePdfCatalog, setIncludePdfCatalog] = useState(false);
+  const [isPdfAllInOneExporting, setIsPdfAllInOneExporting] = useState(false);
+  const [pdfAllInOneProgress, setPdfAllInOneProgress] = useState(0);
   const [preventDuplicates, setPreventDuplicates] = useState(true);
   const preventDuplicatesRef = useRef(true);
   useEffect(() => {
@@ -3255,6 +3258,123 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     }
   };
 
+  const handleDownloadAllSvgaInOnePdf = async () => {
+    const activeItems = getActiveItems();
+    if (activeItems.length === 0) {
+      alert('يرجى رفع ملفات SVGA أولاً لتنزيلها في ملف PDF واحد.');
+      return;
+    }
+
+    if (currentUser) {
+      logActivity(currentUser, 'export', `All SVGA In One PDF Export: ${activeItems.length} items`);
+    }
+
+    const nameCounts: Record<string, number> = {};
+    const uniqueNames: Record<string, string> = {};
+    activeItems.forEach(item => {
+      const cleanName = item.name.replace(/\.[^/.]+$/, '');
+      if (nameCounts[cleanName]) {
+        nameCounts[cleanName]++;
+        uniqueNames[item.id] = `${cleanName}_${nameCounts[cleanName]}`;
+      } else {
+        nameCounts[cleanName] = 1;
+        uniqueNames[item.id] = cleanName;
+      }
+    });
+
+    setIsPdfAllInOneExporting(true);
+    setPdfAllInOneProgress(2);
+
+    try {
+      const pdfItems: SvgaPdfItem[] = [];
+      const BATCH_SIZE = 3;
+      let completed = 0;
+
+      for (let i = 0; i < activeItems.length; i += BATCH_SIZE) {
+        const batch = activeItems.slice(i, i + BATCH_SIZE);
+        await Promise.all(batch.map(async (item) => {
+          try {
+            const baseName = uniqueNames[item.id] || item.name.replace(/\.[^/.]+$/, '');
+            const fileBuffer = await item.file.arrayBuffer();
+            const fileBytes = new Uint8Array(fileBuffer);
+
+            // Capture clearest, highest quality preview frame of the gift
+            const bestImgBlob = await captureBestGiftFrame(item);
+            const imgBuffer = await bestImgBlob.arrayBuffer();
+            const coverBytes = new Uint8Array(imgBuffer);
+
+            const videoItem = item.videoItem;
+            const dw = selectedPreset ? selectedPreset.width : (item.dimensions?.width || 500);
+            const dh = selectedPreset ? selectedPreset.height : (item.dimensions?.height || 500);
+            const frames = item.frames || videoItem?.frames || 1;
+            const fps = item.fps || videoItem?.fps || 30;
+            const duration = videoItem ? (videoItem.frames / (videoItem.fps || 30)) : (item.frames ? item.frames / 30 : 0);
+            const hasAudio = !!(videoItem?.audios && Object.keys(videoItem.audios).length > 0) || !!item.hasAudio;
+
+            pdfItems.push({
+              id: item.id,
+              name: baseName,
+              fileBytes,
+              coverBlob: bestImgBlob,
+              coverBytes,
+              dimensions: { width: dw, height: dh },
+              frames,
+              fps,
+              duration,
+              hasAudio,
+              type: item.type
+            });
+          } catch (err) {
+            console.warn(`Error preparing item ${item.name} for PDF package:`, err);
+          } finally {
+            completed++;
+            setPdfAllInOneProgress(Math.min(45, Math.round((completed / activeItems.length) * 45)));
+          }
+        }));
+      }
+
+      if (pdfItems.length === 0) {
+        throw new Error('تعذر تجهيز أي ملف من الملفات للـ PDF الموحد');
+      }
+
+      // Sort matching active items order in UI
+      pdfItems.sort((a, b) => {
+        const idxA = activeItems.findIndex(x => x.id === a.id);
+        const idxB = activeItems.findIndex(x => x.id === b.id);
+        return idxA - idxB;
+      });
+
+      const result = await generateSvgaAllInOnePdf({
+        items: pdfItems,
+        title: 'مكتبة هدايا SVGA الموحدة (جميع الملفات والصور)',
+        designerName: currentUser?.displayName || currentUser?.email || 'SVGA Gift Designer',
+        onProgress: (pct) => {
+          setPdfAllInOneProgress(Math.min(99, Math.round(45 + pct * 0.54)));
+        }
+      });
+
+      const url = URL.createObjectURL(result.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = result.fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      downloadDesignerInfoFile(result.fileName, {
+        format: 'All-in-One SVGA PDF Package',
+        frames: pdfItems.length
+      });
+
+      setPdfAllInOneProgress(100);
+    } catch (err: any) {
+      console.error('All-in-One SVGA PDF export failed:', err);
+      alert('حدث خطأ أثناء تصدير ملف الـ PDF الموحد: ' + (err.message || 'خطأ غير متوقع'));
+    } finally {
+      setIsPdfAllInOneExporting(false);
+      setPdfAllInOneProgress(0);
+    }
+  };
+
 
   const selectedItem = useMemo(() => items.find(i => i.id === selectedItemId), [items, selectedItemId]);
 
@@ -3565,7 +3685,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               <div className="flex items-center gap-2">
                 <button 
                   onClick={handleDownloadAllGiftBundles}
-                  disabled={isZipping || isExporting}
+                  disabled={isZipping || isExporting || isPdfAllInOneExporting}
                   className="relative overflow-hidden group px-6 py-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-2xl shadow-lg shadow-red-600/30 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50 border border-red-400/30"
                   title="تنزيل جميع ملفات الهدايا مع أفضل صورة كادر واضحة للهدية في ملف مضغوط ZIP واحد"
                 >
@@ -3599,8 +3719,29 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               </div>
 
               <button 
+                onClick={handleDownloadAllSvgaInOnePdf}
+                disabled={isPdfAllInOneExporting || isZipping || isExporting}
+                className="relative overflow-hidden group px-6 py-3 bg-gradient-to-r from-amber-600 via-rose-600 to-pink-600 hover:from-amber-500 hover:via-rose-500 hover:to-pink-500 text-white rounded-2xl shadow-lg shadow-rose-600/30 font-black text-sm transition-all flex items-center gap-2.5 disabled:opacity-50 border border-rose-400/40 cursor-pointer"
+                title="تنزيل جميع ملفات SVGA في ملف PDF واحد مجمع، يحتوي على كل ملف مع صورته المعاينة وبياناته وملف SVGA الأصلي مدمج داخله"
+              >
+                {isPdfAllInOneExporting ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-amber-200" />
+                ) : (
+                  <FileText className="w-4 h-4 text-amber-200" />
+                )}
+                <span className="whitespace-nowrap">
+                  {isPdfAllInOneExporting 
+                    ? `جاري التحضير ${pdfAllInOneProgress}%` 
+                    : 'تنزيل جميع ملفات SVGA في ملف PDF واحد'}
+                </span>
+                <span className="px-2 py-0.5 rounded-md bg-white/20 text-[10px] font-black uppercase tracking-wider text-amber-200 whitespace-nowrap">
+                  PDF 1 + الصور
+                </span>
+              </button>
+
+              <button 
                 onClick={handleDownloadAllCombined}
-                disabled={isZipping || isExporting}
+                disabled={isZipping || isExporting || isPdfAllInOneExporting}
                 className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl shadow-lg shadow-emerald-600/20 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50"
                 title="تنزيل جميع الملفات المرفوعة (SVGA و VAP) مع الصور وكتالوج PDF في ملف مضغوط واحد"
               >
@@ -3634,7 +3775,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
               <button 
                 onClick={handleDownloadAllSvga}
-                disabled={isZipping || isExporting}
+                disabled={isZipping || isExporting || isPdfAllInOneExporting}
                 className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl shadow-lg shadow-blue-600/20 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50"
                 title="تنزيل جميع الملفات المرفوعة (SVGA و VAP و PAG) مع صورها في ملف مضغوط واحد"
               >
