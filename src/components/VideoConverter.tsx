@@ -25,6 +25,7 @@ import {
   Sparkles,
   Palette,
   Crosshair,
+  FastForward,
 } from "lucide-react";
 import { logActivity } from "../utils/logger";
 import { ChromaStudioModal, ChromaSettings } from "./ChromaStudioModal";
@@ -35,6 +36,9 @@ import {
   calculateOutputDuration,
   getTimeForFrame,
 } from "./VideoTrimmerModal";
+import { VideoDurationSpeedModal } from "./VideoDurationSpeedModal";
+import { extractAndScaleVideoAudio } from "../utils/videoDurationEngine";
+import { ensureMp3WithId3 } from "../utils/svgaAudio";
 
 import * as Mp4Muxer from "mp4-muxer";
 import { downloadDesignerInfoFile } from "../utils/designerInfo";
@@ -113,6 +117,9 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
   });
   const [showChromaStudio, setShowChromaStudio] = useState(false);
   const [showTrimmer, setShowTrimmer] = useState(false);
+  const [showDurationSpeedModal, setShowDurationSpeedModal] = useState(false);
+  const [durationMode, setDurationMode] = useState<"auto" | "speed_fit" | "trim">("auto");
+  const [targetSpeedDuration, setTargetSpeedDuration] = useState<number>(10);
   const [timingSettings, setTimingSettings] = useState<TimingSettings>(DEFAULT_TIMING_SETTINGS);
   const [fadeConfig, setFadeConfig] = useState({
     top: 0,
@@ -794,6 +801,27 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
       if (audioFile) {
         const arrayBuffer = await audioFile.arrayBuffer();
         audioData = new Uint8Array(arrayBuffer);
+      } else if (currentFile) {
+        // Automatically preserve audio from video with synchronized speed scaling
+        try {
+          const effectiveDuration = effectiveOutputDuration;
+          const origDur = video.duration || 1;
+          const speedFactor = origDur / Math.max(0.01, effectiveDuration);
+          const scaledAudio = await extractAndScaleVideoAudio(
+            currentFile,
+            effectiveDuration,
+            speedFactor,
+            selectedFormat === "SVGA 2.0" ? "mp3" : "wav"
+          );
+          if (scaledAudio && scaledAudio.audioBytes && scaledAudio.audioBytes.length > 0) {
+            audioData = scaledAudio.audioBytes;
+            console.log(
+              `[VideoConverter] Extracted & synchronized video audio track: ${audioData.length} bytes, speedFactor: ${speedFactor.toFixed(2)}x`
+            );
+          }
+        } catch (audioErr) {
+          console.warn("[VideoConverter] Native audio extraction skipped:", audioErr);
+        }
       }
 
       if (selectedFormat === "SVGA → YYEVA") {
@@ -2299,7 +2327,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
 
       if (audioData) {
         const audioKey = "audio_0";
-        imagesData[audioKey] = audioData;
+        imagesData[audioKey] = ensureMp3WithId3(audioData);
         finalAudios.push({
           audioKey: audioKey,
           startFrame: 0,
@@ -2744,6 +2772,39 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
                   التحكم بالمدة والسرعة وقص المشاهد:
                 </h4>
                 <div className="flex flex-col gap-3">
+                  {/* Flagship: Speed-based Duration Compression without Cropping */}
+                  <button
+                    onClick={() => setShowDurationSpeedModal(true)}
+                    className="w-full relative group overflow-hidden bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-yellow-500/15 hover:from-amber-500/25 hover:via-orange-500/20 hover:to-yellow-500/25 border border-amber-500/40 p-4 rounded-2xl transition-all duration-300 flex items-center justify-between shadow-xl shadow-amber-500/10"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center shadow-lg shadow-amber-500/25">
+                        <FastForward className="w-5 h-5" />
+                      </div>
+                      <div className="text-right">
+                        <div className="text-white font-black text-sm flex items-center gap-2">
+                          التحكم في مدة الفيديو بالسرعة (بدون قص أي مشهد)
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            Zero-Crop
+                          </span>
+                        </div>
+                        <div className="text-slate-300 text-[10px] font-bold tracking-wider mt-1">
+                          تغيير المدة النهائية عبر تسريع التشغيل مع الحفاظ على كافة المشاهد، الإطارات، والصوت
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-left bg-black/40 px-3.5 py-2 rounded-xl border border-white/10">
+                      <div className="text-amber-400 font-black text-sm font-mono">
+                        {calculateOutputDuration(duration, timingSettings).toFixed(2)}s
+                      </div>
+                      <div className="text-slate-400 text-[10px] font-bold">
+                        {duration > 0 && calculateOutputDuration(duration, timingSettings) > 0
+                          ? `${(duration / calculateOutputDuration(duration, timingSettings)).toFixed(2)}× سرعة`
+                          : "المدة النهائية"}
+                      </div>
+                    </div>
+                  </button>
+
                   <button
                     onClick={() => setShowTrimmer(true)}
                     className="w-full relative group overflow-hidden bg-gradient-to-r from-sky-500/10 via-indigo-500/10 to-purple-500/10 hover:from-sky-500/20 hover:via-indigo-500/20 hover:to-purple-500/20 border border-sky-500/30 p-4 rounded-2xl transition-all duration-300 flex items-center justify-between shadow-lg shadow-sky-500/5"
@@ -2875,20 +2936,128 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
                   </div>
                   <div className="flex gap-1 bg-white/5 p-1 rounded-lg border border-white/10">
                     <button
-                      onClick={() => setIsAutoDuration(true)}
-                      className={`px-3 py-1 rounded-md text-[9px] font-black uppercase transition-all ${isAutoDuration ? "bg-amber-500 text-white shadow-glow-amber" : "text-slate-500 hover:text-white"}`}
+                      onClick={() => {
+                        setDurationMode("auto");
+                        setIsAutoDuration(true);
+                        setTimingSettings(DEFAULT_TIMING_SETTINGS);
+                      }}
+                      className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase transition-all ${
+                        durationMode === "auto" && isAutoDuration
+                          ? "bg-amber-500 text-white shadow-glow-amber"
+                          : "text-slate-500 hover:text-white"
+                      }`}
                     >
                       تلقائي
                     </button>
                     <button
-                      onClick={() => setIsAutoDuration(false)}
-                      className={`px-3 py-1 rounded-md text-[9px] font-black uppercase transition-all ${!isAutoDuration ? "bg-amber-500 text-white shadow-glow-amber" : "text-slate-500 hover:text-white"}`}
+                      onClick={() => {
+                        setDurationMode("speed_fit");
+                        setIsAutoDuration(false);
+                        setTimingSettings({
+                          ...DEFAULT_TIMING_SETTINGS,
+                          mode: "fit_duration",
+                          targetDuration: targetSpeedDuration,
+                        });
+                      }}
+                      className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase transition-all ${
+                        durationMode === "speed_fit"
+                          ? "bg-amber-500 text-white shadow-glow-amber"
+                          : "text-slate-500 hover:text-white"
+                      }`}
                     >
-                      يدوي
+                      ضغط بالسرعة
+                    </button>
+                    <button
+                      onClick={() => {
+                        setDurationMode("trim");
+                        setIsAutoDuration(false);
+                        setTimingSettings({
+                          ...DEFAULT_TIMING_SETTINGS,
+                          mode: "trim",
+                          startTime: startTime,
+                          endTime: endTime || duration,
+                        });
+                      }}
+                      className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase transition-all ${
+                        durationMode === "trim"
+                          ? "bg-amber-500 text-white shadow-glow-amber"
+                          : "text-slate-500 hover:text-white"
+                      }`}
+                    >
+                      قص يدوي
                     </button>
                   </div>
                 </div>
-                {!isAutoDuration && (
+
+                {durationMode === "speed_fit" && (
+                  <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-3 animate-in fade-in duration-300">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-black text-amber-300">المدة المطلوبة (بدون قص المشاهد):</span>
+                      <span className="font-mono font-bold text-amber-400">
+                        {duration > 0 ? (duration / Math.max(0.1, targetSpeedDuration)).toFixed(2) : 1.00}× سرعة
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type="number"
+                          step="0.5"
+                          min="0.5"
+                          max="300"
+                          value={targetSpeedDuration}
+                          onChange={(e) => {
+                            const val = Math.max(0.1, parseFloat(e.target.value) || 1);
+                            setTargetSpeedDuration(val);
+                            setTimingSettings((prev) => ({
+                              ...prev,
+                              mode: "fit_duration",
+                              targetDuration: val,
+                            }));
+                          }}
+                          className="w-full bg-slate-950 border border-amber-500/40 rounded-xl px-3 py-2 text-white font-mono text-center font-bold text-sm outline-none"
+                          placeholder="10.0"
+                        />
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-bold">
+                          ثانية
+                        </span>
+                      </div>
+
+                      <button
+                        onClick={() => setShowDurationSpeedModal(true)}
+                        className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-black text-xs transition-all flex items-center gap-1.5 shadow-md shadow-amber-500/20"
+                      >
+                        <FastForward className="w-3.5 h-3.5" />
+                        <span>معاينة بالسرعة</span>
+                      </button>
+                    </div>
+
+                    <div className="flex gap-1">
+                      {[2, 5, 10, 15, 30].map((preset) => (
+                        <button
+                          key={preset}
+                          onClick={() => {
+                            setTargetSpeedDuration(preset);
+                            setTimingSettings((prev) => ({
+                              ...prev,
+                              mode: "fit_duration",
+                              targetDuration: preset,
+                            }));
+                          }}
+                          className={`flex-1 py-1 rounded-lg text-[10px] font-black transition-all border ${
+                            Math.abs(targetSpeedDuration - preset) < 0.1
+                              ? "bg-amber-500 text-white border-amber-400"
+                              : "bg-white/5 border-white/5 text-slate-400 hover:text-white"
+                          }`}
+                        >
+                          {preset}s
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {durationMode === "trim" && (
                   <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
                     <div className="space-y-2">
                       <label className="text-[9px] text-slate-500 font-black uppercase tracking-widest block">
@@ -2900,17 +3069,16 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
                         min="0"
                         max={duration}
                         value={startTime}
-                        onChange={(e) =>
-                          setStartTime(
-                            Math.max(
-                              0,
-                              Math.min(
-                                duration,
-                                parseFloat(e.target.value) || 0,
-                              ),
-                            ),
-                          )
-                        }
+                        onChange={(e) => {
+                          const val = Math.max(0, Math.min(duration, parseFloat(e.target.value) || 0));
+                          setStartTime(val);
+                          setTimingSettings((prev) => ({
+                            ...prev,
+                            mode: "trim",
+                            startTime: val,
+                            endTime: endTime || duration,
+                          }));
+                        }}
                         className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-white text-xs focus:border-amber-500 outline-none transition-all"
                       />
                     </div>
@@ -2924,17 +3092,16 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
                         min="0"
                         max={duration}
                         value={endTime}
-                        onChange={(e) =>
-                          setEndTime(
-                            Math.max(
-                              0,
-                              Math.min(
-                                duration,
-                                parseFloat(e.target.value) || duration,
-                              ),
-                            ),
-                          )
-                        }
+                        onChange={(e) => {
+                          const val = Math.max(0, Math.min(duration, parseFloat(e.target.value) || duration));
+                          setEndTime(val);
+                          setTimingSettings((prev) => ({
+                            ...prev,
+                            mode: "trim",
+                            startTime: startTime,
+                            endTime: val,
+                          }));
+                        }}
                         className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-white text-xs focus:border-amber-500 outline-none transition-all"
                       />
                     </div>
@@ -3621,6 +3788,31 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Dedicated Zero-Crop Video Duration & Speed Compression Modal */}
+      <VideoDurationSpeedModal
+        isOpen={showDurationSpeedModal}
+        onClose={() => setShowDurationSpeedModal(false)}
+        initialFiles={files}
+        currentDuration={
+          timingSettings.mode === "fit_duration" && timingSettings.targetDuration > 0
+            ? timingSettings.targetDuration
+            : (targetSpeedDuration || duration || 10)
+        }
+        onApplyToConverter={(targetDur, speedMult) => {
+          setTargetSpeedDuration(targetDur);
+          setDurationMode("speed_fit");
+          setIsAutoDuration(false);
+          setTimingSettings({
+            ...DEFAULT_TIMING_SETTINGS,
+            mode: "fit_duration",
+            targetDuration: targetDur,
+            speedMultiplier: speedMult,
+            startTime: 0,
+            endTime: duration,
+          });
+        }}
+      />
 
       {/* Advanced Video Trimmer & Variable Speed Studio Modal */}
       {file && videoUrl && (

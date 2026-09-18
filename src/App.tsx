@@ -8,16 +8,23 @@ import { Dashboard } from './components/Dashboard';
 // Resilient lazy-loader with auto-retry and chunk failure recovery
 function lazyWithRetry<T extends React.ComponentType<any>>(
   factory: () => Promise<{ default: T } | any>,
-  retriesLeft = 2,
-  interval = 800
+  retriesLeft = 3,
+  interval = 600
 ): React.LazyExoticComponent<T> {
   return lazy(() =>
     new Promise<{ default: T }>((resolve, reject) => {
       const attempt = (retries: number) => {
         factory()
           .then((mod: any) => {
-            if (mod && mod.default) {
-              resolve({ default: mod.default });
+            try {
+              if (typeof window !== 'undefined') {
+                sessionStorage.removeItem('chunk_reload_attempted');
+              }
+            } catch {}
+
+            const component = mod?.default || mod?.Workspace || mod;
+            if (component) {
+              resolve({ default: component });
             } else {
               resolve({ default: mod as T });
             }
@@ -30,7 +37,8 @@ function lazyWithRetry<T extends React.ComponentType<any>>(
                 errMsg.includes('Failed to fetch dynamically imported module') ||
                 errMsg.includes('Loading chunk') ||
                 errMsg.includes('dynamically imported module') ||
-                errMsg.includes('error loading');
+                errMsg.includes('error loading') ||
+                errMsg.includes('Importing a module script failed');
               
               if (isChunkFailed && typeof window !== 'undefined') {
                 const reloadKey = 'chunk_reload_attempted';
@@ -54,7 +62,7 @@ function lazyWithRetry<T extends React.ComponentType<any>>(
 }
 
 // Lazy load heavy tools to drastically reduce initial bundle size with resilient retries
-const Workspace = lazyWithRetry(() => import('./components/Workspace').then(m => ({ default: m.Workspace })));
+const Workspace = lazyWithRetry(() => import('./components/Workspace').then(m => ({ default: m.Workspace || m.default })));
 const BatchCompressor = lazyWithRetry(() => import('./components/BatchCompressor').then(m => ({ default: m.BatchCompressor })));
 const BatchCropper = lazyWithRetry(() => import('./components/BatchCropper').then(m => ({ default: m.BatchCropper })));
 const VideoConverter = lazyWithRetry(() => import('./components/VideoConverter').then(m => ({ default: m.VideoConverter })));
@@ -864,23 +872,25 @@ const App: React.FC = () => {
               </div>
             )}
             {(state === AppState.PROCESSING || state === AppState.SVGA_EDITOR_EX) && fileMetadata && (
-              <Workspace 
-                key={fileMetadata.fileUrl}
-                metadata={fileMetadata} 
-                onCancel={handleReset} 
-                settings={settings} 
-                currentUser={currentUser} 
-                onLoginRequired={() => {}}
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                globalQuality={globalQuality}
-                onFileReplace={(meta) => setFileMetadata(meta)}
-                mode={state === AppState.SVGA_EDITOR_EX ? 'ex' : 'normal'}
-                onImageConverterOpen={handleImageConverterOpen}
-                onOpenLayerEditor={(file) => {
-                  setLayerEditorInitialFile(file || fileMetadata?.originalFile || null);
-                  handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
-                }}
-              />
+              <ErrorBoundary fallbackTitle="حدث خطأ في تحميل مساحة العمل" onReset={handleReset}>
+                <Workspace 
+                  key={fileMetadata.fileUrl}
+                  metadata={fileMetadata} 
+                  onCancel={handleReset} 
+                  settings={settings} 
+                  currentUser={currentUser} 
+                  onLoginRequired={() => {}}
+                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                  globalQuality={globalQuality}
+                  onFileReplace={(meta) => setFileMetadata(meta)}
+                  mode={state === AppState.SVGA_EDITOR_EX ? 'ex' : 'normal'}
+                  onImageConverterOpen={handleImageConverterOpen}
+                  onOpenLayerEditor={(file) => {
+                    setLayerEditorInitialFile(file || fileMetadata?.originalFile || null);
+                    handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
+                  }}
+                />
+              </ErrorBoundary>
             )}
             {state === AppState.BATCH_COMPRESSOR && (
               <BatchCompressor 

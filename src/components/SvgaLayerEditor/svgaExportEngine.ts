@@ -171,6 +171,37 @@ export async function exportEditedSvga(
 
   // Guarantee every layer has its image asset exported
   for (const ctx of exportContexts) {
+    if (ctx.layer.isVideoSequence) {
+      const pfx = ctx.layer.sequencePrefix || 'frame_';
+      for (let fIdx = 0; fIdx < project.totalFrames; fIdx++) {
+        const candidateKeys = [
+          `${pfx}${fIdx}.png`,
+          `${pfx}${fIdx}.jpg`,
+          `${pfx}${fIdx}.jpeg`,
+          `${pfx}${fIdx}.webp`,
+          `${pfx}${fIdx}`
+        ];
+        const matchedK = candidateKeys.find(ck => 
+          (project.rawImages && project.rawImages[ck]) || 
+          (project.imagesMap && project.imagesMap[ck])
+        ) || `${pfx}${fIdx}.png`;
+
+        if (!exportImages[matchedK]) {
+          if (project.rawImages && project.rawImages[matchedK]) {
+            const raw = project.rawImages[matchedK];
+            exportImages[matchedK] = raw instanceof Uint8Array ? raw : new Uint8Array((raw as any).buffer);
+          } else if (project.imagesMap && project.imagesMap[matchedK]) {
+            const src = project.imagesMap[matchedK];
+            if (src.startsWith('data:')) {
+              try {
+                exportImages[matchedK] = base64ToUint8ArrayFast(src);
+              } catch (e) {}
+            }
+          }
+        }
+      }
+    }
+
     const key = ctx.layer.imageKey || ctx.layer.spriteRef?.imageKey;
     if (key && !exportImages[key]) {
       const src = ctx.layer.thumbnailUrl || (project.imagesMap && project.imagesMap[key]);
@@ -426,7 +457,36 @@ export async function exportEditedSvga(
       });
     }
 
-    newSprites.push(spriteClone);
+    if (layer.isVideoSequence) {
+      const pfx = layer.sequencePrefix || 'frame_';
+      for (let fIdx = 0; fIdx < project.totalFrames; fIdx++) {
+        const candidateKeys = [
+          `${pfx}${fIdx}.png`,
+          `${pfx}${fIdx}.jpg`,
+          `${pfx}${fIdx}.jpeg`,
+          `${pfx}${fIdx}.webp`,
+          `${pfx}${fIdx}`
+        ];
+        const matchedKey = candidateKeys.find(ck => 
+          (project.rawImages && project.rawImages[ck]) || 
+          (project.imagesMap && project.imagesMap[ck]) ||
+          exportImages[ck]
+        ) || `${pfx}${fIdx}.png`;
+
+        const frameSprite = JSON.parse(JSON.stringify(spriteClone));
+        frameSprite.imageKey = matchedKey;
+        frameSprite.frames = spriteClone.frames.map((fr: any, k: number) => {
+          const cloneFr = { ...fr };
+          if (k !== fIdx) {
+            cloneFr.alpha = 0;
+          }
+          return cloneFr;
+        });
+        newSprites.push(frameSprite);
+      }
+    } else {
+      newSprites.push(spriteClone);
+    }
   }
 
   // Ensure every sprite has its imageKey in exportImages if available

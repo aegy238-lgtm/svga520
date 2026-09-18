@@ -32,6 +32,7 @@ interface SvgaLayersListProps {
   onAddShapeLayer: (shapeType: 'rect' | 'circle' | 'star' | 'badge' | 'text', customText?: string) => void;
   onMergeSvga?: () => void;
   onOpenAudioStudio?: () => void;
+  onOpenMp4Import?: () => void;
   onMergeAllLayers?: () => void;
   onMergeSelectedLayers?: () => void;
   onMergeTwoLayers?: (sourceLayerId: string, targetLayerId: string, options?: { syncMotion?: boolean }) => void;
@@ -64,6 +65,7 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
   onAddShapeLayer,
   onMergeSvga,
   onOpenAudioStudio,
+  onOpenMp4Import,
   onMergeAllLayers,
   onMergeSelectedLayers,
   onMergeTwoLayers,
@@ -408,6 +410,25 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
                     <div>
                       <span className="font-bold block text-xs text-indigo-200">قص ودمج مسار صوتي (Audio)</span>
                       <span className="text-[10px] text-indigo-300/70 block">إضافة MP3/WAV مع استوديو القص والترددات</span>
+                    </div>
+                  </button>
+                )}
+
+                {/* Import MP4 Video Option */}
+                {onOpenMp4Import && (
+                  <button
+                    onClick={() => {
+                      setShowAddMenu(false);
+                      onOpenMp4Import();
+                    }}
+                    className="w-full px-3 py-2.5 bg-gradient-to-r from-pink-950/80 to-rose-950/80 hover:from-pink-900 hover:to-rose-900 border border-pink-500/30 text-white rounded-xl text-xs flex items-center gap-2.5 transition-colors text-right cursor-pointer"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-pink-500/30 border border-pink-400/40 flex items-center justify-center text-pink-300 shrink-0">
+                      <Film size={14} />
+                    </div>
+                    <div>
+                      <span className="font-bold block text-xs text-pink-200">استدعاء فيديو MP4 كطبقة فيديو</span>
+                      <span className="text-[10px] text-pink-300/70 block">تحويل فيديو MP4 إلى طبقة متزامنة قابلة للتحريك</span>
                     </div>
                   </button>
                 )}

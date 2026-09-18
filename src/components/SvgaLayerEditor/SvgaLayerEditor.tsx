@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   EditableLayer, SVGAProjectData, CanvasTool, LayerKeyframe,
-  FadeConfig, CropConfig, CropFeather, ShineEffectConfig
+  FadeConfig, CropConfig, CropFeather, ShineEffectConfig, SVGAAudioTrack
 } from './types';
 import { 
   DEFAULT_FADE_CONFIG, 
@@ -26,6 +26,7 @@ import { SvgaPropertiesPanel } from './SvgaPropertiesPanel';
 import { SvgaMotionTimeline } from './SvgaMotionTimeline';
 import { SvgaAudioEditorModal } from './SvgaAudioEditorModal';
 import { SvgaExportModal } from './SvgaExportModal';
+import { SvgaMp4ImportModal } from './SvgaMp4ImportModal';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { 
   Upload, Layers, Download, ArrowLeft, RotateCcw, 
@@ -157,6 +158,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mergeFileInputRef = useRef<HTMLInputElement>(null);
+  const mp4FileInputRef = useRef<HTMLInputElement>(null);
 
   // Project Data & Layers
   const [project, setProject] = useState<SVGAProjectData | null>(null);
@@ -212,6 +214,8 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState<boolean>(false);
   const [showAudioStudioModal, setShowAudioStudioModal] = useState<boolean>(false);
+  const [showMp4ImportModal, setShowMp4ImportModal] = useState<boolean>(false);
+  const [mp4InitialFiles, setMp4InitialFiles] = useState<File[]>([]);
   const [newProjectConfig, setNewProjectConfig] = useState({
     name: 'مشروع SVGA جديد',
     width: 750,
@@ -362,6 +366,59 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       setIsLoading(false);
     }
   }, []);
+
+  // Handle Import MP4 as Full SVGA Project
+  const handleImportMp4AsProject = useCallback((newProject: SVGAProjectData, newLayers: EditableLayer[]) => {
+    setProject(newProject);
+    setLayers(newLayers);
+    setSelectedLayerId(newLayers[0]?.id || null);
+    setSelectedLayerIds(newLayers[0]?.id ? [newLayers[0].id] : []);
+    setCurrentFrame(0);
+    setIsPlaying(false);
+    setExportFileName(newProject.fileName.replace(/\.svga$/i, '') + '_edited.svga');
+
+    setFadeConfig(newProject.fadeConfig ? { ...newProject.fadeConfig } : { top: 0, bottom: 0, left: 0, right: 0 });
+    setCropConfig(newProject.cropConfig ? { ...newProject.cropConfig } : { top: 0, bottom: 0, left: 0, right: 0 });
+    setCropFeather(newProject.cropFeather ? { ...newProject.cropFeather } : { top: 0, bottom: 0, left: 0, right: 0 });
+
+    const maxW = window.innerWidth - 700;
+    const maxH = window.innerHeight - 200;
+    const scaleW = maxW / (newProject.width || 1);
+    const scaleH = maxH / (newProject.height || 1);
+    const fitZoom = Math.min(100, Math.max(25, Math.floor(Math.min(scaleW, scaleH) * 100)));
+    setZoom(fitZoom);
+    setPanOffset({ x: 0, y: 0 });
+
+    masterLayersMapRef.current.clear();
+    newLayers.forEach(l => masterLayersMapRef.current.set(l.id, l));
+    setHistory([createLayersSnapshot(newLayers)]);
+    setHistoryIndex(0);
+
+    setSuccessToast(`تم استدعاء فيديو MP4 بنجاح كملف SVGA كامل (${newProject.totalFrames} إطار)`);
+  }, []);
+
+  // Handle Import MP4 as Layer into Existing SVGA Project
+  const handleImportMp4AsLayer = useCallback((newLayer: EditableLayer, addedAudios: SVGAAudioTrack[]) => {
+    setLayers(prev => {
+      const updated = [newLayer, ...prev];
+      pushHistory(updated);
+      return updated;
+    });
+
+    if (addedAudios && addedAudios.length > 0) {
+      setProject(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          audios: [...(prev.audios || []), ...addedAudios]
+        };
+      });
+    }
+
+    setSelectedLayerId(newLayer.id);
+    setSelectedLayerIds([newLayer.id]);
+    setSuccessToast(`تمت إضافة طبقة فيديو MP4 (${newLayer.name}) إلى المشروع بنجاح`);
+  }, [pushHistory]);
 
   // Handle Initial File
   useEffect(() => {
@@ -1744,11 +1801,33 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       <input
         type="file"
         ref={fileInputRef}
-        accept=".svga"
+        accept=".svga,video/mp4,video/*,.mp4"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
-          if (f) loadSvgaFile(f);
+          if (f) {
+            if (f.name.toLowerCase().endsWith('.mp4') || f.type.startsWith('video/')) {
+              setMp4InitialFiles([f]);
+              setShowMp4ImportModal(true);
+            } else {
+              loadSvgaFile(f);
+            }
+          }
+          e.target.value = '';
+        }}
+      />
+
+      <input
+        type="file"
+        ref={mp4FileInputRef}
+        accept="video/mp4,video/quicktime,video/webm,.mp4"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            setMp4InitialFiles(Array.from(e.target.files));
+            setShowMp4ImportModal(true);
+          }
           e.target.value = '';
         }}
       />
@@ -1970,6 +2049,18 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             <Upload size={13} className="text-indigo-400" /> فتح SVGA
           </button>
 
+          <button
+            onClick={() => {
+              setMp4InitialFiles([]);
+              setShowMp4ImportModal(true);
+            }}
+            className="flex items-center gap-1.5 text-xs font-bold text-pink-300 hover:text-white bg-pink-500/10 hover:bg-pink-500/25 px-3.5 py-1.5 rounded-xl border border-pink-500/30 transition-all cursor-pointer shadow-sm hover:scale-105"
+            title="استدعاء فيديو MP4 والتحكم به كملف SVGA كامل أو كطبقة فيديو وتصديره لأي صيغة"
+          >
+            <Film size={13} className="text-pink-400" />
+            <span>استدعاء MP4</span>
+          </button>
+
           {project && (
             <button
               onClick={() => setShowAudioStudioModal(true)}
@@ -2047,6 +2138,10 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               onAddShapeLayer={handleAddShapeLayer}
               onMergeSvga={() => mergeFileInputRef.current?.click()}
               onOpenAudioStudio={() => setShowAudioStudioModal(true)}
+              onOpenMp4Import={() => {
+                setMp4InitialFiles([]);
+                setShowMp4ImportModal(true);
+              }}
               onMergeAllLayers={handleMergeAllLayers}
               onMergeSelectedLayers={handleMergeSelectedLayers}
               onMergeTwoLayers={handleMergeTwoLayers}
@@ -2164,18 +2259,25 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
           onDrop={(e) => {
             e.preventDefault();
             const f = e.dataTransfer.files?.[0];
-            if (f) loadSvgaFile(f);
+            if (f) {
+              if (f.name.toLowerCase().endsWith('.mp4') || f.type.startsWith('video/')) {
+                setMp4InitialFiles([f]);
+                setShowMp4ImportModal(true);
+              } else {
+                loadSvgaFile(f);
+              }
+            }
           }}
         >
-          <div className="max-w-xl w-full bg-slate-900/60 border border-white/10 rounded-3xl p-8 text-center space-y-6 shadow-2xl backdrop-blur-xl" dir="rtl">
+          <div className="max-w-3xl w-full bg-slate-900/60 border border-white/10 rounded-3xl p-8 text-center space-y-6 shadow-2xl backdrop-blur-xl" dir="rtl">
             <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-indigo-500/20 to-purple-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 mx-auto shadow-glow-indigo">
               <Layers size={36} />
             </div>
 
             <div className="space-y-2">
               <h2 className="text-2xl font-black text-white">محرر وفك طبقات SVGA الاحترافي</h2>
-              <p className="text-slate-400 text-xs leading-relaxed max-w-md mx-auto">
-                أنشئ مشروعاً جديداً بمقاسات مخصصة وصمم من الصفر، أو افتح وفك ضغط أي ملف SVGA لتعديل الطبقات وإضافة حركات احترافية.
+              <p className="text-slate-400 text-xs leading-relaxed max-w-lg mx-auto">
+                أنشئ مشروعاً جديداً بمقاسات مخصصة وصمم من الصفر، أو افتح وفك ضغط أي ملف SVGA، أو استدعِ ملفات فيديو MP4 للتحكم بها كطبقات وحفظها أو تصديرها لأي صيغة متاحة.
               </p>
             </div>
 
@@ -2186,12 +2288,12 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               </div>
             )}
 
-            {/* Quick Actions Cards: 1. New Project from Scratch, 2. Open / Decompress SVGA */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-right">
+            {/* Quick Actions Cards: 1. New Project, 2. Open SVGA, 3. Import MP4 */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-right">
               {/* Option 1: Create New Project */}
               <button
                 onClick={() => setShowNewProjectModal(true)}
-                className="p-6 bg-gradient-to-b from-indigo-600/20 via-purple-600/15 to-transparent hover:from-indigo-600/30 hover:via-purple-600/25 border border-indigo-500/40 hover:border-indigo-400 rounded-2xl transition-all cursor-pointer group flex flex-col justify-between text-right shadow-lg shadow-indigo-600/10 hover:scale-[1.02]"
+                className="p-5 bg-gradient-to-b from-indigo-600/20 via-purple-600/15 to-transparent hover:from-indigo-600/30 hover:via-purple-600/25 border border-indigo-500/40 hover:border-indigo-400 rounded-2xl transition-all cursor-pointer group flex flex-col justify-between text-right shadow-lg shadow-indigo-600/10 hover:scale-[1.02]"
               >
                 <div className="flex items-center justify-between mb-4">
                   <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-600/40 group-hover:scale-110 transition-transform">
@@ -2202,7 +2304,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                   </span>
                 </div>
                 <div>
-                  <h3 className="text-sm font-black text-white group-hover:text-indigo-300 transition-colors">إنشاء مشروع جديد من الصفر</h3>
+                  <h3 className="text-sm font-black text-white group-hover:text-indigo-300 transition-colors">إنشاء مشروع من الصفر</h3>
                   <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
                     حدد مقاس الكانفاس (750×1334، 1080×1920...) وابدأ إضافة الصور والطبقات وتصميم الحركة
                   </p>
@@ -2212,7 +2314,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               {/* Option 2: Open / Decompress SVGA File */}
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="p-6 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-indigo-400/40 rounded-2xl transition-all cursor-pointer group flex flex-col justify-between text-right shadow-lg hover:scale-[1.02]"
+                className="p-5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-indigo-400/40 rounded-2xl transition-all cursor-pointer group flex flex-col justify-between text-right shadow-lg hover:scale-[1.02]"
               >
                 <div className="flex items-center justify-between mb-4">
                   <div className="w-11 h-11 rounded-2xl bg-slate-800 border border-white/10 flex items-center justify-center text-slate-300 group-hover:text-white group-hover:bg-indigo-600/30 group-hover:border-indigo-500/40 transition-all shadow-md">
@@ -2229,6 +2331,30 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                   </p>
                 </div>
               </button>
+
+              {/* Option 3: Import MP4 Video as SVGA */}
+              <button
+                onClick={() => {
+                  setMp4InitialFiles([]);
+                  setShowMp4ImportModal(true);
+                }}
+                className="p-5 bg-gradient-to-b from-pink-600/20 via-rose-600/15 to-transparent hover:from-pink-600/30 hover:via-rose-600/25 border border-pink-500/40 hover:border-pink-400 rounded-2xl transition-all cursor-pointer group flex flex-col justify-between text-right shadow-lg shadow-pink-600/10 hover:scale-[1.02]"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center text-white shadow-md shadow-pink-600/40 group-hover:scale-110 transition-transform">
+                    <Film size={20} />
+                  </div>
+                  <span className="text-[10px] font-black text-pink-300 bg-pink-500/20 px-2.5 py-1 rounded-full border border-pink-500/40">
+                    استدعاء MP4
+                  </span>
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white group-hover:text-pink-300 transition-colors">استدعاء فيديو MP4</h3>
+                  <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
+                    استدعاء أي فيديو MP4 للتحكم به كـ SVGA (تغيير الحجم والمدة والصوت) وتصديره لأي صيغة
+                  </p>
+                </div>
+              </button>
             </div>
 
             {/* Drop Zone Strip */}
@@ -2237,7 +2363,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               className="border border-dashed border-white/15 hover:border-indigo-500/40 bg-black/20 hover:bg-black/40 rounded-2xl p-4 transition-all cursor-pointer flex items-center justify-center gap-2 text-xs text-slate-400 hover:text-slate-200"
             >
               <Upload size={15} className="text-indigo-400" />
-              <span>أو اسحب وأفلت أي ملف SVGA هنا مباشرة للفتح الفوري</span>
+              <span>أو اسحب وأفلت أي ملف SVGA أو فيديو MP4 هنا مباشرة للفتح الفوري</span>
             </div>
           </div>
         </div>
@@ -2431,6 +2557,23 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
           />
         </ErrorBoundary>
       )}
+
+      {/* MP4 to SVGA Import Modal */}
+      <AnimatePresence>
+        {showMp4ImportModal && (
+          <ErrorBoundary fallbackTitle="حدث خطأ في واجهة استدعاء فيديو MP4" onReset={() => setShowMp4ImportModal(false)}>
+            <SvgaMp4ImportModal
+              isOpen={showMp4ImportModal}
+              onClose={() => setShowMp4ImportModal(false)}
+              initialFiles={mp4InitialFiles}
+              hasExistingProject={!!project}
+              existingProject={project}
+              onImportAsProject={handleImportMp4AsProject}
+              onImportAsLayer={handleImportMp4AsLayer}
+            />
+          </ErrorBoundary>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

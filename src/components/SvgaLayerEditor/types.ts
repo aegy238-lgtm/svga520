@@ -100,6 +100,10 @@ export interface EditableLayer {
   // Layer Shine Effect Configuration
   shineConfig?: ShineEffectConfig;
 
+  // Video sequence animation properties (for imported MP4 video layers)
+  isVideoSequence?: boolean;
+  sequencePrefix?: string;
+
   // Original immutable snapshot for absolute reset independent of copies/merges
   originalInitialBounds?: {
     x: number;

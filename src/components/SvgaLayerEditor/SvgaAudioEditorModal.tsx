@@ -5,7 +5,7 @@ import {
   Trash2, X, Download, RefreshCw, AlertTriangle, 
   CheckCircle2, Music, Check, Sparkles, Sliders,
   FileAudio, Layers, Settings, Radio, ChevronLeft, ChevronRight,
-  Maximize2, Minimize2, CornerDownLeft, FastForward
+  Maximize2, Minimize2, CornerDownLeft, FastForward, Video, Film, ListMusic
 } from 'lucide-react';
 import { SVGAProjectData, SVGAAudioTrack } from './types';
 import { 
@@ -17,6 +17,29 @@ import {
   removeAudioTrackFromProject 
 } from '../../utils/svgaAudioTrimmer';
 import { extractAudioInBrowser } from '../../utils/clientAudio';
+import { 
+  extractAudioFromVideo, 
+  probeVideoAudioTracks, 
+  VideoAudioTrackInfo 
+} from '../../utils/videoAudioExtractor';
+import { audioBufferToMp3 } from '../../utils/mp3Encoder';
+
+export interface AudioLibraryItem {
+  id: string;
+  name: string;
+  sourceType: 'video_extracted' | 'uploaded_audio' | 'project_existing';
+  originalVideoName?: string;
+  format: 'mp3' | 'wav';
+  bitrate?: string;
+  sizeStr: string;
+  durationSec: number;
+  audioBuffer: AudioBuffer;
+  blob?: Blob;
+  dataUrl?: string;
+  rawBytes?: Uint8Array;
+  addedAt: number;
+  trackIndex?: number;
+}
 
 interface SvgaAudioEditorModalProps {
   isOpen: boolean;
@@ -38,6 +61,7 @@ export const SvgaAudioEditorModal: React.FC<SvgaAudioEditorModalProps> = ({
   onShowToast
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoFileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const visualizerContainerRef = useRef<HTMLDivElement>(null);
 
@@ -46,6 +70,20 @@ export const SvgaAudioEditorModal: React.FC<SvgaAudioEditorModalProps> = ({
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<ModalTab>('audio_volume');
+
+  // Audio Library State (Holds all available project & extracted tracks)
+  const [audioLibrary, setAudioLibrary] = useState<AudioLibraryItem[]>([]);
+  const [activeAudioId, setActiveAudioId] = useState<string | null>(existingAudio?.audioKey || null);
+
+  // Video Extraction State
+  const [isExtractingVideo, setIsExtractingVideo] = useState<boolean>(false);
+  const [extractionProgressText, setExtractionProgressText] = useState<string>('');
+  const [videoNoAudioError, setVideoNoAudioError] = useState<string | null>(null);
+  const [multiTrackPrompt, setMultiTrackPrompt] = useState<{
+    file: File;
+    tracks: VideoAudioTrackInfo[];
+    duration: number;
+  } | null>(null);
 
   // Audio Source State
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -120,12 +158,34 @@ export const SvgaAudioEditorModal: React.FC<SvgaAudioEditorModalProps> = ({
               ? Math.min(decoded.duration, parseFloat(svgaDurationSec.toFixed(2)))
               : decoded.duration;
             setEndSec(initEnd);
-            setSelectedFileName(existingAudio.name || existingAudio.audioKey + '.mp3');
+            const initialName = existingAudio.name || `${existingAudio.audioKey}.mp3`;
+            setSelectedFileName(initialName);
+            
+            let sizeFormatted = 'Loaded';
             if (rawBytes && typeof rawBytes === 'object' && 'byteLength' in rawBytes) {
-              setSelectedFileSize(`${Math.round((rawBytes as any).byteLength / 1024)} KB`);
-            } else {
-              setSelectedFileSize('Loaded');
+              sizeFormatted = `${Math.round((rawBytes as any).byteLength / 1024)} KB`;
             }
+            setSelectedFileSize(sizeFormatted);
+
+            const existingItem: AudioLibraryItem = {
+              id: existingAudio.audioKey,
+              name: initialName,
+              sourceType: 'project_existing',
+              format: 'mp3',
+              bitrate: '192 kbps',
+              sizeStr: sizeFormatted,
+              durationSec: decoded.duration,
+              audioBuffer: decoded.audioBuffer,
+              dataUrl: typeof dataUrl === 'string' ? dataUrl : undefined,
+              rawBytes: rawBytes instanceof Uint8Array ? rawBytes : undefined,
+              addedAt: Date.now()
+            };
+
+            setAudioLibrary((prev) => {
+              if (prev.some((x) => x.id === existingItem.id)) return prev;
+              return [existingItem, ...prev];
+            });
+            setActiveAudioId(existingAudio.audioKey);
           })
           .catch((err) => {
             console.warn('Could not decode existing project audio:', err);
@@ -263,9 +323,101 @@ export const SvgaAudioEditorModal: React.FC<SvgaAudioEditorModalProps> = ({
     }
   }, [volumePercent, playerVolume, isMuted, isPlaying]);
 
+  // Switch or select active item from library
+  const selectAudioLibraryItem = (item: AudioLibraryItem, playNow: boolean = false) => {
+    setActiveAudioId(item.id);
+    setSelectedFileName(item.name);
+    setSelectedFileSize(item.sizeStr);
+    setIsNotMp3Warning(item.format !== 'mp3');
+    setFileOriginalFormat(item.format.toUpperCase());
+    setAudioBuffer(item.audioBuffer);
+    setAudioDuration(item.durationSec);
+    setWaveformPeaks(calculateWaveformPeaks(item.audioBuffer, 80));
+
+    const initialEnd = trimMode === 'fit_svga' 
+      ? Math.min(item.durationSec, parseFloat(svgaDurationSec.toFixed(2)))
+      : parseFloat(item.durationSec.toFixed(2));
+
+    setStartSec(0);
+    setEndSec(initialEnd);
+    setCurrentTimeSec(0);
+    stopPlayback();
+
+    if (playNow || autoPlayOnSelect) {
+      setTimeout(() => {
+        playAudioBufferInstance(item.audioBuffer, 0, 0, initialEnd);
+        setStatusMessage(`🔊 جاري تشغيل ومعاينة الصوت في الواجهة: ${item.name}`);
+      }, 60);
+    } else {
+      setStatusMessage(`جاهز: تم اختيار الصوت (${item.name})`);
+    }
+  };
+
+  // Dedicated Video Audio Extraction pipeline (Ultra-Fast Client-First with instant MP3 encoding)
+  const handleVideoAudioExtraction = async (file: File, trackIndex?: number) => {
+    setIsExtractingVideo(true);
+    setExtractionProgressText('⚡ جاري استخراج وفصل الصوت فورياً...');
+    setVideoNoAudioError(null);
+    stopPlayback();
+
+    try {
+      const extracted = await extractAudioFromVideo(file, {
+        trackIndex: trackIndex !== undefined ? trackIndex : 0,
+        format: 'mp3',
+        onProgress: (txt) => setExtractionProgressText(txt)
+      });
+
+      const baseName = file.name.replace(/\.[^/.]+$/, '');
+      const trackSuffix = trackIndex !== undefined && trackIndex > 0
+        ? ` (Track ${trackIndex + 1})`
+        : '';
+      const finalAudioName = `${baseName} - Audio${trackSuffix}.mp3`;
+
+      const newItem: AudioLibraryItem = {
+        id: `audio_extracted_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        name: finalAudioName,
+        sourceType: 'video_extracted',
+        originalVideoName: file.name,
+        format: 'mp3',
+        bitrate: '320 kbps',
+        sizeStr: extracted.sizeStr,
+        durationSec: extracted.durationSec,
+        audioBuffer: extracted.audioBuffer,
+        blob: extracted.mp3Blob,
+        dataUrl: extracted.dataUrl,
+        rawBytes: extracted.rawBytes,
+        addedAt: Date.now(),
+        trackIndex: trackIndex || 0
+      };
+
+      setAudioLibrary((prev) => [newItem, ...prev.filter((x) => x.name !== finalAudioName)]);
+      selectAudioLibraryItem(newItem, autoPlayOnSelect);
+      setMultiTrackPrompt(null);
+      onShowToast(`🎉 تم استخراج الصوت بنجاح في ثوانٍ معدودة: ${finalAudioName}`);
+    } catch (err: any) {
+      console.error('Video audio extraction error:', err);
+      if (err?.message?.includes('NO_AUDIO') || err?.message?.includes('صامت')) {
+        setVideoNoAudioError('لم يتم العثور على أي مسار صوتي داخل هذا الفيديو (الفيديو صامت). يرجى اختيار فيديو يحتوي على صوت.');
+        onShowToast('⚠️ الفيديو المرفوع لا يحتوي على مسار صوتي');
+      } else {
+        setVideoNoAudioError(err?.message || 'تعذر استخراج الصوت من الفيديو. يرجى تجربة ملف آخر.');
+        onShowToast('فشل استخراج الصوت من الفيديو');
+      }
+    } finally {
+      setIsExtractingVideo(false);
+      setExtractionProgressText('');
+    }
+  };
+
   // Process selected or dropped audio file
   const processAudioFile = async (file: File) => {
     if (!file) return;
+
+    // Route to video extraction if video
+    const isVideo = file.type.startsWith('video/') || /\.(mp4|mov|webm|mkv|avi|m4v|3gp|flv)$/i.test(file.name);
+    if (isVideo) {
+      return handleVideoAudioExtraction(file);
+    }
 
     const fileName = file.name;
     const extension = fileName.split('.').pop()?.toLowerCase() || '';
@@ -281,51 +433,101 @@ export const SvgaAudioEditorModal: React.FC<SvgaAudioEditorModalProps> = ({
     stopPlayback();
 
     try {
-      let buffer: AudioBuffer;
-      if (file.type.startsWith('video/')) {
-        const extracted = await extractAudioInBrowser(file);
-        buffer = extracted.audioBuffer;
-      } else {
-        const decoded = await decodeAudioSource(file);
-        buffer = decoded.audioBuffer;
-      }
+      const decoded = await decodeAudioSource(file);
+      const buffer = decoded.audioBuffer;
 
-      setAudioBuffer(buffer);
-      setAudioDuration(buffer.duration);
-      setWaveformPeaks(calculateWaveformPeaks(buffer, 80));
+      const newItem: AudioLibraryItem = {
+        id: `audio_uploaded_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        name: fileName,
+        sourceType: 'uploaded_audio',
+        format: isMp3 ? 'mp3' : 'wav',
+        bitrate: isMp3 ? '192 kbps' : '48kHz PCM',
+        sizeStr: `${Math.round(file.size / 1024)} KB`,
+        durationSec: buffer.duration,
+        audioBuffer: buffer,
+        addedAt: Date.now()
+      };
 
-      const initialEnd = trimMode === 'fit_svga' 
-        ? Math.min(buffer.duration, parseFloat(svgaDurationSec.toFixed(2)))
-        : parseFloat(buffer.duration.toFixed(2));
-
-      setStartSec(0);
-      setEndSec(initialEnd);
-      setCurrentTimeSec(0);
-
-      // Auto-play immediately in interface so user hears it!
-      if (autoPlayOnSelect) {
-        setTimeout(() => {
-          playAudioBufferInstance(buffer, 0, 0, initialEnd);
-          setStatusMessage(`🔊 جاري تشغيل ومعاينة الصوت في الواجهة: ${fileName}`);
-        }, 60);
-      } else {
-        setStatusMessage(`جاهز: تم اختيار الصوت (${fileName})`);
-      }
-
-      onShowToast(`🎵 تم تحميل الصوت وبدء تشغيله في الواجهة: ${fileName}`);
+      setAudioLibrary((prev) => [newItem, ...prev.filter((x) => x.name !== fileName)]);
+      selectAudioLibraryItem(newItem, autoPlayOnSelect);
+      onShowToast(`🎵 تم تحميل الصوت وإضافته لقائمة الأصوات: ${fileName}`);
     } catch (err: any) {
       console.error('Audio decode error:', err);
       onShowToast('تعذر فك تشفير الملف الصوتي. يرجى تجربة ملف آخر.');
     }
   };
 
-  // Handle File Selection from Input
+  // General entry point for incoming files (click or drag-and-drop)
+  const handleIncomingFile = (file: File) => {
+    const isVideo = file.type.startsWith('video/') || /\.(mp4|mov|webm|mkv|avi|m4v|3gp|flv)$/i.test(file.name);
+    if (isVideo) {
+      handleVideoAudioExtraction(file);
+    } else {
+      processAudioFile(file);
+    }
+  };
+
+  // Handle File Selection from Audio/General Input
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      processAudioFile(file);
+      handleIncomingFile(file);
     }
     e.target.value = '';
+  };
+
+  // Handle Video Specific Input
+  const handleVideoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleVideoAudioExtraction(file);
+    }
+    e.target.value = '';
+  };
+
+  // Quick Audition Toggle for any track in the library
+  const handleToggleItemPlay = (item: AudioLibraryItem) => {
+    if (activeAudioId === item.id) {
+      togglePlay();
+    } else {
+      selectAudioLibraryItem(item, true);
+    }
+  };
+
+  // Download any item from the audio library directly
+  const handleDownloadLibraryItem = (item: AudioLibraryItem) => {
+    try {
+      let blob = item.blob;
+      if (!blob) {
+        const { mp3Blob } = audioBufferToMp3(item.audioBuffer, 320);
+        blob = mp3Blob;
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = item.name.endsWith('.mp3') || item.name.endsWith('.wav') ? item.name : `${item.name}.mp3`;
+      a.click();
+      URL.revokeObjectURL(url);
+      onShowToast(`تم تحميل الملف الصوتي: ${item.name}`);
+    } catch (e: any) {
+      onShowToast('تعذر تحميل الملف الصوتي');
+    }
+  };
+
+  // Remove an item from the library
+  const handleRemoveLibraryItem = (id: string) => {
+    setAudioLibrary((prev) => {
+      const next = prev.filter((x) => x.id !== id);
+      if (activeAudioId === id) {
+        if (next.length > 0) {
+          selectAudioLibraryItem(next[0], false);
+        } else {
+          handleClearAll();
+        }
+      }
+      return next;
+    });
+    onShowToast('تم حذف الصوت من قائمة الأصوات');
   };
 
   const togglePlay = () => {
@@ -651,13 +853,20 @@ export const SvgaAudioEditorModal: React.FC<SvgaAudioEditorModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-md select-none">
-      {/* Hidden File Input */}
+      {/* Hidden File Inputs */}
       <input
         ref={fileInputRef}
         type="file"
-        accept="audio/*,video/*,.mp3,.wav,.ogg,.m4a,.aac,.flac,.mp4,.mov"
+        accept="audio/*,video/*,.mp3,.wav,.ogg,.m4a,.aac,.flac,.mp4,.mov,.webm,.mkv,.avi,.m4v"
         className="hidden"
         onChange={handleFileChange}
+      />
+      <input
+        ref={videoFileInputRef}
+        type="file"
+        accept="video/*,.mp4,.mov,.webm,.mkv,.avi,.m4v,.3gp,.flv"
+        className="hidden"
+        onChange={handleVideoFileChange}
       />
 
       <motion.div
@@ -1132,9 +1341,15 @@ export const SvgaAudioEditorModal: React.FC<SvgaAudioEditorModalProps> = ({
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      className="flex-1 py-2 px-3 bg-emerald-500/10 border border-emerald-500/40 rounded-lg text-xs font-bold text-emerald-400 text-center truncate"
+                      onClick={() => {
+                        if (existingAudio) {
+                          const found = audioLibrary.find((x) => x.id === existingAudio.audioKey);
+                          if (found) selectAudioLibraryItem(found, false);
+                        }
+                      }}
+                      className="flex-1 py-2 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/40 rounded-lg text-xs font-bold text-emerald-400 text-center truncate cursor-pointer transition-colors"
                     >
-                      {existingAudio && !selectedFile ? 'Keep Current' : (selectedFileName ? 'Audio Loaded' : 'No current audio')}
+                      {existingAudio && (!selectedFile || activeAudioId === existingAudio.audioKey) ? 'Keep Current' : (selectedFileName ? 'Audio Loaded' : 'No current audio')}
                     </button>
 
                     <button
@@ -1142,9 +1357,84 @@ export const SvgaAudioEditorModal: React.FC<SvgaAudioEditorModalProps> = ({
                       onClick={() => fileInputRef.current?.click()}
                       className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-md shadow-emerald-600/20"
                     >
+                      <Music size={13} />
                       <span>{existingAudio ? 'Replace Audio' : '+ Add Audio'}</span>
                     </button>
                   </div>
+
+                  {/* Video to Audio Extraction Trigger Button */}
+                  <button
+                    type="button"
+                    onClick={() => videoFileInputRef.current?.click()}
+                    className="w-full py-2.5 px-3 bg-gradient-to-r from-sky-500/15 via-indigo-500/15 to-teal-500/15 hover:from-sky-500/25 hover:via-indigo-500/25 hover:to-teal-500/25 border border-sky-500/40 hover:border-sky-400/60 rounded-lg text-xs font-bold text-sky-200 flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm group"
+                  >
+                    <Video size={14} className="text-sky-400 group-hover:scale-110 transition-transform" />
+                    <span>رفع فيديو واستخراج الصوت تلقائياً 🎬</span>
+                    <Sparkles size={12} className="text-amber-400 animate-pulse" />
+                  </button>
+
+                  {/* Video Extraction Progress State */}
+                  {isExtractingVideo && (
+                    <div className="bg-sky-950/50 border border-sky-500/40 rounded-lg p-3 space-y-2">
+                      <div className="flex items-center gap-2 text-xs text-sky-300 font-bold">
+                        <RefreshCw size={14} className="animate-spin text-sky-400" />
+                        <span>{extractionProgressText || 'جاري استخراج الصوت وفصله عن الفيديو...'}</span>
+                      </div>
+                      <div className="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
+                        <div className="bg-gradient-to-r from-sky-500 to-emerald-500 h-full w-full animate-pulse" />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Silent Video or No Audio Error Banner */}
+                  {videoNoAudioError && (
+                    <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg p-3 flex items-start gap-2.5 text-xs text-rose-300">
+                      <AlertTriangle size={16} className="shrink-0 text-rose-400 mt-0.5" />
+                      <div className="space-y-1">
+                        <span className="font-bold block">تنبيه: لا يوجد مسار صوتي!</span>
+                        <p className="text-[11px] text-slate-300 leading-relaxed">{videoNoAudioError}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Multi-Track Audio Selector Card */}
+                  {multiTrackPrompt && (
+                    <div className="bg-[#0b1220] border border-sky-500/50 rounded-lg p-3 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-sky-300 flex items-center gap-1.5">
+                          <Film size={13} className="text-sky-400" />
+                          تم العثور على عدة مسارات صوتية في الفيديو ({multiTrackPrompt.tracks.length}):
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setMultiTrackPrompt(null)}
+                          className="text-slate-400 hover:text-slate-200"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        اختر المسار الصوتي الذي ترغب في استخراجه وإضافته لقائمة الأصوات:
+                      </p>
+                      <div className="space-y-1.5">
+                        {multiTrackPrompt.tracks.map((t) => (
+                          <button
+                            key={t.trackIndex}
+                            type="button"
+                            onClick={() => handleVideoAudioExtraction(multiTrackPrompt.file, t.trackIndex)}
+                            className="w-full text-right p-2 rounded-lg bg-slate-900/90 hover:bg-sky-950/60 border border-slate-800 hover:border-sky-500/50 text-xs flex items-center justify-between transition-colors cursor-pointer"
+                          >
+                            <div className="flex items-center gap-2">
+                              <Radio size={12} className="text-sky-400" />
+                              <span className="font-bold text-slate-200">{t.title}</span>
+                              <span className="text-[10px] text-slate-500 font-mono">({t.codec}, {t.channels}ch)</span>
+                            </div>
+                            <span className="text-[10px] text-sky-400 font-bold">استخراج هذا المسار</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Immediate Audition & Live Audio State */}
                   {audioBuffer && (
@@ -1159,7 +1449,7 @@ export const SvgaAudioEditorModal: React.FC<SvgaAudioEditorModalProps> = ({
                               : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30'
                           }`}
                         >
-                          {isPlaying ? <Pause size={13} className="fill-current" /> : <Play size={13} className="fill-current" />}
+                          {isPlaying ? <Pause size={13} className="fill-current" /> : <Play size={13} className="fill-current ml-0.5" />}
                           <span>{isPlaying ? 'إيقاف الاستماع' : 'استماع للصوت الآن'}</span>
                         </button>
                         <span className="text-[11px] text-emerald-300 font-medium">
@@ -1201,6 +1491,125 @@ export const SvgaAudioEditorModal: React.FC<SvgaAudioEditorModalProps> = ({
                       </div>
                     </div>
                   )}
+
+                  {/* Audio Library List (قائمة الأصوات المتاحة) */}
+                  <div className="space-y-2 pt-2 border-t border-[#1b2333]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                        <ListMusic size={13} className="text-emerald-400" />
+                        قائمة الأصوات المتاحة ({audioLibrary.length})
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        اضغط للاستماع أو التفعيل
+                      </span>
+                    </div>
+
+                    {audioLibrary.length === 0 ? (
+                      <div className="p-3 bg-[#05070c] border border-dashed border-[#1e273a] rounded-lg text-center text-slate-500 text-xs">
+                        لا توجد ملفات صوتية بعد. ارفع ملف صوتي أو فيديو لاستخراج صوته تلقائياً.
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                        {audioLibrary.map((item) => {
+                          const isActive = activeAudioId === item.id;
+                          const isItemPlaying = isPlaying && isActive;
+                          return (
+                            <div
+                              key={item.id}
+                              className={`p-2 rounded-lg border transition-all flex items-center justify-between gap-2 ${
+                                isActive
+                                  ? 'bg-emerald-950/30 border-emerald-500/60 shadow-sm shadow-emerald-950/40'
+                                  : 'bg-[#05070c] border-[#161c2b] hover:border-slate-700'
+                              }`}
+                            >
+                              {/* Play Button & Details */}
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleItemPlay(item)}
+                                  className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+                                    isItemPlaying
+                                      ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/30'
+                                      : 'bg-emerald-600/30 hover:bg-emerald-600 text-emerald-300 hover:text-white'
+                                  }`}
+                                  title={isItemPlaying ? 'إيقاف الاستماع' : 'استماع للصوت'}
+                                >
+                                  {isItemPlaying ? <Pause size={12} className="fill-current" /> : <Play size={12} className="fill-current ml-0.5" />}
+                                </button>
+
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className={`text-xs font-bold truncate max-w-[170px] sm:max-w-[220px] ${isActive ? 'text-emerald-300' : 'text-slate-200'}`} title={item.name}>
+                                      {item.name}
+                                    </span>
+                                    {item.sourceType === 'video_extracted' && (
+                                      <span className="bg-sky-500/20 text-sky-300 text-[9px] font-bold px-1.5 py-0.2 rounded border border-sky-500/30 shrink-0">
+                                        مستخرج من فيديو 🎬
+                                      </span>
+                                    )}
+                                    {item.sourceType === 'project_existing' && (
+                                      <span className="bg-emerald-500/20 text-emerald-300 text-[9px] font-bold px-1.5 py-0.2 rounded border border-emerald-500/30 shrink-0">
+                                        صوت المشروع الحالي
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1.5 mt-0.5">
+                                    <span>{formatAudioTime(item.durationSec, false)}</span>
+                                    <span>•</span>
+                                    <span>{item.sizeStr}</span>
+                                    {item.bitrate && (
+                                      <>
+                                        <span>•</span>
+                                        <span>{item.bitrate}</span>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Actions: Select, Download, Delete */}
+                              <div className="flex items-center gap-1 shrink-0">
+                                {isActive ? (
+                                  <span className="px-2 py-1 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold flex items-center gap-1">
+                                    <Check size={11} />
+                                    <span>نشط</span>
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => selectAudioLibraryItem(item)}
+                                    className="px-2 py-1 rounded bg-slate-800 hover:bg-emerald-600 hover:text-white text-slate-300 text-[10px] font-bold transition-colors cursor-pointer"
+                                  >
+                                    استخدام
+                                  </button>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadLibraryItem(item)}
+                                  className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-white/5 transition-colors cursor-pointer"
+                                  title="تحميل ملف الصوت المستخرج"
+                                >
+                                  <Download size={13} />
+                                </button>
+
+                                {audioLibrary.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveLibraryItem(item.id)}
+                                    className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                                    title="حذف من القائمة"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
 
                   {/* Selected File Details Box */}
                   {selectedFileName && (

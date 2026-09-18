@@ -10273,3 +10273,5 @@ const TransformControl: React.FC<{ label: string, value: number, min: number, ma
     <input type="range" min={min} max={max} step={step} value={value} onChange={e => onChange(parseFloat(e.target.value))} className="w-full h-1.5 bg-slate-800 rounded-full appearance-none accent-sky-500 cursor-pointer" />
   </div>
 );
+
+export default Workspace;

@@ -848,6 +848,149 @@ router.post('/compress-vap', upload.single('file'), async (req, res) => {
   }
 });
 
+// Probe video audio streams and metadata (detects multi-track or silent videos)
+router.post('/probe-video-audio', upload.single('file'), async (req, res) => {
+  const file = req.file;
+  if (!file) {
+    return res.status(400).json({ error: 'الملف مطلوب للفحص' });
+  }
+
+  try {
+    const { stdout: probeJsonStr } = await execFilePromise(resolvedFfprobePath, [
+      '-v', 'error',
+      '-show_streams',
+      '-show_format',
+      '-print_format', 'json',
+      file.path
+    ]);
+
+    const probeData = JSON.parse(probeJsonStr);
+    const audioStreams = (probeData.streams || []).filter((s: any) => s.codec_type === 'audio');
+    const videoStreams = (probeData.streams || []).filter((s: any) => s.codec_type === 'video');
+
+    const duration = parseFloat(probeData.format?.duration || audioStreams[0]?.duration || videoStreams[0]?.duration || 0);
+
+    const audioTracks = audioStreams.map((s: any, idx: number) => {
+      const tags = s.tags || {};
+      const language = tags.language || tags.LANGUAGE || 'und';
+      const title = tags.title || tags.handler_name || `المسار الصوتي ${idx + 1}`;
+      return {
+        trackIndex: idx,
+        streamIndex: s.index,
+        codec: s.codec_name || 'unknown',
+        channels: s.channels || 2,
+        channelLayout: s.channel_layout || (s.channels === 1 ? 'mono' : 'stereo'),
+        sampleRate: parseInt(s.sample_rate || '48000', 10),
+        bitrate: s.bit_rate ? `${Math.round(parseInt(s.bit_rate, 10) / 1000)}k` : '320k',
+        language,
+        title,
+        duration: parseFloat(s.duration || duration || 0)
+      };
+    });
+
+    res.json({
+      success: true,
+      hasAudio: audioTracks.length > 0,
+      audioTracksCount: audioTracks.length,
+      audioTracks,
+      duration,
+      formatName: probeData.format?.format_name,
+      fileSize: file.size
+    });
+  } catch (err: any) {
+    console.error('[Probe Video Audio Error]:', err);
+    res.status(500).json({ error: err?.message || 'فشل فحص المسارات الصوتية للملف' });
+  } finally {
+    if (file && fs.existsSync(file.path)) {
+      try { fs.unlinkSync(file.path); } catch (e) {}
+    }
+  }
+});
+
+// Extract a specific audio track from video with high-fidelity encoding (320kbps MP3 or WAV)
+router.post('/extract-video-track', upload.single('file'), async (req, res) => {
+  const file = req.file;
+  if (!file) {
+    return res.status(400).json({ error: 'الملف مطلوب للاستخراج' });
+  }
+
+  const trackIndex = parseInt(req.body.trackIndex || '0', 10);
+  const format = (req.body.format || 'mp3').toLowerCase();
+  const quality = req.body.quality || '320k'; // Default to maximum 320k quality
+
+  const tempOutputDir = path.join(uploadDir, 'extracted');
+  if (!fs.existsSync(tempOutputDir)) {
+    fs.mkdirSync(tempOutputDir, { recursive: true });
+  }
+
+  const outFileName = `track_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${format}`;
+  const outPath = path.join(tempOutputDir, outFileName);
+
+  try {
+    const args: string[] = [
+      '-y',
+      '-i', file.path,
+      '-vn',
+      '-map', `0:a:${trackIndex}`
+    ];
+
+    if (format === 'wav') {
+      args.push('-c:a', 'pcm_s16le');
+    } else {
+      // High-quality LAME MP3 with ID3v2.3 tag
+      args.push('-c:a', 'libmp3lame', '-b:a', quality, '-id3v2_version', '3', '-write_xing', '1');
+    }
+
+    args.push(outPath);
+
+    console.log('[Extract Video Track] Running FFmpeg with args:', args.join(' '));
+    await execFilePromise(resolvedFfmpegPath, args);
+
+    if (!fs.existsSync(outPath)) {
+      throw new Error('فشل إنشاء الملف الصوتي المستخرج');
+    }
+
+    const audioBuffer = await fs.promises.readFile(outPath);
+    if (audioBuffer.length === 0) {
+      throw new Error('NO_AUDIO: ملف الصوت المستخرج فارغ تماماً (الفيديو صامت)');
+    }
+    const base64Audio = audioBuffer.toString('base64');
+    const mimeType = format === 'wav' ? 'audio/wav' : 'audio/mpeg';
+    const dataUrl = `data:${mimeType};base64,${base64Audio}`;
+
+    res.json({
+      success: true,
+      dataUrl,
+      size: audioBuffer.length,
+      format,
+      bitrate: quality,
+      trackIndex
+    });
+  } catch (err: any) {
+    console.error('[Extract Video Track Error]:', err);
+    const errMsg = String(err?.message || '');
+    if (
+      errMsg.includes('matches no streams') || 
+      errMsg.includes('Output file is empty') || 
+      errMsg.includes('does not contain any stream') ||
+      errMsg.includes('NO_AUDIO')
+    ) {
+      return res.status(400).json({ 
+        noAudio: true, 
+        error: 'لم يتم العثور على أي مسار صوتي داخل هذا الفيديو (الفيديو صامت).' 
+      });
+    }
+    res.status(500).json({ error: err?.message || 'فشل استخراج المسار الصوتي من الفيديو' });
+  } finally {
+    if (file && fs.existsSync(file.path)) {
+      try { fs.unlinkSync(file.path); } catch (e) {}
+    }
+    if (fs.existsSync(outPath)) {
+      try { fs.unlinkSync(outPath); } catch (e) {}
+    }
+  }
+});
+
 // Probe VAP/MP4 metadata and audio info endpoint
 router.post('/probe-vap', upload.single('file'), async (req, res) => {
   const file = req.file;

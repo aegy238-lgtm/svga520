@@ -272,6 +272,31 @@ function getLayerFrameState(layer: EditableLayer, frameIdx: number, totalFrames:
     return { isActive: true, frame: { alpha: 1, transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 } }, alpha: 1.0 };
   }
 
+  // Guaranteed rendering for video sequence layers
+  if (layer.isVideoSequence) {
+    const startF = layer.inFrame !== undefined ? layer.inFrame : (layer.keyframeSummary?.startFrame ?? 0);
+    const endF = layer.outFrame !== undefined ? layer.outFrame : (layer.keyframeSummary?.endFrame ?? (totalFrames - 1));
+    if (frameIdx < startF || frameIdx > endF) {
+      return { isActive: false, frame: null, alpha: 0 };
+    }
+    const frames = layer.spriteRef?.frames;
+    const frame = (frames && frames[frameIdx]) || (frames && frames[0]) || {
+      alpha: 1,
+      transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 },
+      layout: { x: 0, y: 0, width: layer.transform?.width || 512, height: layer.transform?.height || 512 }
+    };
+    return {
+      isActive: true,
+      frame: {
+        ...frame,
+        alpha: 1,
+        transform: frame.transform || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 },
+        layout: frame.layout || { x: 0, y: 0, width: layer.transform?.width || 512, height: layer.transform?.height || 512 }
+      },
+      alpha: 1.0
+    };
+  }
+
   const frames = layer.spriteRef?.frames;
   if (!frames || frames.length === 0) return { isActive: false, frame: null, alpha: 0 };
 
@@ -519,12 +544,24 @@ export async function renderAllProjectFrames(
         renderSvgaShapes(targetCtx, frame.shapes);
       }
 
-      const imgKey = layerItem.imageKey || layerItem.spriteRef?.imageKey;
+      let imgKey = layerItem.imageKey || layerItem.spriteRef?.imageKey;
+      if (layerItem.isVideoSequence || layerItem.sequencePrefix) {
+        const pfx = layerItem.sequencePrefix || 'frame_';
+        const candidateKeys = [
+          `${pfx}${f}.jpg`,
+          `${pfx}${f}.png`,
+          `${pfx}${f}.jpeg`,
+          `${pfx}${f}.webp`,
+          `${pfx}${f}`
+        ];
+        const matched = candidateKeys.find(k => imageCache[k] || imageCache[k.toLowerCase()] || (project.imagesMap && project.imagesMap[k]));
+        imgKey = matched || `${pfx}${f}.jpg`;
+      }
       let cachedImg = imgKey ? (imageCache[imgKey] || imageCache[imgKey.toLowerCase()]) : null;
 
       if (!cachedImg && imgKey) {
         const cleanK = imgKey.replace(/\.(png|jpe?g|webp|svg)$/i, '');
-        cachedImg = imageCache[cleanK] || imageCache[`${cleanK}.png`] || imageCache[`img_${cleanK}`];
+        cachedImg = imageCache[cleanK] || imageCache[`${cleanK}.png`] || imageCache[`${cleanK}.jpg`] || imageCache[`img_${cleanK}`];
       }
 
       if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {

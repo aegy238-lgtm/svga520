@@ -503,11 +503,20 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       redrawTimer = setTimeout(() => {
         redrawTimer = null;
         setCacheVersion(v => v + 1);
-      }, 50);
+      }, 30);
     };
 
+    // Clean up any stale keys from previous projects
+    if (project.imagesMap) {
+      for (const k in imagesCache.current) {
+        if (!project.imagesMap[k]) {
+          delete imagesCache.current[k];
+        }
+      }
+    }
+
     let hasLoadedAny = false;
-    for (const [key, dataUrl] of Object.entries(project.imagesMap)) {
+    for (const [key, dataUrl] of Object.entries(project.imagesMap || {})) {
       const existing = imagesCache.current[key];
       if (!existing || existing.src !== dataUrl) {
         const img = new Image();
@@ -516,6 +525,9 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
           scheduleRedraw();
         };
         img.src = dataUrl;
+        if (img.complete && img.naturalWidth > 0) {
+          scheduleRedraw();
+        }
         imagesCache.current[key] = img;
         hasLoadedAny = true;
       }
@@ -527,7 +539,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     return () => {
       if (redrawTimer) clearTimeout(redrawTimer);
     };
-  }, [project.imagesMap]);
+  }, [project.fileName, project.imagesMap]);
 
   // Clean up image cache on unmount to release GPU and RAM memory
   useEffect(() => {
@@ -617,6 +629,31 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
   const getLayerFrameState = useCallback((layer: EditableLayer, frameIdx: number) => {
     if (layer.isMerged || (layer.mergedLayers && layer.mergedLayers.length > 0)) {
       return { isActive: true, frame: { alpha: 1, transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 } }, alpha: 1.0 };
+    }
+
+    // Guaranteed visibility and state for video sequence layers
+    if (layer.isVideoSequence) {
+      const startF = layer.inFrame !== undefined ? layer.inFrame : (layer.keyframeSummary?.startFrame ?? 0);
+      const endF = layer.outFrame !== undefined ? layer.outFrame : (layer.keyframeSummary?.endFrame ?? (project.totalFrames - 1));
+      if (frameIdx < startF || frameIdx > endF) {
+        return { isActive: false, frame: null, alpha: 0 };
+      }
+      const frames = layer.spriteRef?.frames;
+      const frame = (frames && frames[frameIdx]) || (frames && frames[0]) || {
+        alpha: 1,
+        transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 },
+        layout: { x: 0, y: 0, width: layer.transform?.width || project.width, height: layer.transform?.height || project.height }
+      };
+      return {
+        isActive: true,
+        frame: {
+          ...frame,
+          alpha: 1,
+          transform: frame.transform || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 },
+          layout: frame.layout || { x: 0, y: 0, width: layer.transform?.width || project.width, height: layer.transform?.height || project.height }
+        },
+        alpha: 1.0
+      };
     }
 
     const frames = layer.spriteRef?.frames;
@@ -910,14 +947,29 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       }
 
       // Draw Image (standard SVGA 2.0: drawn with exact layout offset without distortion)
-      let cachedImg = imagesCache.current[layerItem.imageKey];
+      let activeImgKey = layerItem.imageKey;
+      if (layerItem.isVideoSequence || layerItem.sequencePrefix) {
+        const pfx = layerItem.sequencePrefix || 'frame_';
+        const candidateKeys = [
+          `${pfx}${currentFrame}.jpg`,
+          `${pfx}${currentFrame}.png`,
+          `${pfx}${currentFrame}.jpeg`,
+          `${pfx}${currentFrame}.webp`,
+          `${pfx}${currentFrame}`
+        ];
+        const matched = candidateKeys.find(k => (project.imagesMap && project.imagesMap[k]) || (imagesCache.current && imagesCache.current[k]));
+        activeImgKey = matched || `${pfx}${currentFrame}.jpg`;
+      }
+      let cachedImg = imagesCache.current[activeImgKey];
       if (!cachedImg) {
-        let src = layerItem.thumbnailUrl || project.imagesMap[layerItem.imageKey];
+        let src = project.imagesMap[activeImgKey] || (activeImgKey === layerItem.imageKey ? layerItem.thumbnailUrl : undefined);
         if (!src && project.imagesMap) {
-          const rawK = layerItem.imageKey;
+          const rawK = activeImgKey;
           const cleanK = rawK.replace(/\.(png|jpe?g|webp|svg)$/i, '');
           src = project.imagesMap[cleanK] || 
                 project.imagesMap[`${cleanK}.png`] || 
+                project.imagesMap[`${cleanK}.jpg`] || 
+                project.imagesMap[`${cleanK}.jpeg`] || 
                 project.imagesMap[rawK.toLowerCase()] || 
                 project.imagesMap[`img_${cleanK}`];
           if (!src) {
@@ -930,8 +982,11 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         }
         if (src) {
           const tempImg = new Image();
+          tempImg.onload = () => {
+            setCacheVersion(v => v + 1);
+          };
           tempImg.src = src;
-          imagesCache.current[layerItem.imageKey] = tempImg;
+          imagesCache.current[activeImgKey] = tempImg;
           cachedImg = tempImg;
         }
       }
