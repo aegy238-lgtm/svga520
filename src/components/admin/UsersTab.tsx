@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 import { collection, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy, getDocs, writeBatch } from 'firebase/firestore';
-import { Trash2, Edit2, Coins, Image as ImageIcon, Search, Tag } from 'lucide-react';
+import { Trash2, Edit2, Coins, Image as ImageIcon, Search, Tag, Crown } from 'lucide-react';
 
 export default function UsersTab() {
   const [users, setUsers] = useState<any[]>([]);
@@ -10,6 +10,15 @@ export default function UsersTab() {
   const [coinsAmount, setCoinsAmount] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [idIconUrl, setIdIconUrl] = useState('');
+
+  const handleToggleVip = async (user: any) => {
+    try {
+      const newVip = !user.isVIP;
+      await updateDoc(doc(db, 'users', user.id), { isVIP: newVip });
+    } catch (error: any) {
+      alert('خطأ في تغيير حالة VIP: ' + error.message);
+    }
+  };
 
   useEffect(() => {
     const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
@@ -137,6 +146,7 @@ export default function UsersTab() {
                 <th className="px-4 py-3 text-sm font-bold text-gray-700">الآي دي</th>
                 <th className="px-4 py-3 text-sm font-bold text-gray-700">البريد</th>
                 <th className="px-4 py-3 text-sm font-bold text-gray-700">الرصيد</th>
+                <th className="px-4 py-3 text-sm font-bold text-amber-600">عضوية VIP</th>
                 <th className="px-4 py-3 text-sm font-bold text-gray-700">تاريخ التسجيل</th>
                 <th className="px-4 py-3 text-sm font-bold text-gray-700">الإجراءات</th>
               </tr>
@@ -153,6 +163,20 @@ export default function UsersTab() {
                   <td className="px-4 py-3 text-sm text-gray-600 font-mono">{user.numericId || '---'}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{user.email}</td>
                   <td className="px-4 py-3 text-sm font-bold text-yellow-600">{user.diamonds || 0} 💎</td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => handleToggleVip(user)}
+                      className={`px-3 py-1 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 border shadow-sm ${
+                        user.isVIP
+                          ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-900 border-amber-500 shadow-amber-300/50 hover:brightness-105'
+                          : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-amber-50 hover:text-amber-600 hover:border-amber-300'
+                      }`}
+                      title={user.isVIP ? 'عضو VIP نشط (اضغط للإلغاء)' : 'حساب عادي (اضغط لتفعيل VIP)'}
+                    >
+                      <Crown size={14} className={user.isVIP ? 'fill-slate-900' : 'text-gray-400'} />
+                      <span>{user.isVIP ? 'VIP 👑 مفعل' : 'تفعيل VIP'}</span>
+                    </button>
+                  </td>
                   <td className="px-4 py-3 text-sm text-gray-500">
                     {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'غير معروف'}
                   </td>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { 
   Layers, LayoutGrid, Image, Sparkles, Wand2, Scissors, Maximize, 
-  Zap, Video, ShoppingBag, Box, RefreshCw, Music, Film
+  Zap, Video, ShoppingBag, Box, RefreshCw, Music, Film, FastForward, Crown, Clock
 } from 'lucide-react';
 import { HeaderProps } from '../components/Header';
 
@@ -21,6 +21,9 @@ export interface ToolRegistryItem {
   descEn: string;
   highlight?: boolean;
   hideFromTopNav?: boolean;
+  isVip?: boolean;
+  vipBadge?: string;
+  pinnedTop?: boolean;
 }
 
 export interface CategoryInfo {
@@ -83,17 +86,37 @@ export const CATEGORIES_CONFIG: Record<ToolCategory, CategoryInfo> = {
 
 export const TOOLS_REGISTRY: ToolRegistryItem[] = [
   {
+    id: 'video-duration-speed',
+    label: 'التحكم في سرعة ومدة الفيديو',
+    shortLabel: 'سرعة الفيديو VIP',
+    icon: <FastForward className="w-4 h-4 text-amber-400" />,
+    category: 'batch',
+    categoryNameAr: 'المعالجة الجماعية (Batch)',
+    actionKey: 'onVideoDurationSpeedOpen',
+    dashboardActionKey: 'videoDurationSpeed',
+    featureAccessKey: 'videoDurationSpeed',
+    descAr: 'ميزة VIP حصرية: تسريع وتبطيء وضبط مدة الفيديو بالملي ثانية بدون أي قص مع الحفاظ على الصوت والجودة.',
+    descEn: 'Exclusive VIP Feature: Adjust video playback speed & duration with zero-crop, preserving audio and visual fidelity.',
+    highlight: true,
+    isVip: true,
+    vipBadge: 'VIP 👑',
+    pinnedTop: true
+  },
+  {
     id: 'svga-layer-editor',
     label: 'تحرير طبقات SVGA',
-    icon: <Layers className="w-4 h-4 text-cyan-400" />,
+    icon: <Layers className="w-4 h-4 text-amber-400" />,
     category: 'svga',
     categoryNameAr: 'أنيميشن و SVGA',
     actionKey: 'onSvgaLayerEditorOpen',
     dashboardActionKey: 'svgaLayerEditor',
     featureAccessKey: 'svgaLayerEditor',
-    descAr: 'محرر طبقات SVGA احترافي للتحكم بالماوس في الكانفاس، وتغيير الحجم والتدوير والموضع والترتيب مع الحفاظ التام على الحركة والأصوات.',
-    descEn: 'Visual SVGA Layer Editor with interactive mouse canvas manipulation, resize, rotation and audio preservation.',
-    highlight: true
+    descAr: 'محرر طبقات SVGA الملكي الحصري (VIP) للتحكم بالماوس في الكانفاس، وتغيير الحجم والتدوير والموضع والترتيب مع الحفاظ التام على الحركة والأصوات.',
+    descEn: 'Exclusive VIP SVGA Layer Editor with interactive mouse canvas manipulation, resize, rotation and audio preservation.',
+    highlight: true,
+    isVip: true,
+    vipBadge: 'VIP 👑',
+    pinnedTop: true
   },
   {
     id: 'universal',

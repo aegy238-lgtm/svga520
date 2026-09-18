@@ -6,7 +6,7 @@ import {
   BadgeCheck, Maximize, Lock, Scissors, Menu, X as CloseIcon, 
   Zap, Sparkles, Info, Search, ChevronDown, ChevronUp, Check, LayoutGrid, 
   Command, Wand, Cpu, Repeat, RefreshCw, User, GitBranch, Pin, PinOff,
-  BookOpen, Eye, EyeOff, ChevronLeft, ChevronRight, Grid, Star, Globe
+  BookOpen, Eye, EyeOff, ChevronLeft, ChevronRight, Grid, Star, Globe, Crown
 } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { SUPPORTED_LANGUAGES } from './LanguageTranslatorWidget';
@@ -60,6 +60,7 @@ export interface HeaderProps {
   onAnimationManagerOpen?: () => void;
   onStoreOpen?: () => void;
   onVapHubOpen?: () => void;
+  onVideoDurationSpeedOpen?: () => void;
   onBatchImageOpen: () => void;
   onLoginClick: () => void;
   onProfileClick: () => void;
@@ -164,18 +165,23 @@ export const Header: React.FC<HeaderProps> = (props) => {
     return TOOLS_REGISTRY.filter(t => isFeatureAllowed(t.id));
   }, [props.currentUser]);
 
-  // Separate top bar tools: Starred tools are strictly placed FIRST at the beginning
+  // Separate top bar tools: Pinned VIP tools and Starred tools are strictly placed FIRST at the beginning
   const { starredNavTools, unstarredNavTools } = useMemo(() => {
     const validTools = allTools.filter(t => !t.hideFromTopNav && t.id !== 'pag-to-svga');
     
+    // Pinned VIP tools always stand first at the top for everyone
+    const pinnedTools = validTools.filter(t => t.pinnedTop || t.isVip);
+    const starred: ToolDefinition[] = [...pinnedTools];
+    
     // Sort starred tools according to user's starred list order
-    const starred: ToolDefinition[] = [];
     starredToolIds.forEach(id => {
       const match = validTools.find(t => t.id === id);
-      if (match) starred.push(match);
+      if (match && !starred.some(st => st.id === match.id)) {
+        starred.push(match);
+      }
     });
 
-    const unstarred = validTools.filter(t => !starredToolIds.includes(t.id));
+    const unstarred = validTools.filter(t => !starred.some(st => st.id === t.id));
 
     return { starredNavTools: starred, unstarredNavTools: unstarred };
   }, [allTools, starredToolIds]);
@@ -252,6 +258,29 @@ export const Header: React.FC<HeaderProps> = (props) => {
   }, [isSearchOpen]);
 
   const handleToolClick = (tool: ToolDefinition) => {
+    // Check if external link is configured in settings
+    const extLinks = props.settings?.externalLinks;
+    if (tool.id === 'store' && extLinks?.storeLink?.enabled && extLinks.storeLink.url) {
+      const url = extLinks.storeLink.url;
+      const target = extLinks.storeLink.openInNewTab !== false ? '_blank' : '_self';
+      window.open(url.startsWith('http') ? url : `https://${url}`, target, 'noopener,noreferrer');
+      setIsMobileMenuOpen(false);
+      setIsSearchOpen(false);
+      setIsAllToolsOpen(false);
+      setActiveMenu(null);
+      return;
+    }
+    if ((tool.id === 'svga-ex' || tool.id === 'svga-layer-editor') && extLinks?.svgaEditorLink?.enabled && extLinks.svgaEditorLink.url) {
+      const url = extLinks.svgaEditorLink.url;
+      const target = extLinks.svgaEditorLink.openInNewTab !== false ? '_blank' : '_self';
+      window.open(url.startsWith('http') ? url : `https://${url}`, target, 'noopener,noreferrer');
+      setIsMobileMenuOpen(false);
+      setIsSearchOpen(false);
+      setIsAllToolsOpen(false);
+      setActiveMenu(null);
+      return;
+    }
+
     const action = props[tool.actionKey] as () => void;
     if (action) action();
     setIsMobileMenuOpen(false);
@@ -376,27 +405,39 @@ export const Header: React.FC<HeaderProps> = (props) => {
           }}
           className={`flex items-center gap-1.5 pl-3 pr-2.5 py-1.5 md:pl-4 md:pr-3 md:py-2 rounded-full transition-all duration-300 select-none cursor-pointer ${
             isToolActive 
-              ? isItemStarred
-                ? 'bg-gradient-to-r from-amber-500 via-[#4DA3FF] to-[#8B5CF6] text-white shadow-[0_0_22px_rgba(245,158,11,0.45)] border border-amber-300/40 scale-105' 
-                : 'bg-gradient-to-r from-[#4DA3FF] to-[#8B5CF6] text-white shadow-[0_0_20px_rgba(77,163,255,0.4)] border border-white/20 scale-105'
-              : isItemStarred
-                ? 'text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/35 hover:border-amber-400/60 shadow-[0_0_12px_rgba(245,158,11,0.15)]'
-                : tool.highlight
-                  ? 'text-[#4DA3FF] hover:text-white hover:bg-[#4DA3FF]/10 border border-transparent hover:border-[#4DA3FF]/30 hover:shadow-[0_0_15px_rgba(77,163,255,0.2)]'
-                  : 'text-slate-400 hover:text-white hover:bg-white/10 border border-transparent hover:border-white/20 hover:shadow-[0_0_15px_rgba(255,255,255,0.1)]'
+              ? tool.isVip
+                ? 'bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-600 text-black font-black shadow-[0_0_26px_rgba(245,158,11,0.65)] border border-amber-200 scale-105'
+                : isItemStarred
+                  ? 'bg-gradient-to-r from-amber-500 via-[#4DA3FF] to-[#8B5CF6] text-white shadow-[0_0_22px_rgba(245,158,11,0.45)] border border-amber-300/40 scale-105' 
+                  : 'bg-gradient-to-r from-[#4DA3FF] to-[#8B5CF6] text-white shadow-[0_0_20px_rgba(77,163,255,0.4)] border border-white/20 scale-105'
+              : tool.isVip
+                ? 'text-amber-300 bg-gradient-to-r from-amber-950/80 via-purple-950/60 to-amber-950/80 hover:bg-amber-500/25 border border-amber-400/60 hover:border-amber-300 shadow-[0_0_18px_rgba(245,158,11,0.3)] hover:scale-105 font-bold'
+                : isItemStarred
+                  ? 'text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/35 hover:border-amber-400/60 shadow-[0_0_12px_rgba(245,158,11,0.15)]'
+                  : tool.highlight
+                    ? 'text-[#4DA3FF] hover:text-white hover:bg-[#4DA3FF]/10 border border-transparent hover:border-[#4DA3FF]/30 hover:shadow-[0_0_15px_rgba(77,163,255,0.2)]'
+                    : 'text-slate-400 hover:text-white hover:bg-white/10 border border-transparent hover:border-white/20 hover:shadow-[0_0_15px_rgba(255,255,255,0.1)]'
           }`}
           title={
             isToolActive
               ? `${tool.label} (نشطة حالياً - انقر للانتقال للأداة التالية: ${nextTool?.label || ''})`
-              : isItemStarred 
-                ? `${tool.descAr} (أداة مثبتة بنجمة في البداية)` 
-                : `${tool.descAr}`
+              : tool.isVip
+                ? `${tool.descAr} (👑 ميزة VIP مثبتة ومميزة)`
+                : isItemStarred 
+                  ? `${tool.descAr} (أداة مثبتة بنجمة في البداية)` 
+                  : `${tool.descAr}`
           }
         >
           {React.cloneElement(tool.icon as React.ReactElement<any>, { className: 'w-4 h-4 shrink-0' })}
           <span>{tool.label}</span>
           
-          {tool.highlight && !isToolActive && !isItemStarred && (
+          {tool.isVip && (
+            <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-yellow-300 text-black shadow-[0_0_10px_rgba(251,191,36,0.6)] ml-1 shrink-0 animate-pulse">
+              VIP 👑
+            </span>
+          )}
+
+          {tool.highlight && !isToolActive && !isItemStarred && !tool.isVip && (
             <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
           )}
 
@@ -685,6 +726,17 @@ export const Header: React.FC<HeaderProps> = (props) => {
               )}
             </AnimatePresence>
           </div>
+
+          {/* VIP Member Badge */}
+          {(props.currentUser?.isVIP || props.currentUser?.role === 'admin' || props.currentUser?.isSuperAdmin) && (
+            <div 
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 via-yellow-500/25 to-amber-500/20 border border-amber-400/50 shadow-[0_0_15px_rgba(245,158,11,0.3)] text-amber-300 text-xs font-black select-none shrink-0"
+              title="عضوية VIP مفعلة - كافة الميزات الملكية متاحة 👑"
+            >
+              <Crown className="w-4 h-4 text-amber-400 animate-pulse" />
+              <span>VIP 👑</span>
+            </div>
+          )}
 
           <div className="w-px h-8 bg-white/10 hidden sm:block mx-0.5"></div>
 

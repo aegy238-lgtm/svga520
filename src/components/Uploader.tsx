@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { UploadCloud, Video, Images, LayoutGrid, Zap, Layers, Lock, Film, Gift, FileVideo } from 'lucide-react';
+import { UploadCloud, Video, Images, LayoutGrid, Zap, Layers, Lock, Film, Gift, FileVideo, ShoppingBag, Globe, Sparkles } from 'lucide-react';
+import { DashboardExternalLinks } from '../types';
 
 export type UploadMode = 'single' | 'batch-mp4' | 'batch-svga';
 
@@ -13,6 +14,8 @@ interface UploaderProps {
   globalQuality?: 'low' | 'medium' | 'high';
   setGlobalQuality?: (q: 'low' | 'medium' | 'high') => void;
   initialMode?: UploadMode;
+  onOpenEmbeddedPortal?: (tabId?: 'first' | 'second' | string) => void;
+  externalLinksConfig?: DashboardExternalLinks;
 }
 
 export const Uploader: React.FC<UploaderProps> = ({ 
@@ -24,10 +27,15 @@ export const Uploader: React.FC<UploaderProps> = ({
   onAnimationManagerOpen, 
   globalQuality = 'high', 
   setGlobalQuality,
-  initialMode = 'single'
+  initialMode = 'single',
+  onOpenEmbeddedPortal,
+  externalLinksConfig
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadMode, setUploadMode] = useState<UploadMode>(initialMode);
+
+  const storeLink = externalLinksConfig?.storeLink;
+  const svgaEditorLink = externalLinksConfig?.svgaEditorLink;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -123,7 +131,13 @@ export const Uploader: React.FC<UploaderProps> = ({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={() => document.getElementById('file-input')?.click()}
+        onClick={() => {
+          if (uploadMode === 'single' && externalLinksConfig?.linkHeroUploadToExternal && onOpenEmbeddedPortal) {
+            onOpenEmbeddedPortal(externalLinksConfig.heroUploadTarget || 'first');
+            return;
+          }
+          document.getElementById('file-input')?.click();
+        }}
       >
         <input 
           id="file-input"
@@ -195,6 +209,28 @@ export const Uploader: React.FC<UploaderProps> = ({
                <span className="text-xs text-slate-300 font-bold uppercase tracking-widest">SVGA 1.0 / 2.0</span>
             </div>
             
+            {storeLink?.enabled && storeLink?.url && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onOpenEmbeddedPortal?.('first'); }}
+                className="flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-b from-fuchsia-500/20 to-purple-600/10 hover:from-fuchsia-400/30 hover:to-purple-500/20 rounded-2xl border-t border-fuchsia-400/30 border-b-4 border-b-fuchsia-900/50 shadow-lg hover:shadow-[0_10px_20px_rgba(217,70,239,0.2)] hover:-translate-y-1 active:translate-y-1 active:border-b-0 transition-all group/btn cursor-pointer"
+                title={storeLink.title || 'المتجر'}
+              >
+                 <ShoppingBag className="w-5 h-5 text-fuchsia-400 group-hover/btn:scale-110 transition-transform drop-shadow-md" />
+                 <span className="text-xs text-fuchsia-300 font-bold uppercase tracking-wide drop-shadow-sm whitespace-nowrap">{storeLink.title || 'المتجر'}</span>
+              </button>
+            )}
+
+            {svgaEditorLink?.enabled && svgaEditorLink?.url && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onOpenEmbeddedPortal?.('second'); }}
+                className="flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-b from-cyan-500/20 to-blue-600/10 hover:from-cyan-400/30 hover:to-blue-500/20 rounded-2xl border-t border-cyan-400/30 border-b-4 border-b-cyan-900/50 shadow-lg hover:shadow-[0_10px_20px_rgba(6,182,212,0.2)] hover:-translate-y-1 active:translate-y-1 active:border-b-0 transition-all group/btn cursor-pointer"
+                title={svgaEditorLink.title || 'محرر SVGA'}
+              >
+                 <Layers className="w-5 h-5 text-cyan-400 group-hover/btn:scale-110 transition-transform drop-shadow-md" />
+                 <span className="text-xs text-cyan-300 font-bold uppercase tracking-wide drop-shadow-sm whitespace-nowrap">{svgaEditorLink.title || 'محرر SVGA'}</span>
+              </button>
+            )}
+
             {onAnimationManagerOpen && (
               <button 
                 onClick={(e) => { e.stopPropagation(); onAnimationManagerOpen(); }}

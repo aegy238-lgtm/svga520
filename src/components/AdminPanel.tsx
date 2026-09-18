@@ -4,13 +4,14 @@ import { db, storage } from '../lib/firebase';
 import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, query, orderBy, Timestamp, setDoc, getDoc, limit, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { StoreManager } from './StoreManager';
-import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, BadgeCheck, Wifi, Smartphone, Store, UserPlus, Lock, Unlock, Shield, ShieldPlus, ShieldOff, GitBranch, Download, ShieldCheck, PowerOff, Power, AlertTriangle, Eye, CheckCircle2, Loader2, Server, Clock, UserCheck, Search, Filter } from 'lucide-react';
+import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, Link2, BadgeCheck, Wifi, Smartphone, Store, UserPlus, Lock, Unlock, Shield, ShieldPlus, ShieldOff, GitBranch, Download, ShieldCheck, PowerOff, Power, AlertTriangle, Eye, CheckCircle2, Loader2, Server, Clock, UserCheck, Search, Filter, Crown } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { logActivity } from '../utils/logger';
 import { AccountVersionsTab } from './admin/AccountVersionsTab';
 import { FeatureAccessControlTab } from './admin/FeatureAccessControlTab';
+import { ExternalLinksManagerTab } from './admin/ExternalLinksManagerTab';
 import { MaintenanceScreen } from './MaintenanceScreen';
 
 // Secondary app for creating users without logging out admin
@@ -25,7 +26,7 @@ interface AdminPanelProps {
 const EXPORT_FORMATS = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP 1.0.5', 'VAP (MP4)', 'SVGA → YYEVA'];
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'store' | 'keys' | 'assets' | 'settings' | 'records' | 'account_versions' | 'features_access' | 'server_outage'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'store' | 'keys' | 'assets' | 'settings' | 'records' | 'account_versions' | 'features_access' | 'server_outage' | 'external_links'>('users');
   const [dropdownState, setDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
   const [subDropdownState, setSubDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -83,6 +84,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
   const TABS = [
     { id: 'users', label: 'المستخدمين', icon: <Users /> },
     { id: 'features_access', label: 'تحديد الوظائف', icon: <ShieldCheck /> },
+    { id: 'external_links', label: 'روابط الداشبورد', icon: <Link2 className="text-cyan-400" /> },
     { id: 'server_outage', label: 'تعطيل سيرفر التطبيق', icon: <PowerOff className="text-rose-400" /> },
     { id: 'store', label: 'المتجر', icon: <Store /> },
     { id: 'keys', label: 'الاشتراكات', icon: <Key /> },
@@ -411,6 +413,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
     } catch (error) {
       console.error("Error removing subscription:", error);
       alert("فشل إزالة الاشتراك");
+    }
+  };
+
+  const handleToggleVipDirect = async (userId: string, currentVip: boolean) => {
+    try {
+      const newVip = !currentVip;
+      await updateDoc(doc(db, 'users', userId), { isVIP: newVip });
+      setUsers(users.map(u => u.id === userId ? { ...u, isVIP: newVip } : u));
+      if (currentUser) {
+        const targetUser = users.find(u => u.id === userId);
+        logActivity(currentUser, 'vip_toggle', `${newVip ? 'تفعيل' : 'إلغاء'} عضوية VIP للمستخدم: ${targetUser?.name || userId} (${targetUser?.email || 'N/A'})`);
+      }
+    } catch (error) {
+      console.error("Error toggling VIP:", error);
+      alert("فشل تحديث حالة VIP للمستخدم");
     }
   };
 
@@ -838,6 +855,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
           ) : (
             <>
               {activeTab === 'features_access' && <FeatureAccessControlTab />}
+              {activeTab === 'external_links' && (
+                <ExternalLinksManagerTab 
+                  settings={settings} 
+                  onUpdateSettings={(newSettings) => setSettings(newSettings)} 
+                />
+              )}
               {activeTab === 'store' && <StoreManager />}
               {activeTab === 'account_versions' && (
                 <AccountVersionsTab 
@@ -865,6 +888,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                           <th className="p-3">البريد الإلكتروني</th>
                           <th className="p-3">الحالة</th>
                           <th className="p-3">الاشتراك</th>
+                          <th className="p-3">عضوية VIP</th>
                           <th className="p-3">الإجراءات</th>
                         </tr>
                       </thead>
@@ -897,9 +921,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                                  'مستخدم'}
                               </span>
                             </td>
+                            <td className="p-3">
+                              <button
+                                onClick={() => handleToggleVipDirect(user.id, !!user.isVIP)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                  user.isVIP 
+                                    ? 'bg-gradient-to-r from-amber-500/20 to-yellow-500/20 text-amber-300 border-amber-500/40 shadow-sm shadow-amber-500/20' 
+                                    : 'bg-slate-800/40 text-slate-500 border-white/5 hover:border-amber-500/30 hover:text-amber-300'
+                                }`}
+                                title={user.isVIP ? 'عضو VIP نشط (اضغط للتعطيل)' : 'حساب عادي (اضغط لتفعيل VIP)'}
+                              >
+                                <Crown className={`w-3.5 h-3.5 ${user.isVIP ? 'text-amber-400' : 'text-slate-500'}`} />
+                                <span>{user.isVIP ? 'VIP 👑' : 'تفعيل'}</span>
+                              </button>
+                            </td>
                             <td className="p-3 flex gap-2">
                               {!isSuperAdmin(user) && (
                                 <>
+                                  <button 
+                                    onClick={() => handleToggleVipDirect(user.id, !!user.isVIP)}
+                                    className={`p-1.5 rounded transition-colors ${user.isVIP ? 'text-amber-400 bg-amber-500/10' : 'text-slate-400 hover:text-amber-400 hover:bg-white/5'}`}
+                                    title={user.isVIP ? 'إلغاء عضوية VIP' : 'تفعيل عضوية VIP'}
+                                  >
+                                    <Crown className="w-4 h-4" />
+                                  </button>
                                   <button 
                                     onClick={() => handleBanUser(user)}
                                     className="p-1.5 hover:bg-red-500/20 text-red-400 rounded transition-colors"
@@ -1740,7 +1785,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                       />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-slate-400 mb-2">تكلفة معالجة SVGA</label>
                         <input 
@@ -1758,6 +1803,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                           onChange={e => setSettings({ ...settings, costs: { ...settings.costs, batchCompress: Number(e.target.value) } })}
                           className="w-full bg-slate-950/50 border border-white/10 rounded-lg px-4 py-3 focus:outline-none focus:border-indigo-500/50 transition-colors"
                         />
+                      </div>
+                      <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+                        <label className="block text-sm font-bold text-amber-400 mb-1 flex items-center gap-1.5">
+                          <Crown className="w-4 h-4 text-amber-400" />
+                          <span>اشتراك VIP بالدولار ($)</span>
+                        </label>
+                        <input 
+                          type="number" 
+                          min="0"
+                          step="1"
+                          value={settings.costs?.vipPrice ?? 15} 
+                          onChange={e => setSettings({ ...settings, costs: { ...settings.costs, vipPrice: Number(e.target.value) } })}
+                          className="w-full bg-slate-950/80 border border-amber-400/50 rounded-lg px-3 py-2 focus:outline-none focus:border-amber-400 text-amber-300 font-bold font-mono transition-colors"
+                          placeholder="15"
+                        />
+                        <span className="text-[10px] text-amber-300/70 mt-1 block">قيمة اشتراك VIP في الداشبورد</span>
                       </div>
                     </div>
 

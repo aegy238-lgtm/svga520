@@ -32,6 +32,7 @@ export enum AppState {
   SVGA_BATCH_COMPRESSOR = 'SVGA_BATCH_COMPRESSOR',
   SVGA_LAYER_EDITOR = 'SVGA_LAYER_EDITOR',
   ANIMATION_MANAGER = 'ANIMATION_MANAGER',
+  EMBEDDED_PORTAL = 'EMBEDDED_PORTAL',
   HOME = 'HOME'
 }
 
@@ -135,6 +136,26 @@ export interface LicenseKey {
   createdBy: string; // Admin ID
 }
 
+export interface CustomExternalLink {
+  id: string;
+  title: string;
+  url: string;
+  enabled: boolean;
+  desc?: string;
+  openInNewTab?: boolean;
+  badge?: string;
+}
+
+export interface DashboardExternalLinks {
+  storeLink?: CustomExternalLink; // القائمة الأولى (مثلاً: المتجر أو الواجهة الرئيسية)
+  svgaEditorLink?: CustomExternalLink; // القائمة الثانية (مثلاً: ملفات ومحرر SVGA)
+  customLinks?: CustomExternalLink[];
+  linkHeroUploadToExternal?: boolean; // ربط أيقونة رفع الواجهة الرئيسية لفتح الموقع مباشرة
+  heroUploadTarget?: 'first' | 'second'; // وجهة أيقونة رفع الواجهة الرئيسية (القائمة الأولى أم الثانية)
+  defaultActiveList?: 'first' | 'second'; // القائمة الافتراضية عند الفتح
+  openInsideApp?: boolean; // فتح الموقع داخل الصفحة (مفعل افتراضياً بدون إظهار الرابط)
+}
+
 export interface AppSettings {
   appName: string;
   logoUrl: string;
@@ -157,6 +178,7 @@ export interface AppSettings {
   designerInfoPhone?: string;
   designerInfoType?: string;
   designerInfoDesc?: string;
+  externalLinks?: DashboardExternalLinks; // نظام الروابط الخارجية للداشبورد (المتجر، محرر svga، وغيرها)
   costs: {
     svgaProcess: number;
     batchCompress: number;

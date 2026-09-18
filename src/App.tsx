@@ -85,6 +85,7 @@ const AnimationManager = lazyWithRetry(() => import('./components/AnimationManag
 const AdminPanel = lazyWithRetry(() => import('./components/AdminPanel').then(m => ({ default: m.AdminPanel })));
 const Store = lazyWithRetry(() => import('./components/Store').then(m => ({ default: m.Store })));
 const VapHub = lazyWithRetry(() => import('./components/VapHub').then(m => ({ default: m.VapHub })));
+const EmbeddedPortalViewer = lazyWithRetry(() => import('./components/EmbeddedPortalViewer').then(m => ({ default: m.EmbeddedPortalViewer })));
 
 import { LanguageTranslatorWidget } from './components/LanguageTranslatorWidget';
 
@@ -94,6 +95,8 @@ import { Signup } from './components/Auth/Signup';
 import { Loading } from './components/Auth/Loading';
 import { UserProfileModal } from './components/UserProfileModal';
 import { SubscriptionModal } from './components/SubscriptionModal';
+import { VideoDurationSpeedModal } from './components/VideoDurationSpeedModal';
+import { VipSubscriptionModal } from './components/VipSubscriptionModal';
 import { useAuth } from './contexts/AuthContext';
 import { AppState, FileMetadata, AppSettings } from './types';
 import { useAccessControl } from './hooks/useAccessControl';
@@ -139,7 +142,26 @@ const App: React.FC = () => {
   const [initialSvgaFiles, setInitialSvgaFiles] = useState<File[]>([]);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [showDurationSpeedModal, setShowDurationSpeedModal] = useState(false);
+  const [showVipModal, setShowVipModal] = useState(false);
+  const [vipFeatureName, setVipFeatureName] = useState<string>('تحرير طبقات SVGA');
   const [showSplash, setShowSplash] = useState(true);
+  const [embeddedPortalTab, setEmbeddedPortalTab] = useState<'first' | 'second' | string>('first');
+
+  const handleOpenEmbeddedPortal = useCallback((tabId: 'first' | 'second' | string = 'first') => {
+    setEmbeddedPortalTab(tabId);
+    setState(AppState.EMBEDDED_PORTAL);
+  }, []);
+
+  const handleVideoDurationSpeedOpen = useCallback(() => {
+    const isVIP = !!(currentUser?.isVIP || currentUser?.role === 'admin' || currentUser?.isSuperAdmin);
+    if (!isVIP) {
+      setVipFeatureName('التحكم في سرعة ومدة الفيديو');
+      setShowVipModal(true);
+      return;
+    }
+    setShowDurationSpeedModal(true);
+  }, [currentUser]);
 
   // Prefetch lazy-loaded components and heavy engines silently in the background
   useEffect(() => {
@@ -376,6 +398,16 @@ const App: React.FC = () => {
   }, []);
 
   const handleFeatureAccess = async (targetState: AppState, featureName: string) => {
+    // 0. Check Exclusive VIP Feature Access (ميزة VIP الملكية الحصرية)
+    if (targetState === AppState.SVGA_LAYER_EDITOR) {
+      const isVIP = !!(currentUser?.isVIP || currentUser?.role === 'admin' || currentUser?.isSuperAdmin);
+      if (!isVIP) {
+        setVipFeatureName('تحرير طبقات SVGA');
+        setShowVipModal(true);
+        return;
+      }
+    }
+
     // 1. Check Feature Access Control (تحديد الوظائف)
     if (currentUser) {
       const stateToActionKey: Record<string, string> = {
@@ -775,6 +807,7 @@ const App: React.FC = () => {
         onAiVideoMattingOpen={() => handleFeatureAccess(AppState.AI_VIDEO_MATTING, 'AI Video Matting Studio')}
         onSvgaBatchCompressorOpen={() => handleFeatureAccess(AppState.SVGA_BATCH_COMPRESSOR, 'SVGA Batch Compressor')}
         onAnimationManagerOpen={() => handleFeatureAccess(AppState.ANIMATION_MANAGER, 'Animation File Manager')}
+        onVideoDurationSpeedOpen={handleVideoDurationSpeedOpen}
         onStoreOpen={() => handleFeatureAccess(AppState.STORE, 'SVGA Store & Library')}
         onVapHubOpen={() => handleFeatureAccess(AppState.VAP_HUB, 'VAP Hub')}
         onSvgaLayerEditorOpen={() => {
@@ -843,8 +876,12 @@ const App: React.FC = () => {
                 <Dashboard 
                   onUpload={handleFileUpload} 
                   currentUser={currentUser}
+                  settings={settings}
+                  onOpenVipModal={() => setShowVipModal(true)}
+                  onOpenEmbeddedPortal={handleOpenEmbeddedPortal}
                   onAction={(actionKey: string) => {
                      switch(actionKey) {
+                        case 'videoDurationSpeed': handleVideoDurationSpeedOpen(); break;
                         case 'animationManager': handleFeatureAccess(AppState.ANIMATION_MANAGER, 'Animation File Manager'); break;
                         case 'aiVideoMatting': handleFeatureAccess(AppState.AI_VIDEO_MATTING, 'AI Video Matting Studio'); break;
                         case 'videoConverter': handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter'); break;
@@ -857,7 +894,13 @@ const App: React.FC = () => {
                         case 'batchCropper': handleFeatureAccess(AppState.BATCH_CROPPER, 'Batch Cropper'); break;
                         case 'imageConverter': handleImageConverterOpen(); break;
                         case 'svgaEx': handleFeatureAccess(AppState.SVGA_EDITOR_EX, 'SVGA Editor EX'); break;
-                        case 'store': setState(AppState.STORE); break;
+                        case 'store': 
+                          if (settings?.externalLinks?.storeLink?.enabled && settings?.externalLinks?.storeLink?.url) {
+                            handleOpenEmbeddedPortal('first');
+                          } else {
+                            setState(AppState.STORE);
+                          }
+                          break;
                         case 'imageProcessor': handleFeatureAccess(AppState.IMAGE_PROCESSOR, 'Image Processor'); break;
                         case 'imageMatcher': handleFeatureAccess(AppState.IMAGE_MATCHER, 'Image Matcher'); break;
                         case 'imageEditor': handleFeatureAccess(AppState.IMAGE_EDITOR, 'Image Editor'); break;
@@ -1043,6 +1086,13 @@ const App: React.FC = () => {
                 onLoginRequired={() => {}} 
               />
             )}
+            {state === AppState.EMBEDDED_PORTAL && (
+              <EmbeddedPortalViewer 
+                settings={settings || undefined}
+                initialTab={embeddedPortalTab}
+                onClose={handleReset}
+              />
+            )}
             {state === AppState.VAP_HUB && (
               <VapHub />
             )}
@@ -1086,7 +1136,13 @@ const App: React.FC = () => {
 
             {/* SVGA Store & Asset Library Floating Button */}
             <button 
-              onClick={() => setState(AppState.STORE)}
+              onClick={() => {
+                if (settings?.externalLinks?.storeLink?.enabled && settings?.externalLinks?.storeLink?.url) {
+                  handleOpenEmbeddedPortal('first');
+                } else {
+                  setState(AppState.STORE);
+                }
+              }}
               className="w-14 h-14 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-full flex items-center justify-center shadow-lg shadow-fuchsia-600/30 transition-all hover:scale-110 hover:-translate-y-1 group cursor-pointer"
               title="مكتبة ومتجر الأصول والقوالب"
             >
@@ -1124,6 +1180,21 @@ const App: React.FC = () => {
         isOpen={showSubscriptionModal}
         onClose={() => setShowSubscriptionModal(false)}
         settings={settings}
+      />
+
+      {/* Video Duration & Speed VIP Modal */}
+      <VideoDurationSpeedModal
+        isOpen={showDurationSpeedModal}
+        onClose={() => setShowDurationSpeedModal(false)}
+      />
+
+      {/* VIP Upgrade & Purchase Modal (رفع مركز الفي اي بي) */}
+      <VipSubscriptionModal
+        isOpen={showVipModal}
+        onClose={() => setShowVipModal(false)}
+        settings={settings}
+        currentUser={currentUser}
+        initialFeatureName={vipFeatureName}
       />
 
       {/* Global Background App Update Notification */}
