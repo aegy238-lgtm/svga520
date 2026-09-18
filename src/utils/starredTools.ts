@@ -4,7 +4,7 @@ const STORAGE_KEY = 'svga_starred_tools';
 const EVENT_NAME = 'svga_starred_tools_updated';
 
 // Default initial starred tools if user has never set preferences
-const DEFAULT_STARRED_TOOLS: string[] = ['svga-layer-editor', 'svga-compressor'];
+const DEFAULT_STARRED_TOOLS: string[] = ['svga-layer-editor', 'universal', 'svga-compressor'];
 
 /**
  * Get the current list of starred tool IDs from localStorage
@@ -18,7 +18,16 @@ export function getStarredToolIds(): string[] {
       return DEFAULT_STARRED_TOOLS;
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : DEFAULT_STARRED_TOOLS;
+    if (Array.isArray(parsed)) {
+      // Ensure VAP tool ('universal') is included by default if not explicitly removed
+      const explicitlyRemoved = localStorage.getItem('svga_unstarred_universal') === 'true';
+      if (!parsed.includes('universal') && !explicitlyRemoved) {
+        parsed.splice(1, 0, 'universal');
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+      }
+      return parsed;
+    }
+    return DEFAULT_STARRED_TOOLS;
   } catch (err) {
     console.error('Failed to read starred tools from localStorage:', err);
     return DEFAULT_STARRED_TOOLS;

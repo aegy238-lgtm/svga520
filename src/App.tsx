@@ -5,30 +5,78 @@ import { FeaturesGuideModal } from './components/FeaturesGuideModal';
 import { Uploader } from './components/Uploader';
 import { Dashboard } from './components/Dashboard';
 
-// Lazy load heavy tools to drastically reduce initial bundle size
-const Workspace = lazy(() => import('./components/Workspace').then(m => ({ default: m.Workspace })));
-const BatchCompressor = lazy(() => import('./components/BatchCompressor').then(m => ({ default: m.BatchCompressor })));
-const BatchCropper = lazy(() => import('./components/BatchCropper').then(m => ({ default: m.BatchCropper })));
-const VideoConverter = lazy(() => import('./components/VideoConverter').then(m => ({ default: m.VideoConverter })));
-const UniversalMotionTools = lazy(() => import('./components/UniversalMotionTools').then(m => ({ default: m.UniversalMotionTools })));
-const MultiSvgaViewer = lazy(() => import('./components/MultiSvgaViewer').then(m => ({ default: m.MultiSvgaViewer })));
-const ImageToSvga = lazy(() => import('./components/ImageToSvga').then(m => ({ default: m.ImageToSvga })));
-const ImageProcessor = lazy(() => import('./components/ImageProcessor').then(m => ({ default: m.ImageProcessor })));
-const ImageEnhancer = lazy(() => import('./components/ImageEnhancer').then(m => ({ default: m.ImageEnhancer })));
-const BatchImageProcessor = lazy(() => import('./components/BatchImageProcessor').then(m => ({ default: m.BatchImageProcessor })));
-const BatchImageConverter = lazy(() => import('./components/BatchImageConverter').then(m => ({ default: m.BatchImageConverter })));
-const PagToSvgaStudio = lazy(() => import('./components/PagToSvgaStudio').then(m => ({ default: m.PagToSvgaStudio })));
-const SvgaBatchCompressor = lazy(() => import('./components/SvgaBatchCompressor').then(m => ({ default: m.SvgaBatchCompressor })));
-const SvgaLayerEditor = lazy(() => import('./components/SvgaLayerEditor/SvgaLayerEditor').then(m => ({ default: m.SvgaLayerEditor })));
-const ImageEditor = lazy(() => import('./components/ImageEditor').then(m => ({ default: m.ImageEditor })));
-const Name3DEditor = lazy(() => import('./components/Name3DEditor/Name3DEditor'));
-const ImageMatcher = lazy(() => import('./components/ImageMatcher').then(m => ({ default: m.ImageMatcher })));
-const AudioExtractor = lazy(() => import('./components/AudioExtractor').then(m => ({ default: m.AudioExtractor })));
-const AIVideoMattingStudio = lazy(() => import('./components/AIVideoMattingStudio').then(m => ({ default: m.AIVideoMattingStudio })));
-const AnimationManager = lazy(() => import('./components/AnimationManager/AnimationManager').then(m => ({ default: m.AnimationManager })));
-const AdminPanel = lazy(() => import('./components/AdminPanel').then(m => ({ default: m.AdminPanel })));
-const Store = lazy(() => import('./components/Store').then(m => ({ default: m.Store })));
-const VapHub = lazy(() => import('./components/VapHub').then(m => ({ default: m.VapHub })));
+// Resilient lazy-loader with auto-retry and chunk failure recovery
+function lazyWithRetry<T extends React.ComponentType<any>>(
+  factory: () => Promise<{ default: T } | any>,
+  retriesLeft = 2,
+  interval = 800
+): React.LazyExoticComponent<T> {
+  return lazy(() =>
+    new Promise<{ default: T }>((resolve, reject) => {
+      const attempt = (retries: number) => {
+        factory()
+          .then((mod: any) => {
+            if (mod && mod.default) {
+              resolve({ default: mod.default });
+            } else {
+              resolve({ default: mod as T });
+            }
+          })
+          .catch((error: any) => {
+            console.warn(`[LazyRetry] Dynamic import error (${retries} retries remaining):`, error);
+            if (retries <= 0) {
+              const errMsg = String(error?.message || '');
+              const isChunkFailed = 
+                errMsg.includes('Failed to fetch dynamically imported module') ||
+                errMsg.includes('Loading chunk') ||
+                errMsg.includes('dynamically imported module') ||
+                errMsg.includes('error loading');
+              
+              if (isChunkFailed && typeof window !== 'undefined') {
+                const reloadKey = 'chunk_reload_attempted';
+                if (!sessionStorage.getItem(reloadKey)) {
+                  sessionStorage.setItem(reloadKey, 'true');
+                  window.location.reload();
+                  return;
+                }
+              }
+              reject(error);
+              return;
+            }
+            setTimeout(() => {
+              attempt(retries - 1);
+            }, interval);
+          });
+      };
+      attempt(retriesLeft);
+    })
+  );
+}
+
+// Lazy load heavy tools to drastically reduce initial bundle size with resilient retries
+const Workspace = lazyWithRetry(() => import('./components/Workspace').then(m => ({ default: m.Workspace })));
+const BatchCompressor = lazyWithRetry(() => import('./components/BatchCompressor').then(m => ({ default: m.BatchCompressor })));
+const BatchCropper = lazyWithRetry(() => import('./components/BatchCropper').then(m => ({ default: m.BatchCropper })));
+const VideoConverter = lazyWithRetry(() => import('./components/VideoConverter').then(m => ({ default: m.VideoConverter })));
+const UniversalMotionTools = lazyWithRetry(() => import('./components/UniversalMotionTools').then(m => ({ default: m.UniversalMotionTools })));
+const MultiSvgaViewer = lazyWithRetry(() => import('./components/MultiSvgaViewer').then(m => ({ default: m.MultiSvgaViewer })));
+const ImageToSvga = lazyWithRetry(() => import('./components/ImageToSvga').then(m => ({ default: m.ImageToSvga })));
+const ImageProcessor = lazyWithRetry(() => import('./components/ImageProcessor').then(m => ({ default: m.ImageProcessor })));
+const ImageEnhancer = lazyWithRetry(() => import('./components/ImageEnhancer').then(m => ({ default: m.ImageEnhancer })));
+const BatchImageProcessor = lazyWithRetry(() => import('./components/BatchImageProcessor').then(m => ({ default: m.BatchImageProcessor })));
+const BatchImageConverter = lazyWithRetry(() => import('./components/BatchImageConverter').then(m => ({ default: m.BatchImageConverter })));
+const PagToSvgaStudio = lazyWithRetry(() => import('./components/PagToSvgaStudio').then(m => ({ default: m.PagToSvgaStudio })));
+const SvgaBatchCompressor = lazyWithRetry(() => import('./components/SvgaBatchCompressor').then(m => ({ default: m.SvgaBatchCompressor })));
+const SvgaLayerEditor = lazyWithRetry(() => import('./components/SvgaLayerEditor/SvgaLayerEditor').then(m => ({ default: m.SvgaLayerEditor })));
+const ImageEditor = lazyWithRetry(() => import('./components/ImageEditor').then(m => ({ default: m.ImageEditor })));
+const Name3DEditor = lazyWithRetry(() => import('./components/Name3DEditor/Name3DEditor'));
+const ImageMatcher = lazyWithRetry(() => import('./components/ImageMatcher').then(m => ({ default: m.ImageMatcher })));
+const AudioExtractor = lazyWithRetry(() => import('./components/AudioExtractor').then(m => ({ default: m.AudioExtractor })));
+const AIVideoMattingStudio = lazyWithRetry(() => import('./components/AIVideoMattingStudio').then(m => ({ default: m.AIVideoMattingStudio })));
+const AnimationManager = lazyWithRetry(() => import('./components/AnimationManager/AnimationManager').then(m => ({ default: m.AnimationManager })));
+const AdminPanel = lazyWithRetry(() => import('./components/AdminPanel').then(m => ({ default: m.AdminPanel })));
+const Store = lazyWithRetry(() => import('./components/Store').then(m => ({ default: m.Store })));
+const VapHub = lazyWithRetry(() => import('./components/VapHub').then(m => ({ default: m.VapHub })));
 
 import { LanguageTranslatorWidget } from './components/LanguageTranslatorWidget';
 
@@ -748,6 +796,7 @@ const App: React.FC = () => {
           state === AppState.NAME_3D_EDITOR ? 'name-3d' :
           state === AppState.AUDIO_EXTRACTOR ? 'audio-extractor' :
           state === AppState.UNIVERSAL_CONVERTER ? 'universal' :
+          state === AppState.VAP_HUB ? 'vap-hub' :
           'svga'
         }
       />
@@ -808,6 +857,7 @@ const App: React.FC = () => {
                         case 'batchImageOpen': setShowBatchImage(true); break;
                         case 'name3DEditor': handleFeatureAccess(AppState.NAME_3D_EDITOR, '3D Name Editor'); break;
                         case 'audioExtractor': handleFeatureAccess(AppState.AUDIO_EXTRACTOR, 'Audio Extractor'); break;
+                        case 'vapHub': handleFeatureAccess(AppState.VAP_HUB, 'VAP Hub'); break;
                      }
                   }}
                 />
@@ -950,12 +1000,14 @@ const App: React.FC = () => {
               />
             )}
             {state === AppState.MULTI_SVGA_VIEWER && (
-              <MultiSvgaViewer 
-                onCancel={handleReset} 
-                currentUser={currentUser}
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                initialFiles={initialSvgaFiles}
-              />
+              <ErrorBoundary fallbackTitle="حدث خطأ في عارض ومقارن SVGA المتعدد" onReset={handleReset}>
+                <MultiSvgaViewer 
+                  onCancel={handleReset} 
+                  currentUser={currentUser}
+                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                  initialFiles={initialSvgaFiles}
+                />
+              </ErrorBoundary>
             )}
             {state === AppState.AUDIO_EXTRACTOR && (
               <AudioExtractor 

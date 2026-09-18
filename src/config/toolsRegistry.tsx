@@ -96,6 +96,20 @@ export const TOOLS_REGISTRY: ToolRegistryItem[] = [
     highlight: true
   },
   {
+    id: 'universal',
+    label: 'VAP Studio Pro',
+    shortLabel: 'VAP Studio',
+    icon: <Film className="w-4 h-4 text-pink-400" />,
+    category: 'svga',
+    categoryNameAr: 'أنيميشن و SVGA',
+    actionKey: 'onUniversalConverterOpen',
+    dashboardActionKey: 'universalConverter',
+    featureAccessKey: 'universalConverter',
+    descAr: 'استوديو ومحول VAP الشامل (Universal Motion Workspace): معاينة فيديو VAP، دمج وإزالة الصوت، وتصدير بصيغة VAP (MP4) أو SVGA 2.0 بدقة متناهية.',
+    descEn: 'VAP & SVGA Studio Pro: Preview VAP video, mix/remove audio, and export VAP (MP4) or SVGA 2.0.',
+    highlight: true
+  },
+  {
     id: 'svga-compressor',
     label: 'SVGA & VAP Batch Compressor',
     icon: <Zap className="w-4 h-4 text-amber-400" />,
@@ -275,19 +289,6 @@ export const TOOLS_REGISTRY: ToolRegistryItem[] = [
     featureAccessKey: 'batchCropper',
     descAr: 'نظام القص والتحديد الذكي التلقائي: اكتشاف وفصل مئات العناصر المتكررة (Labels, Sprites, Stickers) مع Smart Selection وتحزيم ZIP فائق الجودة.',
     descEn: 'Smart Auto Detection & Auto Crop: detect and crop hundreds of repeating items with bounding boxes, smart selection & ZIP export.',
-    highlight: true
-  },
-  {
-    id: 'universal',
-    label: 'Universal Motion Tools',
-    icon: <RefreshCw className="w-4 h-4 text-cyan-400" />,
-    category: 'batch',
-    categoryNameAr: 'المعالجة الجماعية (Batch)',
-    actionKey: 'onUniversalConverterOpen',
-    dashboardActionKey: 'universalConverter',
-    featureAccessKey: 'universalConverter',
-    descAr: 'بيئة احترافية شاملة لمعاينة وضغط وتحويل كافة صيغ الأنيميشن بسهولة.',
-    descEn: 'Professional universal environment to preview, compress, and convert all animation formats.',
     highlight: true
   },
   {
