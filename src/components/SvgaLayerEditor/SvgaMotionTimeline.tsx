@@ -808,7 +808,7 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
                       {/* Thumbnail */}
                       <div className="w-5 h-5 rounded bg-white/10 border border-white/10 overflow-hidden flex items-center justify-center shrink-0">
                         {layer.thumbnailUrl ? (
-                          <img src={layer.thumbnailUrl} alt="" className="w-full h-full object-contain" />
+                          <img src={layer.thumbnailUrl} alt="" loading="lazy" decoding="async" className="w-full h-full object-contain" />
                         ) : (
                           <Film size={11} className="text-slate-400" />
                         )}
@@ -866,7 +866,7 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
                   {/* Thumbnail / Type Icon */}
                   <div className="w-5 h-5 rounded bg-white/10 border border-white/10 overflow-hidden flex items-center justify-center shrink-0">
                     {selectedLayer.thumbnailUrl ? (
-                      <img src={selectedLayer.thumbnailUrl} alt="" className="w-full h-full object-contain" />
+                      <img src={selectedLayer.thumbnailUrl} alt="" loading="lazy" decoding="async" className="w-full h-full object-contain" />
                     ) : (
                       <Film size={11} className="text-indigo-400" />
                     )}

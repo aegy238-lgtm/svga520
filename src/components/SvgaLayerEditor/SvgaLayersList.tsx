@@ -842,6 +842,8 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
                         <img 
                           src={layer.thumbnailUrl} 
                           alt={layer.name}
+                          loading="lazy"
+                          decoding="async"
                           className="w-full h-full object-contain p-1 drop-shadow"
                         />
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center transition-opacity">
@@ -1359,7 +1361,7 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
                   >
                     {sourceLayer?.thumbnailUrl ? (
                       <>
-                        <img src={sourceLayer.thumbnailUrl} alt="source" className="w-full h-full object-contain p-1" />
+                        <img src={sourceLayer.thumbnailUrl} alt="source" loading="lazy" decoding="async" className="w-full h-full object-contain p-1" />
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/srcThumb:opacity-100 flex items-center justify-center transition-opacity">
                           <Maximize2 size={16} className="text-white drop-shadow" />
                         </div>
@@ -1460,7 +1462,7 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
                             >
                               {targetL.thumbnailUrl ? (
                                 <>
-                                  <img src={targetL.thumbnailUrl} alt={targetL.name} className="w-full h-full object-contain p-1" />
+                                  <img src={targetL.thumbnailUrl} alt={targetL.name} loading="lazy" decoding="async" className="w-full h-full object-contain p-1" />
                                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/tgtThumb:opacity-100 flex items-center justify-center transition-opacity">
                                     <Maximize2 size={14} className="text-white drop-shadow" />
                                   </div>
@@ -1621,6 +1623,7 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
                 <img 
                   src={previewLayerModal.thumbnailUrl} 
                   alt={previewLayerModal.name}
+                  decoding="async"
                   className="max-w-full max-h-[60vh] object-contain drop-shadow-2xl transition-transform"
                 />
               ) : (

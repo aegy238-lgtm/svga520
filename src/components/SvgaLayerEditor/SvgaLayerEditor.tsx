@@ -36,6 +36,114 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
+// Lightweight snapshot interface for Undo/Redo history to prevent memory explosion on 200+ layer files
+interface LayerHistorySnapshot {
+  id: string;
+  name: string;
+  originalIndex: number;
+  imageKey: string;
+  type: 'image' | 'shape' | 'composite';
+  visible: boolean;
+  locked: boolean;
+  transform: EditableLayer['transform'];
+  initialBounds: { x: number; y: number; width: number; height: number };
+  aspectRatioLocked: boolean;
+  keyframes?: LayerKeyframe[];
+  inFrame?: number;
+  outFrame?: number;
+  trackColor?: string;
+  groupId?: string;
+  groupName?: string;
+  sequenceGroupId?: string;
+  sequenceIndex?: number;
+  sequenceTotal?: number;
+  matteKey?: string;
+  blendMode?: string;
+  isMatteMask?: boolean;
+  isMerged?: boolean;
+  motionReferenceLayerId?: string;
+  isMotionSynced?: boolean;
+  shineConfig?: ShineEffectConfig;
+  mergedLayersSnapshot?: LayerHistorySnapshot[];
+}
+
+const MAX_HISTORY_STEPS = 12;
+
+function createLayersSnapshot(layersList: EditableLayer[]): LayerHistorySnapshot[] {
+  return layersList.map(layer => ({
+    id: layer.id,
+    name: layer.name,
+    originalIndex: layer.originalIndex,
+    imageKey: layer.imageKey,
+    type: layer.type,
+    visible: layer.visible,
+    locked: layer.locked,
+    transform: { ...layer.transform },
+    initialBounds: { ...layer.initialBounds },
+    aspectRatioLocked: layer.aspectRatioLocked,
+    keyframes: layer.keyframes ? layer.keyframes.map(k => ({ ...k })) : undefined,
+    inFrame: layer.inFrame,
+    outFrame: layer.outFrame,
+    trackColor: layer.trackColor,
+    groupId: layer.groupId,
+    groupName: layer.groupName,
+    sequenceGroupId: layer.sequenceGroupId,
+    sequenceIndex: layer.sequenceIndex,
+    sequenceTotal: layer.sequenceTotal,
+    matteKey: layer.matteKey,
+    blendMode: layer.blendMode,
+    isMatteMask: layer.isMatteMask,
+    isMerged: layer.isMerged,
+    motionReferenceLayerId: layer.motionReferenceLayerId,
+    isMotionSynced: layer.isMotionSynced,
+    shineConfig: layer.shineConfig ? { ...layer.shineConfig } : undefined,
+    mergedLayersSnapshot: layer.mergedLayers ? createLayersSnapshot(layer.mergedLayers) : undefined
+  }));
+}
+
+function restoreLayersFromSnapshot(
+  snapshot: LayerHistorySnapshot[],
+  currentLayers: EditableLayer[],
+  masterLayerMap: Map<string, EditableLayer>
+): EditableLayer[] {
+  return snapshot.map(snap => {
+    const existing = masterLayerMap.get(snap.id) || currentLayers.find(l => l.id === snap.id);
+    const restoredMerged = snap.mergedLayersSnapshot 
+      ? restoreLayersFromSnapshot(snap.mergedLayersSnapshot, existing?.mergedLayers || [], masterLayerMap)
+      : existing?.mergedLayers;
+
+    if (existing) {
+      return {
+        ...existing,
+        name: snap.name,
+        visible: snap.visible,
+        locked: snap.locked,
+        transform: { ...snap.transform },
+        initialBounds: { ...snap.initialBounds },
+        aspectRatioLocked: snap.aspectRatioLocked,
+        keyframes: snap.keyframes ? snap.keyframes.map(k => ({ ...k })) : undefined,
+        inFrame: snap.inFrame,
+        outFrame: snap.outFrame,
+        trackColor: snap.trackColor,
+        groupId: snap.groupId,
+        groupName: snap.groupName,
+        sequenceGroupId: snap.sequenceGroupId,
+        sequenceIndex: snap.sequenceIndex,
+        sequenceTotal: snap.sequenceTotal,
+        matteKey: snap.matteKey,
+        blendMode: snap.blendMode,
+        isMatteMask: snap.isMatteMask,
+        isMerged: snap.isMerged,
+        motionReferenceLayerId: snap.motionReferenceLayerId,
+        isMotionSynced: snap.isMotionSynced,
+        shineConfig: snap.shineConfig ? { ...snap.shineConfig } : undefined,
+        mergedLayers: restoredMerged
+      };
+    }
+    return snap as any as EditableLayer;
+  });
+}
+
 interface SvgaLayerEditorProps {
   initialFile?: File;
   onClose: () => void;
@@ -56,8 +164,11 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([]);
 
-  // Undo / Redo History Stack
-  const [history, setHistory] = useState<EditableLayer[][]>([]);
+  // Persistent reference map for full layer objects (sprites & thumbnails) so history only stores lightweight metadata
+  const masterLayersMapRef = useRef<Map<string, EditableLayer>>(new Map());
+
+  // Undo / Redo History Stack (using lightweight LayerHistorySnapshot to prevent OOM)
+  const [history, setHistory] = useState<LayerHistorySnapshot[][]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
 
   // Canvas Viewport State
@@ -188,13 +299,26 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     });
   }, [isPlaying, currentFrame, project]);
 
-  // Push State to History
+  // Push State to History (Memory-Safe Snapshot)
   const pushHistory = useCallback((newLayers: EditableLayer[]) => {
+    // Cache layer references in master map to preserve sprite entities and image assets
+    newLayers.forEach(l => {
+      masterLayersMapRef.current.set(l.id, l);
+      if (l.mergedLayers) {
+        l.mergedLayers.forEach(sub => masterLayersMapRef.current.set(sub.id, sub));
+      }
+    });
+
+    const snapshot = createLayersSnapshot(newLayers);
     setHistory(prev => {
       const upToCurrent = prev.slice(0, historyIndex + 1);
-      return [...upToCurrent, JSON.parse(JSON.stringify(newLayers))];
+      const updated = [...upToCurrent, snapshot];
+      if (updated.length > MAX_HISTORY_STEPS) {
+        return updated.slice(updated.length - MAX_HISTORY_STEPS);
+      }
+      return updated;
     });
-    setHistoryIndex(prev => prev + 1);
+    setHistoryIndex(prev => Math.min(prev + 1, MAX_HISTORY_STEPS - 1));
   }, [historyIndex]);
 
   // Load File
@@ -224,8 +348,10 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       setZoom(fitZoom);
       setPanOffset({ x: 0, y: 0 });
 
-      // Init history
-      setHistory([JSON.parse(JSON.stringify(parsedLayers))]);
+      // Init history memory-safely without deep-cloning heavy sprite refs & base64 thumbnails
+      masterLayersMapRef.current.clear();
+      parsedLayers.forEach(l => masterLayersMapRef.current.set(l.id, l));
+      setHistory([createLayersSnapshot(parsedLayers)]);
       setHistoryIndex(0);
 
       setSuccessToast(`تم فتح الملف بنجاح (${parsedLayers.length} طبقة)`);
@@ -1515,12 +1641,12 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     });
   }, [project, pushHistory]);
 
-  // Undo / Redo Actions
+  // Undo / Redo Actions (using lightweight snapshots)
   const handleUndo = useCallback(() => {
     if (historyIndex > 0) {
       const newIdx = historyIndex - 1;
       setHistoryIndex(newIdx);
-      setLayers(JSON.parse(JSON.stringify(history[newIdx])));
+      setLayers(prev => restoreLayersFromSnapshot(history[newIdx], prev, masterLayersMapRef.current));
     }
   }, [history, historyIndex]);
 
@@ -1528,7 +1654,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     if (historyIndex < history.length - 1) {
       const newIdx = historyIndex + 1;
       setHistoryIndex(newIdx);
-      setLayers(JSON.parse(JSON.stringify(history[newIdx])));
+      setLayers(prev => restoreLayersFromSnapshot(history[newIdx], prev, masterLayersMapRef.current));
     }
   }, [history, historyIndex]);
 

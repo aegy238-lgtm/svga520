@@ -495,8 +495,17 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     return layers.find(l => l.id === selectedLayerId) || null;
   }, [layers, selectedLayerId]);
 
-  // Preload and sync images into cache with automatic canvas redraw
+  // Preload and sync images into cache with debounced canvas redraw to prevent freeze/OOM on 200+ images
   useEffect(() => {
+    let redrawTimer: any = null;
+    const scheduleRedraw = () => {
+      if (redrawTimer) return;
+      redrawTimer = setTimeout(() => {
+        redrawTimer = null;
+        setCacheVersion(v => v + 1);
+      }, 50);
+    };
+
     let hasLoadedAny = false;
     for (const [key, dataUrl] of Object.entries(project.imagesMap)) {
       const existing = imagesCache.current[key];
@@ -504,7 +513,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.onload = () => {
-          setCacheVersion(v => v + 1);
+          scheduleRedraw();
         };
         img.src = dataUrl;
         imagesCache.current[key] = img;
@@ -512,9 +521,28 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       }
     }
     if (hasLoadedAny) {
-      setCacheVersion(v => v + 1);
+      scheduleRedraw();
     }
+
+    return () => {
+      if (redrawTimer) clearTimeout(redrawTimer);
+    };
   }, [project.imagesMap]);
+
+  // Clean up image cache on unmount to release GPU and RAM memory
+  useEffect(() => {
+    return () => {
+      for (const k in imagesCache.current) {
+        const img = imagesCache.current[k];
+        if (img) {
+          img.onload = null;
+          img.onerror = null;
+          img.src = '';
+        }
+        delete imagesCache.current[k];
+      }
+    };
+  }, []);
 
   // Preload and cache background image for preview
   useEffect(() => {
@@ -764,8 +792,8 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     const width = project.width;
     const height = project.height;
 
-    canvas.width = width;
-    canvas.height = height;
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
 
     ctx.clearRect(0, 0, width, height);
 

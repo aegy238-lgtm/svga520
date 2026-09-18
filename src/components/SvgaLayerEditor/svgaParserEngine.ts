@@ -29,14 +29,102 @@ function base64ToUint8Array(base64: string): Uint8Array {
   return bytes;
 }
 
-// Helper to get natural dimensions of an image from dataURL
+// Fast, memory-safe binary header dimension extractor (0ms, 0 RAM/GPU allocation)
+function getDimensionsFromBytes(bytes: Uint8Array): { width: number; height: number } | null {
+  if (!bytes || bytes.length < 24) return null;
+
+  // 1. PNG check: signature 89 50 4E 47 0D 0A 1A 0A
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) {
+    if (bytes.length >= 24) {
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const width = view.getUint32(16, false);
+      const height = view.getUint32(20, false);
+      if (width > 0 && height > 0 && width < 65536 && height < 65536) {
+        return { width, height };
+      }
+    }
+  }
+
+  // 2. JPEG check: starts with 0xFF, 0xD8
+  if (bytes[0] === 0xFF && bytes[1] === 0xD8) {
+    let offset = 2;
+    const len = bytes.length;
+    while (offset < len - 8) {
+      if (bytes[offset] !== 0xFF) {
+        offset++;
+        continue;
+      }
+      const marker = bytes[offset + 1];
+      const isSof = (marker >= 0xC0 && marker <= 0xC3) ||
+                    (marker >= 0xC5 && marker <= 0xC7) ||
+                    (marker >= 0xC9 && marker <= 0xCB) ||
+                    (marker >= 0xCD && marker <= 0xCF);
+      if (isSof && offset + 8 < len) {
+        const height = (bytes[offset + 5] << 8) | bytes[offset + 6];
+        const width = (bytes[offset + 7] << 8) | bytes[offset + 8];
+        if (width > 0 && height > 0 && width < 65536 && height < 65536) {
+          return { width, height };
+        }
+      }
+      if (offset + 3 >= len) break;
+      const chunkLen = (bytes[offset + 2] << 8) | bytes[offset + 3];
+      if (chunkLen <= 0) break;
+      offset += 2 + chunkLen;
+    }
+  }
+
+  // 3. WebP check: RIFF .... WEBP
+  if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+      bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
+    // VP8 Lossy
+    if (bytes[12] === 0x56 && bytes[13] === 0x50 && bytes[14] === 0x38 && bytes[15] === 0x20 && bytes.length >= 30) {
+      const width = ((bytes[27] << 8) | bytes[26]) & 0x3fff;
+      const height = ((bytes[29] << 8) | bytes[28]) & 0x3fff;
+      if (width > 0 && height > 0) return { width, height };
+    }
+    // VP8L Lossless
+    if (bytes[12] === 0x56 && bytes[13] === 0x50 && bytes[14] === 0x38 && bytes[15] === 0x4C && bytes.length >= 25) {
+      const b1 = bytes[21];
+      const b2 = bytes[22];
+      const b3 = bytes[23];
+      const b4 = bytes[24];
+      const width = 1 + (((b2 & 0x3F) << 8) | b1);
+      const height = 1 + (((b4 & 0xF) << 10) | (b3 << 2) | ((b2 & 0xC0) >> 6));
+      if (width > 0 && height > 0) return { width, height };
+    }
+    // VP8X Extended
+    if (bytes[12] === 0x56 && bytes[13] === 0x50 && bytes[14] === 0x38 && bytes[15] === 0x58 && bytes.length >= 30) {
+      const width = 1 + (bytes[24] | (bytes[25] << 8) | (bytes[26] << 16));
+      const height = 1 + (bytes[27] | (bytes[28] << 8) | (bytes[29] << 16));
+      if (width > 0 && height > 0) return { width, height };
+    }
+  }
+
+  // 4. GIF check: GIF87a or GIF89a
+  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes.length >= 10) {
+    const width = bytes[6] | (bytes[7] << 8);
+    const height = bytes[8] | (bytes[9] << 8);
+    if (width > 0 && height > 0) return { width, height };
+  }
+
+  return null;
+}
+
+// Memory-safe Image dimension fallback (cleans up immediately)
 function getImageDimensions(dataUrl: string): Promise<{ width: number; height: number }> {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      resolve({ width: img.naturalWidth || 100, height: img.naturalHeight || 100 });
+      const dims = { width: img.naturalWidth || 100, height: img.naturalHeight || 100 };
+      img.onload = null;
+      img.onerror = null;
+      img.src = '';
+      resolve(dims);
     };
     img.onerror = () => {
+      img.onload = null;
+      img.onerror = null;
+      img.src = '';
       resolve({ width: 100, height: 100 });
     };
     img.src = dataUrl;
@@ -133,16 +221,29 @@ export async function parseSvgaToProject(file: File): Promise<{
       }
     }
 
-    // Preload image dimensions only for non-audio entries
-    await Promise.all(
-      Object.entries(imagesMap).map(async ([key, url]) => {
-        if (audioKeysSet.has(key) || key.endsWith('.mp3') || key.endsWith('.wav') || key.startsWith('audio_')) {
-          return;
-        }
-        const dims = await getImageDimensions(url);
+    // Preload image dimensions safely: first from raw binary bytes (zero memory/GPU allocation)
+    const fallbackNeeded: Array<{ key: string; url: string }> = [];
+    for (const [key, rawBytes] of Object.entries(rawImages)) {
+      if (audioKeysSet.has(key) || key.endsWith('.mp3') || key.endsWith('.wav') || key.startsWith('audio_')) {
+        continue;
+      }
+      const dims = getDimensionsFromBytes(rawBytes);
+      if (dims) {
         imageDimensions[key] = dims;
-      })
-    );
+      } else if (imagesMap[key]) {
+        fallbackNeeded.push({ key, url: imagesMap[key] });
+      }
+    }
+
+    // Only for images where binary header could not be parsed, load in small throttled batches (max 3 concurrent)
+    if (fallbackNeeded.length > 0) {
+      for (let i = 0; i < fallbackNeeded.length; i += 3) {
+        const batch = fallbackNeeded.slice(i, i + 3);
+        await Promise.all(batch.map(async ({ key, url }) => {
+          imageDimensions[key] = await getImageDimensions(url);
+        }));
+      }
+    }
   }
 
   const project: SVGAProjectData = {
