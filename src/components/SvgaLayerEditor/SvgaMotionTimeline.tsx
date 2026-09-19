@@ -205,15 +205,154 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
     currentOut: number;
   } | null>(null);
 
-  // Available Track Accent Colors (Red is default for added/merged assets)
+  // Eye-Friendly Timeline Themes for comfortable viewing
+  type TimelineThemeKey = 'indigo_harmony' | 'ocean_cyan' | 'twilight_violet' | 'emerald_nature' | 'slate_pro' | 'soft_ruby';
+
+  const TIMELINE_THEMES: Record<TimelineThemeKey, {
+    name: string;
+    icon: string;
+    description: string;
+    primary: string;
+    getTrackColor: (index: number, total: number, seqIndex?: number, seqTotal?: number) => { solid: string; gradient: string; border: string; glow: string };
+  }> = {
+    indigo_harmony: {
+      name: 'نيلي ملكي مهدئ للعين (افتراضي)',
+      icon: '💎',
+      description: 'ألوان نيلية وكحلية هادئة جداً على العين أثناء العمل الطويل',
+      primary: '#4f46e5',
+      getTrackColor: (idx, total, seqIdx, seqTot) => {
+        const step = (seqTot && seqTot > 1) ? ((seqIdx || 1) - 1) / (seqTot - 1 || 1) : (total > 1 ? idx / (total - 1) : 0);
+        const h = Math.round(225 + step * 35);
+        const solid = `hsl(${h}, 68%, 54%)`;
+        const gradient = `linear-gradient(90deg, hsl(${h}, 65%, 52%) 0%, hsl(${h + 15}, 65%, 45%) 100%)`;
+        return {
+          solid,
+          gradient,
+          border: `hsla(${h}, 75%, 75%, 0.35)`,
+          glow: `hsla(${h}, 65%, 50%, 0.25)`
+        };
+      }
+    },
+    ocean_cyan: {
+      name: 'سماوي ومحيط هادئ',
+      icon: '🌊',
+      description: 'تدرجات بحرية منعشة ومريحة للرؤية',
+      primary: '#0891b2',
+      getTrackColor: (idx, total, seqIdx, seqTot) => {
+        const step = (seqTot && seqTot > 1) ? ((seqIdx || 1) - 1) / (seqTot - 1 || 1) : (total > 1 ? idx / (total - 1) : 0);
+        const h = Math.round(180 + step * 35);
+        const solid = `hsl(${h}, 70%, 46%)`;
+        const gradient = `linear-gradient(90deg, hsl(${h}, 68%, 45%) 0%, hsl(${h + 20}, 68%, 40%) 100%)`;
+        return {
+          solid,
+          gradient,
+          border: `hsla(${h}, 75%, 70%, 0.4)`,
+          glow: `hsla(${h}, 65%, 45%, 0.25)`
+        };
+      }
+    },
+    twilight_violet: {
+      name: 'شفق بنفسجي ناعم',
+      icon: '🌌',
+      description: 'أجواء ليلية داكنة مع بنفسجي وأرجواني راقي',
+      primary: '#7c3aed',
+      getTrackColor: (idx, total, seqIdx, seqTot) => {
+        const step = (seqTot && seqTot > 1) ? ((seqIdx || 1) - 1) / (seqTot - 1 || 1) : (total > 1 ? idx / (total - 1) : 0);
+        const h = Math.round(255 + step * 35);
+        const solid = `hsl(${h}, 65%, 54%)`;
+        const gradient = `linear-gradient(90deg, hsl(${h}, 62%, 52%) 0%, hsl(${h + 15}, 62%, 46%) 100%)`;
+        return {
+          solid,
+          gradient,
+          border: `hsla(${h}, 75%, 75%, 0.35)`,
+          glow: `hsla(${h}, 65%, 50%, 0.25)`
+        };
+      }
+    },
+    emerald_nature: {
+      name: 'زمرد ونعناع طبيعي',
+      icon: '🌿',
+      description: 'درجات خضراء هادئة ومريحة لأقصى درجات التركيز',
+      primary: '#059669',
+      getTrackColor: (idx, total, seqIdx, seqTot) => {
+        const step = (seqTot && seqTot > 1) ? ((seqIdx || 1) - 1) / (seqTot - 1 || 1) : (total > 1 ? idx / (total - 1) : 0);
+        const h = Math.round(150 + step * 35);
+        const solid = `hsl(${h}, 62%, 44%)`;
+        const gradient = `linear-gradient(90deg, hsl(${h}, 60%, 43%) 0%, hsl(${h + 20}, 60%, 38%) 100%)`;
+        return {
+          solid,
+          gradient,
+          border: `hsla(${h}, 70%, 68%, 0.35)`,
+          glow: `hsla(${h}, 60%, 40%, 0.25)`
+        };
+      }
+    },
+    slate_pro: {
+      name: 'أردوازي داكن احترافي',
+      icon: '🌑',
+      description: 'ألوان حيادية هادئة بدون أي تشتيت بصري',
+      primary: '#475569',
+      getTrackColor: (idx) => {
+        const l = 42 + (idx % 2 === 0 ? 0 : 4);
+        const solid = `hsl(215, 22%, ${l}%)`;
+        const gradient = `linear-gradient(90deg, hsl(215, 22%, ${l}%) 0%, hsl(215, 22%, ${l - 5}%) 100%)`;
+        return {
+          solid,
+          gradient,
+          border: 'rgba(255, 255, 255, 0.2)',
+          glow: 'rgba(71, 85, 105, 0.2)'
+        };
+      }
+    },
+    soft_ruby: {
+      name: 'ياقوتي ناعم متوازن',
+      icon: '🍓',
+      description: 'درجات ياقوتية دافئة وناعمة دون سطوع حاد',
+      primary: '#e11d48',
+      getTrackColor: (idx, total, seqIdx, seqTot) => {
+        const step = (seqTot && seqTot > 1) ? ((seqIdx || 1) - 1) / (seqTot - 1 || 1) : (total > 1 ? idx / (total - 1) : 0);
+        const h = Math.round(335 + step * 25);
+        const solid = `hsl(${h}, 65%, 50%)`;
+        const gradient = `linear-gradient(90deg, hsl(${h}, 62%, 48%) 0%, hsl(${h + 15}, 62%, 42%) 100%)`;
+        return {
+          solid,
+          gradient,
+          border: `hsla(${h}, 70%, 70%, 0.35)`,
+          glow: `hsla(${h}, 60%, 45%, 0.25)`
+        };
+      }
+    }
+  };
+
+  const [timelineThemeKey, setTimelineThemeKey] = useState<TimelineThemeKey>(() => {
+    try {
+      const saved = localStorage.getItem('svga_timeline_eye_theme') as TimelineThemeKey;
+      return (saved && TIMELINE_THEMES[saved]) ? saved : 'indigo_harmony';
+    } catch {
+      return 'indigo_harmony';
+    }
+  });
+
+  const [showThemeMenu, setShowThemeMenu] = useState<boolean>(false);
+
+  const handleSelectTimelineTheme = (key: TimelineThemeKey) => {
+    setTimelineThemeKey(key);
+    setShowThemeMenu(false);
+    try {
+      localStorage.setItem('svga_timeline_eye_theme', key);
+    } catch {}
+  };
+
+  // Available Track Accent Colors (Relaxing & Eye-Friendly Palette)
   const TRACK_COLORS = [
-    { label: 'أحمر مدمج (الافتراضي)', value: '#ef4444' },
-    { label: 'ياقوتي وردي', value: '#f43f5e' },
-    { label: 'كهرماني ذهبي', value: '#f59e0b' },
-    { label: 'أخضر زمردي', value: '#10b981' },
-    { label: 'أزرق سماوي', value: '#06b6d4' },
-    { label: 'بنفسجي ملكي', value: '#8b5cf6' },
-    { label: 'نيلي كلاسيكي', value: '#6366f1' },
+    { label: 'نيلي ملكي هادئ', value: '#4f46e5' },
+    { label: 'أزرق سماوي ناعم', value: '#0284c7' },
+    { label: 'بنفسجي شفق', value: '#7c3aed' },
+    { label: 'زمردي مهدئ', value: '#059669' },
+    { label: 'كهرماني ناعم', value: '#d97706' },
+    { label: 'ياقوتي هادئ', value: '#e11d48' },
+    { label: 'فوشيا دافئ', value: '#c026d3' },
+    { label: 'أردوازي رمادي', value: '#475569' },
   ];
 
   // Expanded track configuration for selected layer
@@ -547,7 +686,7 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
   }, [activeTrim, totalFrames, onUpdateLayerTimeRange]);
 
   // Render visual time bar with draggable handles for inFrame/outFrame duration
-  const renderSpanBar = (layer: EditableLayer, isSelected: boolean = false, rowHeightClass: string = 'h-9') => {
+  const renderSpanBar = (layer: EditableLayer, isSelected: boolean = false, rowHeightClass: string = 'h-9', layerIndex?: number) => {
     const isThisTrimming = activeTrim?.layerId === layer.id;
     const inFrame = isThisTrimming 
       ? activeTrim.currentIn 
@@ -556,8 +695,26 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
       ? activeTrim.currentOut 
       : (layer.outFrame !== undefined ? layer.outFrame : (layer.keyframeSummary?.endFrame ?? (totalFrames - 1)));
 
-    // Track color (default red #ef4444 for newly merged/added asset or layer)
-    const trackColor = layer.trackColor || (layer.groupId ? '#ef4444' : '#ef4444');
+    // Active theme & track color calculations
+    const theme = TIMELINE_THEMES[timelineThemeKey] || TIMELINE_THEMES.indigo_harmony;
+    const resolvedIndex = layerIndex !== undefined ? layerIndex : layers.findIndex(l => l.id === layer.id);
+    const themeColor = theme.getTrackColor(
+      resolvedIndex >= 0 ? resolvedIndex : 0, 
+      layers.length || 1, 
+      layer.sequenceIndex, 
+      layer.sequenceTotal
+    );
+
+    // If layer has an explicit custom color and it's not the old default '#ef4444', use it
+    let backgroundStyle = themeColor.gradient;
+    let borderCol = themeColor.border;
+    let glowCol = themeColor.glow;
+
+    if (layer.trackColor && layer.trackColor !== '#ef4444') {
+      backgroundStyle = `linear-gradient(90deg, ${layer.trackColor}f0 0%, ${layer.trackColor}c8 100%)`;
+      borderCol = `${layer.trackColor}80`;
+      glowCol = `${layer.trackColor}40`;
+    }
 
     const leftPct = totalFrames > 1 ? (inFrame / (totalFrames - 1)) * 100 : 0;
     const widthPct = totalFrames > 1 ? Math.max(1.5, ((outFrame - inFrame + 1) / (totalFrames - 1)) * 100) : 100;
@@ -570,32 +727,32 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
     return (
       <div 
         key={layer.id}
-        className={`${rowHeightClass} border-b border-white/5 relative flex items-center bg-slate-900/20 group select-none overflow-hidden transition-colors ${
-          isSelected ? 'bg-indigo-950/20' : 'hover:bg-white/[0.02]'
+        className={`${rowHeightClass} border-b border-white/5 relative flex items-center bg-slate-900/30 group select-none overflow-hidden transition-colors ${
+          isSelected ? 'bg-indigo-950/30' : 'hover:bg-white/[0.02]'
         }`}
         onClick={() => onSelectLayer(layer.id)}
       >
-        {/* Inactive time overlay before inFrame (Darkened hatched pattern) */}
+        {/* Inactive time overlay before inFrame (Soft darkened hatched pattern) */}
         {leftPct > 0 && (
           <div 
-            className="absolute top-0 bottom-0 left-0 bg-black/60 pointer-events-none z-10 border-r border-white/10"
+            className="absolute top-0 bottom-0 left-0 bg-slate-950/70 pointer-events-none z-10 border-r border-white/10"
             style={{ width: `${leftPct}%` }}
           >
-            <div className="w-full h-full opacity-30 bg-[repeating-linear-gradient(45deg,#000_0,#000_3px,transparent_3px,transparent_6px)]" />
+            <div className="w-full h-full opacity-20 bg-[repeating-linear-gradient(45deg,#000_0,#000_3px,transparent_3px,transparent_6px)]" />
           </div>
         )}
 
-        {/* Inactive time overlay after outFrame (Darkened hatched pattern) */}
+        {/* Inactive time overlay after outFrame (Soft darkened hatched pattern) */}
         {rightPct > 0 && (
           <div 
-            className="absolute top-0 bottom-0 right-0 bg-black/60 pointer-events-none z-10 border-l border-white/10"
+            className="absolute top-0 bottom-0 right-0 bg-slate-950/70 pointer-events-none z-10 border-l border-white/10"
             style={{ width: `${rightPct}%` }}
           >
-            <div className="w-full h-full opacity-30 bg-[repeating-linear-gradient(45deg,#000_0,#000_3px,transparent_3px,transparent_6px)]" />
+            <div className="w-full h-full opacity-20 bg-[repeating-linear-gradient(45deg,#000_0,#000_3px,transparent_3px,transparent_6px)]" />
           </div>
         )}
 
-        {/* The Draggable Red Duration Bar (الشريط الأحمر لتحديد وقت الظهور) */}
+        {/* The Draggable Duration Bar (شريط التوقيت والظهور المريح للعين) */}
         <div
           className={`absolute h-6 rounded-md transition-all flex items-center justify-between z-20 shadow-md border ${
             isThisTrimming 
@@ -605,28 +762,30 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
           style={{
             left: `${leftPct}%`,
             width: `${widthPct}%`,
-            backgroundColor: trackColor,
-            borderColor: isSelected ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.35)',
-            boxShadow: `0 4px 12px ${trackColor}40`
+            background: backgroundStyle,
+            borderColor: isSelected ? 'rgba(255, 255, 255, 0.85)' : borderCol,
+            boxShadow: isSelected 
+              ? `0 0 14px rgba(255, 255, 255, 0.3), 0 4px 12px ${glowCol}` 
+              : `0 3px 10px ${glowCol}`
           }}
           onMouseDown={(e) => startTrim(e, layer.id, 'move', inFrame, outFrame)}
-          title={`شريط مدة الظهور (سحب لتحريك التوقيت بالكامل) | من: ${inSec}s (F${inFrame}) إلى: ${outSec}s (F${outFrame})`}
+          title={`شريط مدة الظهور (سحب لتحريك التوقيت) | من: ${inSec}s (F${inFrame}) إلى: ${outSec}s (F${outFrame})`}
         >
           {/* Left Handle (Trim In-Frame / شد من الشمال لليمين) */}
           <div
             onMouseDown={(e) => startTrim(e, layer.id, 'start', inFrame, outFrame)}
-            className="w-3.5 h-full rounded-l-md bg-white hover:bg-white text-slate-800 flex items-center justify-center cursor-ew-resize shrink-0 transition-transform hover:scale-105 shadow-md z-30"
+            className="w-3.5 h-full rounded-l-md bg-white/85 hover:bg-white text-slate-800 flex items-center justify-center cursor-ew-resize shrink-0 transition-transform hover:scale-105 shadow-sm border-r border-black/10 z-30"
             title={`شد من الشمال لليمين لضبط بداية الظهور: ${inSec}s (F${inFrame})`}
           >
             <div className="flex flex-col gap-0.5 pointer-events-none">
-              <div className="w-0.5 h-2 bg-slate-800 rounded-full" />
-              <div className="w-0.5 h-2 bg-slate-800 rounded-full" />
+              <div className="w-0.5 h-2 bg-slate-700 rounded-full" />
+              <div className="w-0.5 h-2 bg-slate-700 rounded-full" />
             </div>
           </div>
 
           {/* Center Info Label */}
-          <div className="flex-1 px-1.5 flex items-center justify-center gap-1.5 overflow-hidden pointer-events-none text-white font-mono text-[10px] font-black drop-shadow select-none">
-            <span className="truncate">
+          <div className="flex-1 px-1.5 flex items-center justify-center gap-1.5 overflow-hidden pointer-events-none select-none">
+            <span className="truncate bg-black/40 px-2 py-0.5 rounded-full border border-white/10 text-white font-mono text-[9.5px] font-bold tracking-tight shadow-sm drop-shadow-none">
               {inSec}s → {outSec}s ({durSec}s)
             </span>
           </div>
@@ -634,12 +793,12 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
           {/* Right Handle (Trim Out-Frame / شد من اليمين للشمال) */}
           <div
             onMouseDown={(e) => startTrim(e, layer.id, 'end', inFrame, outFrame)}
-            className="w-3.5 h-full rounded-r-md bg-white hover:bg-white text-slate-800 flex items-center justify-center cursor-ew-resize shrink-0 transition-transform hover:scale-105 shadow-md z-30"
+            className="w-3.5 h-full rounded-r-md bg-white/85 hover:bg-white text-slate-800 flex items-center justify-center cursor-ew-resize shrink-0 transition-transform hover:scale-105 shadow-sm border-l border-black/10 z-30"
             title={`شد من اليمين لضبط نهاية الظهور: ${outSec}s (F${outFrame})`}
           >
             <div className="flex flex-col gap-0.5 pointer-events-none">
-              <div className="w-0.5 h-2 bg-slate-800 rounded-full" />
-              <div className="w-0.5 h-2 bg-slate-800 rounded-full" />
+              <div className="w-0.5 h-2 bg-slate-700 rounded-full" />
+              <div className="w-0.5 h-2 bg-slate-700 rounded-full" />
             </div>
           </div>
         </div>
@@ -647,14 +806,14 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
         {/* Live Trimming Floating HUD Tooltip */}
         {isThisTrimming && (
           <div 
-            className="absolute -top-7 z-40 bg-slate-900 border border-white/20 text-white text-[10px] font-mono font-bold px-2 py-0.5 rounded shadow-xl flex items-center gap-1 pointer-events-none -translate-x-1/2 whitespace-nowrap"
+            className="absolute -top-7 z-40 bg-slate-900/95 border border-indigo-500/40 text-white text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-lg shadow-2xl flex items-center gap-1.5 pointer-events-none -translate-x-1/2 whitespace-nowrap backdrop-blur-md"
             style={{ left: `${leftPct + widthPct / 2}%` }}
           >
-            <span className="text-red-400 font-sans">⏱️ ظهور:</span>
-            <span>{inSec}s (F{inFrame})</span>
+            <span className="text-cyan-400 font-sans">⏱️ ظهور:</span>
+            <span className="text-white">{inSec}s (F{inFrame})</span>
             <span className="text-slate-400">→</span>
-            <span>{outSec}s (F{outFrame})</span>
-            <span className="text-amber-400 font-sans">| مدة: {durSec}s</span>
+            <span className="text-white">{outSec}s (F{outFrame})</span>
+            <span className="text-emerald-400 font-sans border-l border-white/15 pl-1.5 ml-0.5">مدة: {durSec}s</span>
           </div>
         )}
       </div>
@@ -841,8 +1000,62 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
             {fps} FPS
           </span>
 
-          {/* Timeline Zoom & Collapse Controls */}
-          <div className="flex items-center gap-1 border-l border-white/10 pl-2">
+          {/* Timeline Theme Palette Switcher & Zoom & Collapse Controls */}
+          <div className="flex items-center gap-1.5 border-l border-white/10 pl-2">
+            {/* Theme Selector Button */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowThemeMenu(!showThemeMenu)}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 hover:bg-indigo-600/20 border border-white/10 text-slate-300 hover:text-white text-[10px] font-bold transition-all cursor-pointer shadow-sm"
+                title="تغيير ثيم ألوان الخط الزمني لألوان مريحة للعين"
+              >
+                <Palette size={12} className="text-indigo-400" />
+                <span className="hidden sm:inline">{TIMELINE_THEMES[timelineThemeKey]?.icon} {TIMELINE_THEMES[timelineThemeKey]?.name.split(' ')[0]}</span>
+                <ChevronDown size={10} className="text-slate-500" />
+              </button>
+
+              {showThemeMenu && (
+                <div 
+                  className="absolute right-0 top-full mt-1.5 bg-slate-900/98 border border-indigo-500/30 rounded-xl p-2 shadow-2xl z-50 flex flex-col gap-1 w-60 backdrop-blur-md"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="text-[11px] font-black text-white px-2 py-1 flex items-center justify-between border-b border-white/10">
+                    <span className="flex items-center gap-1.5">
+                      <Palette size={12} className="text-indigo-400" />
+                      <span>ثيمات الألوان المريحة للعين</span>
+                    </span>
+                    <span className="text-[9px] text-slate-400 font-normal">Eye Comfort</span>
+                  </div>
+                  <div className="flex flex-col gap-0.5 mt-1 max-h-56 overflow-y-auto custom-scrollbar">
+                    {(Object.keys(TIMELINE_THEMES) as TimelineThemeKey[]).map(key => {
+                      const t = TIMELINE_THEMES[key];
+                      const isAct = timelineThemeKey === key;
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => handleSelectTimelineTheme(key)}
+                          className={`flex items-start gap-2 p-1.5 rounded-lg text-right transition-colors cursor-pointer ${
+                            isAct ? 'bg-indigo-600/30 border border-indigo-500/40 text-white' : 'hover:bg-white/5 text-slate-300'
+                          }`}
+                        >
+                          <span className="text-sm shrink-0">{t.icon}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[11px] font-bold flex items-center justify-between">
+                              <span className="truncate">{t.name}</span>
+                              {isAct && <Check size={12} className="text-emerald-400 shrink-0" />}
+                            </div>
+                            <div className="text-[9px] text-slate-400 line-clamp-1">{t.description}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <button
               onClick={() => setTimelineZoom(Math.max(0.5, timelineZoom - 0.25))}
               className="p-1 hover:bg-white/10 text-slate-400 hover:text-white rounded transition-colors cursor-pointer"
@@ -1149,10 +1362,10 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
                 onClick={() => setTimelineViewMode('all')}
                 className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
                   timelineViewMode === 'all'
-                    ? 'bg-red-600 text-white shadow-sm'
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
                     : 'text-slate-400 hover:text-white'
                 }`}
-                title="عرض جميع المسارات (Multi-Track) لتحديد مدة ظهور الملف المضاف بالشريط الأحمر"
+                title="عرض جميع المسارات (Multi-Track) لتحديد مدة ظهور الملف المضاف أو طبقات المشروع"
               >
                 <Layers size={11} />
                 <span>كافة المسارات</span>
@@ -1161,7 +1374,7 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
                 onClick={() => setTimelineViewMode('selected')}
                 className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
                   timelineViewMode === 'selected'
-                    ? 'bg-indigo-600 text-white shadow-sm'
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
                     : 'text-slate-400 hover:text-white'
                 }`}
                 title="عرض مسارات التحريك التفصيلية للطبقة المحددة"
@@ -1173,7 +1386,7 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
                 onClick={() => setTimelineViewMode('trim')}
                 className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
                   (timelineViewMode as string) === 'trim'
-                    ? 'bg-emerald-600 text-white shadow-sm'
+                    ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/30'
                     : 'text-slate-400 hover:text-emerald-300'
                 }`}
                 title="أداة قص وتحديد مدة المشروع وحفظ القص"
@@ -1190,11 +1403,13 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
           {timelineViewMode === 'all' ? (
             /* Multi-Track Layers List */
             <div className="flex-1 flex flex-col overflow-y-auto custom-scrollbar divide-y divide-white/5">
-              {layers.map((layer) => {
+              {layers.map((layer, idx) => {
                 const isSelected = selectedLayer?.id === layer.id;
                 const inF = layer.inFrame !== undefined ? layer.inFrame : (layer.keyframeSummary?.startFrame ?? 0);
                 const outF = layer.outFrame !== undefined ? layer.outFrame : (layer.keyframeSummary?.endFrame ?? (totalFrames - 1));
-                const trackCol = layer.trackColor || '#ef4444';
+                const theme = TIMELINE_THEMES[timelineThemeKey] || TIMELINE_THEMES.indigo_harmony;
+                const themeColor = theme.getTrackColor(idx, layers.length || 1, layer.sequenceIndex, layer.sequenceTotal);
+                const trackCol = (layer.trackColor && layer.trackColor !== '#ef4444') ? layer.trackColor : themeColor.solid;
                 const isColorOpen = showColorPickerForLayer === layer.id;
 
                 return (
@@ -1219,7 +1434,7 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
                         />
                         {isColorOpen && (
                           <div 
-                            className="absolute left-0 top-full mt-1 bg-slate-900 border border-white/20 rounded-xl p-2 shadow-2xl z-50 flex flex-col gap-1 w-44"
+                            className="absolute left-0 top-full mt-1 bg-slate-900 border border-white/20 rounded-xl p-2 shadow-2xl z-50 flex flex-col gap-1 w-44 backdrop-blur-md"
                             onClick={(e) => e.stopPropagation()}
                           >
                             <div className="text-[10px] font-bold text-slate-300 mb-1 px-1">لون شريط المسار:</div>
@@ -1263,12 +1478,12 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
                           const newIn = Math.min(outF - 1, currentFrame);
                           onUpdateLayerTimeRange?.(layer.id, newIn, outF, undefined, true);
                         }}
-                        className="px-1 py-0.5 rounded bg-white/5 hover:bg-white/15 text-slate-400 hover:text-white border border-white/10"
+                        className="px-1 py-0.5 rounded bg-white/5 hover:bg-indigo-500/20 text-slate-400 hover:text-white border border-white/10 transition-colors"
                         title={`ضبط بداية الظهور عند الفريم الحالي (F${currentFrame})`}
                       >
                         [In]
                       </button>
-                      <span className="text-red-400 font-semibold" title={`من فريم ${inF} إلى فريم ${outF}`}>
+                      <span className="text-cyan-400 font-semibold px-1 py-0.5 rounded bg-cyan-950/40 border border-cyan-500/20" title={`من فريم ${inF} إلى فريم ${outF}`}>
                         F{inF}→{outF}
                       </span>
                       <button
@@ -1277,7 +1492,7 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
                           const newOut = Math.max(inF + 1, currentFrame);
                           onUpdateLayerTimeRange?.(layer.id, inF, newOut, undefined, true);
                         }}
-                        className="px-1 py-0.5 rounded bg-white/5 hover:bg-white/15 text-slate-400 hover:text-white border border-white/10"
+                        className="px-1 py-0.5 rounded bg-white/5 hover:bg-indigo-500/20 text-slate-400 hover:text-white border border-white/10 transition-colors"
                         title={`ضبط نهاية الظهور عند الفريم الحالي (F${currentFrame})`}
                       >
                         [Out]
@@ -1745,14 +1960,14 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
             {timelineViewMode === 'all' ? (
               /* Multi-Track view with individual draggable bars for every layer */
               <div className="flex-1 flex flex-col overflow-y-auto custom-scrollbar">
-                {layers.map((layer) => (
-                  renderSpanBar(layer, selectedLayer?.id === layer.id, 'h-9')
+                {layers.map((layer, idx) => (
+                  renderSpanBar(layer, selectedLayer?.id === layer.id, 'h-9', idx)
                 ))}
               </div>
             ) : selectedLayer ? (
               <div className="flex-1 flex flex-col">
                 {/* 1. Main Layer Timeline Span Bar (Draggable In/Out bounds & entire span) */}
-                {renderSpanBar(selectedLayer, true, 'h-9')}
+                {renderSpanBar(selectedLayer, true, 'h-9', layers.findIndex(l => l.id === selectedLayer.id))}
 
                 {/* Expanded Tracks Keyframe Diamonds */}
                 {isMotionExpanded && (
