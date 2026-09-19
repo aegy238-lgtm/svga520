@@ -7,8 +7,9 @@ import {
   ZoomIn, ZoomOut, RefreshCw, Maximize2, 
   Grid, Compass, Eye, Shield, RotateCcw,
   Focus, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Move, Crosshair, Scaling, Check, Lock, Unlock, X, Sliders
+  Move, Crosshair, Scaling, Check, Lock, Unlock, X, Sliders, Pipette
 } from 'lucide-react';
+import { ChromaTargetColor, rgbToHex, identifyColorType } from './svgaSmartChromaEngine';
 
 interface SvgaDesignCanvasProps {
   project: SVGAProjectData;
@@ -30,6 +31,8 @@ interface SvgaDesignCanvasProps {
   onPanChange: (offset: { x: number; y: number }) => void;
   onDeleteLayer?: (layerId: string) => void;
   onUpdateProjectDimensions?: (width: number, height: number, scaleLayers?: boolean) => void;
+  onChromaPickColor?: (color: ChromaTargetColor) => void;
+  onChromaHoverColor?: (color: ChromaTargetColor | null) => void;
   fadeConfig?: FadeConfig;
   cropConfig?: CropConfig;
   cropFeather?: CropFeather;
@@ -449,6 +452,8 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
   onPanChange,
   onDeleteLayer,
   onUpdateProjectDimensions,
+  onChromaPickColor,
+  onChromaHoverColor,
   fadeConfig,
   cropConfig,
   cropFeather,
@@ -461,6 +466,15 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
   const patternCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const bgImageRef = useRef<HTMLImageElement | null>(null);
   const imagesCache = useRef<Record<string, HTMLImageElement>>({});
+
+  // Smart Chroma Pen Magnifier Loupe State
+  const [chromaLoupe, setChromaLoupe] = useState<{
+    clientX: number;
+    clientY: number;
+    canvasX: number;
+    canvasY: number;
+    color: ChromaTargetColor;
+  } | null>(null);
 
   // Project Dimensions Controls State
   const [showDimensionsMenu, setShowDimensionsMenu] = useState<boolean>(false);
@@ -1507,6 +1521,30 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
   // Mouse Down Event Handler
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (activeTool === 'chroma-pen') {
+      if (canvasRef.current && onChromaPickColor) {
+        const rect = canvasRef.current.getBoundingClientRect();
+        const scaleX = project.width / rect.width;
+        const scaleY = project.height / rect.height;
+        const cx = Math.round((e.clientX - rect.left) * scaleX);
+        const cy = Math.round((e.clientY - rect.top) * scaleY);
+        if (cx >= 0 && cx < project.width && cy >= 0 && cy < project.height) {
+          const ctx = canvasRef.current.getContext('2d');
+          if (ctx) {
+            const p = ctx.getImageData(cx, cy, 1, 1).data;
+            const color: ChromaTargetColor = {
+              r: p[0],
+              g: p[1],
+              b: p[2],
+              hex: rgbToHex(p[0], p[1], p[2])
+            };
+            onChromaPickColor(color);
+          }
+        }
+      }
+      return;
+    }
+
     if (e.button === 1 || activeTool === 'hand') {
       setIsInteracting(true);
       setDragHandle('pan');
@@ -1577,6 +1615,41 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
   // Mouse Move Event Handler
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isInteracting) {
+      if (activeTool === 'chroma-pen') {
+        setCanvasCursor('crosshair');
+        if (canvasRef.current) {
+          const rect = canvasRef.current.getBoundingClientRect();
+          const scaleX = project.width / rect.width;
+          const scaleY = project.height / rect.height;
+          const cx = Math.round((e.clientX - rect.left) * scaleX);
+          const cy = Math.round((e.clientY - rect.top) * scaleY);
+          if (cx >= 0 && cx < project.width && cy >= 0 && cy < project.height) {
+            const ctx = canvasRef.current.getContext('2d');
+            if (ctx) {
+              const p = ctx.getImageData(cx, cy, 1, 1).data;
+              const color: ChromaTargetColor = {
+                r: p[0],
+                g: p[1],
+                b: p[2],
+                hex: rgbToHex(p[0], p[1], p[2])
+              };
+              setChromaLoupe({
+                clientX: e.clientX,
+                clientY: e.clientY,
+                canvasX: cx,
+                canvasY: cy,
+                color
+              });
+              onChromaHoverColor?.(color);
+            }
+          } else {
+            setChromaLoupe(null);
+            onChromaHoverColor?.(null);
+          }
+        }
+        return;
+      }
+
       if (activeTool === 'hand') {
         setCanvasCursor('grab');
         return;
@@ -1834,7 +1907,11 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
+      onMouseLeave={() => {
+        handleMouseUp();
+        setChromaLoupe(null);
+        onChromaHoverColor?.(null);
+      }}
       onWheel={handleWheel}
       style={{ cursor: activeTool === 'hand' || dragHandle === 'pan' ? 'grab' : canvasCursor }}
     >
@@ -2162,6 +2239,54 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
           className="block pointer-events-none"
         />
       </div>
+
+      {/* Interactive Smart Chroma Magnifier Loupe */}
+      {activeTool === 'chroma-pen' && chromaLoupe && (
+        <div 
+          className="fixed pointer-events-none z-50 transform -translate-x-1/2 -translate-y-full mb-3 flex flex-col items-center animate-in fade-in zoom-in-90 duration-75"
+          style={{
+            left: `${chromaLoupe.clientX}px`,
+            top: `${chromaLoupe.clientY - 16}px`
+          }}
+        >
+          {/* Loupe Outer Glow Ring */}
+          <div 
+            className="relative w-20 h-20 rounded-full border-[3px] shadow-2xl overflow-hidden flex items-center justify-center bg-black/95 ring-2 ring-white/20"
+            style={{
+              borderColor: chromaLoupe.color.hex,
+              boxShadow: `0 0 24px ${chromaLoupe.color.hex}99, 0 10px 30px rgba(0,0,0,0.85)`
+            }}
+          >
+            {/* Precision Crosshairs */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+              <div className="w-full h-px bg-white/70" />
+              <div className="h-full w-px bg-white/70 absolute" />
+              <div className="w-3.5 h-3.5 rounded-full border border-white shadow-sm" />
+            </div>
+
+            {/* Target Color Swatch fill */}
+            <div 
+              className="w-full h-full"
+              style={{ backgroundColor: chromaLoupe.color.hex }}
+            />
+          </div>
+
+          {/* Color Pill Tag */}
+          <div className="mt-2 flex flex-col items-center bg-slate-950/95 border border-white/20 px-3 py-1.5 rounded-2xl shadow-2xl backdrop-blur-md text-center ring-1 ring-emerald-500/30">
+            <div className="flex items-center gap-1.5">
+              <span 
+                className="w-2.5 h-2.5 rounded-full border border-white/40 shadow-sm"
+                style={{ backgroundColor: chromaLoupe.color.hex }}
+              />
+              <span className="font-mono text-xs font-black text-white">{chromaLoupe.color.hex}</span>
+            </div>
+            <span className="text-[10px] font-bold text-emerald-400 mt-0.5">
+              {identifyColorType(chromaLoupe.color.r, chromaLoupe.color.g, chromaLoupe.color.b).label}
+            </span>
+            <span className="text-[9px] text-slate-300 font-medium">انقر بالماوس لحذف هذا اللون</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

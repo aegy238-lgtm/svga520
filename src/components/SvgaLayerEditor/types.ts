@@ -183,7 +183,7 @@ export interface GuideLine {
   position: number;
 }
 
-export type CanvasTool = 'select' | 'hand' | 'zoom';
+export type CanvasTool = 'select' | 'hand' | 'zoom' | 'chroma-pen';
 
 export interface ShineEffectConfig {
   enabled: boolean;

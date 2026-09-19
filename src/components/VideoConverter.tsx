@@ -26,6 +26,10 @@ import {
   Palette,
   Crosshair,
   FastForward,
+  Crown,
+  RefreshCw,
+  ArrowLeft,
+  CheckCircle2,
 } from "lucide-react";
 import { logActivity } from "../utils/logger";
 import { ChromaStudioModal, ChromaSettings } from "./ChromaStudioModal";
@@ -39,6 +43,7 @@ import {
 import { VideoDurationSpeedModal } from "./VideoDurationSpeedModal";
 import { extractAndScaleVideoAudio } from "../utils/videoDurationEngine";
 import { ensureMp3WithId3 } from "../utils/svgaAudio";
+import { transferVideoEditsToLayerEditor } from "../utils/transferToLayerEditor";
 
 import * as Mp4Muxer from "mp4-muxer";
 import { downloadDesignerInfoFile } from "../utils/designerInfo";
@@ -62,6 +67,7 @@ interface VideoConverterProps {
   onSubscriptionRequired: () => void;
   globalQuality?: "low" | "medium" | "high";
   initialFiles?: File[];
+  onOpenLayerEditor?: (params: { project?: any; layers?: any[]; file?: File }) => void;
 }
 
 export const VideoConverter: React.FC<VideoConverterProps> = ({
@@ -71,6 +77,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
   onSubscriptionRequired,
   globalQuality: initialGlobalQuality = "high",
   initialFiles = [],
+  onOpenLayerEditor,
 }) => {
   const { checkAccess } = useAccessControl();
   const [files, setFiles] = useState<File[]>(initialFiles);
@@ -133,6 +140,80 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
+
+  // States for transferring edits to After Effects / SVGA Layer Editor
+  const [isTransferringToAe, setIsTransferringToAe] = useState(false);
+  const [aeTransferProgress, setAeTransferProgress] = useState(0);
+  const [aeTransferPhase, setAeTransferPhase] = useState("");
+  const [aeTransferSuccess, setAeTransferSuccess] = useState(false);
+
+  const handleTransferCurrentFileToAfterEffects = async (targetIndex?: number) => {
+    const idx = targetIndex !== undefined ? targetIndex : currentFileIndex;
+    const targetFile = files[idx];
+    if (!targetFile) {
+      alert("يرجى اختيار أو رفع فيديو أولاً ليتم نقله إلى محرر الطبقات");
+      return;
+    }
+
+    const isVIP = !!(currentUser?.isVIP || currentUser?.role === "admin" || currentUser?.isSuperAdmin);
+    if (!isVIP) {
+      onSubscriptionRequired();
+      return;
+    }
+
+    setIsTransferringToAe(true);
+    setAeTransferProgress(5);
+    setAeTransferPhase("جاري فحص إعدادات القص وإزالة الخلفية...");
+    setAeTransferSuccess(false);
+
+    try {
+      const result = await transferVideoEditsToLayerEditor({
+        file: targetFile,
+        videoDuration: duration || 5,
+        timingSettings,
+        isAutoDuration,
+        startTime,
+        endTime,
+        durationMode,
+        targetSpeedDuration,
+        fps: fps || 30,
+        customWidth,
+        customHeight,
+        exportScale,
+        isVapInput,
+        removeGreen,
+        removeBlack,
+        removeWhite,
+        removeBlue,
+        whiteTolerance,
+        customChroma,
+        fadeConfig,
+        onProgress: (p, pct) => {
+          setAeTransferPhase(p);
+          setAeTransferProgress(pct);
+        },
+      });
+
+      setAeTransferSuccess(true);
+      setAeTransferProgress(100);
+      setAeTransferPhase("تم حفظ ونقل كافة التعديلات بنجاح! جاري الفتح في محرر الطبقات (After Effects)...");
+
+      setTimeout(() => {
+        setIsTransferringToAe(false);
+        if (onOpenLayerEditor) {
+          onOpenLayerEditor({
+            project: result.project,
+            layers: result.layers,
+            file: result.file,
+          });
+        }
+      }, 700);
+    } catch (err: any) {
+      console.error("Failed to transfer to After Effects / Layer Editor:", err);
+      alert("حدث خطأ أثناء نقل المشروع إلى محرر الطبقات: " + (err.message || String(err)));
+      setIsTransferringToAe(false);
+    }
+  };
 
   const [hiddenFormats, setHiddenFormats] = useState<string[]>(() => {
     const saved = localStorage.getItem("quantum_hidden_formats");
@@ -246,9 +327,16 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     height: number,
     configOverride?: typeof fadeConfig,
   ) => {
+    const currentFade = configOverride || fadeConfig;
+    const hasFade = Boolean(currentFade && (currentFade.top > 0 || currentFade.bottom > 0 || currentFade.left > 0 || currentFade.right > 0));
+
+    // Fast path: If no background removal or fade is active, skip pixel processing
+    if (!removeBlack && !removeGreen && !removeBlue && !removeWhite && !customChroma.enabled && !hasFade) {
+      return;
+    }
+
     const imageData = ctx.getImageData(0, 0, width, height);
     const data = imageData.data;
-    const currentFade = configOverride || fadeConfig;
 
     // Helper for Protection Masks
     const masks = customChroma.protectionMasks || [];
@@ -544,26 +632,42 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     vh: number,
     time: number,
   ) => {
-    video.currentTime = time;
-    await new Promise((r) => {
-      const onSeek = () => {
-        video.removeEventListener("seeked", onSeek);
-        r(null);
-      };
-      video.addEventListener("seeked", onSeek);
-    });
+    const clamped = Math.max(0, Math.min(video.duration || 9999, time));
+    if (Math.abs(video.currentTime - clamped) > 0.002) {
+      await new Promise((r) => {
+        let done = false;
+        const onSeek = () => {
+          if (!done) {
+            done = true;
+            video.removeEventListener("seeked", onSeek);
+            r(null);
+          }
+        };
+        video.addEventListener("seeked", onSeek, { once: true });
+        if ('fastSeek' in video && typeof (video as any).fastSeek === 'function') {
+          try {
+            (video as any).fastSeek(clamped);
+          } catch {
+            video.currentTime = clamped;
+          }
+        } else {
+          video.currentTime = clamped;
+        }
+        setTimeout(onSeek, 100);
+      });
+    }
 
     ctx.clearRect(0, 0, vw, vh);
-    tCtx.clearRect(0, 0, tCtx.canvas.width, tCtx.canvas.height);
-    drawVideoCentered(
-      tCtx,
-      video,
-      tCtx.canvas.width,
-      tCtx.canvas.height,
-      isVapInput,
-    );
 
     if (isVapInput) {
+      tCtx.clearRect(0, 0, tCtx.canvas.width, tCtx.canvas.height);
+      drawVideoCentered(
+        tCtx,
+        video,
+        tCtx.canvas.width,
+        tCtx.canvas.height,
+        true,
+      );
       // VAP Input: Left half is Alpha, Right half is RGB
       const alphaData = tCtx.getImageData(0, 0, vw, vh).data;
       const rgbData = tCtx.getImageData(vw, 0, vw, vh).data;
@@ -575,12 +679,18 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
         d[j + 1] = rgbData[j + 1]; // G
         d[j + 2] = rgbData[j + 2]; // B
         // Use grayscale value from alpha side as alpha
-        const alpha = (alphaData[j] + alphaData[j + 1] + alphaData[j + 2]) / 3;
+        const alpha = ((alphaData[j] + alphaData[j + 1] + alphaData[j + 2]) / 3) | 0;
         d[j + 3] = alpha;
       }
       ctx.putImageData(combinedData, 0, 0);
     } else {
-      ctx.drawImage(tCtx.canvas, 0, 0, vw, vh);
+      drawVideoCentered(
+        ctx,
+        video,
+        vw,
+        vh,
+        false,
+      );
     }
 
     // Apply transparency effects (Edge Fade, Chroma Key, etc.)
@@ -2737,6 +2847,19 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
                           onClick={(e) => {
                             e.stopPropagation();
                             setCurrentFileIndex(i);
+                            handleTransferCurrentFileToAfterEffects(i);
+                          }}
+                          title="حفظ ونقل التعديلات إلى مشروع After Effects (محرر الطبقات)"
+                          className="px-2.5 py-1.5 rounded-xl bg-purple-500/20 text-purple-200 hover:bg-purple-600 hover:text-white border border-purple-500/40 transition-all flex items-center gap-1 text-xs font-bold shadow-sm"
+                        >
+                          <Layers className="w-3.5 h-3.5 text-purple-300" />
+                          <span className="hidden sm:inline">نقل للطبقات</span>
+                          <Crown className="w-3 h-3 text-amber-400" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCurrentFileIndex(i);
                           }}
                           className={`p-1.5 rounded-lg transition-colors ${i === currentFileIndex ? "bg-sky-500 text-white" : "bg-slate-800 text-slate-400 hover:text-white"}`}
                         >
@@ -2762,6 +2885,81 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Quick Transfer to After Effects / SVGA Layer Editor Card */}
+            {file && (
+              <div className="bg-gradient-to-r from-purple-950/40 via-indigo-950/30 to-slate-900/60 p-5 rounded-[2.5rem] border-2 border-purple-500/40 shadow-2xl shadow-purple-950/30 space-y-3 relative overflow-hidden">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-purple-500/30">
+                      <Layers className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="text-white font-black text-sm flex items-center gap-2">
+                        نقل إلى مشروع محرر الطبقات (After Effects)
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
+                          <Crown className="w-2.5 h-2.5 text-amber-400" /> VIP
+                        </span>
+                      </div>
+                      <p className="text-slate-300 text-xs mt-0.5">
+                        حفظ كافة عمليات القص وإزالة الخلفية الخضراء والكروما والسرعة ونقلها بنفس الإعدادات إلى المشروع
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Badges summarizing all active edits */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-black/40 p-3 rounded-2xl border border-white/5 text-[11px]">
+                  <div className="flex items-center gap-1.5 text-slate-300">
+                    <span className={`w-2 h-2 rounded-full ${removeGreen ? "bg-emerald-400" : "bg-slate-600"}`} />
+                    <span>الخلفية الخضراء:</span>
+                    <strong className={removeGreen ? "text-emerald-400" : "text-slate-400"}>
+                      {removeGreen ? "إزالة ✓" : "بدون"}
+                    </strong>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-slate-300">
+                    <span className={`w-2 h-2 rounded-full ${(customChroma?.enabled || removeBlack || removeWhite || removeBlue) ? "bg-emerald-400" : "bg-slate-600"}`} />
+                    <span>الكروما المخصصة:</span>
+                    <strong className={(customChroma?.enabled || removeBlack || removeWhite || removeBlue) ? "text-emerald-400" : "text-slate-400"}>
+                      {customChroma?.enabled ? "محددة ✓" : (removeBlack ? "أسود ✓" : (removeWhite ? "أبيض ✓" : (removeBlue ? "أزرق ✓" : "بدون")))}
+                    </strong>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-slate-300">
+                    <span className={`w-2 h-2 rounded-full ${(!isAutoDuration || timingSettings.mode !== "full") ? "bg-amber-400" : "bg-sky-400"}`} />
+                    <span>المدة المقصوصة:</span>
+                    <strong className="text-amber-300 font-mono">
+                      {calculateOutputDuration(duration, timingSettings).toFixed(2)}s
+                    </strong>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-slate-300">
+                    <span className="w-2 h-2 rounded-full bg-indigo-400" />
+                    <span>الصوت المتزامن:</span>
+                    <strong className="text-indigo-300">
+                      مزامنة تلقائية ✓
+                    </strong>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => handleTransferCurrentFileToAfterEffects()}
+                  disabled={isTransferringToAe}
+                  className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-purple-600 via-indigo-600 to-sky-600 hover:from-purple-500 hover:via-indigo-500 hover:to-sky-500 text-white font-black text-xs flex items-center justify-center gap-2 shadow-xl shadow-purple-600/30 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50"
+                >
+                  {isTransferringToAe ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>{aeTransferPhase || "جاري تجهيز ونقل المشروع..."}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 text-amber-300" />
+                      <span>حفظ ونقل كافة التعديلات إلى مشروع After Effects الآن</span>
+                      <ArrowLeft className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
               </div>
             )}
 
@@ -3756,6 +3954,16 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
                   <Music className="w-5 h-5" />
                   <span>استخراج الصوت فقط</span>
                 </button>
+
+                <button
+                  onClick={() => handleTransferCurrentFileToAfterEffects()}
+                  disabled={!file || isProcessing || isTransferringToAe}
+                  className={`w-full py-4 rounded-[2.5rem] font-black text-sm transition-all active:scale-95 flex items-center justify-center gap-2 ${!file || isProcessing || isTransferringToAe ? "bg-slate-800 text-slate-600 cursor-not-allowed" : "bg-gradient-to-r from-purple-600/30 to-indigo-600/30 hover:from-purple-600/50 hover:to-indigo-600/50 text-purple-200 border border-purple-500/40 shadow-lg shadow-purple-950/30"}`}
+                >
+                  <Layers className="w-4 h-4 text-purple-300" />
+                  <span>نقل إلى مشروع After Effects</span>
+                  <Crown className="w-3.5 h-3.5 text-amber-400" />
+                </button>
               </div>
 
               <AnimatePresence>
@@ -3845,6 +4053,91 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
         }}
         isVapInput={isVapInput}
       />
+
+      {/* Transfer to After Effects / SVGA Layer Editor Live Progress Modal */}
+      <AnimatePresence>
+        {isTransferringToAe && (
+          <div className="fixed inset-0 z-[999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-slate-900 border border-purple-500/40 p-8 rounded-[2.5rem] max-w-lg w-full shadow-2xl shadow-purple-950/60 text-center space-y-6 relative overflow-hidden"
+            >
+              <div className="absolute -right-16 -top-16 w-48 h-48 bg-purple-600/20 rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute -left-16 -bottom-16 w-48 h-48 bg-indigo-600/20 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 mx-auto flex items-center justify-center text-white shadow-xl shadow-purple-600/40">
+                {aeTransferSuccess ? (
+                  <CheckCircle2 className="w-8 h-8 text-emerald-300" />
+                ) : (
+                  <RefreshCw className="w-8 h-8 animate-spin text-purple-200" />
+                )}
+              </div>
+
+              <div>
+                <h3 className="text-white font-black text-xl flex items-center justify-center gap-2">
+                  <span>نقل المشروع إلى محرر الطبقات (After Effects)</span>
+                  <Crown className="w-4 h-4 text-amber-400" />
+                </h3>
+                <p className="text-slate-300 text-xs mt-2 font-medium">
+                  {aeTransferPhase}
+                </p>
+              </div>
+
+              {/* Progress bar */}
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs font-bold px-1">
+                  <span className="text-purple-300 font-mono">التقدم الإجمالي</span>
+                  <span className="text-white font-mono">{aeTransferProgress}%</span>
+                </div>
+                <div className="h-3 bg-black/60 rounded-full overflow-hidden p-0.5 border border-white/10">
+                  <motion.div
+                    animate={{ width: `${aeTransferProgress}%` }}
+                    transition={{ ease: "easeOut", duration: 0.2 }}
+                    className="h-full bg-gradient-to-r from-purple-500 via-indigo-500 to-sky-400 rounded-full shadow-lg shadow-purple-500/50"
+                  />
+                </div>
+              </div>
+
+              {/* Badges of applied features */}
+              <div className="bg-black/40 p-4 rounded-2xl border border-white/5 space-y-2 text-right text-xs">
+                <div className="text-slate-400 font-bold text-[11px] mb-1">
+                  التعديلات المحفوظة والمنقولة للمشروع:
+                </div>
+                <div className="flex items-center gap-2 text-slate-200">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                  <span>إزالة الخلفية / كروما:</span>
+                  <strong className="text-emerald-300">
+                    {removeGreen ? "إزالة الخلفية الخضراء مفعلة ✓" : (customChroma?.enabled ? "كروما مخصصة ✓" : (removeBlack ? "إزالة الأسود ✓" : (removeWhite ? "إزالة الأبيض ✓" : "شفافية مخصصة")))}
+                  </strong>
+                </div>
+                <div className="flex items-center gap-2 text-slate-200">
+                  <span className="w-2 h-2 rounded-full bg-amber-400" />
+                  <span>قص وتحديد المدة:</span>
+                  <strong className="text-amber-300 font-mono">
+                    {calculateOutputDuration(duration, timingSettings).toFixed(2)} ثانية
+                  </strong>
+                </div>
+                <div className="flex items-center gap-2 text-slate-200">
+                  <span className="w-2 h-2 rounded-full bg-indigo-400" />
+                  <span>مزامنة الصوت والإطارات:</span>
+                  <strong className="text-indigo-300">
+                    {fps || 30} إطار/ثانية
+                  </strong>
+                </div>
+                <div className="flex items-center gap-2 text-slate-200 pt-1 border-t border-white/5">
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                  <span>محرك المعالجة:</span>
+                  <strong className="text-amber-300 font-bold">
+                    Turbo Engine فائق السرعة ⚡
+                  </strong>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </>
   );
 };

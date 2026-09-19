@@ -41,13 +41,14 @@ export const parseSVGA = async (file: File): Promise<any> => {
     } as any);
 };
 
-export const encodeSVGA = async (movieData: any): Promise<Blob> => {
+export const encodeSVGA = async (movieData: any, options?: { level?: number }): Promise<Blob> => {
     const errMsg = MovieEntity.verify(movieData);
     if (errMsg) throw Error(errMsg);
 
     const message = MovieEntity.fromObject(movieData);
     const buffer = MovieEntity.encode(message).finish();
-    const deflated = pako.deflate(buffer, { level: 9 });
+    const compressionLevel = options?.level !== undefined ? options.level : 6;
+    const deflated = pako.deflate(buffer, { level: compressionLevel as any });
     return new Blob([deflated], { type: 'application/octet-stream' });
 };
 

@@ -27,13 +27,16 @@ import { SvgaMotionTimeline } from './SvgaMotionTimeline';
 import { SvgaAudioEditorModal } from './SvgaAudioEditorModal';
 import { SvgaExportModal } from './SvgaExportModal';
 import { SvgaMp4ImportModal } from './SvgaMp4ImportModal';
+import { SvgaMergeCanvasModal } from './SvgaMergeCanvasModal';
+import { SvgaChromaPenStudio } from './SvgaChromaPenStudio';
+import { ChromaTargetColor, identifyColorType, applySmartChromaToSingleImage } from './svgaSmartChromaEngine';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { 
   Upload, Layers, Download, ArrowLeft, RotateCcw, 
   Sparkles, MousePointer, Hand, ZoomIn, Grid, Compass, 
   FileCode, Check, AlertCircle, RefreshCw, X, Shield, Eye,
   Sliders, Play, Film, CheckCircle2, Music, Plus, FilePlus, Package,
-  Image as ImageIcon
+  Image as ImageIcon, Pipette
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -147,12 +150,16 @@ function restoreLayersFromSnapshot(
 
 interface SvgaLayerEditorProps {
   initialFile?: File;
+  initialProject?: SVGAProjectData;
+  initialLayers?: EditableLayer[];
   onClose: () => void;
   onOpenViewer?: (file: File) => void;
 }
 
 export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   initialFile,
+  initialProject,
+  initialLayers,
   onClose,
   onOpenViewer
 }) => {
@@ -184,25 +191,6 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const [bgImageUrl, setBgImageUrl] = useState<string | null>(null);
   const bgFileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleBackgroundUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      alert('يرجى اختيار ملف صورة صالح (PNG, JPG, WEBP)');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const result = event.target?.result as string;
-      if (result) {
-        setBgImageUrl(result);
-        setSuccessToast('تم رفع وتثبيت صورة الخلفية بنجاح للمعاينة خلف الهدية');
-      }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  }, []);
-
   // Animation & Timeline State
   const [currentFrame, setCurrentFrame] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -214,6 +202,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState<boolean>(false);
   const [showAudioStudioModal, setShowAudioStudioModal] = useState<boolean>(false);
+  const [showMergeCanvasModal, setShowMergeCanvasModal] = useState<boolean>(false);
   const [showMp4ImportModal, setShowMp4ImportModal] = useState<boolean>(false);
   const [mp4InitialFiles, setMp4InitialFiles] = useState<File[]>([]);
   const [newProjectConfig, setNewProjectConfig] = useState({
@@ -232,6 +221,216 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const [fadeConfig, setFadeConfig] = useState<FadeConfig>(DEFAULT_FADE_CONFIG);
   const [cropConfig, setCropConfig] = useState<CropConfig>(DEFAULT_CROP_CONFIG);
   const [cropFeather, setCropFeather] = useState<CropFeather>(DEFAULT_CROP_FEATHER);
+
+  // Smart Chroma Key Pen State
+  const [isChromaPenActive, setIsChromaPenActive] = useState<boolean>(false);
+  const [chromaActiveColor, setChromaActiveColor] = useState<ChromaTargetColor | null>(null);
+  const [chromaTargetColors, setChromaTargetColors] = useState<ChromaTargetColor[]>([]);
+  const [chromaTolerance, setChromaTolerance] = useState<number>(30);
+  const [chromaSmoothness, setChromaSmoothness] = useState<number>(12);
+  const [chromaDespill, setChromaDespill] = useState<number>(85);
+  const [chromaScope, setChromaScope] = useState<'all' | 'selected' | 'current'>('all');
+  const [isChromaProcessing, setIsChromaProcessing] = useState<boolean>(false);
+  const [chromaProgress, setChromaProgress] = useState<number>(0);
+  const [chromaStatus, setChromaStatus] = useState<string>('');
+  const [chromaUndoStack, setChromaUndoStack] = useState<Array<{
+    imagesMap: Record<string, string>;
+    rawImages: Record<string, Uint8Array>;
+  }>>([]);
+
+  const handleToggleChromaPen = useCallback(() => {
+    setIsChromaPenActive(prev => {
+      const next = !prev;
+      if (next) {
+        setActiveTool('chroma-pen');
+        setIsPlaying(false);
+      } else {
+        setActiveTool('select');
+      }
+      return next;
+    });
+  }, []);
+
+  const handleChromaPickColor = useCallback((color: ChromaTargetColor) => {
+    setChromaTargetColors(prev => {
+      const exists = prev.some(c => {
+        const dr = c.r - color.r;
+        const dg = c.g - color.g;
+        const db = c.b - color.b;
+        return Math.sqrt(dr * dr + dg * dg + db * db) < 14;
+      });
+      if (exists) return prev;
+      return [...prev, color];
+    });
+
+    const info = identifyColorType(color.r, color.g, color.b);
+    if (info.isChroma) {
+      if (info.label.includes('Green') || info.label.includes('خضراء')) {
+        setChromaTolerance(32);
+        setChromaDespill(90);
+      } else if (info.label.includes('Blue') || info.label.includes('زرقاء')) {
+        setChromaTolerance(30);
+        setChromaDespill(85);
+      } else if (info.label.includes('Black') || info.label.includes('سوداء')) {
+        setChromaTolerance(22);
+        setChromaDespill(50);
+      } else if (info.label.includes('White') || info.label.includes('بيضاء')) {
+        setChromaTolerance(20);
+        setChromaDespill(40);
+      }
+    }
+  }, []);
+
+  const handleAddTargetColor = useCallback((color: ChromaTargetColor) => {
+    setChromaTargetColors(prev => [...prev, color]);
+  }, []);
+
+  const handleRemoveTargetColor = useCallback((index: number) => {
+    setChromaTargetColors(prev => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const handleClearTargetColors = useCallback(() => {
+    setChromaTargetColors([]);
+  }, []);
+
+  const handleUndoChroma = useCallback(() => {
+    if (chromaUndoStack.length === 0) return;
+    const previous = chromaUndoStack[chromaUndoStack.length - 1];
+    setChromaUndoStack(prev => prev.slice(0, prev.length - 1));
+    setProject(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        imagesMap: { ...previous.imagesMap },
+        rawImages: { ...previous.rawImages }
+      };
+    });
+    setSuccessToast('تم التراجع عن حذف اللون واستعادة الإطارات السابقة بنجاح');
+  }, [chromaUndoStack]);
+
+  const handleApplyChroma = useCallback(async () => {
+    if (!project || chromaTargetColors.length === 0) return;
+
+    setIsChromaProcessing(true);
+    setChromaProgress(0);
+    setChromaStatus('بدء معالجة واستخراج الكروما...');
+
+    try {
+      const currentImagesMapSnapshot = { ...(project.imagesMap || {}) };
+      const currentRawImagesSnapshot: Record<string, Uint8Array> = {};
+      if (project.rawImages) {
+        for (const [k, v] of Object.entries(project.rawImages)) {
+          if (v instanceof Uint8Array) {
+            currentRawImagesSnapshot[k] = new Uint8Array(v);
+          }
+        }
+      }
+      setChromaUndoStack(prev => [...prev.slice(-4), {
+        imagesMap: currentImagesMapSnapshot,
+        rawImages: currentRawImagesSnapshot
+      }]);
+
+      let targetKeys: string[] = [];
+      if (chromaScope === 'all') {
+        targetKeys = Object.keys(project.imagesMap || {});
+      } else if (chromaScope === 'selected') {
+        const selectedLayer = layers.find(l => l.id === selectedLayerId);
+        if (selectedLayer && selectedLayer.imageKey) {
+          targetKeys = [selectedLayer.imageKey];
+        } else {
+          targetKeys = Object.keys(project.imagesMap || {});
+        }
+      } else {
+        const activeKeys = layers
+          .filter(l => {
+            const inF = l.inFrame ?? 0;
+            const outF = l.outFrame ?? (project.totalFrames - 1);
+            return currentFrame >= inF && currentFrame <= outF;
+          })
+          .map(l => l.imageKey)
+          .filter(Boolean);
+        if (activeKeys.length > 0) {
+          targetKeys = Array.from(new Set(activeKeys));
+        } else {
+          targetKeys = Object.keys(project.imagesMap || {});
+        }
+      }
+
+      if (targetKeys.length === 0) {
+        setErrorMessage('لم يتم العثور على صور لمعالجتها في هذا النطاق');
+        setIsChromaProcessing(false);
+        return;
+      }
+
+      const newImagesMap: Record<string, string> = {};
+      const newRawImages: Record<string, Uint8Array> = {};
+
+      const total = targetKeys.length;
+      for (let i = 0; i < total; i++) {
+        const key = targetKeys[i];
+        const imgUrl = project.imagesMap?.[key];
+        if (!imgUrl) continue;
+
+        setChromaProgress(Math.round(((i + 0.2) / total) * 100));
+        setChromaStatus(`معالجة الإطار ${i + 1} من ${total}...`);
+
+        const result = await applySmartChromaToSingleImage(imgUrl, {
+          targets: chromaTargetColors,
+          tolerance: chromaTolerance,
+          smoothness: chromaSmoothness,
+          despill: chromaDespill
+        });
+
+        newImagesMap[key] = result.dataUrl;
+        newRawImages[key] = result.bytes;
+      }
+
+      setChromaProgress(100);
+      setChromaStatus('اكتمال الحذف وحفظ التغييرات...');
+
+      setProject(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          imagesMap: {
+            ...(prev.imagesMap || {}),
+            ...newImagesMap
+          },
+          rawImages: {
+            ...(prev.rawImages || {}),
+            ...newRawImages
+          }
+        };
+      });
+
+      setSuccessToast(`تمت إزالة الكروما وحذف اللون بنجاح من ${total} إطار بدون أي بقايا!`);
+    } catch (err: any) {
+      console.error('Error applying chroma keying:', err);
+      setErrorMessage(err.message || 'حدث خطأ أثناء معالجة الكروما');
+    } finally {
+      setIsChromaProcessing(false);
+      setChromaStatus('');
+    }
+  }, [project, layers, selectedLayerId, currentFrame, chromaTargetColors, chromaTolerance, chromaSmoothness, chromaDespill, chromaScope]);
+
+  const handleBackgroundUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('يرجى اختيار ملف صورة صالح (PNG, JPG, WEBP)');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      if (result) {
+        setBgImageUrl(result);
+        setSuccessToast('تم رفع وتثبيت صورة الخلفية بنجاح للمعاينة خلف الهدية');
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }, []);
 
   const handleResetTransparency = useCallback(() => {
     setFadeConfig({ top: 0, bottom: 0, left: 0, right: 0 });
@@ -420,12 +619,14 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     setSuccessToast(`تمت إضافة طبقة فيديو MP4 (${newLayer.name}) إلى المشروع بنجاح`);
   }, [pushHistory]);
 
-  // Handle Initial File
+  // Handle Initial File or Direct Transferred Project
   useEffect(() => {
-    if (initialFile) {
+    if (initialProject && initialLayers && initialLayers.length > 0) {
+      handleImportMp4AsProject(initialProject, initialLayers);
+    } else if (initialFile) {
       loadSvgaFile(initialFile);
     }
-  }, [initialFile, loadSvgaFile]);
+  }, [initialFile, initialProject, initialLayers, handleImportMp4AsProject, loadSvgaFile]);
 
   // Smooth Animation Frame Playback Loop using requestAnimationFrame
   useEffect(() => {
@@ -1698,6 +1899,78 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     });
   }, [project, pushHistory]);
 
+  // Trim Project Range (Cut Start & End, recalculate totalFrames, layers keyframes and duration)
+  const handleTrimProject = useCallback((startFrame: number, endFrame: number) => {
+    if (!project) return;
+    const clampedStart = Math.max(0, Math.min(startFrame, project.totalFrames - 1));
+    const clampedEnd = Math.max(clampedStart, Math.min(endFrame, project.totalFrames - 1));
+    const newTotalFrames = clampedEnd - clampedStart + 1;
+    const newDurationSec = Math.max(0.1, +(newTotalFrames / project.fps).toFixed(2));
+
+    const updatedLayers = layers.map(layer => {
+      // Slice sprite frames if present
+      let updatedSprite = layer.spriteRef;
+      if (layer.spriteRef && Array.isArray(layer.spriteRef.frames)) {
+        const slicedFrames = layer.spriteRef.frames.slice(clampedStart, clampedEnd + 1);
+        updatedSprite = {
+          ...layer.spriteRef,
+          frames: slicedFrames
+        };
+      }
+
+      // Remap inFrame and outFrame
+      const oldIn = layer.inFrame !== undefined ? layer.inFrame : (layer.keyframeSummary?.startFrame ?? 0);
+      const oldOut = layer.outFrame !== undefined ? layer.outFrame : (layer.keyframeSummary?.endFrame ?? (project.totalFrames - 1));
+      const newIn = Math.max(0, Math.min(newTotalFrames - 1, oldIn - clampedStart));
+      const newOut = Math.max(0, Math.min(newTotalFrames - 1, oldOut - clampedStart));
+
+      // Remap keyframes
+      const newKeyframes = (layer.keyframes || [])
+        .filter(k => k.frame >= clampedStart && k.frame <= clampedEnd)
+        .map(k => ({
+          ...k,
+          frame: k.frame - clampedStart
+        }));
+
+      return {
+        ...layer,
+        inFrame: newIn,
+        outFrame: newOut,
+        keyframes: newKeyframes,
+        spriteRef: updatedSprite,
+        framesCount: newTotalFrames,
+        keyframeSummary: {
+          ...layer.keyframeSummary,
+          startFrame: newIn,
+          endFrame: newOut
+        }
+      };
+    });
+
+    // Remap audios if present
+    const updatedAudios = (project.audios || []).map(audio => {
+      const audioStartSec = audio.startTime || 0;
+      const trimStartSec = clampedStart / project.fps;
+      const newAudioStartSec = Math.max(0, audioStartSec - trimStartSec);
+      return {
+        ...audio,
+        startTime: newAudioStartSec
+      };
+    });
+
+    setProject(prev => prev ? {
+      ...prev,
+      totalFrames: newTotalFrames,
+      durationSec: newDurationSec,
+      audios: updatedAudios
+    } : prev);
+
+    setLayers(updatedLayers);
+    setCurrentFrame(0);
+    pushHistory(updatedLayers);
+    setSuccessToast(`تم قص وحفظ المشروع بنجاح من الفريم ${clampedStart} إلى الفريم ${clampedEnd} (المدة: ${newDurationSec} ثانية) ✓`);
+  }, [project, layers, pushHistory]);
+
   // Undo / Redo Actions (using lightweight snapshots)
   const handleUndo = useCallback(() => {
     if (historyIndex > 0) {
@@ -2178,8 +2451,38 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                 cropConfig={cropConfig}
                 cropFeather={cropFeather}
                 bgImageUrl={bgImageUrl}
+                onChromaPickColor={handleChromaPickColor}
+                onChromaHoverColor={setChromaActiveColor}
               />
             </div>
+
+            {/* Smart Chroma Key Pen Studio Control Panel */}
+            <SvgaChromaPenStudio
+              isActive={isChromaPenActive}
+              activeColor={chromaActiveColor}
+              targetColors={chromaTargetColors}
+              onAddTargetColor={handleAddTargetColor}
+              onRemoveTargetColor={handleRemoveTargetColor}
+              onClearTargetColors={handleClearTargetColors}
+              tolerance={chromaTolerance}
+              onToleranceChange={setChromaTolerance}
+              smoothness={chromaSmoothness}
+              onSmoothnessChange={setChromaSmoothness}
+              despill={chromaDespill}
+              onDespillChange={setChromaDespill}
+              scope={chromaScope}
+              onScopeChange={setChromaScope}
+              onApplyChroma={handleApplyChroma}
+              onUndoChroma={handleUndoChroma}
+              canUndo={chromaUndoStack.length > 0}
+              isProcessing={isChromaProcessing}
+              processingProgress={chromaProgress}
+              processingStatus={chromaStatus}
+              onClose={() => {
+                setIsChromaPenActive(false);
+                setActiveTool('select');
+              }}
+            />
 
             {/* Bottom Keyframe & Motion Timeline */}
             <SvgaMotionTimeline
@@ -2207,6 +2510,14 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               onUpdateLayerKeyframes={handleUpdateLayerKeyframes}
               onUpdateProjectDuration={handleUpdateProjectDuration}
               onUpdateLayerTimeRange={handleUpdateLayerTimeRange}
+              onTrimProject={handleTrimProject}
+              onMergeSvga={() => mergeFileInputRef.current?.click()}
+              onOpenMergeCanvasStudio={() => setShowMergeCanvasModal(true)}
+              onToggleChromaPen={handleToggleChromaPen}
+              isChromaPenActive={isChromaPenActive}
+              onExport={() => setShowExportModal(true)}
+              isExporting={isExporting}
+              isMerging={isMergingLayers}
             />
           </main>
 
@@ -2574,6 +2885,25 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
           </ErrorBoundary>
         )}
       </AnimatePresence>
+
+      {/* Unified Merge & Canvas Transform Studio Modal */}
+      {project && showMergeCanvasModal && (
+        <ErrorBoundary fallbackTitle="حدث خطأ في واجهة دمج وتحريك الطبقات" onReset={() => setShowMergeCanvasModal(false)}>
+          <SvgaMergeCanvasModal
+            isOpen={showMergeCanvasModal}
+            onClose={() => setShowMergeCanvasModal(false)}
+            project={project}
+            layers={layers}
+            onMergeAllLayers={handleMergeAllLayers}
+            onUngroupLayers={handleUngroupMergedLayer}
+            onBulkTransform={handleBulkTransform}
+            onSelectAllLayers={handleSelectAllLayers}
+            isMergingLayers={isMergingLayers}
+            selectedLayerIds={selectedLayerIds}
+            setSuccessToast={(msg) => setSuccessToast(msg)}
+          />
+        </ErrorBoundary>
+      )}
     </div>
   );
 };

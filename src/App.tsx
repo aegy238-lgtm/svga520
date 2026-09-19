@@ -135,6 +135,8 @@ const App: React.FC = () => {
   const [showBatchImage, setShowBatchImage] = useState(false);
   const [uploadedPagFile, setUploadedPagFile] = useState<File | null>(null);
   const [layerEditorInitialFile, setLayerEditorInitialFile] = useState<File | null>(null);
+  const [layerEditorInitialProject, setLayerEditorInitialProject] = useState<any>(null);
+  const [layerEditorInitialLayers, setLayerEditorInitialLayers] = useState<any[] | null>(null);
   const [globalQuality, setGlobalQuality] = useState<'low' | 'medium' | 'high'>('high');
   const [initialLottieFile, setInitialLottieFile] = useState<File | null>(null);
   const [initialVapFile, setInitialVapFile] = useState<File | null>(null);
@@ -954,7 +956,12 @@ const App: React.FC = () => {
               <ErrorBoundary fallbackTitle="حدث خطأ في محرر طبقات SVGA" onReset={handleReset}>
                 <SvgaLayerEditor 
                   initialFile={layerEditorInitialFile || fileMetadata?.originalFile || undefined}
+                  initialProject={layerEditorInitialProject || undefined}
+                  initialLayers={layerEditorInitialLayers || undefined}
                   onClose={() => {
+                    setLayerEditorInitialFile(null);
+                    setLayerEditorInitialProject(null);
+                    setLayerEditorInitialLayers(null);
                     if (fileMetadata) {
                       setState(AppState.PROCESSING);
                     } else {
@@ -974,6 +981,12 @@ const App: React.FC = () => {
                 onSubscriptionRequired={() => setShowSubscriptionModal(true)}
                 globalQuality={globalQuality}
                 initialFiles={initialVideoFiles}
+                onOpenLayerEditor={(params) => {
+                  setLayerEditorInitialFile(params.file || null);
+                  setLayerEditorInitialProject(params.project || null);
+                  setLayerEditorInitialLayers(params.layers || null);
+                  handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
+                }}
               />
             )}
             {state === AppState.UNIVERSAL_CONVERTER && (

@@ -5,7 +5,7 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ChevronRight as ChevronRightIcon,
   Plus, Diamond, Sliders, Trash2, Eye, Move, Maximize2, Minimize2, RotateCw, 
   Sun, Clock, Film, Sparkles, SlidersHorizontal, Settings2, MoreVertical, ZoomIn, ZoomOut, Copy, ClipboardPaste, Music,
-  Layers, Palette, GripVertical, Check, Lock, Unlock
+  Layers, Palette, GripVertical, Check, Lock, Unlock, Scissors, Download, Pipette
 } from 'lucide-react';
 import { KeyframeEasingPanel } from './KeyframeEasingPanel';
 import { 
@@ -34,6 +34,14 @@ interface SvgaMotionTimelineProps {
   onUpdateLayerKeyframes: (layerId: string, keyframes: LayerKeyframe[]) => void;
   onUpdateProjectDuration?: (seconds: number) => void;
   onUpdateLayerTimeRange?: (layerId: string, inFrame: number, outFrame: number, trackColor?: string, commit?: boolean) => void;
+  onTrimProject?: (startFrame: number, endFrame: number) => void;
+  onMergeSvga?: () => void;
+  onOpenMergeCanvasStudio?: () => void;
+  onToggleChromaPen?: () => void;
+  isChromaPenActive?: boolean;
+  onExport?: () => void;
+  isExporting?: boolean;
+  isMerging?: boolean;
 }
 
 export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
@@ -54,7 +62,15 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
   onUpdateLayerTransform,
   onUpdateLayerKeyframes,
   onUpdateProjectDuration,
-  onUpdateLayerTimeRange
+  onUpdateLayerTimeRange,
+  onTrimProject,
+  onMergeSvga,
+  onOpenMergeCanvasStudio,
+  onToggleChromaPen,
+  isChromaPenActive = false,
+  onExport,
+  isExporting = false,
+  isMerging = false
 }) => {
   const rulerRef = useRef<HTMLDivElement>(null);
   const timelineTracksRef = useRef<HTMLDivElement>(null);
@@ -67,9 +83,116 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
   const [draggingKeyframeId, setDraggingKeyframeId] = useState<string | null>(null);
   const [clipboardKeyframes, setClipboardKeyframes] = useState<LayerKeyframe[]>([]);
 
-  // Timeline View Mode: 'all' (Multi-Track) or 'selected' (Single Layer Curves)
-  const [timelineViewMode, setTimelineViewMode] = useState<'all' | 'selected'>('all');
+  // Timeline View Mode: 'all' (Multi-Track), 'selected' (Single Layer Curves), or 'trim' (Trimmer Studio)
+  const [timelineViewMode, setTimelineViewMode] = useState<'all' | 'selected' | 'trim'>('all');
   const [showColorPickerForLayer, setShowColorPickerForLayer] = useState<string | null>(null);
+
+  // Trimmer Studio state
+  const [trimStartFrame, setTrimStartFrame] = useState<number>(0);
+  const [trimEndFrame, setTrimEndFrame] = useState<number>(totalFrames > 0 ? totalFrames - 1 : 0);
+  const [trimScope, setTrimScope] = useState<'project' | 'layer'>('project');
+  const trimTrackRef = useRef<HTMLDivElement>(null);
+  const [activeTrimmerDrag, setActiveTrimmerDrag] = useState<{
+    type: 'start' | 'end' | 'window';
+    initialStart: number;
+    initialEnd: number;
+    startX: number;
+  } | null>(null);
+
+  // Sync trim bounds with totalFrames changes
+  useEffect(() => {
+    if (totalFrames > 0) {
+      setTrimStartFrame(prev => Math.max(0, Math.min(prev, totalFrames - 1)));
+      setTrimEndFrame(prev => {
+        if (prev === 0 || prev >= totalFrames - 1 || prev < trimStartFrame) {
+          return totalFrames - 1;
+        }
+        return Math.max(0, Math.min(prev, totalFrames - 1));
+      });
+    }
+  }, [totalFrames]);
+
+  const startTrimHandleDrag = (e: React.MouseEvent, type: 'start' | 'end') => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveTrimmerDrag({
+      type,
+      initialStart: trimStartFrame,
+      initialEnd: trimEndFrame,
+      startX: e.clientX
+    });
+  };
+
+  const startTrimWindowDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveTrimmerDrag({
+      type: 'window',
+      initialStart: trimStartFrame,
+      initialEnd: trimEndFrame,
+      startX: e.clientX
+    });
+  };
+
+  useEffect(() => {
+    if (!activeTrimmerDrag) return;
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!trimTrackRef.current || totalFrames <= 1) return;
+      const rect = trimTrackRef.current.getBoundingClientRect();
+      const trackWidth = rect.width;
+      if (trackWidth <= 0) return;
+
+      const deltaX = e.clientX - activeTrimmerDrag.startX;
+      const deltaFrames = Math.round((deltaX / trackWidth) * (totalFrames - 1));
+
+      if (activeTrimmerDrag.type === 'start') {
+        const newStart = Math.max(0, Math.min(activeTrimmerDrag.initialEnd - 1, activeTrimmerDrag.initialStart + deltaFrames));
+        setTrimStartFrame(newStart);
+        onSeekFrame(newStart);
+      } else if (activeTrimmerDrag.type === 'end') {
+        const newEnd = Math.max(activeTrimmerDrag.initialStart + 1, Math.min(totalFrames - 1, activeTrimmerDrag.initialEnd + deltaFrames));
+        setTrimEndFrame(newEnd);
+        onSeekFrame(newEnd);
+      } else if (activeTrimmerDrag.type === 'window') {
+        const span = activeTrimmerDrag.initialEnd - activeTrimmerDrag.initialStart;
+        const newStart = Math.max(0, Math.min(totalFrames - 1 - span, activeTrimmerDrag.initialStart + deltaFrames));
+        const newEnd = newStart + span;
+        setTrimStartFrame(newStart);
+        setTrimEndFrame(newEnd);
+        onSeekFrame(newStart);
+      }
+    };
+
+    const onMouseUp = () => {
+      setActiveTrimmerDrag(null);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, [activeTrimmerDrag, totalFrames, onSeekFrame]);
+
+  const handleTrimTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!trimTrackRef.current || totalFrames <= 0) return;
+    const rect = trimTrackRef.current.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const pct = Math.max(0, Math.min(1, clickX / rect.width));
+    const targetFrame = Math.round(pct * (totalFrames - 1));
+    onSeekFrame(targetFrame);
+  };
+
+  const handleConfirmTrim = () => {
+    if (trimScope === 'project' && onTrimProject) {
+      onTrimProject(trimStartFrame, trimEndFrame);
+    } else if (selectedLayer && onUpdateLayerTimeRange) {
+      onUpdateLayerTimeRange(selectedLayer.id, trimStartFrame, trimEndFrame, undefined, true);
+    }
+    setTimelineViewMode('all');
+  };
 
   // Active Trimming State for Left / Right duration handles or moving the whole span
   const [activeTrim, setActiveTrim] = useState<{
@@ -545,7 +668,7 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
     <div className="bg-[#070b14] border-t border-white/10 flex flex-col select-none relative shadow-2xl z-20" dir="ltr">
       {/* 1. TOP PLAYBACK & TIME CONTROL BAR */}
       <div className="h-11 px-4 border-b border-white/10 bg-slate-900/60 flex items-center justify-between gap-4">
-        {/* Left: Playback Controls */}
+        {/* Left: Playback Controls & Relocated Main Action Buttons */}
         <div className="flex items-center gap-2">
           <button
             onClick={() => onSeekFrame(0)}
@@ -617,6 +740,49 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
               <span className="text-[10px] hidden sm:inline">
                 {projectAudios.length > 0 ? `الصوت (${projectAudios.length})` : 'إضافة صوت'}
               </span>
+            </button>
+          )}
+
+          <div className="h-4 w-px bg-white/10 mx-1" />
+
+          {/* User Requested: Two Main Action Buttons Moved to Area 2 (Bottom Bar) */}
+          {onMergeSvga && (
+            <button
+              onClick={onMergeSvga}
+              disabled={isMerging}
+              className="flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-purple-600/30 to-indigo-600/30 hover:from-purple-600/50 hover:to-indigo-600/50 border border-purple-500/40 text-purple-200 hover:text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer hover:scale-105 disabled:opacity-50"
+              title="دمج ملف SVGA آخر في هذا المشروع كطبقة جديدة"
+            >
+              <Sparkles size={13} className="text-purple-300" />
+              <span>{isMerging ? 'جاري الدمج...' : '+ دمج SVGA'}</span>
+            </button>
+          )}
+
+          {/* User Requested: Replace "دمج" button with Smart Chroma Pen (قلم إزالة الكروما) */}
+          {onToggleChromaPen && (
+            <button
+              onClick={onToggleChromaPen}
+              className={`flex items-center gap-1.5 px-3 py-1 border rounded-xl text-xs font-black transition-all shadow-md cursor-pointer hover:scale-105 ${
+                isChromaPenActive
+                  ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 border-emerald-300 text-white shadow-emerald-500/40 ring-2 ring-emerald-400/70 animate-pulse'
+                  : 'bg-gradient-to-r from-emerald-600/30 via-teal-600/30 to-cyan-600/30 hover:from-emerald-600/50 hover:to-teal-600/50 border-emerald-500/40 hover:border-emerald-300 text-emerald-200 hover:text-white shadow-emerald-500/10'
+              }`}
+              title="قلم إزالة الكروما الذكي: انقر بالماوس على أي لون داخل نطاق المشروع لإزالته وتفريغ الخلفية باحترافية وبدون أي بقايا"
+            >
+              <Pipette size={13} className={isChromaPenActive ? 'text-white animate-bounce' : 'text-emerald-300'} />
+              <span>{isChromaPenActive ? 'قلم الكروما (نشط)' : 'قلم الكروما'}</span>
+            </button>
+          )}
+
+          {onExport && (
+            <button
+              onClick={onExport}
+              disabled={isExporting}
+              className="flex items-center gap-1.5 px-3.5 py-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 border border-indigo-400/40 text-white rounded-xl text-xs font-black transition-all shadow-lg shadow-indigo-600/30 cursor-pointer hover:scale-105 disabled:opacity-50"
+              title="تصدير وحفظ ملف الـ SVGA النهائي"
+            >
+              <Download size={13} />
+              <span>{isExporting ? 'جاري التصدير...' : 'تصدير SVGA'}</span>
             </button>
           )}
         </div>
@@ -713,8 +879,266 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
         </div>
       </div>
 
-      {/* 2. DEDICATED MOTION TRACKS CONTAINER OR MINI SCRUBBER */}
+      {/* 2. DEDICATED MOTION TRACKS CONTAINER OR TRIMMER STUDIO OR MINI SCRUBBER */}
       {!isTimelineCollapsed ? (
+        timelineViewMode === 'trim' ? (
+          /* FULL-FEATURED TRIMMER STUDIO PANEL */
+          <div className="h-56 bg-[#080d1a] border-t border-white/10 flex flex-col justify-between p-3 overflow-y-auto custom-scrollbar" dir="rtl">
+            {/* Top Trimmer Header & Controls */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/90 border border-white/10 rounded-xl px-3 py-2 shadow-md">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-md shadow-emerald-600/30 shrink-0">
+                  <Scissors size={16} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-black text-xs text-white">استوديو قص وتحديد مدة المشروع (Trimmer)</span>
+                    <span className="text-[10px] font-bold px-2 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      دقة عالية
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400">
+                    حدد فريم البداية والنهاية بالسحب أو بالأرقام، ثم اضغط تأكيد لحفظ وتطبيق القص على المشروع.
+                  </p>
+                </div>
+              </div>
+
+              {/* Scope Switcher */}
+              <div className="flex items-center gap-1.5 bg-black/40 p-1 rounded-lg border border-white/10 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setTrimScope('project')}
+                  className={`px-2.5 py-1 rounded text-[11px] transition-all cursor-pointer ${
+                    trimScope === 'project'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  كامل المشروع
+                </button>
+                {selectedLayer && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTrimScope('layer');
+                      setTrimStartFrame(selectedLayer.inFrame ?? (selectedLayer.keyframeSummary?.startFrame ?? 0));
+                      setTrimEndFrame(selectedLayer.outFrame ?? (selectedLayer.keyframeSummary?.endFrame ?? (totalFrames - 1)));
+                    }}
+                    className={`px-2.5 py-1 rounded text-[11px] transition-all cursor-pointer truncate max-w-[130px] ${
+                      trimScope === 'layer'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title={`قص وتحديد ظهور: ${selectedLayer.name}`}
+                  >
+                    الطبقة: {selectedLayer.name}
+                  </button>
+                )}
+              </div>
+
+              {/* Confirm & Cancel Actions */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleConfirmTrim}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-600/30 transition-all cursor-pointer hover:scale-105"
+                  title="تأكيد وحفظ القص وتحديث فريمات ومدة المشروع"
+                >
+                  <Check size={14} className="text-white stroke-[3]" />
+                  <span>✓ تأكيد وحفظ القص</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTimelineViewMode('all')}
+                  className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white font-bold text-xs rounded-xl border border-white/10 transition-all cursor-pointer"
+                >
+                  ✕ إلغاء
+                </button>
+              </div>
+            </div>
+
+            {/* Visual Interactive Trimmer Track */}
+            <div className="my-2 bg-slate-950 border border-white/15 rounded-xl p-3 flex flex-col gap-1.5 relative shadow-inner" dir="ltr">
+              <div 
+                ref={trimTrackRef}
+                className="h-14 w-full bg-slate-900 rounded-lg relative border border-white/10 overflow-hidden cursor-crosshair select-none flex items-center"
+                onClick={handleTrimTrackClick}
+              >
+                {/* Playhead Marker */}
+                <div
+                  className="absolute top-0 bottom-0 w-0.5 bg-cyan-400 z-30 pointer-events-none shadow-md"
+                  style={{ left: `${playheadPct}%` }}
+                >
+                  <div className="w-2.5 h-2.5 bg-cyan-400 rounded-full -translate-x-[4px] -translate-y-0.5 shadow-md" />
+                </div>
+
+                {/* Dimmed Left Cut Zone (Before Trim Start) */}
+                <div 
+                  className="absolute left-0 top-0 bottom-0 bg-black/80 border-r border-dashed border-red-500/60 flex items-center justify-center pointer-events-none z-10"
+                  style={{ width: `${totalFrames > 1 ? (trimStartFrame / (totalFrames - 1)) * 100 : 0}%` }}
+                >
+                  {(trimStartFrame / (totalFrames - 1)) * 100 > 12 && (
+                    <span className="text-[10px] text-red-400 font-mono font-bold">قص ✂</span>
+                  )}
+                </div>
+
+                {/* Active Kept Window (Between Start & End) */}
+                <div
+                  className="absolute top-0.5 bottom-0.5 bg-gradient-to-r from-emerald-600/30 via-teal-600/30 to-emerald-600/30 border-2 border-emerald-400 rounded-lg shadow-lg flex items-center justify-between px-2 z-20 cursor-move"
+                  style={{
+                    left: `${totalFrames > 1 ? (trimStartFrame / (totalFrames - 1)) * 100 : 0}%`,
+                    width: `${totalFrames > 1 ? Math.max(1, ((trimEndFrame - trimStartFrame + 1) / (totalFrames - 1)) * 100) : 100}%`
+                  }}
+                  onMouseDown={(e) => startTrimWindowDrag(e)}
+                >
+                  {/* Draggable Start Handle (Left) */}
+                  <div
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      startTrimHandleDrag(e, 'start');
+                    }}
+                    className="w-4 h-full -ml-2 rounded-l bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center justify-center cursor-ew-resize shrink-0 transition-transform hover:scale-110 shadow-lg z-30"
+                    title={`بداية القص: F${trimStartFrame} (${(trimStartFrame / fps).toFixed(2)}s)`}
+                  >
+                    <div className="flex flex-col gap-0.5 pointer-events-none">
+                      <div className="w-0.5 h-2.5 bg-slate-950 rounded-full" />
+                      <div className="w-0.5 h-2.5 bg-slate-950 rounded-full" />
+                    </div>
+                  </div>
+
+                  {/* Center Info in the active zone */}
+                  <div className="flex items-center justify-center gap-2 text-white font-mono text-[11px] font-bold pointer-events-none select-none drop-shadow">
+                    <span className="text-emerald-300">F{trimStartFrame} ({(trimStartFrame / fps).toFixed(2)}s)</span>
+                    <span className="text-slate-400">→</span>
+                    <span className="text-emerald-300">F{trimEndFrame} ({(trimEndFrame / fps).toFixed(2)}s)</span>
+                    <span className="text-amber-300 bg-black/60 px-2 py-0.5 rounded-full border border-amber-400/30 text-[10px]">
+                      {((trimEndFrame - trimStartFrame + 1) / fps).toFixed(2)}s ({trimEndFrame - trimStartFrame + 1}F)
+                    </span>
+                  </div>
+
+                  {/* Draggable End Handle (Right) */}
+                  <div
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      startTrimHandleDrag(e, 'end');
+                    }}
+                    className="w-4 h-full -mr-2 rounded-r bg-rose-500 hover:bg-rose-400 text-slate-950 flex items-center justify-center cursor-ew-resize shrink-0 transition-transform hover:scale-110 shadow-lg z-30"
+                    title={`نهاية القص: F${trimEndFrame} (${(trimEndFrame / fps).toFixed(2)}s)`}
+                  >
+                    <div className="flex flex-col gap-0.5 pointer-events-none">
+                      <div className="w-0.5 h-2.5 bg-slate-950 rounded-full" />
+                      <div className="w-0.5 h-2.5 bg-slate-950 rounded-full" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Dimmed Right Cut Zone (After Trim End) */}
+                <div 
+                  className="absolute right-0 top-0 bottom-0 bg-black/80 border-l border-dashed border-red-500/60 flex items-center justify-center pointer-events-none z-10"
+                  style={{ width: `${Math.max(0, 100 - ((totalFrames > 1 ? (trimStartFrame / (totalFrames - 1)) * 100 : 0) + (totalFrames > 1 ? Math.max(1, ((trimEndFrame - trimStartFrame + 1) / (totalFrames - 1)) * 100) : 100)))}%` }}
+                >
+                  {Math.max(0, 100 - ((totalFrames > 1 ? (trimStartFrame / (totalFrames - 1)) * 100 : 0) + (totalFrames > 1 ? Math.max(1, ((trimEndFrame - trimStartFrame + 1) / (totalFrames - 1)) * 100) : 100))) > 12 && (
+                    <span className="text-[10px] text-red-400 font-mono font-bold">قص ✂</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Precision Inputs & Quick Control Presets */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+              {/* 1. Start Trim Card */}
+              <div className="bg-slate-900/80 border border-emerald-500/30 rounded-lg p-2 flex flex-col justify-between">
+                <div className="flex items-center justify-between text-[11px] font-bold text-emerald-300 mb-1">
+                  <span>بداية القص [In]:</span>
+                  <span className="font-mono text-[10px] text-emerald-400">{(trimStartFrame / fps).toFixed(2)}s</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={0}
+                    max={trimEndFrame}
+                    value={trimStartFrame}
+                    onChange={(e) => setTrimStartFrame(Math.max(0, Math.min(trimEndFrame, parseInt(e.target.value) || 0)))}
+                    className="w-14 bg-black/60 border border-emerald-500/50 rounded px-1.5 py-0.5 text-center font-mono font-bold text-emerald-300 text-xs outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setTrimStartFrame(currentFrame)}
+                    className="flex-1 px-1.5 py-0.5 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-200 rounded text-[10px] font-bold border border-emerald-500/30 transition-colors cursor-pointer"
+                  >
+                    المؤشر (F{currentFrame})
+                  </button>
+                </div>
+              </div>
+
+              {/* 2. End Trim Card */}
+              <div className="bg-slate-900/80 border border-rose-500/30 rounded-lg p-2 flex flex-col justify-between">
+                <div className="flex items-center justify-between text-[11px] font-bold text-rose-300 mb-1">
+                  <span>نهاية القص [Out]:</span>
+                  <span className="font-mono text-[10px] text-rose-400">{(trimEndFrame / fps).toFixed(2)}s</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={trimStartFrame}
+                    max={totalFrames - 1}
+                    value={trimEndFrame}
+                    onChange={(e) => setTrimEndFrame(Math.max(trimStartFrame, Math.min(totalFrames - 1, parseInt(e.target.value) || (totalFrames - 1))))}
+                    className="w-14 bg-black/60 border border-rose-500/50 rounded px-1.5 py-0.5 text-center font-mono font-bold text-rose-300 text-xs outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setTrimEndFrame(currentFrame)}
+                    className="flex-1 px-1.5 py-0.5 bg-rose-600/20 hover:bg-rose-600/40 text-rose-200 rounded text-[10px] font-bold border border-rose-500/30 transition-colors cursor-pointer"
+                  >
+                    المؤشر (F{currentFrame})
+                  </button>
+                </div>
+              </div>
+
+              {/* 3. Output Duration Card */}
+              <div className="bg-slate-900/80 border border-amber-500/30 rounded-lg p-2 flex flex-col justify-between">
+                <div className="flex items-center justify-between text-[11px] font-bold text-amber-300 mb-1">
+                  <span>المدة بعد القص:</span>
+                  <span className="text-[10px] text-slate-400">FPS: {fps}</span>
+                </div>
+                <div className="flex items-center justify-between bg-black/40 px-2 py-1 rounded border border-white/5 font-mono text-xs">
+                  <span className="text-amber-300 font-black">{((trimEndFrame - trimStartFrame + 1) / fps).toFixed(2)} ثانية</span>
+                  <span className="text-slate-400 font-bold">({trimEndFrame - trimStartFrame + 1} فريم)</span>
+                </div>
+              </div>
+
+              {/* 4. Quick Actions */}
+              <div className="bg-slate-900/80 border border-white/10 rounded-lg p-2 flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSeekFrame(trimStartFrame);
+                    if (!isPlaying) onTogglePlay();
+                  }}
+                  className="flex-1 h-full flex items-center justify-center gap-1 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 hover:text-white rounded text-[11px] font-bold border border-indigo-500/30 transition-colors cursor-pointer"
+                  title="معاينة تشغيل المقطع المقصوص من البداية للنهاية"
+                >
+                  <Play size={12} className="fill-indigo-300" />
+                  <span>معاينة</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTrimStartFrame(0);
+                    setTrimEndFrame(totalFrames - 1);
+                  }}
+                  className="px-2 h-full flex items-center justify-center text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 rounded text-[11px] font-bold border border-white/10 transition-colors cursor-pointer"
+                  title="إعادة ضبط القص للمجال الكامل"
+                >
+                  <RotateCcw size={12} />
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
         <div className="flex h-56 relative overflow-hidden">
         {/* LEFT COLUMN: TRACK HEADERS & CONTROLS (WIDTH: 310px) */}
         <div className="w-[310px] bg-slate-950/95 border-r border-white/10 flex flex-col shrink-0 overflow-y-auto custom-scrollbar">
@@ -744,6 +1168,18 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
               >
                 <SlidersHorizontal size={11} />
                 <span>الطبقة المحددة</span>
+              </button>
+              <button
+                onClick={() => setTimelineViewMode('trim')}
+                className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                  (timelineViewMode as string) === 'trim'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-emerald-300'
+                }`}
+                title="أداة قص وتحديد مدة المشروع وحفظ القص"
+              >
+                <Scissors size={11} />
+                <span>✂️ قص</span>
               </button>
             </div>
             {selectedLayer && (
@@ -1553,6 +1989,7 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
           </div>
         </div>
       </div>
+      )
       ) : (
         /* Mini Scrubber Track when collapsed */
         <div 
