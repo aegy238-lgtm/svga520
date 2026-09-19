@@ -29,7 +29,7 @@ import { SvgaExportModal } from './SvgaExportModal';
 import { SvgaMp4ImportModal } from './SvgaMp4ImportModal';
 import { SvgaMergeCanvasModal } from './SvgaMergeCanvasModal';
 import { SvgaChromaPenStudio } from './SvgaChromaPenStudio';
-import { ChromaTargetColor, identifyColorType, applySmartChromaToSingleImage } from './svgaSmartChromaEngine';
+import { ChromaTargetColor, identifyColorType, applySmartChromaToSingleImage, isAudioSource } from './svgaSmartChromaEngine';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { 
   Upload, Layers, Download, ArrowLeft, RotateCcw, 
@@ -348,13 +348,19 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             return currentFrame >= inF && currentFrame <= outF;
           })
           .map(l => l.imageKey)
-          .filter(Boolean);
+          .filter(Boolean) as string[];
         if (activeKeys.length > 0) {
           targetKeys = Array.from(new Set(activeKeys));
         } else {
           targetKeys = Object.keys(project.imagesMap || {});
         }
       }
+
+      // Filter out audio and invalid sources
+      targetKeys = targetKeys.filter(key => {
+        const imgUrl = project.imagesMap?.[key];
+        return !isAudioSource(key, imgUrl);
+      });
 
       if (targetKeys.length === 0) {
         setErrorMessage('لم يتم العثور على صور لمعالجتها في هذا النطاق');
@@ -366,23 +372,36 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       const newRawImages: Record<string, Uint8Array> = {};
 
       const total = targetKeys.length;
+      let successCount = 0;
+
       for (let i = 0; i < total; i++) {
         const key = targetKeys[i];
+        const rawBytes = project.rawImages?.[key];
         const imgUrl = project.imagesMap?.[key];
-        if (!imgUrl) continue;
+        const source = rawBytes || imgUrl;
+        if (!source) continue;
 
         setChromaProgress(Math.round(((i + 0.2) / total) * 100));
         setChromaStatus(`معالجة الإطار ${i + 1} من ${total}...`);
 
-        const result = await applySmartChromaToSingleImage(imgUrl, {
-          targets: chromaTargetColors,
-          tolerance: chromaTolerance,
-          smoothness: chromaSmoothness,
-          despill: chromaDespill
-        });
+        try {
+          const result = await applySmartChromaToSingleImage(source, {
+            targets: chromaTargetColors,
+            tolerance: chromaTolerance,
+            smoothness: chromaSmoothness,
+            despill: chromaDespill
+          });
 
-        newImagesMap[key] = result.dataUrl;
-        newRawImages[key] = result.bytes;
+          newImagesMap[key] = result.dataUrl;
+          newRawImages[key] = result.bytes;
+          successCount++;
+        } catch (itemErr) {
+          console.warn(`Could not process chroma on key ${key}:`, itemErr);
+        }
+      }
+
+      if (successCount === 0) {
+        throw new Error('فشلت معالجة الصور المحددة، يرجى التأكد من اختيار إطار أو طبقة تحتوي على صورة');
       }
 
       setChromaProgress(100);
@@ -403,7 +422,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         };
       });
 
-      setSuccessToast(`تمت إزالة الكروما وحذف اللون بنجاح من ${total} إطار بدون أي بقايا!`);
+      setSuccessToast(`تمت إزالة الكروما وحذف اللون بنجاح من ${successCount} إطار بدون أي بقايا!`);
     } catch (err: any) {
       console.error('Error applying chroma keying:', err);
       setErrorMessage(err.message || 'حدث خطأ أثناء معالجة الكروما');

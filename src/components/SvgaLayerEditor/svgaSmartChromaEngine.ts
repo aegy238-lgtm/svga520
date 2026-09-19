@@ -167,64 +167,156 @@ export function processImageDataSmartChroma(
 }
 
 /**
- * Applies smart chroma removal to a single image (DataURL or Blob URL or image element)
+ * Helper to convert Base64 DataURL or raw base64 to Uint8Array
  */
-export async function applySmartChromaToSingleImage(
-  imageUrl: string,
-  options: SmartChromaOptions
-): Promise<{ dataUrl: string; bytes: Uint8Array; width: number; height: number }> {
+export function base64ToUint8(dataUrl: string): Uint8Array {
+  const clean = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+  const bin = atob(clean);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+/**
+ * Checks if a key or data source represents an audio file
+ */
+export function isAudioSource(key: string, dataUrl?: string): boolean {
+  if (key.endsWith('.mp3') || key.endsWith('.wav') || key.endsWith('.ogg') || key.endsWith('.m4a') || key.startsWith('audio_')) {
+    return true;
+  }
+  if (dataUrl && (dataUrl.startsWith('data:audio/') || dataUrl.includes('audio/mp3') || dataUrl.includes('audio/wav'))) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Loads image into an ImageBitmap or HTMLImageElement safely
+ */
+async function loadImageSource(
+  source: string | Uint8Array | Blob
+): Promise<{ width: number; height: number; draw: (ctx: CanvasRenderingContext2D) => void; close?: () => void }> {
+  // 1. If Uint8Array or Blob, try createImageBitmap
+  if (source instanceof Uint8Array || source instanceof Blob) {
+    const blob = source instanceof Blob ? source : new Blob([source], { type: 'image/png' });
+    if (typeof createImageBitmap === 'function') {
+      try {
+        const bmp = await createImageBitmap(blob);
+        return {
+          width: bmp.width,
+          height: bmp.height,
+          draw: (ctx) => ctx.drawImage(bmp, 0, 0),
+          close: () => bmp.close?.()
+        };
+      } catch {
+        // Fallback to Image element below
+      }
+    }
+    const blobUrl = URL.createObjectURL(blob);
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        resolve({
+          width: img.naturalWidth || img.width,
+          height: img.naturalHeight || img.height,
+          draw: (ctx) => ctx.drawImage(img, 0, 0),
+          close: () => URL.revokeObjectURL(blobUrl)
+        });
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(blobUrl);
+        reject(new Error('Failed to load image from binary blob'));
+      };
+      img.src = blobUrl;
+    });
+  }
+
+  // 2. Source is string (data URL, blob URL, or http URL)
+  let srcStr = source as string;
+  if (!srcStr.startsWith('data:') && !srcStr.startsWith('blob:') && !srcStr.startsWith('http:') && !srcStr.startsWith('https:')) {
+    srcStr = `data:image/png;base64,${srcStr}`;
+  }
+
+  // If DataURL, we can also try createImageBitmap from blob
+  if (srcStr.startsWith('data:') && typeof createImageBitmap === 'function') {
+    try {
+      const bytes = base64ToUint8(srcStr);
+      const blob = new Blob([bytes], { type: 'image/png' });
+      const bmp = await createImageBitmap(blob);
+      return {
+        width: bmp.width,
+        height: bmp.height,
+        draw: (ctx) => ctx.drawImage(bmp, 0, 0),
+        close: () => bmp.close?.()
+      };
+    } catch {
+      // Continue to HTMLImageElement
+    }
+  }
+
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    // Only set crossOrigin for remote HTTP/HTTPS requests to avoid browser security failures on data/blob URIs
+    if (srcStr.startsWith('http://') || srcStr.startsWith('https://')) {
+      img.crossOrigin = 'anonymous';
+    }
 
     img.onload = () => {
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth || img.width;
-        canvas.height = img.naturalHeight || img.height;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        if (!ctx) {
-          reject(new Error('Canvas 2D context not available'));
-          return;
-        }
-
-        ctx.drawImage(img, 0, 0);
-        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        processImageDataSmartChroma(imgData, options);
-        ctx.putImageData(imgData, 0, 0);
-
-        canvas.toBlob(
-          async (blob) => {
-            if (!blob) {
-              const dUrl = canvas.toDataURL('image/png');
-              const bytes = base64ToUint8(dUrl);
-              resolve({ dataUrl: dUrl, bytes, width: canvas.width, height: canvas.height });
-              return;
-            }
-            const buf = await blob.arrayBuffer();
-            const bytes = new Uint8Array(buf);
-            const objUrl = URL.createObjectURL(blob);
-            resolve({ dataUrl: objUrl, bytes, width: canvas.width, height: canvas.height });
-          },
-          'image/png'
-        );
-      } catch (err) {
-        reject(err);
-      }
+      resolve({
+        width: img.naturalWidth || img.width,
+        height: img.naturalHeight || img.height,
+        draw: (ctx) => ctx.drawImage(img, 0, 0)
+      });
     };
 
     img.onerror = () => {
       reject(new Error('Failed to load image for chroma processing'));
     };
 
-    img.src = imageUrl;
+    img.src = srcStr;
   });
 }
 
-function base64ToUint8(dataUrl: string): Uint8Array {
-  const clean = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
-  const bin = atob(clean);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
+/**
+ * Applies smart chroma removal to a single image (DataURL, Blob URL, or Uint8Array)
+ */
+export async function applySmartChromaToSingleImage(
+  imageSource: string | Uint8Array | Blob,
+  options: SmartChromaOptions
+): Promise<{ dataUrl: string; bytes: Uint8Array; width: number; height: number }> {
+  const loaded = await loadImageSource(imageSource);
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = loaded.width;
+    canvas.height = loaded.height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) {
+      throw new Error('Canvas 2D context not available');
+    }
+
+    loaded.draw(ctx);
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    processImageDataSmartChroma(imgData, options);
+    ctx.putImageData(imgData, 0, 0);
+
+    return new Promise((resolve) => {
+      canvas.toBlob(
+        async (blob) => {
+          if (!blob) {
+            const dUrl = canvas.toDataURL('image/png');
+            const bytes = base64ToUint8(dUrl);
+            resolve({ dataUrl: dUrl, bytes, width: canvas.width, height: canvas.height });
+            return;
+          }
+          const buf = await blob.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          const objUrl = URL.createObjectURL(blob);
+          resolve({ dataUrl: objUrl, bytes, width: canvas.width, height: canvas.height });
+        },
+        'image/png'
+      );
+    });
+  } finally {
+    loaded.close?.();
+  }
 }
