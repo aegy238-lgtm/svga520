@@ -41,12 +41,13 @@ export const TelegramTab: React.FC<TelegramTabProps> = ({ currentUser }) => {
   // Form Inputs
   const [botToken, setBotToken] = useState('');
   const [chatId, setChatId] = useState('');
-  const [ownerPhone, setOwnerPhone] = useState('+20 10 2763 3072');
-  const [ownerName, setOwnerName] = useState('');
-  const [groupTarget, setGroupTarget] = useState('');
-  const [sendMode, setSendMode] = useState<'both' | 'personal' | 'group'>('both');
-  const [destinationAccount, setDestinationAccount] = useState('');
+  const [ownerPhone, setOwnerPhone] = useState('+20 11 4212 1442');
+  const [ownerName, setOwnerName] = useState('ضباب ضباب (@Ss99ssbdnc)');
+  const [groupTarget, setGroupTarget] = useState('-5540055056');
+  const [sendMode, setSendMode] = useState<'both' | 'personal' | 'group'>('personal');
+  const [destinationAccount, setDestinationAccount] = useState('@Ss99ssbdnc');
   const [isEnabled, setIsEnabled] = useState(true);
+  const [ignoreAdminUploads, setIgnoreAdminUploads] = useState(true);
   const [showToken, setShowToken] = useState(false);
 
   // Actions state
@@ -63,6 +64,7 @@ export const TelegramTab: React.FC<TelegramTabProps> = ({ currentUser }) => {
     if (data) {
       setStatus(data);
       setIsEnabled(data.enabled);
+      if (data.ignoreAdminUploads !== undefined) setIgnoreAdminUploads(data.ignoreAdminUploads);
       setDestinationAccount(data.destinationAccount || '');
       if (data.ownerPhone) setOwnerPhone(data.ownerPhone);
       if (data.ownerName) setOwnerName(data.ownerName);
@@ -74,12 +76,12 @@ export const TelegramTab: React.FC<TelegramTabProps> = ({ currentUser }) => {
 
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, 20000); // refresh every 20s
+    const interval = setInterval(fetchStatus, 15000); // refresh every 15s
     return () => clearInterval(interval);
   }, []);
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSave = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setSaving(true);
     setSaveSuccessMsg('');
     setTestResult(null);
@@ -92,7 +94,8 @@ export const TelegramTab: React.FC<TelegramTabProps> = ({ currentUser }) => {
       groupTarget: groupTarget.trim(),
       sendMode,
       destinationAccount: destinationAccount.trim(),
-      enabled: isEnabled
+      enabled: isEnabled,
+      ignoreAdminUploads
     }, currentUser);
 
     setSaving(false);
@@ -186,21 +189,61 @@ export const TelegramTab: React.FC<TelegramTabProps> = ({ currentUser }) => {
         </div>
       </div>
 
-      {/* 🛡️ Strict Admin Exclusion Guarantee Banner */}
-      <div className="bg-emerald-950/40 border border-emerald-500/40 rounded-2xl p-5 flex items-start gap-4 backdrop-blur-md shadow-lg">
-        <div className="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center shrink-0 text-emerald-400 mt-0.5">
-          <ShieldCheck className="w-6 h-6" />
-        </div>
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <h3 className="text-base font-bold text-emerald-300">استثناء حساب المدير (Admin Exception) مفعل ومؤكد بنسبة 100%</h3>
-            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Server-Side Strict Protection</span>
+      {/* 🛡️ Strict Admin Exclusion & Bot Direct Toggle Banner */}
+      <div className={`border rounded-2xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 backdrop-blur-md shadow-lg transition-all ${
+        ignoreAdminUploads 
+          ? 'bg-emerald-950/40 border-emerald-500/40' 
+          : 'bg-amber-950/40 border-amber-500/40'
+      }`}>
+        <div className="flex items-start gap-4">
+          <div className={`w-12 h-12 rounded-xl border flex items-center justify-center shrink-0 mt-0.5 ${
+            ignoreAdminUploads
+              ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
+              : 'bg-amber-500/20 border-amber-500/30 text-amber-400'
+          }`}>
+            <ShieldCheck className="w-6 h-6" />
           </div>
-          <p className="text-xs text-emerald-200/80 leading-relaxed">
-            تم تشديد الأمان على مستوى السيرفر الداخلي بحيث أن أي ملف يقوم برفعه حساب المدير العام (البريد الإلكتروني المعتمد أو أي حساب برتبة مدير/مشرف) 
-            <strong className="text-white font-bold"> لا يتم إرساله إلى Telegram نهائياً تحت أي ظرف</strong>، مع حجب الإرسال قبل الوصول إلى Telegram API وتسجيل الاستثناء في سجلات الأمان.
-          </p>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className={`text-base font-bold ${ignoreAdminUploads ? 'text-emerald-300' : 'text-amber-300'}`}>
+                {ignoreAdminUploads ? 'تجاهل واستثناء ملفات المدير (مفعّل 🟢)' : 'إرسال ملفات المدير مفعّل (معطّل التجاهل 🔴)'}
+              </h3>
+              <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded border ${
+                ignoreAdminUploads
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                  : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+              }`}>
+                {ignoreAdminUploads ? 'Server-Side Exclusion Active' : 'Forwarding All Admin Files'}
+              </span>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 font-semibold">
+                🤖 مزامن مع زر بوت التيليجرام التفاعلي
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              {ignoreAdminUploads 
+                ? 'عند قيام المدير برفع أي ملف على المنصة، يتم حجب وتجاهل إرساله إلى Telegram تلقائياً. يمكنك تغيير هذه الحالة بزر مباشر داخل البوت أو من اللوحة هنا.'
+                : 'يتم حالياً إرسال كافة ملفات المدير المرفوعة إلى Telegram بالحجم والجودة الأصلية 100% كأي مستخدم عادي.'}
+            </p>
+          </div>
         </div>
+
+        {/* Quick Instant Toggle Button */}
+        <button
+          type="button"
+          onClick={() => {
+            const nextVal = !ignoreAdminUploads;
+            setIgnoreAdminUploads(nextVal);
+            updateTelegramConfig({ ignoreAdminUploads: nextVal }, currentUser).then(fetchStatus);
+          }}
+          className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all flex items-center gap-2 shrink-0 cursor-pointer shadow-md ${
+            ignoreAdminUploads
+              ? 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-500/40 text-emerald-300'
+              : 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-500/40 text-amber-300'
+          }`}
+        >
+          <Zap className="w-3.5 h-3.5" />
+          <span>{ignoreAdminUploads ? 'تعطيل التجاهل (إرسال ملفاتي)' : 'تفعيل التجاهل (منع إرسال ملفاتي)'}</span>
+        </button>
       </div>
 
       {/* Live Statistics Cards */}
@@ -221,7 +264,7 @@ export const TelegramTab: React.FC<TelegramTabProps> = ({ currentUser }) => {
           </div>
           <div>
             <div className="text-2xl font-bold text-emerald-300">{status?.stats?.totalSkippedAdmin || 0}</div>
-            <div className="text-xs text-slate-400">ملفات المدير المستثناة بأمان (100%)</div>
+            <div className="text-xs text-slate-400">ملفات المدير المستثناة بأمان</div>
           </div>
         </div>
 
@@ -268,21 +311,53 @@ export const TelegramTab: React.FC<TelegramTabProps> = ({ currentUser }) => {
           </div>
 
           <form onSubmit={handleSave} className="space-y-6">
-            {/* Toggle Active Status */}
-            <div className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-xl">
-              <div>
-                <div className="text-sm font-semibold text-white">تفعيل نظام الإرسال التلقائي</div>
-                <div className="text-xs text-slate-400 mt-0.5">عند تفعيله، سيتم إرسال نسخة من كل ملف يرفعه أي مستخدم في الخلفية تلقائياً.</div>
+            {/* Toggles Container */}
+            <div className="space-y-3">
+              {/* Toggle Active Status */}
+              <div className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-xl">
+                <div>
+                  <div className="text-sm font-semibold text-white">تفعيل نظام الإرسال التلقائي</div>
+                  <div className="text-xs text-slate-400 mt-0.5">عند تفعيله، سيتم إرسال نسخة من كل ملف يرفعه أي مستخدم في الخلفية تلقائياً.</div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isEnabled}
+                    onChange={(e) => setIsEnabled(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-600"></div>
+                </label>
               </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={isEnabled}
-                  onChange={(e) => setIsEnabled(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-600"></div>
-              </label>
+
+              {/* Toggle Manager Uploads Skip */}
+              <div className={`flex items-center justify-between p-4 rounded-xl border transition-all ${
+                ignoreAdminUploads 
+                  ? 'bg-emerald-950/30 border-emerald-500/30' 
+                  : 'bg-slate-950/40 border-slate-800'
+              }`}>
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className={`w-4 h-4 ${ignoreAdminUploads ? 'text-emerald-400' : 'text-slate-400'}`} />
+                    <span className="text-sm font-semibold text-white">زر استثناء وتجاهل ملفات المدير عند الرفع</span>
+                    <span className="text-[10px] bg-sky-500/20 text-sky-300 px-1.5 py-0.5 rounded border border-sky-500/30">
+                      يتحكم به أيضاً من البوت مباشرة
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    عند تفعيله، لن يتم إرسال أي ملف يرفعه حساب المدير للتليجرام. عند تعطيله، يتم إرسال كافة ملفات المدير المرفوعة كالمعتاد.
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={ignoreAdminUploads}
+                    onChange={(e) => setIgnoreAdminUploads(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                </label>
+              </div>
             </div>
 
             {/* SECTION 1: 📱 Primary Account & Phone Number */}

