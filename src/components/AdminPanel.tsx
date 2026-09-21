@@ -4,7 +4,7 @@ import { db, storage } from '../lib/firebase';
 import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, query, orderBy, Timestamp, setDoc, getDoc, limit, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { StoreManager } from './StoreManager';
-import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, Link2, BadgeCheck, Wifi, Smartphone, Store, UserPlus, Lock, Unlock, Shield, ShieldPlus, ShieldOff, GitBranch, Download, ShieldCheck, PowerOff, Power, AlertTriangle, Eye, CheckCircle2, Loader2, Server, Clock, UserCheck, Search, Filter, Crown } from 'lucide-react';
+import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, Link2, BadgeCheck, Wifi, Smartphone, Store, UserPlus, Lock, Unlock, Shield, ShieldPlus, ShieldOff, GitBranch, Download, ShieldCheck, PowerOff, Power, AlertTriangle, Eye, EyeOff, Copy, Check, CheckCircle2, Loader2, Server, Clock, UserCheck, Search, Filter, Crown } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -102,6 +102,76 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
     return false;
   };
 
+  // Password Management States
+  const [revealedPasswords, setRevealedPasswords] = useState<{ [userId: string]: boolean }>({});
+  const [resetPasswordModal, setResetPasswordModal] = useState<{ user: UserRecord; newPassword: string; showPass: boolean } | null>(null);
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [copiedPasswordUserId, setCopiedPasswordUserId] = useState<string | null>(null);
+  const [passwordSuccessInfo, setPasswordSuccessInfo] = useState<{ email: string; pass: string } | null>(null);
+
+  const handleOpenResetPassword = (user: UserRecord) => {
+    setResetPasswordModal({
+      user,
+      newPassword: '',
+      showPass: true
+    });
+    setPasswordSuccessInfo(null);
+  };
+
+  const handleGenerateRandomPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
+    let result = '';
+    for (let i = 0; i < 8; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    if (resetPasswordModal) {
+      setResetPasswordModal({ ...resetPasswordModal, newPassword: result });
+    }
+  };
+
+  const handleSaveNewPassword = async () => {
+    if (!resetPasswordModal || !resetPasswordModal.newPassword) {
+      return alert("يرجى إدخال كلمة المرور الجديدة");
+    }
+    if (resetPasswordModal.newPassword.trim().length < 6) {
+      return alert("كلمة المرور يجب أن تكون 6 أحرف أو أرقام على الأقل");
+    }
+
+    setSavingPassword(true);
+    try {
+      const targetUser = resetPasswordModal.user;
+      const newPass = resetPasswordModal.newPassword.trim();
+      
+      const updates: any = {
+        password: newPass,
+        plainPassword: newPass,
+        passwordUpdatedAt: Timestamp.now()
+      };
+
+      await updateDoc(doc(db, 'users', targetUser.id), updates);
+      
+      setUsers(prev => prev.map(u => u.id === targetUser.id ? { ...u, ...updates } : u));
+      setPasswordSuccessInfo({
+        email: targetUser.email || '',
+        pass: newPass
+      });
+    } catch (err: any) {
+      console.error("Error updating user password:", err);
+      alert("فشل تعيين كلمة المرور: " + err.message);
+    } finally {
+      setSavingPassword(false);
+    }
+  };
+
+  const handleCopyCredentials = (email: string, pass: string, userId?: string) => {
+    const text = `بيانات تسجيل الدخول:\nالبريد الإلكتروني: ${email}\nكلمة المرور: ${pass}`;
+    navigator.clipboard.writeText(text);
+    if (userId) {
+      setCopiedPasswordUserId(userId);
+      setTimeout(() => setCopiedPasswordUserId(null), 3000);
+    }
+  };
+
   const isSuperAdmin = (user: UserRecord) => user.isSuperAdmin || (user.role === 'admin' && user.email === 'iejehdgdig@gmail.com');
 
   const CACHE_DURATION = 30000; // 30 seconds
@@ -120,6 +190,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
         id: user.uid,
         name: newUser.name,
         email: newUser.email,
+        password: newUser.password,
+        plainPassword: newUser.password,
         role: newUser.role,
         isApproved: true,
         isVIP: newUser.role === 'admin' || newUser.role === 'moderator',
@@ -886,6 +958,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                         <tr className="border-b border-white/10 text-slate-400 text-sm">
                           <th className="p-3">الاسم</th>
                           <th className="p-3">البريد الإلكتروني</th>
+                          <th className="p-3">كلمة المرور 🔑</th>
                           <th className="p-3">الحالة</th>
                           <th className="p-3">الاشتراك</th>
                           <th className="p-3">عضوية VIP</th>
@@ -903,6 +976,41 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                                 {user.activatedKey && <span title="مفعل كود اشتراك"><BadgeCheck className="w-4 h-4 text-yellow-400" /></span>}
                             </td>
                             <td className="p-3 text-slate-400">{user.email}</td>
+                            <td className="p-3">
+                              {user.plainPassword || user.password ? (
+                                <div className="flex items-center gap-2 bg-slate-950/40 border border-white/5 px-2.5 py-1 rounded-lg w-fit">
+                                  <span className="font-mono text-xs text-indigo-300 select-all">
+                                    {revealedPasswords[user.id] ? (user.plainPassword || user.password) : '••••••••'}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setRevealedPasswords(prev => ({ ...prev, [user.id]: !prev[user.id] }))}
+                                    className="text-slate-400 hover:text-white transition-colors"
+                                    title={revealedPasswords[user.id] ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+                                  >
+                                    {revealedPasswords[user.id] ? <EyeOff className="w-3.5 h-3.5 text-amber-400" /> : <Eye className="w-3.5 h-3.5" />}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyCredentials(user.email || '', user.plainPassword || user.password || '', user.id)}
+                                    className="text-slate-400 hover:text-emerald-400 transition-colors"
+                                    title="نسخ كلمة المرور والبريد"
+                                  >
+                                    {copiedPasswordUserId === user.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenResetPassword(user)}
+                                  className="text-[11px] text-amber-400/90 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 px-2 py-1 rounded-lg transition-all flex items-center gap-1"
+                                  title="تعيين كلمة سر لهذا الحساب"
+                                >
+                                  <Key className="w-3 h-3" />
+                                  <span>تعيين كلمة سر</span>
+                                </button>
+                              )}
+                            </td>
                             <td className="p-3">
                               <span className={`px-2 py-1 rounded text-xs ${user.status === 'active' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
                                 {user.status === 'active' ? 'نشط' : 'محظور'}
@@ -938,6 +1046,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                             <td className="p-3 flex gap-2">
                               {!isSuperAdmin(user) && (
                                 <>
+                                  <button 
+                                    onClick={() => handleOpenResetPassword(user)}
+                                    className="p-1.5 hover:bg-indigo-500/20 text-indigo-400 rounded transition-colors"
+                                    title="تعيين / تغيير كلمة المرور"
+                                  >
+                                    <Key className="w-4 h-4" />
+                                  </button>
                                   <button 
                                     onClick={() => handleToggleVipDirect(user.id, !!user.isVIP)}
                                     className={`p-1.5 rounded transition-colors ${user.isVIP ? 'text-amber-400 bg-amber-500/10' : 'text-slate-400 hover:text-amber-400 hover:bg-white/5'}`}
@@ -2419,6 +2534,154 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
               currentUser={null}
               onRefresh={() => {}}
             />
+          </div>
+        </div>
+      )}
+
+      {/* 🔑 Reset / Assign User Password Modal */}
+      {resetPasswordModal && (
+        <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200" dir="rtl">
+          <div className="bg-slate-900 border border-indigo-500/30 rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center mb-5 pb-3 border-b border-white/10">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                  <Key className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">إدارة كلمة المرور</h3>
+                  <p className="text-xs text-slate-400">
+                    للمستخدم: <span className="text-indigo-300 font-semibold">{resetPasswordModal.user.name}</span>
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setResetPasswordModal(null)} 
+                className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {passwordSuccessInfo ? (
+              <div className="space-y-4">
+                <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-sm space-y-2">
+                  <div className="flex items-center gap-2 font-bold text-emerald-400">
+                    <CheckCircle2 className="w-5 h-5" />
+                    <span>تم حفظ وتعيين كلمة المرور بنجاح!</span>
+                  </div>
+                  <p className="text-xs text-slate-300">
+                    يمكن للمستخدم الآن تسجيل الدخول مباشرة بهذه البيانات:
+                  </p>
+                </div>
+
+                <div className="bg-slate-950/80 border border-white/10 rounded-xl p-3.5 space-y-2">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-400">البريد الإلكتروني:</span>
+                    <span className="font-mono text-white select-all">{passwordSuccessInfo.email}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-400">كلمة المرور الجديدة:</span>
+                    <span className="font-mono text-amber-300 font-bold select-all">{passwordSuccessInfo.pass}</span>
+                  </div>
+                </div>
+
+                <div className="flex gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => handleCopyCredentials(passwordSuccessInfo.email, passwordSuccessInfo.pass)}
+                    className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-600/20"
+                  >
+                    <Copy className="w-4 h-4" />
+                    <span>نسخ بيانات الدخول للمستخدم</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setResetPasswordModal(null)}
+                    className="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-all"
+                  >
+                    إغلاق
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="bg-slate-950/60 border border-white/5 rounded-xl p-3 text-xs text-slate-400 space-y-1">
+                  <div className="flex justify-between">
+                    <span>البريد الإلكتروني:</span>
+                    <span className="text-slate-200 font-mono select-all">{resetPasswordModal.user.email}</span>
+                  </div>
+                  {resetPasswordModal.user.plainPassword && (
+                    <div className="flex justify-between items-center pt-1 border-t border-white/5">
+                      <span>كلمة السر الحالية:</span>
+                      <span className="font-mono text-amber-400 font-bold select-all">{resetPasswordModal.user.plainPassword}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 text-xs font-bold mb-1.5">
+                    كلمة المرور الجديدة
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={resetPasswordModal.showPass ? "text" : "password"}
+                      value={resetPasswordModal.newPassword}
+                      onChange={(e) => setResetPasswordModal({ ...resetPasswordModal, newPassword: e.target.value })}
+                      placeholder="أدخل كلمة المرور الجديدة..."
+                      className="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-2.5 pl-20 text-white font-mono text-sm focus:outline-none focus:border-indigo-500 transition-colors"
+                    />
+                    <div className="absolute left-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setResetPasswordModal({ ...resetPasswordModal, showPass: !resetPasswordModal.showPass })}
+                        className="p-1.5 text-slate-400 hover:text-white transition-colors"
+                        title={resetPasswordModal.showPass ? "إخفاء" : "إظهار"}
+                      >
+                        {resetPasswordModal.showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center">
+                  <button
+                    type="button"
+                    onClick={handleGenerateRandomPassword}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold py-1 px-2 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 transition-colors"
+                  >
+                    <span>⚡ توليد كلمة سر عشوائية قوية</span>
+                  </button>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveNewPassword}
+                    disabled={savingPassword || !resetPasswordModal.newPassword}
+                    className="flex-1 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-600/30"
+                  >
+                    {savingPassword ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>جاري الحفظ...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="w-4 h-4" />
+                        <span>حفظ وتعيين كلمة المرور</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setResetPasswordModal(null)}
+                    className="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs sm:text-sm transition-all"
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

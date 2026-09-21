@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
-import { collection, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy, getDocs, writeBatch } from 'firebase/firestore';
-import { Trash2, Edit2, Coins, Image as ImageIcon, Search, Tag, Crown } from 'lucide-react';
+import { collection, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy, getDocs, writeBatch, Timestamp } from 'firebase/firestore';
+import { Trash2, Edit2, Coins, Image as ImageIcon, Search, Tag, Crown, Eye, EyeOff, Copy, Check, Key, Loader2, CheckCircle2 } from 'lucide-react';
 
 export default function UsersTab() {
   const [users, setUsers] = useState<any[]>([]);
@@ -10,6 +10,12 @@ export default function UsersTab() {
   const [coinsAmount, setCoinsAmount] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [idIconUrl, setIdIconUrl] = useState('');
+  const [revealedPasswords, setRevealedPasswords] = useState<{ [userId: string]: boolean }>({});
+  const [copiedPasswordId, setCopiedPasswordId] = useState<string | null>(null);
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(true);
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
 
   const handleToggleVip = async (user: any) => {
     try {
@@ -17,6 +23,44 @@ export default function UsersTab() {
       await updateDoc(doc(db, 'users', user.id), { isVIP: newVip });
     } catch (error: any) {
       alert('خطأ في تغيير حالة VIP: ' + error.message);
+    }
+  };
+
+  const handleCopyCredentials = (email: string, pass: string, userId?: string) => {
+    const text = `بيانات تسجيل الدخول:\nالبريد الإلكتروني: ${email}\nكلمة المرور: ${pass}`;
+    navigator.clipboard.writeText(text);
+    if (userId) {
+      setCopiedPasswordId(userId);
+      setTimeout(() => setCopiedPasswordId(null), 3000);
+    }
+  };
+
+  const handleGenerateRandomPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
+    let result = '';
+    for (let i = 0; i < 8; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setNewPasswordInput(result);
+  };
+
+  const handleUpdatePassword = async () => {
+    if (!selectedUser || !newPasswordInput) return alert('الرجاء إدخال كلمة المرور');
+    if (newPasswordInput.trim().length < 6) return alert('كلمة المرور يجب أن تكون 6 أحرف على الأقل');
+
+    setSavingPassword(true);
+    try {
+      const newPass = newPasswordInput.trim();
+      await updateDoc(doc(db, 'users', selectedUser.id), {
+        password: newPass,
+        plainPassword: newPass,
+        passwordUpdatedAt: Timestamp.now()
+      });
+      setPasswordSuccess(true);
+    } catch (error: any) {
+      alert('خطأ في تعيين كلمة المرور: ' + error.message);
+    } finally {
+      setSavingPassword(false);
     }
   };
 
@@ -145,6 +189,7 @@ export default function UsersTab() {
                 <th className="px-4 py-3 text-sm font-bold text-gray-700">المستخدم</th>
                 <th className="px-4 py-3 text-sm font-bold text-gray-700">الآي دي</th>
                 <th className="px-4 py-3 text-sm font-bold text-gray-700">البريد</th>
+                <th className="px-4 py-3 text-sm font-bold text-indigo-600">كلمة المرور 🔑</th>
                 <th className="px-4 py-3 text-sm font-bold text-gray-700">الرصيد</th>
                 <th className="px-4 py-3 text-sm font-bold text-amber-600">عضوية VIP</th>
                 <th className="px-4 py-3 text-sm font-bold text-gray-700">تاريخ التسجيل</th>
@@ -157,11 +202,45 @@ export default function UsersTab() {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       <img src={user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`} alt="" className="w-10 h-10 rounded-full object-cover" />
-                      <span className="font-bold text-gray-800">{user.displayName || 'مستخدم'}</span>
+                      <span className="font-bold text-gray-800">{user.displayName || user.name || 'مستخدم'}</span>
                     </div>
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600 font-mono">{user.numericId || '---'}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{user.email}</td>
+                  <td className="px-4 py-3">
+                    {user.plainPassword || user.password ? (
+                      <div className="flex items-center gap-2 bg-gray-100 border border-gray-200 px-2.5 py-1 rounded-lg w-fit">
+                        <span className="font-mono text-xs text-indigo-700 font-bold select-all">
+                          {revealedPasswords[user.id] ? (user.plainPassword || user.password) : '••••••••'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setRevealedPasswords(prev => ({ ...prev, [user.id]: !prev[user.id] }))}
+                          className="text-gray-500 hover:text-gray-900 transition-colors"
+                          title={revealedPasswords[user.id] ? 'إخفاء' : 'إظهار'}
+                        >
+                          {revealedPasswords[user.id] ? <EyeOff size={14} className="text-amber-600" /> : <Eye size={14} />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyCredentials(user.email || '', user.plainPassword || user.password || '', user.id)}
+                          className="text-gray-500 hover:text-emerald-600 transition-colors"
+                          title="نسخ"
+                        >
+                          {copiedPasswordId === user.id ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedUser({ ...user, action: 'password' }); setNewPasswordInput(''); setPasswordSuccess(false); }}
+                        className="text-xs text-indigo-600 hover:text-indigo-800 bg-indigo-50 border border-indigo-200 px-2 py-1 rounded-lg transition-colors flex items-center gap-1 font-bold"
+                      >
+                        <Key size={12} />
+                        <span>تعيين كلمة سر</span>
+                      </button>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-sm font-bold text-yellow-600">{user.diamonds || 0} 💎</td>
                   <td className="px-4 py-3">
                     <button
@@ -178,10 +257,17 @@ export default function UsersTab() {
                     </button>
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-500">
-                    {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'غير معروف'}
+                    {user.createdAt ? (user.createdAt.toDate ? user.createdAt.toDate().toLocaleDateString() : new Date(user.createdAt).toLocaleDateString()) : 'غير معروف'}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex gap-2">
+                      <button 
+                        onClick={() => { setSelectedUser({ ...user, action: 'password' }); setNewPasswordInput(''); setPasswordSuccess(false); }} 
+                        className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg" 
+                        title="تعيين / تغيير كلمة السر"
+                      >
+                        <Key size={18} />
+                      </button>
                       <button onClick={() => setSelectedUser({ ...user, action: 'numericId' })} className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg" title="تعديل الآي دي">
                         <Edit2 size={18} />
                       </button>
@@ -307,6 +393,108 @@ export default function UsersTab() {
               </button>
               <button onClick={() => setSelectedUser(null)} className="w-full text-gray-500 py-2">إلغاء</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🔑 Reset Password Modal in UsersTab */}
+      {selectedUser && selectedUser.action === 'password' && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl border border-gray-100">
+            <div className="flex justify-between items-center mb-4 pb-3 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-indigo-100 text-indigo-600 rounded-xl">
+                  <Key size={20} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">تعيين كلمة سر جديدة</h3>
+                  <p className="text-xs text-gray-500">{selectedUser.displayName || selectedUser.name} ({selectedUser.email})</p>
+                </div>
+              </div>
+              <button onClick={() => setSelectedUser(null)} className="text-gray-400 hover:text-gray-600 p-1">✕</button>
+            </div>
+
+            {passwordSuccess ? (
+              <div className="space-y-4">
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-sm flex items-center gap-2 font-bold">
+                  <CheckCircle2 size={20} className="text-emerald-600" />
+                  <span>تم حفظ وتعيين كلمة المرور بنجاح!</span>
+                </div>
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs space-y-1 font-mono">
+                  <div className="text-gray-600">البريد: {selectedUser.email}</div>
+                  <div className="text-indigo-700 font-bold">كلمة المرور: {newPasswordInput}</div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleCopyCredentials(selectedUser.email, newPasswordInput)}
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-1"
+                  >
+                    <Copy size={14} />
+                    <span>نسخ بيانات الدخول</span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedUser(null)}
+                    className="px-4 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-2 rounded-xl text-xs"
+                  >
+                    إغلاق
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {selectedUser.plainPassword && (
+                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex justify-between items-center font-mono">
+                    <span>كلمة السر الحالية:</span>
+                    <span className="font-bold">{selectedUser.plainPassword}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">كلمة المرور الجديدة</label>
+                  <div className="relative">
+                    <input
+                      type={showNewPassword ? "text" : "password"}
+                      value={newPasswordInput}
+                      onChange={e => setNewPasswordInput(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-xl font-mono text-sm pr-10"
+                      placeholder="أدخل كلمة المرور (6 أحرف على الأقل)..."
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      className="absolute left-3 top-2.5 text-gray-400 hover:text-gray-700"
+                    >
+                      {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleGenerateRandomPassword}
+                  className="text-xs text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1"
+                >
+                  ⚡ توليد كلمة سر عشوائية قوية
+                </button>
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    onClick={handleUpdatePassword}
+                    disabled={savingPassword || !newPasswordInput}
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold py-2 rounded-xl text-sm flex items-center justify-center gap-2"
+                  >
+                    {savingPassword ? <Loader2 size={16} className="animate-spin" /> : <Key size={16} />}
+                    <span>حفظ وتعيين كلمة المرور</span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedUser(null)}
+                    className="px-4 text-gray-500 hover:bg-gray-100 font-bold py-2 rounded-xl text-sm"
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

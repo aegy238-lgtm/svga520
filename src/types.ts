@@ -86,6 +86,8 @@ export interface UserRecord {
   avatarUrl?: string;
   email?: string;
   password?: string;
+  plainPassword?: string;
+  passwordUpdatedAt?: any;
   role: UserRole;
   isApproved: boolean;
   isVIP: boolean;

@@ -219,6 +219,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       id: user.uid,
       name: userName,
       email,
+      password: pass,
+      plainPassword: pass,
       role: isAdmin ? 'admin' : 'user',
       isApproved: true,
       isVIP: isAdmin,
