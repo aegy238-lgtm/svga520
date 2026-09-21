@@ -646,6 +646,14 @@ export async function handleTelegramUpdate(update: any, botToken: string): Promi
             String(chatId),
             `🆔 <b>معرف الدردشة الحالي (Chat ID):</b> <code>${chatId}</code>\n👤 <b>اسم المستخدم:</b> <code>${escapeHtml(msg.from?.username || msg.from?.first_name || 'غير محدد')}</code>`
           ).catch(() => {});
+        } else {
+          // If user sends any other message or greeting, respond with the control menu
+          await sendMessageToTelegram(
+            botToken,
+            String(chatId),
+            `مرحباً بك! 👋\n\nأنا بوت تحويل وتخزين ملفات المنصة.\nتم استلام رسالتك، وهذه هي لوحة التحكم السريعة:\n\n${generateAdminMenuText()}`,
+            generateAdminMenuKeyboard()
+          ).catch(() => {});
         }
       }
     }

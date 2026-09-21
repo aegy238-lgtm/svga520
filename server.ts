@@ -3,7 +3,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import audioRouter from "./src/server/audioRouter";
-import telegramRouter from "./src/server/telegramRouter";
+import telegramRouter, { autoRegisterWebhookIfHosted } from "./src/server/telegramRouter";
 
 // In-memory maintenance cache for instant fast response
 let serverMaintenanceState = {
@@ -20,6 +20,12 @@ async function startServer() {
 
   // Parse JSON bodies
   app.use(express.json());
+
+  // Auto-register Telegram Webhook immediately when user visits the site on a hosted URL
+  app.use((req, res, next) => {
+    autoRegisterWebhookIfHosted(req).catch(() => {});
+    next();
+  });
 
   // Maintenance status query / sync endpoint
   app.get("/api/maintenance/status", (req, res) => {
@@ -216,7 +222,11 @@ async function startServer() {
     }));
 
     // SPA fallback - ALWAYS send index.html with NO CACHE so new deployments reflect immediately
-    app.use((req, res) => {
+    // Note: Do NOT intercept /api routes with the SPA fallback HTML!
+    app.use((req, res, next) => {
+      if (req.path.startsWith('/api/') || req.path === '/api') {
+        return res.status(404).json({ error: 'NOT_FOUND', path: req.path });
+      }
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
