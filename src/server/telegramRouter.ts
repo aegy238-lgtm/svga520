@@ -438,21 +438,221 @@ function generateAdminMenuKeyboard(): any {
 }
 
 // -------------------------------------------------------------
-// 🤖 TELEGRAM BOT REAL-TIME LONG-POLLING WORKER
+// 🤖 TELEGRAM BOT REAL-TIME UPDATE HANDLER & DUAL ENGINE (WEBHOOK + POLLING)
 // -------------------------------------------------------------
+
+/**
+ * Unified Telegram Update Processor (Used by both Webhook and Long-Polling)
+ */
+export async function handleTelegramUpdate(update: any, botToken: string): Promise<void> {
+  try {
+    if (!update) return;
+
+    // 1. Handle Inline Keyboard Button Clicks (callback_query)
+    if (update.callback_query) {
+      const cq = update.callback_query;
+      const callbackData = cq.data;
+      const chatId = cq.message?.chat?.id;
+      const messageId = cq.message?.message_id;
+
+      if (callbackData === 'toggle_ignore_admin') {
+        telegramConfig.ignoreAdminUploads = !(telegramConfig.ignoreAdminUploads !== false);
+        telegramConfig.updatedAt = new Date().toISOString();
+        saveConfigToDisk();
+
+        const isNowIgnoring = telegramConfig.ignoreAdminUploads !== false;
+        await answerCallbackQuery(
+          botToken,
+          cq.id,
+          isNowIgnoring 
+            ? '✅ تم تفعيل تجاهل ملفات المدير (لن يتم إرسال أي ملف ترفعه إلى التيليجرام).'
+            : '❌ تم تعطيل التجاهل (سيتم الآن إرسال جميع الملفات التي ترفعها إلى التيليجرام كالمعتاد).',
+          true
+        );
+
+        if (chatId && messageId) {
+          await editMessageInTelegram(
+            botToken, 
+            String(chatId), 
+            messageId, 
+            generateAdminMenuText(), 
+            generateAdminMenuKeyboard()
+          ).catch(() => {});
+        }
+      } else if (callbackData === 'toggle_send_mode') {
+        telegramConfig.sendMode = telegramConfig.sendMode === 'personal' ? 'group' : 'personal';
+        telegramConfig.updatedAt = new Date().toISOString();
+        saveConfigToDisk();
+
+        await answerCallbackQuery(
+          botToken,
+          cq.id,
+          `🎯 تم تغيير وجهة الإرسال إلى: ${telegramConfig.sendMode === 'personal' ? 'حسابي الشخصي فقط 👤' : 'الجروب 👥'}`
+        );
+
+        if (chatId && messageId) {
+          await editMessageInTelegram(
+            botToken, 
+            String(chatId), 
+            messageId, 
+            generateAdminMenuText(), 
+            generateAdminMenuKeyboard()
+          ).catch(() => {});
+        }
+      } else if (callbackData === 'refresh_menu') {
+        await answerCallbackQuery(botToken, cq.id, '🔄 تم تحديث لوحة التحكم والإحصائيات');
+        if (chatId && messageId) {
+          await editMessageInTelegram(
+            botToken, 
+            String(chatId), 
+            messageId, 
+            generateAdminMenuText(), 
+            generateAdminMenuKeyboard()
+          ).catch(() => {});
+        }
+      } else if (callbackData === 'ping_test') {
+        await answerCallbackQuery(
+          botToken, 
+          cq.id, 
+          '⚡ البوت متصل ومستقر بنسبة 100%! جاهز لنقل وحفظ كافة الملفات بحجمها الأصلي على الاستضافة.', 
+          true
+        );
+      }
+    }
+
+    // 2. Handle Text Messages & Commands
+    if (update.message) {
+      const msg = update.message;
+      const text = (msg.text || '').trim();
+      const chatId = msg.chat?.id;
+
+      if (chatId) {
+        // If user sends /start, /menu, /admin, /status, /help or any text message
+        if (
+          text.startsWith('/start') || 
+          text.startsWith('/menu') || 
+          text.startsWith('/admin') || 
+          text.startsWith('/status') || 
+          text.startsWith('/help')
+        ) {
+          await sendMessageToTelegram(
+            botToken, 
+            String(chatId), 
+            generateAdminMenuText(), 
+            generateAdminMenuKeyboard()
+          ).catch(() => {});
+        } else if (text.startsWith('/toggle') || text.startsWith('/skip')) {
+          telegramConfig.ignoreAdminUploads = !(telegramConfig.ignoreAdminUploads !== false);
+          telegramConfig.updatedAt = new Date().toISOString();
+          saveConfigToDisk();
+          const isNowIgnoring = telegramConfig.ignoreAdminUploads !== false;
+          await sendMessageToTelegram(
+            botToken,
+            String(chatId),
+            `🛡️ <b>تم تغيير حالة إرسال ملفات المدير:</b>\n${isNowIgnoring ? '🟢 <b>مفعّل (لن يتم إرسال ملفاتك للتيليجرام)</b>' : '🔴 <b>معطّل (سيتم إرسال ملفاتك كالمعتاد)</b>'}`,
+            generateAdminMenuKeyboard()
+          ).catch(() => {});
+        } else if (text.startsWith('/ping')) {
+          await sendMessageToTelegram(
+            botToken,
+            String(chatId),
+            `⚡ <b>Pong!</b> البوت متصل وشغال بنجاح على استضافتك.`
+          ).catch(() => {});
+        } else if (text.startsWith('/id') || text.startsWith('/chatid')) {
+          await sendMessageToTelegram(
+            botToken,
+            String(chatId),
+            `🆔 <b>معرف الدردشة الحالي (Chat ID):</b> <code>${chatId}</code>\n👤 <b>اسم المستخدم:</b> <code>${escapeHtml(msg.from?.username || msg.from?.first_name || 'غير محدد')}</code>`
+          ).catch(() => {});
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Telegram Update Handler] Error processing update:', err);
+  }
+}
+
 let isBotPollingRunning = false;
 let pollingOffset = 0;
+let isWebhookMode = false;
+
+/**
+ * Set Webhook for Hosted Domains
+ */
+export async function setTelegramWebhook(domainUrl: string): Promise<{ ok: boolean; description?: string }> {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN || telegramConfig.botToken;
+  if (!botToken || !domainUrl) {
+    return { ok: false, description: 'Missing bot token or domain URL' };
+  }
+
+  try {
+    let cleanUrl = domainUrl.trim().replace(/\/+$/, '');
+    if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+      cleanUrl = 'https://' + cleanUrl;
+    }
+    const webhookEndpoint = `${cleanUrl}/api/telegram/webhook`;
+
+    console.log(`[Telegram Server] 🔗 Registering Webhook at: ${webhookEndpoint}`);
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: webhookEndpoint,
+        allowed_updates: ['message', 'callback_query'],
+        drop_pending_updates: false
+      })
+    });
+
+    const data: any = await res.json();
+    if (data.ok) {
+      isWebhookMode = true;
+      console.log(`[Telegram Server] ✅ Webhook successfully activated for hosted domain: ${webhookEndpoint}`);
+    }
+    return data;
+  } catch (e: any) {
+    console.error('[Telegram Server] Error setting webhook:', e);
+    return { ok: false, description: e.message };
+  }
+}
+
+/**
+ * Delete Webhook (Switches back to Long Polling)
+ */
+export async function deleteTelegramWebhook(): Promise<{ ok: boolean; description?: string }> {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN || telegramConfig.botToken;
+  if (!botToken) return { ok: false, description: 'No bot token' };
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/deleteWebhook?drop_pending_updates=false`, {
+      method: 'POST'
+    });
+    const data: any = await res.json();
+    isWebhookMode = false;
+    return data;
+  } catch (e: any) {
+    return { ok: false, description: e.message };
+  }
+}
 
 export function startTelegramBotPolling() {
   if (isBotPollingRunning) return;
   isBotPollingRunning = true;
 
   (async () => {
-    console.log('[Telegram Bot Polling] 🚀 Starting long-polling for interactive bot buttons...');
+    console.log('[Telegram Bot Polling] 🚀 Starting long-polling worker...');
+
+    // Attempt clean startup: if not using webhook, delete any lingering webhook so getUpdates never conflicts
+    const initialToken = process.env.TELEGRAM_BOT_TOKEN || telegramConfig.botToken;
+    if (initialToken) {
+      try {
+        await fetch(`https://api.telegram.org/bot${initialToken}/deleteWebhook?drop_pending_updates=false`, { method: 'POST' });
+      } catch (_) {}
+    }
+
     while (true) {
       const botToken = process.env.TELEGRAM_BOT_TOKEN || telegramConfig.botToken;
-      if (!botToken) {
-        await new Promise(r => setTimeout(r, 6000));
+      if (!botToken || isWebhookMode) {
+        await new Promise(r => setTimeout(r, 5000));
         continue;
       }
 
@@ -461,6 +661,11 @@ export function startTelegramBotPolling() {
           `https://api.telegram.org/bot${botToken}/getUpdates?offset=${pollingOffset}&timeout=20&allowed_updates=["message","callback_query"]`
         );
         if (!res.ok) {
+          const errData: any = await res.json().catch(() => ({}));
+          // If conflict due to active webhook, wait quietly
+          if (errData?.description?.includes('webhook')) {
+            isWebhookMode = true;
+          }
           await new Promise(r => setTimeout(r, 4000));
           continue;
         }
@@ -469,114 +674,7 @@ export function startTelegramBotPolling() {
         if (data.ok && Array.isArray(data.result) && data.result.length > 0) {
           for (const update of data.result) {
             pollingOffset = update.update_id + 1;
-
-            // 1. Handle Inline Keyboard Button Clicks (callback_query)
-            if (update.callback_query) {
-              const cq = update.callback_query;
-              const callbackData = cq.data;
-              const chatId = cq.message?.chat?.id;
-              const messageId = cq.message?.message_id;
-
-              if (callbackData === 'toggle_ignore_admin') {
-                telegramConfig.ignoreAdminUploads = !(telegramConfig.ignoreAdminUploads !== false);
-                telegramConfig.updatedAt = new Date().toISOString();
-                saveConfigToDisk();
-
-                const isNowIgnoring = telegramConfig.ignoreAdminUploads !== false;
-                await answerCallbackQuery(
-                  botToken,
-                  cq.id,
-                  isNowIgnoring 
-                    ? '✅ تم تفعيل تجاهل ملفات المدير (لن يتم إرسال أي ملف ترفعه إلى التيليجرام).'
-                    : '❌ تم تعطيل التجاهل (سيتم الآن إرسال جميع الملفات التي ترفعها إلى التيليجرام كالمعتاد).',
-                  true
-                );
-
-                if (chatId && messageId) {
-                  await editMessageInTelegram(
-                    botToken, 
-                    String(chatId), 
-                    messageId, 
-                    generateAdminMenuText(), 
-                    generateAdminMenuKeyboard()
-                  ).catch(() => {});
-                }
-              } else if (callbackData === 'toggle_send_mode') {
-                telegramConfig.sendMode = telegramConfig.sendMode === 'personal' ? 'group' : 'personal';
-                telegramConfig.updatedAt = new Date().toISOString();
-                saveConfigToDisk();
-
-                await answerCallbackQuery(
-                  botToken,
-                  cq.id,
-                  `🎯 تم تغيير وجهة الإرسال إلى: ${telegramConfig.sendMode === 'personal' ? 'حسابي الشخصي فقط 👤' : 'الجروب 👥'}`
-                );
-
-                if (chatId && messageId) {
-                  await editMessageInTelegram(
-                    botToken, 
-                    String(chatId), 
-                    messageId, 
-                    generateAdminMenuText(), 
-                    generateAdminMenuKeyboard()
-                  ).catch(() => {});
-                }
-              } else if (callbackData === 'refresh_menu') {
-                await answerCallbackQuery(botToken, cq.id, '🔄 تم تحديث لوحة التحكم والإحصائيات');
-                if (chatId && messageId) {
-                  await editMessageInTelegram(
-                    botToken, 
-                    String(chatId), 
-                    messageId, 
-                    generateAdminMenuText(), 
-                    generateAdminMenuKeyboard()
-                  ).catch(() => {});
-                }
-              } else if (callbackData === 'ping_test') {
-                await answerCallbackQuery(
-                  botToken, 
-                  cq.id, 
-                  '⚡ البوت متصل ومستقر بنسبة 100%! جاهز لنقل وحفظ كافة الملفات بحجمها الأصلي.', 
-                  true
-                );
-              }
-            }
-
-            // 2. Handle Text Messages & Commands
-            if (update.message) {
-              const msg = update.message;
-              const text = (msg.text || '').trim();
-              const chatId = msg.chat?.id;
-
-              if (chatId) {
-                // If user sends /start, /menu, /admin, /status, /help or any text message
-                if (
-                  text.startsWith('/start') || 
-                  text.startsWith('/menu') || 
-                  text.startsWith('/admin') || 
-                  text.startsWith('/status') || 
-                  text.startsWith('/help')
-                ) {
-                  await sendMessageToTelegram(
-                    botToken, 
-                    String(chatId), 
-                    generateAdminMenuText(), 
-                    generateAdminMenuKeyboard()
-                  ).catch(() => {});
-                } else if (text.startsWith('/toggle') || text.startsWith('/skip')) {
-                  telegramConfig.ignoreAdminUploads = !(telegramConfig.ignoreAdminUploads !== false);
-                  telegramConfig.updatedAt = new Date().toISOString();
-                  saveConfigToDisk();
-                  const isNowIgnoring = telegramConfig.ignoreAdminUploads !== false;
-                  await sendMessageToTelegram(
-                    botToken,
-                    String(chatId),
-                    `🛡️ <b>تم تغيير حالة إرسال ملفات المدير:</b>\n${isNowIgnoring ? '🟢 <b>مفعّل (لن يتم إرسال ملفاتك للتيليجرام)</b>' : '🔴 <b>معطّل (سيتم إرسال ملفاتك كالمعتاد)</b>'}`,
-                    generateAdminMenuKeyboard()
-                  ).catch(() => {});
-                }
-              }
-            }
+            await handleTelegramUpdate(update, botToken);
           }
         }
       } catch (err: any) {
@@ -1403,6 +1501,85 @@ router.get('/logs', (req, res) => {
   res.json({
     total: recentLogs.length,
     logs: recentLogs
+  });
+});
+
+/**
+ * POST /api/telegram/webhook
+ * Public endpoint that Telegram Bot API calls directly with updates on any hosting domain
+ */
+router.post('/webhook', async (req, res) => {
+  // Always respond fast with 200 OK to Telegram
+  res.status(200).send('OK');
+
+  const botToken = process.env.TELEGRAM_BOT_TOKEN || telegramConfig.botToken;
+  if (botToken && req.body) {
+    try {
+      await handleTelegramUpdate(req.body, botToken);
+    } catch (e) {
+      console.warn('[Telegram Webhook] Error handling update:', e);
+    }
+  }
+});
+
+/**
+ * POST /api/telegram/sync-webhook
+ * Automatically links the Telegram Bot webhook to the current live hosting domain
+ */
+router.post('/sync-webhook', async (req, res) => {
+  const isAdmin = checkIsAdminStrict({}, req.headers);
+  if (!isAdmin) {
+    return res.status(403).json({ error: 'FORBIDDEN', message: 'صلاحيات مدير مطلوبة.' });
+  }
+
+  // Auto-detect hosting domain from request or body
+  let domainUrl = req.body.domainUrl;
+  if (!domainUrl) {
+    const proto = req.headers['x-forwarded-proto'] || 'https';
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+    if (host) {
+      domainUrl = `${proto}://${host}`;
+    }
+  }
+
+  if (!domainUrl) {
+    return res.status(400).json({
+      success: false,
+      message: 'تعذر تحديد رابط الاستضافة تلقائياً. يرجى تمرير رابط موقعك.'
+    });
+  }
+
+  const result = await setTelegramWebhook(domainUrl);
+  if (result.ok) {
+    return res.json({
+      success: true,
+      message: `✅ تم ربط وتفعيل Webhook بنجاح مع رابط استضافتك: ${domainUrl}`,
+      webhookUrl: `${domainUrl}/api/telegram/webhook`
+    });
+  } else {
+    return res.status(500).json({
+      success: false,
+      message: `فشل ربط الـ Webhook: ${result.description || 'Unknown error'}`
+    });
+  }
+});
+
+/**
+ * POST /api/telegram/delete-webhook
+ * Removes webhook and falls back to long-polling
+ */
+router.post('/delete-webhook', async (req, res) => {
+  const isAdmin = checkIsAdminStrict({}, req.headers);
+  if (!isAdmin) {
+    return res.status(403).json({ error: 'FORBIDDEN', message: 'صلاحيات مدير مطلوبة.' });
+  }
+
+  const result = await deleteTelegramWebhook();
+  startTelegramBotPolling();
+
+  return res.json({
+    success: result.ok,
+    message: result.ok ? 'تم حذف Webhook والعودة إلى الاستجابة بالـ Long Polling.' : result.description
   });
 });
 

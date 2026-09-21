@@ -402,3 +402,53 @@ export async function testTelegramConnection(
     return { success: false, message: err?.message || 'تعذر إجراء الاختبار' };
   }
 }
+
+/**
+ * Automatically sync Webhook to current hosting domain
+ */
+export async function syncTelegramWebhook(
+  domainUrl?: string,
+  user?: UserRecord | null
+): Promise<{ success: boolean; message: string; webhookUrl?: string }> {
+  try {
+    const res = await fetch('/api/telegram/sync-webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-email': user?.email || '',
+        'x-user-role': user?.role || 'admin',
+        'x-is-super-admin': user?.isSuperAdmin ? 'true' : 'false'
+      },
+      body: JSON.stringify({ domainUrl })
+    });
+
+    const data = await res.json();
+    return data;
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'تعذر ربط Webhook' };
+  }
+}
+
+/**
+ * Remove Webhook and switch back to Polling
+ */
+export async function deleteTelegramWebhookClient(
+  user?: UserRecord | null
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const res = await fetch('/api/telegram/delete-webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-email': user?.email || '',
+        'x-user-role': user?.role || 'admin',
+        'x-is-super-admin': user?.isSuperAdmin ? 'true' : 'false'
+      }
+    });
+
+    const data = await res.json();
+    return data;
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'تعذر حذف Webhook' };
+  }
+}

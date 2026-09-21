@@ -27,6 +27,8 @@ import {
   updateTelegramConfig, 
   testTelegramConnection, 
   autoDetectTelegramAccount,
+  syncTelegramWebhook,
+  deleteTelegramWebhookClient,
   TelegramStatusResponse 
 } from '../../services/telegramForwardService';
 
@@ -54,9 +56,11 @@ export const TelegramTab: React.FC<TelegramTabProps> = ({ currentUser }) => {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [detecting, setDetecting] = useState(false);
+  const [syncingWebhook, setSyncingWebhook] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [detectResult, setDetectResult] = useState<{ success: boolean; message: string; botUsername?: string } | null>(null);
+  const [webhookResult, setWebhookResult] = useState<{ success: boolean; message: string; webhookUrl?: string } | null>(null);
 
   const fetchStatus = async () => {
     setLoading(true);
@@ -79,6 +83,25 @@ export const TelegramTab: React.FC<TelegramTabProps> = ({ currentUser }) => {
     const interval = setInterval(fetchStatus, 15000); // refresh every 15s
     return () => clearInterval(interval);
   }, []);
+
+  const handleSyncWebhook = async () => {
+    setSyncingWebhook(true);
+    setWebhookResult(null);
+    const currentOrigin = window.location.origin;
+    const res = await syncTelegramWebhook(currentOrigin, currentUser);
+    setSyncingWebhook(false);
+    setWebhookResult(res);
+    fetchStatus();
+  };
+
+  const handleDeleteWebhook = async () => {
+    setSyncingWebhook(true);
+    setWebhookResult(null);
+    const res = await deleteTelegramWebhookClient(currentUser);
+    setSyncingWebhook(false);
+    setWebhookResult(res);
+    fetchStatus();
+  };
 
   const handleSave = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -291,6 +314,56 @@ export const TelegramTab: React.FC<TelegramTabProps> = ({ currentUser }) => {
             <div className="text-xs text-slate-400">آخر إرسال ناجح</div>
           </div>
         </div>
+      </div>
+
+      {/* 🌐 Live Hosting & Webhook Instant Sync Section */}
+      <div className="bg-gradient-to-r from-blue-950/40 via-slate-900/60 to-sky-950/40 border border-blue-500/30 rounded-2xl p-5 backdrop-blur-md shadow-lg">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-sky-400" />
+              <h3 className="text-sm font-bold text-white">ضمان استجابة البوت والأزرار 100% على أي استضافة خارجية (Webhook Sync)</h3>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 font-semibold">
+                Instant Cloud Response
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed max-w-2xl">
+              عند رفع الموقع على رابط استضافة خارجي (Cloud Run / VPS / Vercel / دومين خاص)، اضغط على زر الربط لربط البوت مباشرة مع الرابط الحالي حتى يستجيب للأوامر والأزرار في أقل من ثانية وبلا انقطاع.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={handleSyncWebhook}
+              disabled={syncingWebhook}
+              className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-sky-600/20 cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncingWebhook ? 'animate-spin' : ''}`} />
+              <span>{syncingWebhook ? 'جاري الربط...' : '🔗 تفعيل Webhook للرابط الحالي'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleDeleteWebhook}
+              disabled={syncingWebhook}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl transition-all border border-slate-700 cursor-pointer disabled:opacity-50"
+              title="العودة إلى وضع الفحص التلقائي العادي (Polling)"
+            >
+              إلغاء Webhook (Polling)
+            </button>
+          </div>
+        </div>
+
+        {webhookResult && (
+          <div className={`mt-3 p-3 rounded-xl border text-xs flex items-center gap-2 ${
+            webhookResult.success 
+              ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300' 
+              : 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+          }`}>
+            {webhookResult.success ? <CheckCircle className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+            <span>{webhookResult.message}</span>
+          </div>
+        )}
       </div>
 
       {/* Main Configuration Card & Instructions */}
