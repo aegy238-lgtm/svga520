@@ -21,38 +21,28 @@ export interface VapConfig {
   [key: string]: any;
 }
 
+export type VapChannelLayout = 
+  | 'left_rgb_right_alpha'
+  | 'right_rgb_left_alpha'
+  | 'top_rgb_bottom_alpha'
+  | 'bottom_rgb_top_alpha'
+  | 'raw_video';
+
+export interface VapDetectionResult {
+  layout: VapChannelLayout;
+  rgbFrame: [number, number, number, number];
+  aFrame: [number, number, number, number];
+  outputWidth: number;
+  outputHeight: number;
+  fps: number;
+  confidence: number;
+  isVap: boolean;
+  label: string;
+}
+
 // Extract VAP / YYEVA configuration JSON from MP4 (vapc, yyea, yyev, udta boxes or raw JSON)
 export const extractVapConfigFromBlob = async (blob: Blob): Promise<VapConfig | null> => {
   try {
-    const chunkSize = Math.min(blob.size, 4 * 1024 * 1024); // Check up to 4MB or full blob
-    const start = Math.max(0, blob.size - chunkSize);
-    const slice = blob.slice(start, blob.size);
-    const buffer = await slice.arrayBuffer();
-    const uint8 = new Uint8Array(buffer);
-
-    // Box tags: 'vapc', 'yyea', 'yyev', 'udta'
-    const boxTags = [
-      [118, 97, 112, 99], // 'vapc'
-      [121, 121, 101, 97], // 'yyea' (YYEVA)
-      [121, 121, 101, 118], // 'yyev' (YYEVA)
-    ];
-
-    let offset = -1;
-    for (const tag of boxTags) {
-      for (let i = 0; i <= uint8.length - 4; i++) {
-        if (
-          uint8[i] === tag[0] &&
-          uint8[i + 1] === tag[1] &&
-          uint8[i + 2] === tag[2] &&
-          uint8[i + 3] === tag[3]
-        ) {
-          offset = i;
-          break;
-        }
-      }
-      if (offset !== -1) break;
-    }
-
     const parseAndNormalizeJson = (jsonStr: string): VapConfig | null => {
       try {
         const clean = jsonStr.replace(/\0/g, '');
@@ -90,31 +80,264 @@ export const extractVapConfigFromBlob = async (blob: Blob): Promise<VapConfig | 
       }
     };
 
-    if (offset !== -1) {
-      const view = new DataView(buffer);
-      const boxSize = offset >= 4 ? view.getUint32(offset - 4) : uint8.length - offset;
-      const jsonBytes = uint8.slice(offset + 4, offset + 4 + Math.min(boxSize - 8, uint8.length - (offset + 4)));
-      const jsonString = new TextDecoder('utf-8').decode(jsonBytes);
-      const res = parseAndNormalizeJson(jsonString);
-      if (res) return res;
+    // Box tags: 'vapc', 'yyea', 'yyev', 'udta'
+    const boxTags = [
+      [118, 97, 112, 99], // 'vapc'
+      [121, 121, 101, 97], // 'yyea' (YYEVA)
+      [121, 121, 101, 118], // 'yyev' (YYEVA)
+    ];
+
+    // Scan BOTH the head and the tail of the blob (up to 6MB each or full file)
+    const slicesToScan: Blob[] = [];
+    if (blob.size <= 8 * 1024 * 1024) {
+      slicesToScan.push(blob);
+    } else {
+      // Head (first 5MB - where moov.faststart sits)
+      slicesToScan.push(blob.slice(0, 5 * 1024 * 1024));
+      // Tail (last 5MB - where trailing udta/vapc sits)
+      slicesToScan.push(blob.slice(blob.size - 5 * 1024 * 1024, blob.size));
     }
 
-    // Fallback: search for embedded JSON with "rgbFrame" or "alphaFrame" in the buffer
-    const decoder = new TextDecoder('utf-8', { fatal: false });
-    const fullText = decoder.decode(uint8);
-    const rgbFrameIdx = fullText.indexOf('rgbFrame');
-    if (rgbFrameIdx !== -1) {
-      const startBrace = fullText.lastIndexOf('{', rgbFrameIdx);
-      if (startBrace !== -1) {
-        const potentialJson = fullText.substring(startBrace, Math.min(fullText.length, startBrace + 4096));
-        const res = parseAndNormalizeJson(potentialJson);
+    for (const slice of slicesToScan) {
+      const buffer = await slice.arrayBuffer();
+      const uint8 = new Uint8Array(buffer);
+
+      let offset = -1;
+      for (const tag of boxTags) {
+        for (let i = 0; i <= uint8.length - 4; i++) {
+          if (
+            uint8[i] === tag[0] &&
+            uint8[i + 1] === tag[1] &&
+            uint8[i + 2] === tag[2] &&
+            uint8[i + 3] === tag[3]
+          ) {
+            offset = i;
+            break;
+          }
+        }
+        if (offset !== -1) break;
+      }
+
+      if (offset !== -1) {
+        const view = new DataView(buffer);
+        const boxSize = offset >= 4 ? view.getUint32(offset - 4) : uint8.length - offset;
+        const jsonBytes = uint8.slice(offset + 4, offset + 4 + Math.min(boxSize - 8, uint8.length - (offset + 4)));
+        const jsonString = new TextDecoder('utf-8').decode(jsonBytes);
+        const res = parseAndNormalizeJson(jsonString);
         if (res) return res;
+      }
+
+      // Search for embedded JSON containing "rgbFrame" or "alphaFrame"
+      const decoder = new TextDecoder('utf-8', { fatal: false });
+      const fullText = decoder.decode(uint8);
+      const rgbFrameIdx = fullText.indexOf('rgbFrame');
+      if (rgbFrameIdx !== -1) {
+        const startBrace = fullText.lastIndexOf('{', rgbFrameIdx);
+        if (startBrace !== -1) {
+          const potentialJson = fullText.substring(startBrace, Math.min(fullText.length, startBrace + 4096));
+          const res = parseAndNormalizeJson(potentialJson);
+          if (res) return res;
+        }
       }
     }
   } catch (e) {
     console.warn('VAP / YYEVA config extraction notice:', e);
   }
   return null;
+};
+
+/**
+ * Ultra-Smart VAP Channel Layout Detector:
+ * Mathematically detects where RGB color and Alpha transparency masks are placed
+ * by sampling pixel color saturation vs monochrome grayscale characteristics.
+ */
+export const detectVapChannelLayout = (
+  video: HTMLVideoElement,
+  existingConfig?: VapConfig | null
+): VapDetectionResult => {
+  const vw = video.videoWidth || 750;
+  const vh = video.videoHeight || 1334;
+
+  // 1. If explicit valid VAP metadata exists with non-default coordinates, trust it
+  if (existingConfig?.info?.rgbFrame && existingConfig?.info?.aFrame) {
+    const rf = existingConfig.info.rgbFrame;
+    const af = existingConfig.info.aFrame;
+    const outW = rf[2] || Math.round(vw / 2);
+    const outH = rf[3] || vh;
+    const fps = existingConfig.info.f || existingConfig.info.fps || 24;
+
+    let layout: VapChannelLayout = 'left_rgb_right_alpha';
+    let label = 'أفقي: يسار RGB / يمين شفافية';
+
+    if (af[0] > rf[0]) {
+      layout = 'left_rgb_right_alpha';
+      label = 'أفقي: يسار RGB / يمين قناع شفافية';
+    } else if (rf[0] > af[0]) {
+      layout = 'right_rgb_left_alpha';
+      label = 'أفقي: يمين RGB / يسار قناع شفافية';
+    } else if (af[1] > rf[1]) {
+      layout = 'top_rgb_bottom_alpha';
+      label = 'عمودي: أعلى RGB / أسفل قناع شفافية';
+    } else if (rf[1] > af[1]) {
+      layout = 'bottom_rgb_top_alpha';
+      label = 'عمودي: أسفل RGB / أعلى قناع شفافية';
+    }
+
+    return {
+      layout,
+      rgbFrame: rf as [number, number, number, number],
+      aFrame: af as [number, number, number, number],
+      outputWidth: outW,
+      outputHeight: outH,
+      fps,
+      confidence: 0.98,
+      isVap: true,
+      label
+    };
+  }
+
+  // 2. Dynamic Optical Frame Analysis
+  try {
+    const canvas = document.createElement('canvas');
+    const sampleW = 200;
+    const sampleH = 200;
+    canvas.width = sampleW;
+    canvas.height = sampleH;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    if (ctx && video.readyState >= 2) {
+      ctx.drawImage(video, 0, 0, sampleW, sampleH);
+      const imgData = ctx.getImageData(0, 0, sampleW, sampleH).data;
+
+      // Helper to compute color saturation variance vs grayscale score for a quadrant/half
+      const analyzeRegion = (x0: number, y0: number, x1: number, y1: number) => {
+        let totalPixels = 0;
+        let activePixels = 0;
+        let grayscaleCount = 0;
+        let totalSaturation = 0;
+
+        for (let y = y0; y < y1; y += 2) {
+          for (let x = x0; x < x1; x += 2) {
+            const idx = (y * sampleW + x) * 4;
+            const r = imgData[idx];
+            const g = imgData[idx + 1];
+            const b = imgData[idx + 2];
+            totalPixels++;
+
+            const brightness = (r + g + b) / 3;
+            if (brightness > 8) {
+              activePixels++;
+              const maxC = Math.max(r, g, b);
+              const minC = Math.min(r, g, b);
+              const diff = maxC - minC;
+              totalSaturation += diff;
+              if (diff <= 8) {
+                grayscaleCount++;
+              }
+            }
+          }
+        }
+
+        const avgSaturation = activePixels > 0 ? totalSaturation / activePixels : 0;
+        const grayscaleRatio = activePixels > 0 ? grayscaleCount / activePixels : 0;
+        return { activePixels, avgSaturation, grayscaleRatio };
+      };
+
+      // Test Vertical Halves
+      const topHalf = analyzeRegion(0, 0, sampleW, Math.round(sampleH / 2));
+      const bottomHalf = analyzeRegion(0, Math.round(sampleH / 2), sampleW, sampleH);
+
+      // Test Horizontal Halves
+      const leftHalf = analyzeRegion(0, 0, Math.round(sampleW / 2), sampleH);
+      const rightHalf = analyzeRegion(Math.round(sampleW / 2), 0, sampleW, sampleH);
+
+      // Analyze Vertical Split
+      if (vh >= vw) {
+        // Vertical video (e.g. 750x1334)
+        if (bottomHalf.grayscaleRatio > 0.65 && topHalf.grayscaleRatio < 0.45) {
+          return {
+            layout: 'top_rgb_bottom_alpha',
+            rgbFrame: [0, 0, vw, Math.round(vh / 2)],
+            aFrame: [0, Math.round(vh / 2), vw, Math.round(vh / 2)],
+            outputWidth: vw,
+            outputHeight: Math.round(vh / 2),
+            fps: 24,
+            confidence: 0.95,
+            isVap: true,
+            label: 'عمودي: أعلى RGB / أسفل قناع شفافية'
+          };
+        } else if (topHalf.grayscaleRatio > 0.65 && bottomHalf.grayscaleRatio < 0.45) {
+          return {
+            layout: 'bottom_rgb_top_alpha',
+            rgbFrame: [0, Math.round(vh / 2), vw, Math.round(vh / 2)],
+            aFrame: [0, 0, vw, Math.round(vh / 2)],
+            outputWidth: vw,
+            outputHeight: Math.round(vh / 2),
+            fps: 24,
+            confidence: 0.95,
+            isVap: true,
+            label: 'عمودي: أسفل RGB / أعلى قناع شفافية'
+          };
+        }
+      } else {
+        // Horizontal video (e.g. 1500x750)
+        if (rightHalf.grayscaleRatio > 0.65 && leftHalf.grayscaleRatio < 0.45) {
+          return {
+            layout: 'left_rgb_right_alpha',
+            rgbFrame: [0, 0, Math.round(vw / 2), vh],
+            aFrame: [Math.round(vw / 2), 0, Math.round(vw / 2), vh],
+            outputWidth: Math.round(vw / 2),
+            outputHeight: vh,
+            fps: 24,
+            confidence: 0.95,
+            isVap: true,
+            label: 'أفقي: يسار RGB / يمين قناع شفافية'
+          };
+        } else if (leftHalf.grayscaleRatio > 0.65 && rightHalf.grayscaleRatio < 0.45) {
+          return {
+            layout: 'right_rgb_left_alpha',
+            rgbFrame: [Math.round(vw / 2), 0, Math.round(vw / 2), vh],
+            aFrame: [0, 0, Math.round(vw / 2), vh],
+            outputWidth: Math.round(vw / 2),
+            outputHeight: vh,
+            fps: 24,
+            confidence: 0.95,
+            isVap: true,
+            label: 'أفقي: يمين RGB / يسار قناع شفافية'
+          };
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Optical VAP frame detection fallback:', err);
+  }
+
+  // 3. Fallback based on physical aspect ratio
+  if (vh > vw && vw > 0) {
+    return {
+      layout: 'top_rgb_bottom_alpha',
+      rgbFrame: [0, 0, vw, Math.round(vh / 2)],
+      aFrame: [0, Math.round(vh / 2), vw, Math.round(vh / 2)],
+      outputWidth: vw,
+      outputHeight: Math.round(vh / 2),
+      fps: 24,
+      confidence: 0.8,
+      isVap: true,
+      label: 'عمودي: أعلى RGB / أسفل شفافية (تلقائي)'
+    };
+  }
+
+  return {
+    layout: 'left_rgb_right_alpha',
+    rgbFrame: [0, 0, Math.round(vw / 2), vh],
+    aFrame: [Math.round(vw / 2), 0, Math.round(vw / 2), vh],
+    outputWidth: Math.round(vw / 2),
+    outputHeight: vh,
+    fps: 24,
+    confidence: 0.8,
+    isVap: true,
+    label: 'أفقي: يسار RGB / يمين شفافية (تلقائي)'
+  };
 };
 
 // Ultra-fast, hardware-accelerated video frame seeker
@@ -170,6 +393,8 @@ export class WebGLVapRenderer {
   uAlphaRect: WebGLUniformLocation | null;
   uThreshold: WebGLUniformLocation | null;
   uUnmultiply: WebGLUniformLocation | null;
+  uInvertAlpha: WebGLUniformLocation | null;
+  uRawMode: WebGLUniformLocation | null;
 
   constructor(width: number, height: number, existingCanvas?: HTMLCanvasElement) {
     this.canvas = existingCanvas || document.createElement('canvas');
@@ -198,8 +423,15 @@ export class WebGLVapRenderer {
       uniform vec4 u_alphaRect;
       uniform float u_threshold;
       uniform float u_unmultiply;
+      uniform float u_invertAlpha;
+      uniform float u_rawMode;
 
       void main() {
+        if (u_rawMode > 0.5) {
+          gl_FragColor = texture2D(u_image, v_texCoord);
+          return;
+        }
+
         vec2 rgbCoord = vec2(u_rgbRect.x + v_texCoord.x * u_rgbRect.z, u_rgbRect.y + v_texCoord.y * u_rgbRect.w);
         vec2 alphaCoord = vec2(u_alphaRect.x + v_texCoord.x * u_alphaRect.z, u_alphaRect.y + v_texCoord.y * u_alphaRect.w);
 
@@ -207,6 +439,9 @@ export class WebGLVapRenderer {
         vec4 alphaPixel = texture2D(u_image, alphaCoord);
 
         float rawAlpha = 0.299 * alphaPixel.r + 0.587 * alphaPixel.g + 0.114 * alphaPixel.b;
+        if (u_invertAlpha > 0.5) {
+          rawAlpha = 1.0 - rawAlpha;
+        }
         
         if (rawAlpha <= u_threshold) {
             gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
@@ -243,6 +478,8 @@ export class WebGLVapRenderer {
     this.uAlphaRect = gl.getUniformLocation(this.program, 'u_alphaRect');
     this.uThreshold = gl.getUniformLocation(this.program, 'u_threshold');
     this.uUnmultiply = gl.getUniformLocation(this.program, 'u_unmultiply');
+    this.uInvertAlpha = gl.getUniformLocation(this.program, 'u_invertAlpha');
+    this.uRawMode = gl.getUniformLocation(this.program, 'u_rawMode');
 
     this.positionBuffer = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
@@ -272,7 +509,15 @@ export class WebGLVapRenderer {
     }
   }
 
-  render(video: HTMLVideoElement, rgbRect: number[], alphaRect: number[], threshold: number = 10, unmultiply: boolean = true) {
+  render(
+    video: HTMLVideoElement, 
+    rgbRect: number[], 
+    alphaRect: number[], 
+    threshold: number = 10, 
+    unmultiply: boolean = true,
+    invertAlpha: boolean = false,
+    rawMode: boolean = false
+  ) {
     const gl = this.gl;
     const vw = video.videoWidth || 1;
     const vh = video.videoHeight || 1;
@@ -299,6 +544,8 @@ export class WebGLVapRenderer {
     gl.uniform4f(this.uAlphaRect, alphaRect[0]/vw, alphaRect[1]/vh, alphaRect[2]/vw, alphaRect[3]/vh);
     gl.uniform1f(this.uThreshold, threshold / 255.0);
     gl.uniform1f(this.uUnmultiply, unmultiply ? 1.0 : 0.0);
+    gl.uniform1f(this.uInvertAlpha, invertAlpha ? 1.0 : 0.0);
+    gl.uniform1f(this.uRawMode, rawMode ? 1.0 : 0.0);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     return this.canvas;

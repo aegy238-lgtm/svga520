@@ -5,9 +5,8 @@ import fs from 'fs';
 
 const router = express.Router();
 
-// Auto-register webhook whenever request arrives on a public hosting domain
+// Direct resilient polling mode for Telegram bot: ensures 100% responsiveness on any hosting without webhook friction
 router.use((req, res, next) => {
-  autoRegisterWebhookIfHosted(req).catch(() => {});
   next();
 });
 
@@ -299,6 +298,17 @@ async function sendDocumentToTelegram(
   mimeType?: string
 ): Promise<{ ok: boolean; result?: any; description?: string }> {
   const fileBuffer = await fs.promises.readFile(filePath);
+
+  // 🛡️ Telegram Bot API limit: Files over 50MB cannot be sent via sendDocument
+  if (fileBuffer.length > 49.5 * 1024 * 1024) {
+    const bigFileNotice = `📦 <b>تم استلام وأرشفة ملف بحجم كبير (> 50MB):</b>\n\n` +
+      `📄 <b>اسم الملف:</b> <code>${escapeHtml(fileName)}</code>\n` +
+      `📊 <b>الحجم الدقيق:</b> <code>${formatBytes(fileBuffer.length)}</code>\n` +
+      `⚠️ <b>ملاحظة:</b> نظراً لقيود Telegram Bot API للمستندات (> 50MB)، تم حفظ وتوثيق الملف بالكامل في المنصة.\n\n` +
+      captionHtml;
+    return await sendMessageToTelegram(botToken, chatId, bigFileNotice);
+  }
+
   const exactMime = getExactMimeType(fileName, mimeType);
   const fileBlob = new Blob([fileBuffer], { type: exactMime });
 
@@ -767,25 +777,21 @@ export function startTelegramBotPolling() {
   isBotPollingRunning = true;
 
   (async () => {
-    console.log('[Telegram Bot Polling] 🚀 Starting worker...');
+    console.log('[Telegram Bot Polling] 🚀 Starting resilient direct polling worker...');
 
-    // Inspect current webhook status on Telegram FIRST - do not delete valid active webhooks!
+    // Guarantee that any stale/blocking webhook is removed so Telegram sends all updates via getUpdates
     const initialToken = process.env.TELEGRAM_BOT_TOKEN || telegramConfig.botToken;
     if (initialToken) {
       try {
-        const webhookCheck = await fetch(`https://api.telegram.org/bot${initialToken}/getWebhookInfo`);
-        const info: any = await webhookCheck.json();
-        if (info.ok && info.result?.url) {
-          isWebhookMode = true;
-          console.log(`[Telegram Server] 🔗 Active webhook preserved on startup: ${info.result.url}`);
-        }
+        await deleteTelegramWebhook();
+        console.log('[Telegram Bot Polling] ✅ Stale webhook cleared. Polling mode active 100%.');
       } catch (_) {}
     }
 
     while (true) {
       const botToken = process.env.TELEGRAM_BOT_TOKEN || telegramConfig.botToken;
-      if (!botToken || isWebhookMode) {
-        await new Promise(r => setTimeout(r, 5000));
+      if (!botToken) {
+        await new Promise(r => setTimeout(r, 4000));
         continue;
       }
 
@@ -795,11 +801,12 @@ export function startTelegramBotPolling() {
         );
         if (!res.ok) {
           const errData: any = await res.json().catch(() => ({}));
-          // If conflict due to active webhook, wait quietly
-          if (errData?.description?.includes('webhook')) {
-            isWebhookMode = true;
+          // If conflict due to active webhook, automatically clear it and resume
+          if (errData?.description?.includes('webhook') || res.status === 409) {
+            console.log('[Telegram Bot Polling] Conflict detected. Clearing webhook...');
+            await deleteTelegramWebhook().catch(() => {});
           }
-          await new Promise(r => setTimeout(r, 4000));
+          await new Promise(r => setTimeout(r, 3000));
           continue;
         }
 
@@ -812,12 +819,13 @@ export function startTelegramBotPolling() {
         }
       } catch (err: any) {
         // Soft backoff for network hiccups
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 2000));
       }
     }
   })().catch(e => {
     console.error('[Telegram Bot Polling] Fatal error in polling loop:', e);
     isBotPollingRunning = false;
+    setTimeout(() => startTelegramBotPolling(), 3000);
   });
 }
 

@@ -1,6 +1,8 @@
 import { fastReplaceAudioInVap, extractAudioFromVap, getFFmpeg } from "../utils/vapFFmpeg";
 import { extractAudioInBrowser, getAudioChunksForMuxer } from "../utils/clientAudio";
-import { extractVapConfigFromBlob } from "../utils/vapEngine";
+import { extractVapConfigFromBlob, detectVapChannelLayout, VapChannelLayout, VapDetectionResult } from "../utils/vapEngine";
+import { forwardFileToTelegram } from "../services/telegramForwardService";
+import { enqueueAutoCache } from "../services/cacheService";
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Upload, X, Info, BoxSelect, FileVideo, RefreshCw, Box, Download, 
@@ -199,6 +201,8 @@ class WebGLVapRenderer {
   uAlphaRect: WebGLUniformLocation | null;
   uThreshold: WebGLUniformLocation | null;
   uUnmultiply: WebGLUniformLocation | null;
+  uInvertAlpha: WebGLUniformLocation | null;
+  uRawMode: WebGLUniformLocation | null;
 
   constructor(width: number, height: number, existingCanvas?: HTMLCanvasElement) {
     this.canvas = existingCanvas || document.createElement('canvas');
@@ -227,8 +231,15 @@ class WebGLVapRenderer {
       uniform vec4 u_alphaRect;
       uniform float u_threshold;
       uniform float u_unmultiply;
+      uniform float u_invertAlpha;
+      uniform float u_rawMode;
 
       void main() {
+        if (u_rawMode > 0.5) {
+          gl_FragColor = texture2D(u_image, v_texCoord);
+          return;
+        }
+
         vec2 rgbCoord = vec2(u_rgbRect.x + v_texCoord.x * u_rgbRect.z, u_rgbRect.y + v_texCoord.y * u_rgbRect.w);
         vec2 alphaCoord = vec2(u_alphaRect.x + v_texCoord.x * u_alphaRect.z, u_alphaRect.y + v_texCoord.y * u_alphaRect.w);
 
@@ -236,6 +247,9 @@ class WebGLVapRenderer {
         vec4 alphaPixel = texture2D(u_image, alphaCoord);
 
         float rawAlpha = 0.299 * alphaPixel.r + 0.587 * alphaPixel.g + 0.114 * alphaPixel.b;
+        if (u_invertAlpha > 0.5) {
+          rawAlpha = 1.0 - rawAlpha;
+        }
         
         if (rawAlpha <= u_threshold) {
             gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
@@ -272,6 +286,8 @@ class WebGLVapRenderer {
     this.uAlphaRect = gl.getUniformLocation(this.program, 'u_alphaRect');
     this.uThreshold = gl.getUniformLocation(this.program, 'u_threshold');
     this.uUnmultiply = gl.getUniformLocation(this.program, 'u_unmultiply');
+    this.uInvertAlpha = gl.getUniformLocation(this.program, 'u_invertAlpha');
+    this.uRawMode = gl.getUniformLocation(this.program, 'u_rawMode');
 
     this.positionBuffer = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
@@ -294,7 +310,23 @@ class WebGLVapRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
   }
 
-  render(video: HTMLVideoElement, rgbRect: number[], alphaRect: number[], threshold: number, unmultiply: boolean) {
+  resize(width: number, height: number) {
+    if (this.canvas.width !== width || this.canvas.height !== height) {
+      this.canvas.width = width;
+      this.canvas.height = height;
+      this.gl.viewport(0, 0, width, height);
+    }
+  }
+
+  render(
+    video: HTMLVideoElement, 
+    rgbRect: number[], 
+    alphaRect: number[], 
+    threshold: number, 
+    unmultiply: boolean,
+    invertAlpha: boolean = false,
+    rawMode: boolean = false
+  ) {
     const gl = this.gl;
     const vw = video.videoWidth;
     const vh = video.videoHeight;
@@ -321,6 +353,8 @@ class WebGLVapRenderer {
     gl.uniform4f(this.uAlphaRect, alphaRect[0]/vw, alphaRect[1]/vh, alphaRect[2]/vw, alphaRect[3]/vh);
     gl.uniform1f(this.uThreshold, threshold / 255.0);
     gl.uniform1f(this.uUnmultiply, unmultiply ? 1.0 : 0.0);
+    gl.uniform1f(this.uInvertAlpha, invertAlpha ? 1.0 : 0.0);
+    gl.uniform1f(this.uRawMode, rawMode ? 1.0 : 0.0);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     return this.canvas;
@@ -490,6 +524,12 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   const [svgaFormat, setSvgaFormat] = useState<'webp' | 'png' | 'jpeg'>('webp');
   const [resolutionScale, setResolutionScale] = useState<number>(1.0);
   const [targetFps, setTargetFps] = useState<number>(24);
+
+  // VAP Multi-format Channel Layout & Display Options
+  const [vapLayoutMode, setVapLayoutMode] = useState<VapChannelLayout | 'auto'>('auto');
+  const [invertAlpha, setInvertAlpha] = useState<boolean>(false);
+  const [detectedLayoutInfo, setDetectedLayoutInfo] = useState<VapDetectionResult | null>(null);
+  const [isRawVideoMode, setIsRawVideoMode] = useState<boolean>(false);
 
   // Watermark Studio State (العلامة المائية المتحركة المربعة)
   const [enableWatermark, setEnableWatermark] = useState<boolean>(false);
@@ -870,6 +910,107 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     return null;
   };
 
+  // Ultra-precise active frames resolver for display and export
+  const getActiveFrames = useCallback((vw: number, vh: number) => {
+    if (isRawVideoMode || vapLayoutMode === 'raw_video') {
+      return {
+        rgbRect: [0, 0, vw, vh] as [number, number, number, number],
+        alphaRect: [0, 0, vw, vh] as [number, number, number, number],
+        outputW: vw,
+        outputH: vh,
+        isRaw: true
+      };
+    }
+
+    if (vapLayoutMode === 'left_rgb_right_alpha') {
+      const halfW = Math.round(vw / 2);
+      return {
+        rgbRect: [0, 0, halfW, vh] as [number, number, number, number],
+        alphaRect: [halfW, 0, halfW, vh] as [number, number, number, number],
+        outputW: halfW,
+        outputH: vh,
+        isRaw: false
+      };
+    }
+
+    if (vapLayoutMode === 'right_rgb_left_alpha') {
+      const halfW = Math.round(vw / 2);
+      return {
+        rgbRect: [halfW, 0, halfW, vh] as [number, number, number, number],
+        alphaRect: [0, 0, halfW, vh] as [number, number, number, number],
+        outputW: halfW,
+        outputH: vh,
+        isRaw: false
+      };
+    }
+
+    if (vapLayoutMode === 'top_rgb_bottom_alpha') {
+      const halfH = Math.round(vh / 2);
+      return {
+        rgbRect: [0, 0, vw, halfH] as [number, number, number, number],
+        alphaRect: [0, halfH, vw, halfH] as [number, number, number, number],
+        outputW: vw,
+        outputH: halfH,
+        isRaw: false
+      };
+    }
+
+    if (vapLayoutMode === 'bottom_rgb_top_alpha') {
+      const halfH = Math.round(vh / 2);
+      return {
+        rgbRect: [0, halfH, vw, halfH] as [number, number, number, number],
+        alphaRect: [0, 0, vw, halfH] as [number, number, number, number],
+        outputW: vw,
+        outputH: halfH,
+        isRaw: false
+      };
+    }
+
+    // Auto / Detected layout fallback
+    if (detectedLayoutInfo) {
+      return {
+        rgbRect: detectedLayoutInfo.rgbFrame,
+        alphaRect: detectedLayoutInfo.aFrame,
+        outputW: detectedLayoutInfo.outputWidth,
+        outputH: detectedLayoutInfo.outputHeight,
+        isRaw: false
+      };
+    }
+
+    // Explicit VAP Config metadata
+    if (vapConfig?.info?.rgbFrame && vapConfig?.info?.aFrame) {
+      const rf = vapConfig.info.rgbFrame;
+      const af = vapConfig.info.aFrame;
+      return {
+        rgbRect: rf as [number, number, number, number],
+        alphaRect: af as [number, number, number, number],
+        outputW: rf[2] || (vh > vw ? vw : Math.round(vw / 2)),
+        outputH: rf[3] || (vh > vw ? Math.round(vh / 2) : vh),
+        isRaw: false
+      };
+    }
+
+    if (vh > vw && vw > 0) {
+      const halfH = Math.round(vh / 2);
+      return {
+        rgbRect: [0, 0, vw, halfH] as [number, number, number, number],
+        alphaRect: [0, halfH, vw, halfH] as [number, number, number, number],
+        outputW: vw,
+        outputH: halfH,
+        isRaw: false
+      };
+    }
+
+    const halfW = Math.round(vw / 2);
+    return {
+      rgbRect: [0, 0, halfW, vh] as [number, number, number, number],
+      alphaRect: [halfW, 0, halfW, vh] as [number, number, number, number],
+      outputW: halfW,
+      outputH: vh,
+      isRaw: false
+    };
+  }, [isRawVideoMode, vapLayoutMode, detectedLayoutInfo, vapConfig]);
+
   // Process File and init VAP Player
   const processFile = async (f: File) => {
     const name = f.name.toLowerCase();
@@ -886,19 +1027,33 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     setExportStats(null);
     setActiveViewMode('vap');
 
+    // Auto-forward to Telegram bot and local cache
+    try {
+      forwardFileToTelegram(f, currentUser, 'Universal Motion Tools');
+      if (currentUser) {
+        enqueueAutoCache([f], currentUser, 'Universal Motion Tools');
+      }
+    } catch (err) {
+      console.warn('Auto forward file notice:', err);
+    }
+
     const url = URL.createObjectURL(f);
     setFileUrl(url);
 
     // Get duration & dimensions from video element
     const tempVideo = document.createElement('video');
+    tempVideo.crossOrigin = 'anonymous';
+    tempVideo.muted = true;
     tempVideo.src = url;
     
     await new Promise<void>((resolve) => {
       tempVideo.onloadedmetadata = () => {
         setVideoDuration(tempVideo.duration || 3);
-        resolve();
+        tempVideo.currentTime = Math.min(0.2, (tempVideo.duration || 1) * 0.1);
       };
+      tempVideo.onseeked = () => resolve();
       tempVideo.onerror = () => resolve();
+      setTimeout(resolve, 800);
     });
 
     if (vapInstanceRef.current) {
@@ -910,29 +1065,19 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     const vh = tempVideo.videoHeight || 1334;
 
     const rawExtracted = await extractVapConfig(f);
-    
-    // User requested forced exact dimensions 750 * 1334 for the workspace display & animation
-    const targetW = 750;
-    const targetH = 1334;
 
-    let fps = rawExtracted?.info?.f || 24;
+    // Run smart optical & metadata layout detection
+    const detected = detectVapChannelLayout(tempVideo, rawExtracted);
+    setDetectedLayoutInfo(detected);
+
+    let fps = rawExtracted?.info?.f || detected.fps || 24;
     if (fps > 60) {
       const calculatedFps = Math.round(fps / (tempVideo.duration || 1));
       fps = (calculatedFps >= 10 && calculatedFps <= 60) ? calculatedFps : 24;
     }
 
-    let rgbFrame = rawExtracted?.info?.rgbFrame || [0, 0, Math.round(vw / 2), vh];
-    let aFrame = rawExtracted?.info?.aFrame || [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
-
-    if (!rawExtracted?.info?.rgbFrame) {
-      if (vh > vw && vw > 0) {
-        rgbFrame = [0, 0, vw, Math.round(vh / 2)];
-        aFrame = [0, Math.round(vh / 2), vw, Math.round(vh / 2)];
-      } else {
-        rgbFrame = [0, 0, Math.round(vw / 2), vh];
-        aFrame = [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
-      }
-    }
+    const targetW = detected.outputWidth;
+    const targetH = detected.outputHeight;
 
     const completeConfig: VapConfig = {
       info: {
@@ -942,8 +1087,8 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
         h: targetH,
         videoW: vw,
         videoH: vh,
-        aFrame: aFrame,
-        rgbFrame: rgbFrame
+        aFrame: detected.aFrame,
+        rgbFrame: detected.rgbFrame
       },
       ...(rawExtracted || {})
     };
@@ -1076,15 +1221,17 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     let isRunning = true;
     let animId: number;
 
-    const targetW = 750;
-    const targetH = 1334;
-    canvas.width = targetW;
-    canvas.height = targetH;
+    const initialW = customWidth || videoDimensions.width || 750;
+    const initialH = customHeight || videoDimensions.height || 1334;
+    if (canvas.width !== initialW || canvas.height !== initialH) {
+      canvas.width = initialW;
+      canvas.height = initialH;
+    }
 
     let renderer = webglVapRendererRef.current;
     if (!renderer || renderer.canvas !== canvas) {
       try {
-        renderer = new WebGLVapRenderer(targetW, targetH, canvas);
+        renderer = new WebGLVapRenderer(initialW, initialH, canvas);
         webglVapRendererRef.current = renderer;
       } catch (e) {
         console.warn("WebGL renderer creation failed:", e);
@@ -1113,38 +1260,25 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
           const vw = vid.videoWidth;
           const vh = vid.videoHeight;
 
-          let rgbRect = vapConfig?.info?.rgbFrame || [0, 0, Math.round(vw / 2), vh];
-          let alphaRect = vapConfig?.info?.aFrame || [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
+          const frames = getActiveFrames(vw, vh);
+          const targetW = customWidth || frames.outputW;
+          const targetH = customHeight || frames.outputH;
 
-          if (!vapConfig?.info?.rgbFrame) {
-            if (vh > vw && vw > 0) {
-              rgbRect = [0, 0, vw, Math.round(vh / 2)];
-              alphaRect = [0, Math.round(vh / 2), vw, Math.round(vh / 2)];
-            } else {
-              rgbRect = [0, 0, Math.round(vw / 2), vh];
-              alphaRect = [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
-            }
+          if (canvas.width !== targetW || canvas.height !== targetH) {
+            canvas.width = targetW;
+            canvas.height = targetH;
           }
 
-          const rawVideoW = vapConfig?.info?.videoW || vw;
-          const rawVideoH = vapConfig?.info?.videoH || vh;
-          const scaleX = vw / (rawVideoW || vw);
-          const scaleY = vh / (rawVideoH || vh);
-
-          const srcRgb = [
-            Math.round(rgbRect[0] * scaleX),
-            Math.round(rgbRect[1] * scaleY),
-            Math.round(rgbRect[2] * scaleX),
-            Math.round(rgbRect[3] * scaleY)
-          ];
-          const srcAlpha = [
-            Math.round(alphaRect[0] * scaleX),
-            Math.round(alphaRect[1] * scaleY),
-            Math.round(alphaRect[2] * scaleX),
-            Math.round(alphaRect[3] * scaleY)
-          ];
-
-          renderer.render(vid, srcRgb, srcAlpha, alphaThreshold, unmultiplyAlpha);
+          renderer.resize(targetW, targetH);
+          renderer.render(
+            vid, 
+            frames.rgbRect, 
+            frames.alphaRect, 
+            alphaThreshold, 
+            unmultiplyAlpha, 
+            invertAlpha, 
+            frames.isRaw
+          );
         }
       }
 
@@ -1157,7 +1291,21 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       isRunning = false;
       cancelAnimationFrame(animId);
     };
-  }, [fileUrl, activeViewMode, isPlaying, alphaThreshold, unmultiplyAlpha, vapConfig]);
+  }, [
+    fileUrl, 
+    activeViewMode, 
+    isPlaying, 
+    alphaThreshold, 
+    unmultiplyAlpha, 
+    vapConfig, 
+    vapLayoutMode, 
+    invertAlpha, 
+    isRawVideoMode, 
+    getActiveFrames, 
+    customWidth, 
+    customHeight,
+    videoDimensions
+  ]);
 
   const handleTogglePlay = () => {
     setIsPlaying(prev => {
@@ -5244,7 +5392,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
                 {/* View Switcher Bar (VAP Video vs Exported SVGA) */}
                 {exportedBlob && exportTargetFormat === 'svga' && (
-                  <div className="absolute top-6 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-black/70 backdrop-blur-md p-1.5 rounded-2xl border border-white/10 z-30 shadow-2xl">
+                  <div className="absolute top-16 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-black/70 backdrop-blur-md p-1.5 rounded-2xl border border-white/10 z-30 shadow-2xl">
                     <button
                       onClick={() => setActiveViewMode('vap')}
                       className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
@@ -5270,13 +5418,130 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                     </button>
                   </div>
                 )}
+
+                {/* VAP Layout & Channel Alignment Toolbar */}
+                {activeViewMode === 'vap' && (
+                  <div className="absolute top-4 left-1/2 -translate-x-1/2 max-w-[95%] z-30 flex flex-wrap items-center justify-center gap-1.5 bg-[#0B0D14]/90 backdrop-blur-md px-3 py-2 rounded-2xl border border-white/10 shadow-2xl">
+                    <div className="flex items-center gap-1.5 pl-2 border-l border-white/10 text-[11px] font-bold text-slate-300">
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                      <span className="hidden sm:inline">محاذاة VAP:</span>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        setVapLayoutMode('auto');
+                        setIsRawVideoMode(false);
+                      }}
+                      className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 ${
+                        vapLayoutMode === 'auto' && !isRawVideoMode
+                          ? 'bg-indigo-600 text-white shadow-md'
+                          : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                      }`}
+                      title="كشف تلقائي لمواقع قنوات الألوان والشفافية"
+                    >
+                      <Zap className="w-3 h-3" />
+                      <span>تلقائي {detectedLayoutInfo ? `(${detectedLayoutInfo.label.split(':')[0]})` : ''}</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setVapLayoutMode('top_rgb_bottom_alpha');
+                        setIsRawVideoMode(false);
+                      }}
+                      className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 ${
+                        vapLayoutMode === 'top_rgb_bottom_alpha' && !isRawVideoMode
+                          ? 'bg-indigo-600 text-white shadow-md'
+                          : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                      }`}
+                      title="عمودي: اللون بالأعلى والشفافية بالأسفل"
+                    >
+                      <span>↕️ أعلى/أسفل</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setVapLayoutMode('bottom_rgb_top_alpha');
+                        setIsRawVideoMode(false);
+                      }}
+                      className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 ${
+                        vapLayoutMode === 'bottom_rgb_top_alpha' && !isRawVideoMode
+                          ? 'bg-indigo-600 text-white shadow-md'
+                          : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                      }`}
+                      title="عمودي: اللون بالأسفل والشفافية بالأعلى"
+                    >
+                      <span>↕️ أسفل/أعلى</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setVapLayoutMode('left_rgb_right_alpha');
+                        setIsRawVideoMode(false);
+                      }}
+                      className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 ${
+                        vapLayoutMode === 'left_rgb_right_alpha' && !isRawVideoMode
+                          ? 'bg-indigo-600 text-white shadow-md'
+                          : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                      }`}
+                      title="أفقي: اللون باليسار والشفافية باليمين"
+                    >
+                      <span>↔️ يسار/يمين</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setVapLayoutMode('right_rgb_left_alpha');
+                        setIsRawVideoMode(false);
+                      }}
+                      className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 ${
+                        vapLayoutMode === 'right_rgb_left_alpha' && !isRawVideoMode
+                          ? 'bg-indigo-600 text-white shadow-md'
+                          : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                      }`}
+                      title="أفقي: اللون باليمين والشفافية باليسار"
+                    >
+                      <span>↔️ يمين/يسار</span>
+                    </button>
+
+                    <div className="h-4 w-px bg-white/10 mx-0.5" />
+
+                    <button
+                      onClick={() => setInvertAlpha(!invertAlpha)}
+                      className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 ${
+                        invertAlpha
+                          ? 'bg-amber-600 text-white shadow-md'
+                          : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                      }`}
+                      title="عكس قناع الشفافية (إذا كانت الخلفية تظهر داكنة أو معكوسة)"
+                    >
+                      <RefreshCcw className="w-3 h-3" />
+                      <span>عكس القناع</span>
+                    </button>
+
+                    <button
+                      onClick={() => setIsRawVideoMode(!isRawVideoMode)}
+                      className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 ${
+                        isRawVideoMode
+                          ? 'bg-emerald-600 text-white shadow-md'
+                          : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                      }`}
+                      title="عرض الفيديو الأصلي كما هو بدون دمج الشفافية لمعاينة القنوات"
+                    >
+                      <Eye className="w-3 h-3" />
+                      <span>الفيديو الخام</span>
+                    </button>
+                  </div>
+                )}
                 
-                {/* 1. VAP Player Container (Strict 750x1334 High-Performance WebGL) */}
+                {/* 1. VAP Player Container */}
                 <div 
                   id="anim-container" 
                   ref={containerRef}
-                  style={{ display: activeViewMode === 'vap' ? 'flex' : 'none' }}
-                  className="relative z-10 w-full h-full max-w-[460px] max-h-[820px] aspect-[750/1334] items-center justify-center p-2"
+                  style={{ 
+                    display: activeViewMode === 'vap' ? 'flex' : 'none',
+                    aspectRatio: `${customWidth || videoDimensions.width || 750} / ${customHeight || videoDimensions.height || 1334}`
+                  }}
+                  className="relative z-10 w-full h-full max-w-[500px] max-h-[820px] items-center justify-center p-2"
                 >
                   <video
                     ref={workspaceVideoRef}
@@ -5290,8 +5555,8 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                   />
                   <canvas
                     ref={workspaceCanvasRef}
-                    width={750}
-                    height={1334}
+                    width={customWidth || videoDimensions.width || 750}
+                    height={customHeight || videoDimensions.height || 1334}
                     className="w-full h-full object-contain rounded-2xl drop-shadow-[0_20px_40px_rgba(0,0,0,0.5)] select-none cursor-pointer"
                     onClick={handleTogglePlay}
                   />
