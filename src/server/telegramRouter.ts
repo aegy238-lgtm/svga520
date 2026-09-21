@@ -246,6 +246,38 @@ function escapeHtml(str: string): string {
 }
 
 /**
+ * Utility: Map file extensions to exact accurate MIME types for Telegram document delivery
+ */
+export function getExactMimeType(fileName: string, mime?: string): string {
+  if (mime && mime !== 'application/octet-stream' && mime !== 'binary/octet-stream') {
+    return mime;
+  }
+  const ext = path.extname(fileName).toLowerCase().replace('.', '');
+  switch (ext) {
+    case 'svga': return 'application/x-svga';
+    case 'pag': return 'application/x-pag';
+    case 'vap': return 'video/mp4';
+    case 'mp4': return 'video/mp4';
+    case 'webm': return 'video/webm';
+    case 'mov': return 'video/quicktime';
+    case 'png': return 'image/png';
+    case 'jpg':
+    case 'jpeg': return 'image/jpeg';
+    case 'gif': return 'image/gif';
+    case 'webp': return 'image/webp';
+    case 'svg': return 'image/svg+xml';
+    case 'zip': return 'application/zip';
+    case 'pdf': return 'application/pdf';
+    case 'json': return 'application/json';
+    case 'mp3': return 'audio/mpeg';
+    case 'wav': return 'audio/wav';
+    case 'm4a': return 'audio/mp4';
+    case 'aac': return 'audio/aac';
+    default: return 'application/octet-stream';
+  }
+}
+
+/**
  * Send document to Telegram using Bot API
  * Crucial: disable_content_type_detection is set to true to prevent Telegram servers
  * from transcoding, compressing, or re-encoding media files (MP4, SVGA, WebM, etc.).
@@ -260,7 +292,8 @@ async function sendDocumentToTelegram(
   mimeType?: string
 ): Promise<{ ok: boolean; result?: any; description?: string }> {
   const fileBuffer = await fs.promises.readFile(filePath);
-  const fileBlob = new Blob([fileBuffer], { type: mimeType || 'application/octet-stream' });
+  const exactMime = getExactMimeType(fileName, mimeType);
+  const fileBlob = new Blob([fileBuffer], { type: exactMime });
 
   const formData = new FormData();
   formData.append('chat_id', chatId);

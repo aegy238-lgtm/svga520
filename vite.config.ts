@@ -59,25 +59,7 @@ export default defineConfig(({ mode }) => {
       build: {
         outDir: 'dist',
         sourcemap: false,
-        chunkSizeWarningLimit: 2000,
-        rollupOptions: {
-          output: {
-            manualChunks(id) {
-              if (id.includes('node_modules')) {
-                if (id.includes('@ffmpeg')) return 'ffmpeg-vendor';
-                if (id.includes('firebase')) return 'firebase-vendor';
-                if (id.includes('lucide-react')) return 'lucide-vendor';
-                if (id.includes('lottie-web') || id.includes('svga.lite') || id.includes('libpag')) return 'animation-vendor';
-                if (id.includes('react') || id.includes('react-dom') || id.includes('motion')) return 'react-vendor';
-                if (id.includes('pdfjs-dist') || id.includes('jspdf')) return 'pdf-vendor';
-                if (id.includes('@breezystack') || id.includes('wavesurfer.js')) return 'audio-vendor';
-                if (id.includes('agora-rtc-sdk-ng')) return 'agora-vendor';
-                if (id.includes('@mediapipe')) return 'mediapipe-vendor';
-                return 'vendor';
-              }
-            }
-          }
-        }
+        chunkSizeWarningLimit: 2500,
       }
     };
 });
