@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
-import { collection, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy, getDocs, writeBatch, Timestamp } from 'firebase/firestore';
-import { Trash2, Edit2, Coins, Image as ImageIcon, Search, Tag, Crown, Eye, EyeOff, Copy, Check, Key, Loader2, CheckCircle2 } from 'lucide-react';
+import { collection, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy, getDocs, writeBatch, Timestamp, setDoc } from 'firebase/firestore';
+import { Trash2, Edit2, Coins, Image as ImageIcon, Search, Tag, Crown, Eye, EyeOff, Copy, Check, Key, Loader2, CheckCircle2, ShieldAlert, ShieldCheck, UserX, UserCheck } from 'lucide-react';
 
 export default function UsersTab() {
   const [users, setUsers] = useState<any[]>([]);
@@ -23,6 +23,54 @@ export default function UsersTab() {
       await updateDoc(doc(db, 'users', user.id), { isVIP: newVip });
     } catch (error: any) {
       alert('خطأ في تغيير حالة VIP: ' + error.message);
+    }
+  };
+
+  const handleToggleCacheAccess = async (user: any) => {
+    try {
+      const newAccess = !user.hasCacheAccess;
+      await updateDoc(doc(db, 'users', user.id), { 
+        hasCacheAccess: newAccess,
+        cachePermissions: {
+          view: true,
+          download: true,
+          copyLink: true,
+          delete: false,
+          manage: false
+        }
+      });
+    } catch (error: any) {
+      alert('خطأ في تغيير صلاحية الكاش: ' + error.message);
+    }
+  };
+
+  const handleToggleBanUser = async (user: any) => {
+    if (user.role === 'admin' || user.email === 'iejehdgdig@gmail.com' || user.email === 'uhbijnokmpl098900@gmail.com') {
+      return alert('لا يمكن حظر حساب المدير العام');
+    }
+    const newStatus = user.status === 'banned' ? 'active' : 'banned';
+    if (!confirm(`هل أنت متأكد من ${newStatus === 'banned' ? 'حظر' : 'فك حظر'} هذا المستخدم (${user.email || user.name})؟`)) return;
+
+    try {
+      await updateDoc(doc(db, 'users', user.id), { status: newStatus });
+      if (user.email) {
+        const cleanEmail = user.email.trim().toLowerCase();
+        const emailDocId = cleanEmail.replace(/\./g, '_');
+        if (newStatus === 'banned') {
+          await setDoc(doc(db, 'banned_emails', emailDocId), {
+            email: cleanEmail,
+            userId: user.id,
+            bannedAt: Timestamp.now()
+          });
+        } else {
+          await Promise.all([
+            deleteDoc(doc(db, 'banned_emails', emailDocId)).catch(() => {}),
+            deleteDoc(doc(db, 'banned_emails', cleanEmail)).catch(() => {})
+          ]);
+        }
+      }
+    } catch (error: any) {
+      alert('خطأ في تعديل حالة الحظر: ' + error.message);
     }
   };
 
@@ -51,9 +99,11 @@ export default function UsersTab() {
     setSavingPassword(true);
     try {
       const newPass = newPasswordInput.trim();
+      const oldPass = (selectedUser.plainPassword || selectedUser.password || '').trim();
       await updateDoc(doc(db, 'users', selectedUser.id), {
         password: newPass,
         plainPassword: newPass,
+        oldPassword: oldPass,
         passwordUpdatedAt: Timestamp.now()
       });
       setPasswordSuccess(true);
@@ -190,8 +240,10 @@ export default function UsersTab() {
                 <th className="px-4 py-3 text-sm font-bold text-gray-700">الآي دي</th>
                 <th className="px-4 py-3 text-sm font-bold text-gray-700">البريد</th>
                 <th className="px-4 py-3 text-sm font-bold text-indigo-600">كلمة المرور 🔑</th>
+                <th className="px-4 py-3 text-sm font-bold text-gray-700">الحالة / الحظر</th>
                 <th className="px-4 py-3 text-sm font-bold text-gray-700">الرصيد</th>
                 <th className="px-4 py-3 text-sm font-bold text-amber-600">عضوية VIP</th>
+                <th className="px-4 py-3 text-sm font-bold text-red-600">الكاش ☠️</th>
                 <th className="px-4 py-3 text-sm font-bold text-gray-700">تاريخ التسجيل</th>
                 <th className="px-4 py-3 text-sm font-bold text-gray-700">الإجراءات</th>
               </tr>
@@ -202,7 +254,16 @@ export default function UsersTab() {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       <img src={user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`} alt="" className="w-10 h-10 rounded-full object-cover" />
-                      <span className="font-bold text-gray-800">{user.displayName || user.name || 'مستخدم'}</span>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-gray-800">{user.displayName || user.name || 'مستخدم'}</span>
+                          {user.hasCacheAccess && (
+                            <span className="px-2 py-0.5 rounded-lg text-[10px] font-black bg-gradient-to-r from-red-950 to-slate-900 text-red-400 border border-red-500/60 shadow-sm flex items-center gap-1">
+                              ☠️ CACHE
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600 font-mono">{user.numericId || '---'}</td>
@@ -241,6 +302,29 @@ export default function UsersTab() {
                       </button>
                     )}
                   </td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => handleToggleBanUser(user)}
+                      className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
+                        user.status === 'banned'
+                          ? 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'
+                          : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                      }`}
+                      title={user.status === 'banned' ? 'الحساب محظور (اضغط لفك الحظر فوراً)' : 'الحساب نشط (اضغط للحظر)'}
+                    >
+                      {user.status === 'banned' ? (
+                        <>
+                          <UserX size={14} className="text-red-600" />
+                          <span>محظور (فك الحظر)</span>
+                        </>
+                      ) : (
+                        <>
+                          <ShieldCheck size={14} className="text-emerald-600" />
+                          <span>نشط</span>
+                        </>
+                      )}
+                    </button>
+                  </td>
                   <td className="px-4 py-3 text-sm font-bold text-yellow-600">{user.diamonds || 0} 💎</td>
                   <td className="px-4 py-3">
                     <button
@@ -254,6 +338,20 @@ export default function UsersTab() {
                     >
                       <Crown size={14} className={user.isVIP ? 'fill-slate-900' : 'text-gray-400'} />
                       <span>{user.isVIP ? 'VIP 👑 مفعل' : 'تفعيل VIP'}</span>
+                    </button>
+                  </td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => handleToggleCacheAccess(user)}
+                      className={`px-3 py-1 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 border shadow-sm ${
+                        user.hasCacheAccess
+                          ? 'bg-gradient-to-r from-red-950 via-slate-900 to-red-950 text-red-400 border-red-500 shadow-red-900/40 hover:brightness-125'
+                          : 'bg-gray-100 text-gray-400 border-gray-200 hover:bg-red-50 hover:text-red-500 hover:border-red-300'
+                      }`}
+                      title={user.hasCacheAccess ? 'الكاش مفعّل (اضغط للتعطيل والإخفاء)' : 'الكاش معطّل ومخفي (اضغط للتفعيل)'}
+                    >
+                      <span>☠️</span>
+                      <span>{user.hasCacheAccess ? 'مفعّل ON' : 'معطّل OFF'}</span>
                     </button>
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-500">

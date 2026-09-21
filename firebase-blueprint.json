@@ -172,6 +172,14 @@
     "/presetBackgrounds/{bgId}": {
       "schema": "object",
       "description": "Preset backgrounds for the editor"
+    },
+    "/user_cache/{fileId}": {
+      "schema": "object",
+      "description": "User uploaded files metadata stored in centralized cache"
+    },
+    "/cache_activity_logs/{logId}": {
+      "schema": "object",
+      "description": "Audit and activity logs for user cache operations"
     }
   }
 }

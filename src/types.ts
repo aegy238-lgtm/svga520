@@ -116,6 +116,14 @@ export interface UserRecord {
   versionLastUpdated?: any; // Timestamp when version was last changed
   versionUpdatedBy?: string; // Admin who modified allowed version
   canBypassMaintenance?: boolean; // إمكانية فتح التطبيق واستخدامه بشكل طبيعي أثناء تعطيل السيرفر
+  hasCacheAccess?: boolean; // تفعيل ظهور وإمكانية استخدام نظام الكاش للمستخدم
+  cachePermissions?: {
+    view?: boolean;
+    download?: boolean;
+    copyLink?: boolean;
+    delete?: boolean;
+    manage?: boolean;
+  };
   [key: string]: any;
 }
 
@@ -242,3 +250,70 @@ export enum PlayerStatus {
   PAUSED = 'PAUSED',
   ERROR = 'ERROR'
 }
+
+export type CacheCategory = 'svga' | 'vap' | 'video' | 'image' | 'audio' | 'animation' | 'pag' | 'json' | 'other';
+
+export interface CachePermissions {
+  view: boolean;
+  download: boolean;
+  copyLink: boolean;
+  delete: boolean;
+  manage: boolean;
+}
+
+export interface CacheFileRecord {
+  id: string; // Unique File ID
+  userId: string;
+  userName: string;
+  userEmail?: string;
+  userNumericId?: string;
+  fileName: string;
+  originalName: string;
+  extension: string;
+  category: CacheCategory;
+  mimeType: string;
+  size: number;
+  storagePath: string;
+  downloadUrl: string;
+  secureUrl: string;
+  sha256: string;
+  dimensions?: { width: number; height: number };
+  fps?: number;
+  frames?: number;
+  duration?: number;
+  sourceFeature?: string; // 'Uploader' | 'VideoConverter' | 'SvgaCompressor' | etc.
+  status: 'active' | 'archived' | 'deleted';
+  createdAt: any;
+  updatedAt?: any;
+  downloadCount: number;
+  lastDownloadedAt?: any;
+  ip?: string;
+  deviceId?: string;
+}
+
+export interface CacheActivityLog {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail?: string;
+  adminId?: string;
+  adminName?: string;
+  fileId?: string;
+  fileName?: string;
+  fileSize?: number;
+  action: 'file_uploaded' | 'file_downloaded' | 'link_copied' | 'file_deleted' | 'cache_enabled' | 'cache_disabled';
+  details: string;
+  timestamp: any;
+  ip?: string;
+}
+
+export interface CacheStats {
+  totalFiles: number;
+  totalSizeBytes: number;
+  activeCacheUsersCount: number;
+  disabledCacheUsersCount: number;
+  categoryCounts: Record<CacheCategory, number>;
+  recentUploadsCount: number;
+  recentDownloadsCount: number;
+}
+
