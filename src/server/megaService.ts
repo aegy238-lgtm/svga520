@@ -9,6 +9,7 @@ const DATA_DIR = path.join(process.cwd(), 'data');
 const LOCAL_STORAGE_DIR = path.join(DATA_DIR, 'mega_local_cache');
 const REGISTRY_FILE = path.join(DATA_DIR, 'mega_cache_registry.json');
 const STATS_FILE = path.join(DATA_DIR, 'mega_cache_stats.json');
+const SETTINGS_FILE = path.join(DATA_DIR, 'mega_settings.json');
 
 // Default target folder provided by user
 export const DEFAULT_MEGA_FOLDER_URL = process.env.MEGA_FOLDER_URL || 'https://mega.nz/folder/ZAEVwBAR#eCpPGWnnzvZRaNXoJleO9g';
@@ -24,6 +25,8 @@ if (!fs.existsSync(LOCAL_STORAGE_DIR)) {
 class MegaService {
   private storageInstance: any = null;
   private isConnecting: boolean = false;
+  private customFolderUrl: string = DEFAULT_MEGA_FOLDER_URL;
+  private customFolderName: string = '1112ed / cache';
   private records: Map<string, MegaStorageRecord> = new Map();
   private hashIndex: Map<string, string> = new Map(); // hash -> fileId
   private stats: MegaStorageStats = {
@@ -76,6 +79,20 @@ class MegaService {
       } else {
         this.recalculateStats();
       }
+      if (fs.existsSync(SETTINGS_FILE)) {
+        try {
+          const rawSettings = fs.readFileSync(SETTINGS_FILE, 'utf-8');
+          const parsedSettings = JSON.parse(rawSettings);
+          if (parsedSettings.folderUrl) {
+            this.customFolderUrl = parsedSettings.folderUrl;
+          }
+          if (parsedSettings.folderName) {
+            this.customFolderName = parsedSettings.folderName;
+          }
+        } catch (e) {
+          /* ignore */
+        }
+      }
     } catch (err) {
       console.warn('Notice: could not load existing mega storage state:', err);
     }
@@ -86,6 +103,11 @@ class MegaService {
       const list = Array.from(this.records.values());
       fs.writeFileSync(REGISTRY_FILE, JSON.stringify(list, null, 2), 'utf-8');
       fs.writeFileSync(STATS_FILE, JSON.stringify(this.stats, null, 2), 'utf-8');
+      fs.writeFileSync(SETTINGS_FILE, JSON.stringify({
+        folderUrl: this.customFolderUrl,
+        folderName: this.customFolderName,
+        updatedAt: new Date().toISOString()
+      }, null, 2), 'utf-8');
     } catch (err) {
       console.error('Failed to persist mega state to disk:', err);
     }
@@ -513,6 +535,36 @@ class MegaService {
     return true;
   }
 
+  public getTargetFolderUrl(): string {
+    return this.customFolderUrl || DEFAULT_MEGA_FOLDER_URL;
+  }
+
+  public getTargetFolderName(): string {
+    return this.customFolderName || '1112ed / cache';
+  }
+
+  public updateSettings(data: {
+    folderUrl?: string;
+    folderName?: string;
+    email?: string;
+    password?: string;
+  }): MegaSettings {
+    if (data.folderUrl !== undefined && data.folderUrl.trim()) {
+      this.customFolderUrl = data.folderUrl.trim();
+    }
+    if (data.folderName !== undefined && data.folderName.trim()) {
+      this.customFolderName = data.folderName.trim();
+    }
+    if (data.email !== undefined && data.email.trim()) {
+      process.env.MEGA_EMAIL = data.email.trim();
+    }
+    if (data.password !== undefined && data.password.trim()) {
+      process.env.MEGA_PASSWORD = data.password.trim();
+    }
+    this.persistStateToDisk();
+    return this.getSettings();
+  }
+
   /**
    * Test MEGA Connection with live diagnostic checks
    */
@@ -520,13 +572,16 @@ class MegaService {
     const email = process.env.MEGA_EMAIL;
     const password = process.env.MEGA_PASSWORD;
     const timestamp = new Date().toISOString();
+    const activeFolderUrl = this.getTargetFolderUrl();
+    const activeFolderName = this.getTargetFolderName();
 
     if (!email || !password) {
       return {
         success: false,
         message: 'بيانات الدخول إلى MEGA غير موجودة في متغيرات البيئة (MEGA_EMAIL, MEGA_PASSWORD). يرجى ضبطها في إعدادات التطبيق أو ملف .env.',
         provider: 'MEGA',
-        folderUrl: DEFAULT_MEGA_FOLDER_URL,
+        folderUrl: activeFolderUrl,
+        folderName: activeFolderName,
         timestamp,
         errorDetails: 'MISSING_CREDENTIALS'
       };
@@ -554,7 +609,7 @@ class MegaService {
       }
 
       // 3. Test Uploading a tiny test ping snippet
-      const testBuffer = Buffer.from(`MEGA Cloud Storage Diagnostic Test - ${timestamp}\nFolder: ${DEFAULT_MEGA_FOLDER_URL}\nOK`);
+      const testBuffer = Buffer.from(`MEGA Cloud Storage Diagnostic Test - ${timestamp}\nFolder: ${activeFolderUrl}\nOK`);
       const testFileName = `test_ping_${Date.now()}.txt`;
       
       const testFile: any = await new Promise((resolve, reject) => {
@@ -578,8 +633,8 @@ class MegaService {
         message: 'تم الاتصال بخادم MEGA بنجاح! تم التحقق من الحساب ورفع ملف تجريبي وإنشاء رابط التنزيل وحذف ملف الاختبار بنجاح.',
         provider: 'MEGA',
         accountEmail: email,
-        folderUrl: DEFAULT_MEGA_FOLDER_URL,
-        folderName: 'cache',
+        folderUrl: activeFolderUrl,
+        folderName: activeFolderName,
         totalStorageBytes,
         usedStorageBytes,
         testFileUploaded: true,
@@ -592,7 +647,8 @@ class MegaService {
         success: false,
         message: `فشل الاتصال بحساب MEGA: ${err.message || 'خطأ في المصادقة أو الاتصال بالشبكة'}`,
         provider: 'MEGA',
-        folderUrl: DEFAULT_MEGA_FOLDER_URL,
+        folderUrl: activeFolderUrl,
+        folderName: activeFolderName,
         timestamp,
         errorDetails: err.stack || String(err)
       };
@@ -608,8 +664,8 @@ class MegaService {
 
     return {
       provider: 'MEGA',
-      folderUrl: DEFAULT_MEGA_FOLDER_URL,
-      folderName: '1112ed / cache',
+      folderUrl: this.getTargetFolderUrl(),
+      folderName: this.getTargetFolderName(),
       status: hasCredentials ? 'connected' : 'needs_credentials',
       accountEmail: email ? `${email.slice(0, 3)}***@${email.split('@')[1] || 'mega.nz'}` : undefined,
       totalFiles: this.stats.totalFiles,

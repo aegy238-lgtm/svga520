@@ -220,6 +220,35 @@ router.get('/settings', (req: express.Request, res: express.Response) => {
 });
 
 /**
+ * POST /api/storage/settings
+ * Update storage folder URL, credentials or folder configuration
+ */
+router.post('/settings', (req: express.Request, res: express.Response) => {
+  try {
+    const { folderUrl, folderName, megaEmail, megaPassword } = req.body;
+    const settings = megaService.updateSettings({
+      folderUrl,
+      folderName,
+      email: megaEmail,
+      password: megaPassword
+    });
+
+    return res.json({
+      success: true,
+      settings,
+      message: 'تم حفظ وتحديث رابط مجلد التخزين بنجاح!'
+    });
+  } catch (error: any) {
+    console.error('Storage settings update error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'UPDATE_SETTINGS_FAILED',
+      message: error.message || 'فشل تحديث إعدادات التخزين.'
+    });
+  }
+});
+
+/**
  * POST /api/storage/test-connection
  * Real-time diagnostic test of MEGA credentials and upload
  */

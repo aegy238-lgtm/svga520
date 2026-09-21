@@ -184,6 +184,27 @@ export async function fetchStorageSettings(): Promise<MegaSettings> {
 }
 
 /**
+ * Update storage folder URL and settings
+ */
+export async function updateStorageSettings(settings: {
+  folderUrl?: string;
+  folderName?: string;
+  megaEmail?: string;
+  megaPassword?: string;
+}): Promise<{ success: boolean; settings: MegaSettings; message: string }> {
+  const res = await fetch('/api/storage/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'فشل تحديث إعدادات التخزين');
+  }
+  return res.json();
+}
+
+/**
  * Run diagnostic connection test with MEGA
  */
 export async function testMegaConnection(): Promise<MegaConnectionTestResult> {
