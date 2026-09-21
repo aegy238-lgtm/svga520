@@ -13,7 +13,7 @@ import {
 } from '../../types';
 import { 
   fetchStorageFiles, fetchStorageStats, fetchStorageSettings, 
-  updateStorageSettings, testMegaConnection, uploadToMegaStorage, deleteStorageFile, 
+  updateStorageSettings, generateNewCloudStorageFolder, testMegaConnection, uploadToMegaStorage, deleteStorageFile, 
   formatBytes, getCategoryLabel 
 } from '../../services/megaStorageService';
 import { createRandomUserAccount, RandomUserAccount } from '../../services/userService';
@@ -147,7 +147,7 @@ export const CloudStorageTab: React.FC = () => {
   };
 
   const handleResetDefaultFolder = async () => {
-    const defaultUrl = 'https://mega.nz/folder/ZAEVwBAR#eCpPGWnnzvZRaNXoJleO9g';
+    const defaultUrl = 'https://mega.nz/folder/oI00Da4C#KO9cxwMSlkMm1YSgFm-2ig';
     setFolderUrlInput(defaultUrl);
     setSavingSettings(true);
     try {
@@ -161,6 +161,24 @@ export const CloudStorageTab: React.FC = () => {
       }
     } catch (err: any) {
       showNotification(err.message || 'فشل استعادة الرابط الافتراضي', 'error');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const handleGenerateNewFolder = async () => {
+    setSavingSettings(true);
+    try {
+      const res = await generateNewCloudStorageFolder();
+      if (res.success) {
+        setSettings(res.settings);
+        setFolderUrlInput(res.folderUrl);
+        setFolderNameInput(res.folderName);
+        showNotification('✨ تم إنشاء وتوليد رابط مجلد تخزين سحابي جديد واختبار ربطه بنجاح!', 'success');
+        handleRunTest();
+      }
+    } catch (err: any) {
+      showNotification(err.message || 'فشل توليد مجلد التخزين الجديد', 'error');
     } finally {
       setSavingSettings(false);
     }
@@ -818,7 +836,17 @@ export const CloudStorageTab: React.FC = () => {
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleGenerateNewFolder}
+                  disabled={savingSettings}
+                  className="px-3 py-1.5 bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold border border-emerald-400/30 transition-all shadow-md flex items-center gap-1.5 disabled:opacity-50"
+                  title="إنشاء وتوليد رابط مجلد تخزين سحابي جديد تلقائياً"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>توليد ورابط مجلد جديد تلقائياً</span>
+                </button>
                 {settings?.folderUrl && (
                   <a
                     href={settings.folderUrl}

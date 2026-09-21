@@ -12,7 +12,7 @@ const STATS_FILE = path.join(DATA_DIR, 'mega_cache_stats.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'mega_settings.json');
 
 // Default target folder provided by user
-export const DEFAULT_MEGA_FOLDER_URL = process.env.MEGA_FOLDER_URL || 'https://mega.nz/folder/oi08Da4C#K09cxwMS1kMn1YSgFm-2ig';
+export const DEFAULT_MEGA_FOLDER_URL = process.env.MEGA_FOLDER_URL || 'https://mega.nz/folder/oI00Da4C#KO9cxwMSlkMm1YSgFm-2ig';
 
 // Ensure data directories exist
 if (!fs.existsSync(DATA_DIR)) {
