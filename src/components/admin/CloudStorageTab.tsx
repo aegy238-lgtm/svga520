@@ -4,7 +4,8 @@ import {
   ExternalLink, Copy, Check, Trash2, Download, Eye, AlertTriangle, 
   CheckCircle2, XCircle, FileText, Image as ImageIcon, Video, 
   Music, Film, Sparkles, FolderLock, ShieldCheck, Play, Pause,
-  Layers, ArrowUpDown, ChevronLeft, ChevronRight, X, AlertCircle
+  Layers, ArrowUpDown, ChevronLeft, ChevronRight, X, AlertCircle,
+  UserPlus, Loader2
 } from 'lucide-react';
 import { 
   MegaStorageRecord, MegaStorageStats, MegaSettings, 
@@ -15,6 +16,7 @@ import {
   updateStorageSettings, testMegaConnection, uploadToMegaStorage, deleteStorageFile, 
   formatBytes, getCategoryLabel 
 } from '../../services/megaStorageService';
+import { createRandomUserAccount, RandomUserAccount } from '../../services/userService';
 
 export const CloudStorageTab: React.FC = () => {
   // Stats & Settings
@@ -56,6 +58,28 @@ export const CloudStorageTab: React.FC = () => {
 
   // Active view subtab: 'files' or 'settings'
   const [subTab, setSubTab] = useState<'files' | 'settings'>('files');
+
+  // Random Account Generator State
+  const [isGeneratingUser, setIsGeneratingUser] = useState(false);
+  const [generatedUserModal, setGeneratedUserModal] = useState<RandomUserAccount | null>(null);
+  const [copiedRandomDetails, setCopiedRandomDetails] = useState(false);
+
+  const handleGenerateRandomUser = async () => {
+    setIsGeneratingUser(true);
+    try {
+      const account = await createRandomUserAccount({
+        role: 'user',
+        initialDiamonds: 10000,
+        isVIP: true
+      });
+      setGeneratedUserModal(account);
+      showNotification(`تم إنشاء حساب عشوائي باسم (${account.displayName}) وتخزينه في قاعدة البيانات بنجاح!`, 'success');
+    } catch (err: any) {
+      showNotification('خطأ في إنشاء الحساب العشوائي: ' + err.message, 'error');
+    } finally {
+      setIsGeneratingUser(false);
+    }
+  };
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
     setActionNotice({ type, message });
@@ -294,7 +318,27 @@ export const CloudStorageTab: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Create Random User Button */}
+          <button
+            type="button"
+            onClick={handleGenerateRandomUser}
+            disabled={isGeneratingUser}
+            className="bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 disabled:opacity-50 border border-emerald-400/30"
+          >
+            {isGeneratingUser ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>جاري إنشاء الحساب...</span>
+              </>
+            ) : (
+              <>
+                <UserPlus className="w-4 h-4" />
+                <span>✨ إنشاء حساب عشوائي</span>
+              </>
+            )}
+          </button>
+
           {/* Subtabs Toggle */}
           <div className="bg-slate-950/60 p-1 rounded-xl border border-white/10 flex items-center text-sm font-medium">
             <button
@@ -1175,6 +1219,70 @@ export const CloudStorageTab: React.FC = () => {
               >
                 {deleting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                 <span>حذف نهائي</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🎉 Random User Account Success Modal */}
+      {generatedUserModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" dir="rtl">
+          <div className="bg-slate-900 border border-indigo-500/40 rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 space-y-4 text-right">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2 text-emerald-400">
+                <Sparkles className="w-5 h-5 text-indigo-400 animate-pulse" />
+                <h3 className="text-base font-bold text-white">تم إنشاء وتخزين الحساب العشوائي بنجاح!</h3>
+              </div>
+              <button onClick={() => setGeneratedUserModal(null)} className="text-slate-400 hover:text-white text-sm">✕</button>
+            </div>
+
+            <div className="p-3 bg-emerald-950/40 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+              <span>تم حفظ هذا الحساب تلقائياً في قاعدة البيانات Firestore وسجلات النظام!</span>
+            </div>
+
+            <div className="bg-slate-950 p-4 rounded-xl border border-white/10 space-y-2.5 font-mono text-xs">
+              <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                <span className="text-slate-400">اسم المستخدم:</span>
+                <span className="font-bold text-indigo-300">{generatedUserModal.displayName}</span>
+              </div>
+              <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                <span className="text-slate-400">الآي دي الرقمي:</span>
+                <span className="font-bold text-amber-400">{generatedUserModal.numericId}</span>
+              </div>
+              <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                <span className="text-slate-400">البريد الإلكتروني:</span>
+                <span className="font-bold text-emerald-400 select-all">{generatedUserModal.email}</span>
+              </div>
+              <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                <span className="text-slate-400">كلمة المرور:</span>
+                <span className="font-bold text-purple-400 select-all">{generatedUserModal.password}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">الرصيد وعضوية VIP:</span>
+                <span className="font-bold text-yellow-300">{generatedUserModal.diamonds} 💎 (VIP 👑)</span>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => {
+                  const text = `بيانات الحساب العشوائي الملكي:\nالاسم: ${generatedUserModal.displayName}\nالآي دي: ${generatedUserModal.numericId}\nالبريد: ${generatedUserModal.email}\nكلمة المرور: ${generatedUserModal.password}\nالرصيد: ${generatedUserModal.diamonds} 💎`;
+                  navigator.clipboard.writeText(text);
+                  setCopiedRandomDetails(true);
+                  setTimeout(() => setCopiedRandomDetails(false), 3000);
+                }}
+                className="flex-1 bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg"
+              >
+                {copiedRandomDetails ? <Check size={16} className="text-emerald-300" /> : <Copy size={16} />}
+                <span>{copiedRandomDetails ? 'تم نسخ بيانات الحساب!' : 'نسخ كافة بيانات الحساب'}</span>
+              </button>
+              <button
+                onClick={() => setGeneratedUserModal(null)}
+                className="px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-xl text-xs"
+              >
+                إغلاق
               </button>
             </div>
           </div>

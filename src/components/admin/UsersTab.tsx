@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 import { collection, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy, getDocs, writeBatch, Timestamp, setDoc } from 'firebase/firestore';
-import { Trash2, Edit2, Coins, Image as ImageIcon, Search, Tag, Crown, Eye, EyeOff, Copy, Check, Key, Loader2, CheckCircle2, ShieldAlert, ShieldCheck, UserX, UserCheck } from 'lucide-react';
+import { Trash2, Edit2, Coins, Image as ImageIcon, Search, Tag, Crown, Eye, EyeOff, Copy, Check, Key, Loader2, CheckCircle2, ShieldAlert, ShieldCheck, UserX, UserCheck, UserPlus, Sparkles } from 'lucide-react';
+import { createRandomUserAccount, RandomUserAccount } from '../../services/userService';
 
 export default function UsersTab() {
   const [users, setUsers] = useState<any[]>([]);
@@ -16,6 +17,27 @@ export default function UsersTab() {
   const [showNewPassword, setShowNewPassword] = useState(true);
   const [savingPassword, setSavingPassword] = useState(false);
   const [passwordSuccess, setPasswordSuccess] = useState(false);
+
+  // Random account generation state
+  const [isGeneratingAccount, setIsGeneratingAccount] = useState(false);
+  const [generatedAccountModal, setGeneratedAccountModal] = useState<RandomUserAccount | null>(null);
+  const [copiedAccountDetails, setCopiedAccountDetails] = useState(false);
+
+  const handleCreateRandomUser = async () => {
+    setIsGeneratingAccount(true);
+    try {
+      const account = await createRandomUserAccount({
+        role: 'user',
+        initialDiamonds: 10000,
+        isVIP: true
+      });
+      setGeneratedAccountModal(account);
+    } catch (err: any) {
+      alert('خطأ أثناء إنشاء الحساب العشوائي: ' + err.message);
+    } finally {
+      setIsGeneratingAccount(false);
+    }
+  };
 
   const handleToggleVip = async (user: any) => {
     try {
@@ -197,8 +219,8 @@ export default function UsersTab() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex gap-4 items-center">
-        <div className="relative flex-1">
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-3 items-center justify-between">
+        <div className="relative flex-1 w-full">
           <Search className="absolute right-3 top-3 text-gray-400" size={20} />
           <input
             type="text"
@@ -208,9 +230,31 @@ export default function UsersTab() {
             className="w-full pl-4 pr-10 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
           />
         </div>
-        <button onClick={handleResetDailySupport} className="bg-red-100 text-red-600 hover:bg-red-200 px-4 py-2 rounded-xl font-bold whitespace-nowrap transition-colors">
-          تصفير الدعم اليومي
-        </button>
+
+        <div className="flex items-center gap-2 w-full md:w-auto">
+          <button
+            type="button"
+            onClick={handleCreateRandomUser}
+            disabled={isGeneratingAccount}
+            className="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-500 hover:to-purple-500 text-white px-4 py-2 rounded-xl font-bold whitespace-nowrap transition-all shadow-md flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+          >
+            {isGeneratingAccount ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                <span>جاري إنشاء الحساب العشوائي...</span>
+              </>
+            ) : (
+              <>
+                <UserPlus size={18} />
+                <span>✨ إنشاء حساب عشوائي تلقائياً</span>
+              </>
+            )}
+          </button>
+
+          <button onClick={handleResetDailySupport} className="bg-red-100 text-red-600 hover:bg-red-200 px-4 py-2 rounded-xl font-bold whitespace-nowrap transition-colors text-sm">
+            تصفير الدعم اليومي
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -555,6 +599,70 @@ export default function UsersTab() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 🎉 Generated Random Account Success Modal */}
+      {generatedAccountModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" dir="rtl">
+          <div className="bg-slate-900 text-white rounded-2xl p-6 w-full max-w-md shadow-2xl border border-indigo-500/30 animate-in zoom-in-95 space-y-5">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2 text-emerald-400">
+                <Sparkles className="w-6 h-6 animate-pulse text-indigo-400" />
+                <h3 className="text-lg font-bold text-white">تم إنشاء الحساب العشوائي بنجاح!</h3>
+              </div>
+              <button onClick={() => setGeneratedAccountModal(null)} className="text-slate-400 hover:text-white p-1">✕</button>
+            </div>
+
+            <div className="p-3 bg-emerald-950/40 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+              <span>تم حفظ هذا الحساب تلقائياً في قاعدة البيانات Firestore وسجلات المستخدمين!</span>
+            </div>
+
+            <div className="bg-slate-950 p-4 rounded-xl border border-white/10 space-y-2.5 font-mono text-xs">
+              <div className="flex justify-between items-center text-slate-300 border-b border-white/5 pb-2">
+                <span className="text-slate-400">اسم المستخدم:</span>
+                <span className="font-bold text-indigo-300">{generatedAccountModal.displayName}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-300 border-b border-white/5 pb-2">
+                <span className="text-slate-400">الآي دي (ID):</span>
+                <span className="font-bold text-amber-400">{generatedAccountModal.numericId}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-300 border-b border-white/5 pb-2">
+                <span className="text-slate-400">البريد الإلكتروني:</span>
+                <span className="font-bold text-emerald-400 select-all">{generatedAccountModal.email}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-300 border-b border-white/5 pb-2">
+                <span className="text-slate-400">كلمة المرور:</span>
+                <span className="font-bold text-purple-400 select-all">{generatedAccountModal.password}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-300">
+                <span className="text-slate-400">الرصيد الابتدائي:</span>
+                <span className="font-bold text-yellow-300">{generatedAccountModal.diamonds} 💎 (VIP مفعل 👑)</span>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => {
+                  const text = `بيانات الحساب العشوائي الملكي:\nالاسم: ${generatedAccountModal.displayName}\nالآي دي: ${generatedAccountModal.numericId}\nالبريد: ${generatedAccountModal.email}\nكلمة المرور: ${generatedAccountModal.password}\nالرصيد: ${generatedAccountModal.diamonds} 💎`;
+                  navigator.clipboard.writeText(text);
+                  setCopiedAccountDetails(true);
+                  setTimeout(() => setCopiedAccountDetails(false), 3000);
+                }}
+                className="flex-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg"
+              >
+                {copiedAccountDetails ? <Check size={16} className="text-emerald-300" /> : <Copy size={16} />}
+                <span>{copiedAccountDetails ? 'تم نسخ بيانات الحساب بنجاح!' : 'نسخ كافة بيانات الحساب'}</span>
+              </button>
+              <button
+                onClick={() => setGeneratedAccountModal(null)}
+                className="px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-xl text-xs"
+              >
+                إغلاق
+              </button>
+            </div>
           </div>
         </div>
       )}

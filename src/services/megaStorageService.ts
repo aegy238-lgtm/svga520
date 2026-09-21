@@ -1,4 +1,6 @@
 import { MegaStorageRecord, MegaStorageStats, MegaSettings, MegaConnectionTestResult, MegaUploadProgress, MegaFileCategory } from '../types';
+import { db } from '../lib/firebase';
+import { doc, setDoc, getDoc, Timestamp } from 'firebase/firestore';
 
 export interface UploadOptions {
   userId?: string;
@@ -72,15 +74,27 @@ export function uploadToMegaStorage(
       });
     });
 
-    xhr.addEventListener('load', () => {
+    xhr.addEventListener('load', async () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           const response = JSON.parse(xhr.responseText);
           if (response.success) {
+            // Persist uploaded file record in Firestore as well
+            if (response.record && db) {
+              try {
+                await setDoc(doc(db, 'mega_storage_files', response.record.id), {
+                  ...response.record,
+                  syncedToFirestoreAt: Timestamp.now()
+                }, { merge: true });
+              } catch (fsErr) {
+                console.warn('Notice: could not store file metadata in Firestore:', fsErr);
+              }
+            }
+
             onProgress?.({
               percentage: 100,
               stage: 'completed',
-              message: response.isDuplicate ? 'الملف موجود مسبقاً في الكاش (تم منع التكرار بنجاح)!' : 'تم التخزين على MEGA بنجاح!',
+              message: response.isDuplicate ? 'الملف موجود مسبقاً في الكاش (تم منع التكرار بنجاح)!' : 'تم التخزين على MEGA وبقاعدة البيانات بنجاح!',
               fileName
             });
             resolve(response);
@@ -174,17 +188,77 @@ export async function fetchStorageStats(): Promise<MegaStorageStats> {
 }
 
 /**
- * Fetch storage settings
+ * Fetch storage settings from server and sync with Firestore database
  */
 export async function fetchStorageSettings(): Promise<MegaSettings> {
-  const res = await fetch('/api/storage/settings');
-  if (!res.ok) throw new Error('Failed to fetch storage settings');
-  const data = await res.json();
-  return data.settings;
+  let serverSettings: MegaSettings | null = null;
+  try {
+    const res = await fetch('/api/storage/settings');
+    if (res.ok) {
+      const data = await res.json();
+      serverSettings = data.settings;
+    }
+  } catch (e) {
+    console.warn('Failed to fetch storage settings from server:', e);
+  }
+
+  // Check Firestore for persisted folder URL and sync if needed
+  try {
+    if (db) {
+      const snap = await getDoc(doc(db, 'system_settings', 'mega_storage'));
+      if (snap.exists()) {
+        const firestoreData = snap.data();
+        if (firestoreData.folderUrl) {
+          if (!serverSettings) {
+            serverSettings = {
+              provider: 'MEGA',
+              folderUrl: firestoreData.folderUrl,
+              folderName: firestoreData.folderName || '1112ed / cache',
+              status: 'connected',
+              totalFiles: 0,
+              totalStorageBytes: 0,
+              autoDeduplication: true,
+              subfolders: ['/cache']
+            };
+          } else if (serverSettings.folderUrl !== firestoreData.folderUrl) {
+            serverSettings.folderUrl = firestoreData.folderUrl;
+            if (firestoreData.folderName) serverSettings.folderName = firestoreData.folderName;
+
+            // Sync Firestore setting to server memory
+            fetch('/api/storage/settings', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                folderUrl: firestoreData.folderUrl,
+                folderName: firestoreData.folderName
+              })
+            }).catch(() => {});
+          }
+        }
+      }
+    }
+  } catch (fsErr) {
+    console.warn('Notice: could not read storage settings from Firestore:', fsErr);
+  }
+
+  if (!serverSettings) {
+    return {
+      provider: 'MEGA',
+      folderUrl: 'https://mega.nz/folder/ZAEVwBAR#eCpPGWnnzvZRaNXoJleO9g',
+      folderName: '1112ed / cache',
+      status: 'connected',
+      totalFiles: 0,
+      totalStorageBytes: 0,
+      autoDeduplication: true,
+      subfolders: ['/cache']
+    };
+  }
+
+  return serverSettings;
 }
 
 /**
- * Update storage folder URL and settings
+ * Update storage folder URL and settings on both Server and Firestore DB
  */
 export async function updateStorageSettings(settings: {
   folderUrl?: string;
@@ -192,6 +266,7 @@ export async function updateStorageSettings(settings: {
   megaEmail?: string;
   megaPassword?: string;
 }): Promise<{ success: boolean; settings: MegaSettings; message: string }> {
+  // 1. Send update to Server API
   const res = await fetch('/api/storage/settings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -201,7 +276,23 @@ export async function updateStorageSettings(settings: {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || 'فشل تحديث إعدادات التخزين');
   }
-  return res.json();
+  const data = await res.json();
+
+  // 2. Persist to Firestore DB so settings survive across all restarts / deploys
+  try {
+    if (db) {
+      await setDoc(doc(db, 'system_settings', 'mega_storage'), {
+        folderUrl: data.settings?.folderUrl || settings.folderUrl,
+        folderName: data.settings?.folderName || settings.folderName || '1112ed / cache',
+        updatedAt: Timestamp.now(),
+        provider: 'MEGA'
+      }, { merge: true });
+    }
+  } catch (fsErr) {
+    console.warn('Notice: could not write storage settings to Firestore:', fsErr);
+  }
+
+  return data;
 }
 
 /**
