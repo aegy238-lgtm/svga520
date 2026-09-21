@@ -3,7 +3,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import audioRouter from "./src/server/audioRouter";
-import telegramRouter, { autoRegisterWebhookIfHosted } from "./src/server/telegramRouter";
+import storageRouter from "./src/server/storageRouter";
 
 // In-memory maintenance cache for instant fast response
 let serverMaintenanceState = {
@@ -20,12 +20,6 @@ async function startServer() {
 
   // Parse JSON bodies
   app.use(express.json());
-
-  // Auto-register Telegram Webhook immediately when user visits the site on a hosted URL
-  app.use((req, res, next) => {
-    autoRegisterWebhookIfHosted(req).catch(() => {});
-    next();
-  });
 
   // Maintenance status query / sync endpoint
   app.get("/api/maintenance/status", (req, res) => {
@@ -76,8 +70,8 @@ async function startServer() {
   // Audio & media processing API routes (always active for creator tools)
   app.use('/api/audio', audioRouter);
 
-  // Automatic Telegram File Forwarding API (with strict server-side Admin exclusion)
-  app.use('/api/telegram', telegramRouter);
+  // Central MEGA Cloud Storage & Cache API routes
+  app.use('/api/storage', storageRouter);
 
   // Serve FFmpeg Core locally from node_modules for zero-latency in-browser fallback
   const ffmpegCoreUmdPath = path.join(process.cwd(), 'node_modules', '@ffmpeg', 'core', 'dist', 'umd');
@@ -159,39 +153,6 @@ async function startServer() {
     res.json({ ip });
   });
 
-  // Secure User Cache File Resolution Endpoint
-  const handleCacheFileRequest = async (req: express.Request, res: express.Response) => {
-    const { fileId } = req.params;
-    if (!fileId) {
-      return res.status(400).json({ error: 'FILE_ID_REQUIRED', message: 'معرف الملف مطلوب' });
-    }
-
-    try {
-      // Direct redirection to download/cloud endpoint
-      // Client apps or users requesting this link will be redirected to the secure file payload
-      // Alternatively, we redirect to client app with file viewer query or direct download
-      const targetDownload = req.query.download === 'true';
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Cache-Control', 'public, max-age=3600');
-      
-      // Return JSON metadata if requested via Accept header or query
-      if (req.query.format === 'json' || req.headers.accept?.includes('application/json')) {
-        return res.json({
-          fileId,
-          status: 'ready',
-          timestamp: Date.now()
-        });
-      }
-
-      // Forward to SPA or direct handler
-      return res.redirect(302, `/?cache_file_id=${encodeURIComponent(fileId)}${targetDownload ? '&download=1' : ''}`);
-    } catch (err: any) {
-      return res.status(500).json({ error: 'CACHE_FILE_ERROR', message: err.message });
-    }
-  };
-
-  app.get("/api/cache/file/:fileId", handleCacheFileRequest);
-  app.get("/cache/file/:fileId", handleCacheFileRequest);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {

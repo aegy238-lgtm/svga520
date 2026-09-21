@@ -26,24 +26,6 @@ export default function UsersTab() {
     }
   };
 
-  const handleToggleCacheAccess = async (user: any) => {
-    try {
-      const newAccess = !user.hasCacheAccess;
-      await updateDoc(doc(db, 'users', user.id), { 
-        hasCacheAccess: newAccess,
-        cachePermissions: {
-          view: true,
-          download: true,
-          copyLink: true,
-          delete: false,
-          manage: false
-        }
-      });
-    } catch (error: any) {
-      alert('خطأ في تغيير صلاحية الكاش: ' + error.message);
-    }
-  };
-
   const handleToggleBanUser = async (user: any) => {
     if (user.role === 'admin' || user.email === 'iejehdgdig@gmail.com' || user.email === 'uhbijnokmpl098900@gmail.com') {
       return alert('لا يمكن حظر حساب المدير العام');
@@ -243,7 +225,6 @@ export default function UsersTab() {
                 <th className="px-4 py-3 text-sm font-bold text-gray-700">الحالة / الحظر</th>
                 <th className="px-4 py-3 text-sm font-bold text-gray-700">الرصيد</th>
                 <th className="px-4 py-3 text-sm font-bold text-amber-600">عضوية VIP</th>
-                <th className="px-4 py-3 text-sm font-bold text-red-600">الكاش ☠️</th>
                 <th className="px-4 py-3 text-sm font-bold text-gray-700">تاريخ التسجيل</th>
                 <th className="px-4 py-3 text-sm font-bold text-gray-700">الإجراءات</th>
               </tr>
@@ -257,11 +238,6 @@ export default function UsersTab() {
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-gray-800">{user.displayName || user.name || 'مستخدم'}</span>
-                          {user.hasCacheAccess && (
-                            <span className="px-2 py-0.5 rounded-lg text-[10px] font-black bg-gradient-to-r from-red-950 to-slate-900 text-red-400 border border-red-500/60 shadow-sm flex items-center gap-1">
-                              ☠️ CACHE
-                            </span>
-                          )}
                         </div>
                       </div>
                     </div>
@@ -338,20 +314,6 @@ export default function UsersTab() {
                     >
                       <Crown size={14} className={user.isVIP ? 'fill-slate-900' : 'text-gray-400'} />
                       <span>{user.isVIP ? 'VIP 👑 مفعل' : 'تفعيل VIP'}</span>
-                    </button>
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={() => handleToggleCacheAccess(user)}
-                      className={`px-3 py-1 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 border shadow-sm ${
-                        user.hasCacheAccess
-                          ? 'bg-gradient-to-r from-red-950 via-slate-900 to-red-950 text-red-400 border-red-500 shadow-red-900/40 hover:brightness-125'
-                          : 'bg-gray-100 text-gray-400 border-gray-200 hover:bg-red-50 hover:text-red-500 hover:border-red-300'
-                      }`}
-                      title={user.hasCacheAccess ? 'الكاش مفعّل (اضغط للتعطيل والإخفاء)' : 'الكاش معطّل ومخفي (اضغط للتفعيل)'}
-                    >
-                      <span>☠️</span>
-                      <span>{user.hasCacheAccess ? 'مفعّل ON' : 'معطّل OFF'}</span>
                     </button>
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-500">

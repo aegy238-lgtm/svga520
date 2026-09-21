@@ -61,7 +61,6 @@ export interface HeaderProps {
   onStoreOpen?: () => void;
   onVapHubOpen?: () => void;
   onVideoDurationSpeedOpen?: () => void;
-  onOpenUserCache?: () => void;
   onBatchImageOpen: () => void;
   onLoginClick: () => void;
   onProfileClick: () => void;
@@ -737,18 +736,6 @@ export const Header: React.FC<HeaderProps> = (props) => {
               <Crown className="w-4 h-4 text-amber-400 animate-pulse" />
               <span>VIP 👑</span>
             </div>
-          )}
-
-          {/* User Cloud Cache Button ☠️ */}
-          {(props.currentUser?.hasCacheAccess || props.currentUser?.isSuperAdmin || props.currentUser?.role === 'admin') && props.onOpenUserCache && (
-            <button
-              onClick={props.onOpenUserCache}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-red-950 via-slate-900 to-red-950 border border-red-500/50 shadow-[0_0_12px_rgba(239,68,68,0.25)] text-red-300 hover:text-white text-xs font-black transition-all hover:scale-105 active:scale-95 shrink-0"
-              title="سحابة ملفاتي السحابية (User Cloud Cache) ☠️"
-            >
-              <span className="text-sm">☠️</span>
-              <span className="text-[11px]">سحابة ملفاتي</span>
-            </button>
           )}
 
           <div className="w-px h-8 bg-white/10 hidden sm:block mx-0.5"></div>

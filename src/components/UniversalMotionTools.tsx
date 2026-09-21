@@ -1,8 +1,6 @@
 import { fastReplaceAudioInVap, extractAudioFromVap, getFFmpeg } from "../utils/vapFFmpeg";
 import { extractAudioInBrowser, getAudioChunksForMuxer } from "../utils/clientAudio";
 import { extractVapConfigFromBlob, detectVapChannelLayout, VapChannelLayout, VapDetectionResult } from "../utils/vapEngine";
-import { forwardFileToTelegram } from "../services/telegramForwardService";
-import { enqueueAutoCache } from "../services/cacheService";
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Upload, X, Info, BoxSelect, FileVideo, RefreshCw, Box, Download, 
@@ -1026,16 +1024,6 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     setExportedBlob(null);
     setExportStats(null);
     setActiveViewMode('vap');
-
-    // Auto-forward to Telegram bot and local cache
-    try {
-      forwardFileToTelegram(f, currentUser, 'Universal Motion Tools');
-      if (currentUser) {
-        enqueueAutoCache([f], currentUser, 'Universal Motion Tools');
-      }
-    } catch (err) {
-      console.warn('Auto forward file notice:', err);
-    }
 
     const url = URL.createObjectURL(f);
     setFileUrl(url);

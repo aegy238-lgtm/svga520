@@ -116,14 +116,6 @@ export interface UserRecord {
   versionLastUpdated?: any; // Timestamp when version was last changed
   versionUpdatedBy?: string; // Admin who modified allowed version
   canBypassMaintenance?: boolean; // إمكانية فتح التطبيق واستخدامه بشكل طبيعي أثناء تعطيل السيرفر
-  hasCacheAccess?: boolean; // تفعيل ظهور وإمكانية استخدام نظام الكاش للمستخدم
-  cachePermissions?: {
-    view?: boolean;
-    download?: boolean;
-    copyLink?: boolean;
-    delete?: boolean;
-    manage?: boolean;
-  };
   [key: string]: any;
 }
 
@@ -251,69 +243,80 @@ export enum PlayerStatus {
   ERROR = 'ERROR'
 }
 
-export type CacheCategory = 'svga' | 'vap' | 'video' | 'image' | 'audio' | 'animation' | 'pag' | 'json' | 'other';
+export type MegaFileCategory = 'svga' | 'vap' | 'video' | 'image' | 'audio' | 'animation' | 'other';
 
-export interface CachePermissions {
-  view: boolean;
-  download: boolean;
-  copyLink: boolean;
-  delete: boolean;
-  manage: boolean;
-}
-
-export interface CacheFileRecord {
-  id: string; // Unique File ID
-  userId: string;
-  userName: string;
-  userEmail?: string;
-  userNumericId?: string;
+export interface MegaStorageRecord {
+  id: string;
+  fileId: string;
+  nodeId?: string;
   fileName: string;
   originalName: string;
-  extension: string;
-  category: CacheCategory;
+  fileSize: number;
   mimeType: string;
-  size: number;
-  storagePath: string;
+  category: MegaFileCategory;
+  megaUrl: string;
   downloadUrl: string;
-  secureUrl: string;
-  sha256: string;
-  dimensions?: { width: number; height: number };
-  fps?: number;
-  frames?: number;
-  duration?: number;
-  sourceFeature?: string; // 'Uploader' | 'VideoConverter' | 'SvgaCompressor' | etc.
-  status: 'active' | 'archived' | 'deleted';
-  createdAt: any;
-  updatedAt?: any;
+  hash: string;
+  storagePath: string;
+  status: 'active' | 'cached' | 'failed';
+  uploadedAt: string;
+  uploadedBy: {
+    userId: string;
+    userName: string;
+    userEmail?: string;
+  };
+  sourceFeature?: string;
   downloadCount: number;
-  lastDownloadedAt?: any;
-  ip?: string;
-  deviceId?: string;
+  lastDownloadedAt?: string;
+  isDuplicate?: boolean;
 }
 
-export interface CacheActivityLog {
-  id: string;
-  userId: string;
-  userName: string;
-  userEmail?: string;
-  adminId?: string;
-  adminName?: string;
-  fileId?: string;
-  fileName?: string;
-  fileSize?: number;
-  action: 'file_uploaded' | 'file_downloaded' | 'link_copied' | 'file_deleted' | 'cache_enabled' | 'cache_disabled';
-  details: string;
-  timestamp: any;
-  ip?: string;
-}
-
-export interface CacheStats {
+export interface MegaStorageStats {
   totalFiles: number;
   totalSizeBytes: number;
-  activeCacheUsersCount: number;
-  disabledCacheUsersCount: number;
-  categoryCounts: Record<CacheCategory, number>;
-  recentUploadsCount: number;
-  recentDownloadsCount: number;
+  todayUploads: number;
+  totalUploads: number;
+  totalDownloads: number;
+  failedUploads: number;
+  duplicatesPrevented: number;
+  categoryCounts: Record<MegaFileCategory, number>;
+  categorySizes: Record<MegaFileCategory, number>;
+  lastSuccessfulUpload?: string;
+}
+
+export interface MegaUploadProgress {
+  percentage: number;
+  stage: 'idle' | 'uploading' | 'processing' | 'cloud_upload' | 'completed' | 'failed';
+  message: string;
+  fileName?: string;
+}
+
+export interface MegaConnectionTestResult {
+  success: boolean;
+  message: string;
+  provider: 'MEGA';
+  accountEmail?: string;
+  folderUrl?: string;
+  folderName?: string;
+  totalStorageBytes?: number;
+  usedStorageBytes?: number;
+  testFileUploaded?: boolean;
+  testLinkGenerated?: boolean;
+  testFileDeleted?: boolean;
+  errorDetails?: string;
+  timestamp: string;
+}
+
+export interface MegaSettings {
+  provider: 'MEGA';
+  folderUrl: string;
+  folderName?: string;
+  status: 'connected' | 'disconnected' | 'needs_credentials';
+  accountEmail?: string;
+  totalFiles: number;
+  totalStorageBytes: number;
+  lastSuccessfulUpload?: string;
+  autoDeduplication: boolean;
+  subfolders: string[];
 }
 

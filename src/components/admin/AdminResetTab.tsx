@@ -3,7 +3,6 @@ import { db, auth } from '../../firebase';
 import { doc, updateDoc, setDoc, deleteDoc, collection, getDocs, query, where, writeBatch } from 'firebase/firestore';
 import { RefreshCw, AlertTriangle, ShieldAlert, ShoppingBag, BarChart3, Trash2, CheckCircle, Database } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { resetTelegramStats } from '../../services/telegramForwardService';
 
 export default function AdminResetTab() {
   const { user } = useAuth();
@@ -133,16 +132,13 @@ export default function AdminResetTab() {
         totalDeleted += activitySnap.size;
       } catch (_) {}
 
-      // 5. Delete cache activities
+      // 5. Delete cache activities (cleanup)
       try {
         const cacheActSnap = await getDocs(collection(db, 'cache_activities'));
         const cacheActDeletions = cacheActSnap.docs.map(d => deleteDoc(doc(db, 'cache_activities', d.id)));
         await Promise.all(cacheActDeletions);
         totalDeleted += cacheActSnap.size;
       } catch (_) {}
-
-      // 6. Reset Telegram forwarded counters
-      await resetTelegramStats().catch(() => {});
 
       setStatusMessage({
         type: 'success',
@@ -277,7 +273,7 @@ export default function AdminResetTab() {
                 <span>حذف الإحصائيات العامة للموقع</span>
               </div>
               <p className="text-xs text-slate-600 leading-relaxed">
-                يقوم بمسح إحصائيات الزيارات (Analytics)، سجلات النشاط (Activity Logs)، سجلات الكاش، وإحصائيات التيليجرام العامة للبدء من جديد.
+                يقوم بمسح إحصائيات الزيارات (Analytics) وسجلات النشاط (Activity Logs) للبدء من جديد.
               </p>
             </div>
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db, storage } from '../../firebase';
 import { collection, addDoc, getDocs, doc, deleteDoc, query, orderBy, onSnapshot, setDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { uploadToMegaStorage } from '../../services/megaStorageService';
 import { Plus, Trash2, Image as ImageIcon, Link as LinkIcon, Upload, Loader2, Save } from 'lucide-react';
 
 export default function RoomBackgroundsTab() {
@@ -81,6 +82,10 @@ export default function RoomBackgroundsTab() {
 
     setIsUploading(true);
     try {
+      // Sync to MEGA Cloud Storage / Cache in background
+      uploadToMegaStorage(file, { sourceFeature: 'room_backgrounds', customFileName: `background_${file.name}` })
+        .catch(err => console.warn('Mega cache sync background notice:', err));
+
       const storageRef = ref(storage, `official_backgrounds/${Date.now()}_${file.name}`);
       const snapshot = await uploadBytes(storageRef, file);
       const downloadURL = await getDownloadURL(snapshot.ref);

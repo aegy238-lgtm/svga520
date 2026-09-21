@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db, storage } from '../../firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { uploadToMegaStorage } from '../../services/megaStorageService';
 import { Upload, Save, Gift, Mic, MessageCircle, Share2, Settings, Gamepad2, X, Send, LogOut, User, ShoppingBag, Crown, Diamond, Coins, MicOff, Lock, ShieldBan, MoreHorizontal, Smile, Music, Image as ImageIcon, Check, TrendingUp, ShieldAlert, Heart, Zap, Edit3, Users } from 'lucide-react';
 
 const ICON_DEFINITIONS = [
@@ -48,6 +49,10 @@ export default function AppIconsTab() {
 
     setIsUploading(true);
     try {
+      // Sync to MEGA Cloud Storage / Cache in background
+      uploadToMegaStorage(file, { sourceFeature: 'app_icons', customFileName: `${uploadTarget}_${file.name}` })
+        .catch(err => console.warn('Mega cache background sync notice:', err));
+
       const storageRef = ref(storage, `app_icons/${uploadTarget}_${Date.now()}_${file.name}`);
       const snapshot = await uploadBytes(storageRef, file);
       const downloadURL = await getDownloadURL(snapshot.ref);

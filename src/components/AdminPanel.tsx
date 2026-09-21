@@ -12,8 +12,7 @@ import { logActivity } from '../utils/logger';
 import { AccountVersionsTab } from './admin/AccountVersionsTab';
 import { FeatureAccessControlTab } from './admin/FeatureAccessControlTab';
 import { ExternalLinksManagerTab } from './admin/ExternalLinksManagerTab';
-import { UserCacheTab } from './admin/UserCacheTab';
-import { TelegramTab } from './admin/TelegramTab';
+import { CloudStorageTab } from './admin/CloudStorageTab';
 import { MaintenanceScreen } from './MaintenanceScreen';
 
 // Secondary app for creating users without logging out admin
@@ -28,7 +27,7 @@ interface AdminPanelProps {
 const EXPORT_FORMATS = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP 1.0.5', 'VAP (MP4)', 'SVGA → YYEVA'];
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'store' | 'keys' | 'assets' | 'settings' | 'records' | 'account_versions' | 'features_access' | 'server_outage' | 'external_links' | 'user_cache' | 'telegram'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'store' | 'keys' | 'assets' | 'settings' | 'records' | 'account_versions' | 'features_access' | 'server_outage' | 'external_links' | 'cloud_storage'>('users');
   const [dropdownState, setDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
   const [subDropdownState, setSubDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -85,8 +84,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
 
   const TABS = [
     { id: 'users', label: 'المستخدمين', icon: <Users /> },
-    { id: 'user_cache', label: 'كاش المستخدمين ☠️', icon: <span className="text-base">☠️</span> },
-    { id: 'telegram', label: 'إرسال لـ Telegram 🚀', icon: <Send className="text-sky-400" /> },
+    { id: 'cloud_storage', label: 'Cloud Storage / كاش MEGA', icon: <Server className="text-emerald-400" /> },
     { id: 'features_access', label: 'تحديد الوظائف', icon: <ShieldCheck /> },
     { id: 'external_links', label: 'روابط الداشبورد', icon: <Link2 className="text-cyan-400" /> },
     { id: 'server_outage', label: 'تعطيل سيرفر التطبيق', icon: <PowerOff className="text-rose-400" /> },
@@ -978,17 +976,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
             </div>
           ) : (
             <>
+              {activeTab === 'cloud_storage' && <CloudStorageTab />}
               {activeTab === 'features_access' && <FeatureAccessControlTab />}
-              {activeTab === 'user_cache' && (
-                <UserCacheTab 
-                  currentUser={currentUser} 
-                  users={users} 
-                  onRefreshUsers={fetchData} 
-                />
-              )}
-              {activeTab === 'telegram' && (
-                <TelegramTab currentUser={currentUser} />
-              )}
               {activeTab === 'external_links' && (
                 <ExternalLinksManagerTab 
                   settings={settings} 
@@ -1024,7 +1013,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                           <th className="p-3">الحالة</th>
                           <th className="p-3">الاشتراك</th>
                           <th className="p-3">عضوية VIP</th>
-                          <th className="p-3">الكاش ☠️</th>
                           <th className="p-3">الإجراءات</th>
                         </tr>
                       </thead>
@@ -1033,11 +1021,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                           <tr key={user.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                             <td className="p-3 font-medium flex items-center gap-2">
                                 {user.name}
-                                {user.hasCacheAccess && (
-                                  <span className="px-2 py-0.5 rounded-lg text-[10px] font-black bg-gradient-to-r from-red-950 to-slate-900 text-red-400 border border-red-500/60 shadow-sm flex items-center gap-1">
-                                    ☠️ CACHE
-                                  </span>
-                                )}
                                 {isSuperAdmin(user) && <span title="المدير العام"><BadgeCheck className="w-4 h-4 text-amber-400" /></span>}
                                 {user.role === 'admin' && !isSuperAdmin(user) && <span title="مسؤول"><BadgeCheck className="w-4 h-4 text-blue-400" /></span>}
                                 {user.role === 'moderator' && <span title="مشرف"><Shield className="w-4 h-4 text-green-400" /></span>}
@@ -1109,31 +1092,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                               >
                                 <Crown className={`w-3.5 h-3.5 ${user.isVIP ? 'text-amber-400' : 'text-slate-500'}`} />
                                 <span>{user.isVIP ? 'VIP 👑' : 'تفعيل'}</span>
-                              </button>
-                            </td>
-                            <td className="p-3">
-                              <button
-                                onClick={async () => {
-                                  try {
-                                    const nextState = !user.hasCacheAccess;
-                                    await updateDoc(doc(db, 'users', user.id), {
-                                      hasCacheAccess: nextState,
-                                      cachePermissions: { view: true, download: true, copyLink: true, delete: false, manage: false }
-                                    });
-                                    setUsers(prev => prev.map(u => u.id === user.id ? { ...u, hasCacheAccess: nextState } : u));
-                                  } catch (e: any) {
-                                    alert('خطأ في تغيير حالة الكاش: ' + e.message);
-                                  }
-                                }}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 border ${
-                                  user.hasCacheAccess
-                                    ? 'bg-gradient-to-r from-red-950 via-slate-900 to-red-950 text-red-400 border-red-500 shadow-sm shadow-red-950/50 hover:brightness-125'
-                                    : 'bg-slate-800/40 text-slate-500 border-white/5 hover:border-red-500/30 hover:text-red-400'
-                                }`}
-                                title={user.hasCacheAccess ? 'الكاش مفعّل (اضغط للتعطيل والإخفاء)' : 'الكاش معطّل ومخفي (اضغط للتفعيل)'}
-                              >
-                                <span>☠️</span>
-                                <span>{user.hasCacheAccess ? 'مفعّل ON' : 'معطّل OFF'}</span>
                               </button>
                             </td>
                             <td className="p-3 flex gap-2">
