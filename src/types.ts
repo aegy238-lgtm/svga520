@@ -245,6 +245,33 @@ export enum PlayerStatus {
 
 export type MegaFileCategory = 'svga' | 'vap' | 'video' | 'image' | 'audio' | 'animation' | 'other';
 
+export type StorageProviderType = 'storage_to' | 'mega' | 'cloudflare_r2' | 'supabase' | 'custom';
+
+export interface StorageProviderConfig {
+  id: string;
+  name: string;
+  type: StorageProviderType;
+  website?: string;
+  apiBaseUrl?: string;
+  uploadEndpoint?: string;
+  deleteEndpoint?: string;
+  downloadUrlPattern?: string;
+  apiKey?: string;
+  secretKey?: string;
+  bucketName?: string;
+  authType?: 'bearer' | 'api_key_header' | 'basic' | 'aws_s3' | 'none';
+  authHeaderName?: string;
+  maxFileSizeMB?: number;
+  expirationDays?: number;
+  isActivePrimary: boolean;
+  isActiveBackup: boolean;
+  status: 'active' | 'configured' | 'untested' | 'error';
+  folderUrl?: string;
+  folderName?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MegaStorageRecord {
   id: string;
   fileId: string;
@@ -258,7 +285,7 @@ export interface MegaStorageRecord {
   downloadUrl: string;
   hash: string;
   storagePath: string;
-  status: 'active' | 'cached' | 'failed';
+  status: 'active' | 'cached' | 'failed' | 'migrating';
   uploadedAt: string;
   uploadedBy: {
     userId: string;
@@ -269,6 +296,59 @@ export interface MegaStorageRecord {
   downloadCount: number;
   lastDownloadedAt?: string;
   isDuplicate?: boolean;
+  providerId?: string;
+  providerName?: string;
+  storageFileId?: string;
+  storageUrl?: string;
+  originalProviderId?: string;
+}
+
+export interface ProviderTestStepResult {
+  step: 'connection' | 'authentication' | 'upload' | 'file_url' | 'download' | 'delete' | 'cleanup';
+  name: string;
+  success: boolean;
+  message: string;
+  details?: string;
+}
+
+export interface ProviderTestResult {
+  providerId: string;
+  providerName: string;
+  overallSuccess: boolean;
+  steps: ProviderTestStepResult[];
+  timestamp: string;
+}
+
+export interface AutoDetectResult {
+  detected: boolean;
+  providerType?: StorageProviderType;
+  providerName?: string;
+  apiSupported: boolean;
+  uploadSupported: boolean;
+  downloadSupported: boolean;
+  deleteSupported: boolean;
+  suggestedConfig?: Partial<StorageProviderConfig>;
+  rawAnalysis?: Record<string, any>;
+  message: string;
+}
+
+export interface FileMigrationJob {
+  id: string;
+  sourceProviderId: string;
+  sourceProviderName: string;
+  targetProviderId: string;
+  targetProviderName: string;
+  status: 'idle' | 'running' | 'completed' | 'failed' | 'paused';
+  totalFiles: number;
+  completedFiles: number;
+  processingFiles: number;
+  failedFiles: number;
+  percent: number;
+  keepOriginalFiles: boolean;
+  filterMode: 'all' | 'selected' | 'active_only';
+  failedFileIds: string[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface MegaStorageStats {

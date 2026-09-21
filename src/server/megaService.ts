@@ -365,6 +365,70 @@ class MegaService {
   }
 
   /**
+   * Register a completed storage record from any provider
+   */
+  public async registerStorageRecord(data: {
+    fileName: string;
+    fileSize: number;
+    mimeType: string;
+    megaUrl: string;
+    downloadUrl: string;
+    hash: string;
+    providerId: string;
+    providerName: string;
+    storageFileId: string;
+    uploadedBy: {
+      userId: string;
+      userName: string;
+      userEmail?: string;
+    };
+    sourceFeature?: string;
+  }): Promise<MegaStorageRecord> {
+    const fileId = `file_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const category = this.detectCategory(data.fileName, data.mimeType);
+
+    const record: MegaStorageRecord = {
+      id: fileId,
+      fileId,
+      fileName: data.fileName,
+      originalName: data.fileName,
+      fileSize: data.fileSize,
+      mimeType: data.mimeType,
+      category,
+      megaUrl: data.megaUrl,
+      downloadUrl: data.downloadUrl,
+      hash: data.hash,
+      storagePath: `/cache/${category}/${data.fileName}`,
+      status: 'active',
+      uploadedAt: new Date().toISOString(),
+      uploadedBy: data.uploadedBy,
+      sourceFeature: data.sourceFeature || 'multi_provider',
+      downloadCount: 0,
+      providerId: data.providerId,
+      providerName: data.providerName,
+      storageFileId: data.storageFileId,
+      storageUrl: data.megaUrl
+    };
+
+    this.records.set(fileId, record);
+    if (data.hash) this.hashIndex.set(data.hash, fileId);
+
+    this.stats.totalUploads++;
+    this.stats.lastSuccessfulUpload = record.uploadedAt;
+    this.recalculateStats();
+    this.persistStateToDisk();
+
+    return record;
+  }
+
+  /**
+   * Get all file records
+   */
+  public getAllFiles(): MegaStorageRecord[] {
+    return Array.from(this.records.values());
+  }
+
+  /**
    * Get file record by ID or Hash
    */
   public getFileRecord(idOrHash: string): MegaStorageRecord | null {

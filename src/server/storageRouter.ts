@@ -1,6 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import megaService from './megaService';
+import { storageManager } from './storageManager';
 
 const router = express.Router();
 
@@ -14,7 +15,7 @@ const upload = multer({
 
 /**
  * POST /api/storage/upload
- * Centralized upload API for all frontend features
+ * Centralized upload API using StorageManager with Automatic Failover
  */
 router.post('/upload', upload.single('file'), async (req: express.Request, res: express.Response) => {
   try {
@@ -28,13 +29,32 @@ router.post('/upload', upload.single('file'), async (req: express.Request, res: 
 
     const { userId, userName, userEmail, sourceFeature } = req.body;
 
-    const record = await megaService.uploadFile({
+    // Execute upload via StorageManager (with automatic failover)
+    const uploadRes = await storageManager.uploadFile({
       buffer: req.file.buffer,
       fileName: req.file.originalname || `upload_${Date.now()}`,
       mimeType: req.file.mimetype || 'application/octet-stream',
+      category: 'other',
       userId: userId || (req.headers['x-user-id'] as string) || 'guest_user',
-      userName: userName || (req.headers['x-user-name'] as string) || 'مستخدم',
-      userEmail: userEmail || (req.headers['x-user-email'] as string) || '',
+      userName: userName || (req.headers['x-user-name'] as string) || 'مستخدم'
+    });
+
+    // Also register record in local metadata cache
+    const record = await megaService.registerStorageRecord({
+      fileName: req.file.originalname || `upload_${Date.now()}`,
+      fileSize: req.file.size || req.file.buffer.length,
+      mimeType: req.file.mimetype || 'application/octet-stream',
+      megaUrl: uploadRes.storageUrl,
+      downloadUrl: uploadRes.downloadUrl,
+      hash: uploadRes.hash,
+      providerId: uploadRes.providerId,
+      providerName: uploadRes.providerName,
+      storageFileId: uploadRes.storageFileId,
+      uploadedBy: {
+        userId: userId || 'guest_user',
+        userName: userName || 'مستخدم',
+        userEmail: userEmail || ''
+      },
       sourceFeature: sourceFeature || 'central_uploader'
     });
 
@@ -48,6 +68,8 @@ router.post('/upload', upload.single('file'), async (req: express.Request, res: 
       megaUrl: record.megaUrl,
       downloadUrl: record.downloadUrl,
       hash: record.hash,
+      providerId: record.providerId,
+      providerName: record.providerName,
       isDuplicate: record.isDuplicate || false,
       record
     });
@@ -59,6 +81,162 @@ router.post('/upload', upload.single('file'), async (req: express.Request, res: 
       message: error.message || 'فشل رفع الملف إلى التخزين السحابي.'
     });
   }
+});
+
+/**
+ * GET /api/storage/providers
+ * Fetch all registered storage providers and active status
+ */
+router.get('/providers', (req: express.Request, res: express.Response) => {
+  try {
+    const providers = storageManager.getProviders();
+    return res.json({
+      success: true,
+      providers
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * POST /api/storage/providers
+ * Register or update a storage provider config
+ */
+router.post('/providers', (req: express.Request, res: express.Response) => {
+  try {
+    const config = req.body;
+    if (!config.id) {
+      config.id = `prov_${Date.now()}`;
+    }
+    if (!config.createdAt) config.createdAt = new Date().toISOString();
+    config.updatedAt = new Date().toISOString();
+
+    const adapter = storageManager.registerProviderConfig(config);
+    return res.json({
+      success: true,
+      provider: config,
+      message: `تم حفظ وإعداد المزود (${adapter.name}) بنجاح!`
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * POST /api/storage/providers/:id/test
+ * Run 7-Step real diagnostic verification on a provider
+ */
+router.post('/providers/:id/test', async (req: express.Request, res: express.Response) => {
+  try {
+    const providerId = req.params.id;
+    const customConfig = req.body;
+    
+    let config = customConfig && customConfig.id ? customConfig : storageManager.getProviders().find(p => p.id === providerId);
+    if (!config) {
+      return res.status(404).json({ success: false, message: 'المزود المطلوب غير موجود' });
+    }
+
+    const testResult = await storageManager.testProviderConfig(config);
+    return res.json({
+      success: true,
+      result: testResult
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * POST /api/storage/providers/switch
+ * Switch active primary provider
+ */
+router.post('/providers/switch', async (req: express.Request, res: express.Response) => {
+  try {
+    const { providerId } = req.body;
+    await storageManager.setPrimaryProvider(providerId);
+    return res.json({
+      success: true,
+      message: 'تم تحويل وتفعيل مزود التخزين الرئيسي بنجاح! الملفات القديمة تظل متصلة بمزودها الأصلي.'
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * POST /api/storage/providers/failover
+ * Update failover settings
+ */
+router.post('/providers/failover', async (req: express.Request, res: express.Response) => {
+  try {
+    const { backupProviderId, failoverEnabled } = req.body;
+    if (typeof failoverEnabled === 'boolean') {
+      storageManager.setFailoverEnabled(failoverEnabled);
+    }
+    if (backupProviderId !== undefined) {
+      await storageManager.setBackupProvider(backupProviderId);
+    }
+    return res.json({
+      success: true,
+      message: 'تم تحديث إعدادات التبديل التلقائي عند الفشل (Failover) بنجاح!'
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * POST /api/storage/providers/auto-detect
+ * Auto probe domain API
+ */
+router.post('/providers/auto-detect', async (req: express.Request, res: express.Response) => {
+  try {
+    const { targetUrl } = req.body;
+    if (!targetUrl) {
+      return res.status(400).json({ success: false, message: 'يرجى إدخال رابط الموقع أو الـ API' });
+    }
+    const result = await storageManager.autoDetectProvider(targetUrl);
+    return res.json(result);
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * POST /api/storage/migration/start
+ * Start file migration between providers
+ */
+router.post('/migration/start', async (req: express.Request, res: express.Response) => {
+  try {
+    const { sourceProviderId, targetProviderId, filterMode, keepOriginalFiles } = req.body;
+    if (!sourceProviderId || !targetProviderId) {
+      return res.status(400).json({ success: false, message: 'يرجى تحديد المزود المصدر والمزود الهدف' });
+    }
+    const job = await storageManager.startMigration(sourceProviderId, targetProviderId, {
+      filterMode,
+      keepOriginalFiles
+    });
+    return res.json({
+      success: true,
+      job,
+      message: 'تم بدء عملية نقل الملفات بنجاح!'
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * GET /api/storage/migration/status
+ * Get current migration progress
+ */
+router.get('/migration/status', (req: express.Request, res: express.Response) => {
+  const job = storageManager.getMigrationStatus();
+  return res.json({
+    success: true,
+    job
+  });
 });
 
 /**

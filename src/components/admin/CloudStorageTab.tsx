@@ -17,6 +17,7 @@ import {
   formatBytes, getCategoryLabel 
 } from '../../services/megaStorageService';
 import { createRandomUserAccount, RandomUserAccount } from '../../services/userService';
+import { StorageProvidersManager } from './StorageProvidersManager';
 
 export const CloudStorageTab: React.FC = () => {
   // Stats & Settings
@@ -56,8 +57,8 @@ export const CloudStorageTab: React.FC = () => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Active view subtab: 'files' or 'settings'
-  const [subTab, setSubTab] = useState<'files' | 'settings'>('files');
+  // Active view subtab: 'files' | 'providers' | 'settings'
+  const [subTab, setSubTab] = useState<'files' | 'providers' | 'settings'>('files');
 
   // Random Account Generator State
   const [isGeneratingUser, setIsGeneratingUser] = useState(false);
@@ -368,6 +369,17 @@ export const CloudStorageTab: React.FC = () => {
               }`}
             >
               ملفات التخزين ({totalFiles})
+            </button>
+            <button
+              onClick={() => setSubTab('providers')}
+              className={`px-4 py-2 rounded-lg transition-all flex items-center gap-1.5 ${
+                subTab === 'providers'
+                  ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Server className="w-3.5 h-3.5" />
+              <span>Storage Providers</span>
             </button>
             <button
               onClick={() => setSubTab('settings')}
@@ -809,6 +821,9 @@ export const CloudStorageTab: React.FC = () => {
             )}
           </div>
         </div>
+      ) : subTab === 'providers' ? (
+        /* Storage Providers Management View */
+        <StorageProvidersManager showNotification={(msg, type) => showNotification(msg, type === 'error' ? 'error' : 'success')} />
       ) : (
         /* Settings & Connection Testing View */
         <div className="space-y-6">

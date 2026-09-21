@@ -1,4 +1,7 @@
-import { MegaStorageRecord, MegaStorageStats, MegaSettings, MegaConnectionTestResult, MegaUploadProgress, MegaFileCategory } from '../types';
+import { 
+  MegaStorageRecord, MegaStorageStats, MegaSettings, MegaConnectionTestResult, MegaUploadProgress, MegaFileCategory,
+  StorageProviderConfig, ProviderTestResult, AutoDetectResult, FileMigrationJob
+} from '../types';
 import { db } from '../lib/firebase';
 import { doc, setDoc, getDoc, Timestamp } from 'firebase/firestore';
 
@@ -341,6 +344,100 @@ export async function deleteStorageFile(fileId: string): Promise<boolean> {
   });
   const data = await res.json();
   return Boolean(data.success);
+}
+
+/**
+ * Fetch all registered storage providers
+ */
+export async function fetchStorageProviders(): Promise<StorageProviderConfig[]> {
+  const res = await fetch('/api/storage/providers');
+  const data = await res.json();
+  return data.providers || [];
+}
+
+/**
+ * Save or update a storage provider configuration
+ */
+export async function saveStorageProvider(config: Partial<StorageProviderConfig>): Promise<{ success: boolean; message: string; provider: StorageProviderConfig }> {
+  const res = await fetch('/api/storage/providers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config)
+  });
+  return await res.json();
+}
+
+/**
+ * Test a storage provider with 7 real verification steps
+ */
+export async function testStorageProvider(id: string, customConfig?: Partial<StorageProviderConfig>): Promise<ProviderTestResult> {
+  const res = await fetch(`/api/storage/providers/${encodeURIComponent(id)}/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(customConfig || {})
+  });
+  const data = await res.json();
+  return data.result;
+}
+
+/**
+ * Switch primary active storage provider
+ */
+export async function switchPrimaryProvider(providerId: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetch('/api/storage/providers/switch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providerId })
+  });
+  return await res.json();
+}
+
+/**
+ * Update Failover backup settings
+ */
+export async function updateFailoverSettings(backupProviderId: string, failoverEnabled: boolean): Promise<{ success: boolean; message: string }> {
+  const res = await fetch('/api/storage/providers/failover', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ backupProviderId, failoverEnabled })
+  });
+  return await res.json();
+}
+
+/**
+ * Auto Detect Storage Provider from URL / domain
+ */
+export async function autoDetectProvider(targetUrl: string): Promise<AutoDetectResult> {
+  const res = await fetch('/api/storage/providers/auto-detect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targetUrl })
+  });
+  return await res.json();
+}
+
+/**
+ * Start file migration between providers
+ */
+export async function startFileMigration(sourceProviderId: string, targetProviderId: string, options: {
+  filterMode?: 'all' | 'selected' | 'active_only';
+  keepOriginalFiles?: boolean;
+}): Promise<{ success: boolean; job: FileMigrationJob; message: string }> {
+  const res = await fetch('/api/storage/migration/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceProviderId, targetProviderId, ...options })
+  });
+  return await res.json();
+}
+
+/**
+ * Get current migration progress status
+ */
+export async function fetchMigrationStatus(): Promise<FileMigrationJob | null> {
+  const res = await fetch('/api/storage/migration/status');
+  const data = await res.json();
+  return data.job || null;
 }
 
 /**
