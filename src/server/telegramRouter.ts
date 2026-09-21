@@ -5,6 +5,12 @@ import fs from 'fs';
 
 const router = express.Router();
 
+// Auto-register webhook whenever request arrives on a public hosting domain
+router.use((req, res, next) => {
+  autoRegisterWebhookIfHosted(req).catch(() => {});
+  next();
+});
+
 // Setup temporary upload storage for Telegram forwarding
 const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
@@ -282,6 +288,7 @@ export function getExactMimeType(fileName: string, mime?: string): string {
  * Crucial: disable_content_type_detection is set to true to prevent Telegram servers
  * from transcoding, compressing, or re-encoding media files (MP4, SVGA, WebM, etc.).
  * This ensures files are stored and downloaded 100% byte-for-byte in their exact original size.
+ * Also handles strict Telegram 1024-character caption limits safely without erroring.
  */
 async function sendDocumentToTelegram(
   botToken: string,
@@ -295,22 +302,64 @@ async function sendDocumentToTelegram(
   const exactMime = getExactMimeType(fileName, mimeType);
   const fileBlob = new Blob([fileBuffer], { type: exactMime });
 
+  // 🛡️ Safe Caption Handling: Telegram limits captions to strictly 1024 characters!
+  let safeCaption = captionHtml;
+  let followUpText: string | null = null;
+
+  if (safeCaption.length > 950) {
+    const lines = safeCaption.split('\n');
+    const compact: string[] = [];
+    let curLen = 0;
+    for (const l of lines) {
+      if (curLen + l.length + 1 < 900) {
+        compact.push(l);
+        curLen += l.length + 1;
+      } else {
+        break;
+      }
+    }
+    safeCaption = compact.join('\n');
+    followUpText = captionHtml; // Send complete original metadata in immediate follow-up message
+  }
+
   const formData = new FormData();
   formData.append('chat_id', chatId);
-  formData.append('caption', captionHtml);
+  formData.append('caption', safeCaption);
   formData.append('parse_mode', 'HTML');
   // ⚡ CRITICAL: Force Telegram to treat as pure raw binary document without content-type inspection or video re-encoding
   formData.append('disable_content_type_detection', 'true');
   formData.append('document', fileBlob, fileName);
 
-  const response = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
+  let response = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
     method: 'POST',
     body: formData
   });
 
-  const resJson: any = await response.json();
+  let resJson: any = await response.json().catch(() => ({ ok: false }));
+
+  // Fallback 1: If Telegram fails due to HTML entity formatting, retry with plain text caption
+  if (!resJson.ok && (resJson.description?.includes('parse entities') || resJson.description?.includes('can\'t parse'))) {
+    const plainCaption = safeCaption.replace(/<[^>]*>?/gm, '').substring(0, 950);
+    const retryFormData = new FormData();
+    retryFormData.append('chat_id', chatId);
+    retryFormData.append('caption', plainCaption);
+    retryFormData.append('disable_content_type_detection', 'true');
+    retryFormData.append('document', fileBlob, fileName);
+
+    response = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
+      method: 'POST',
+      body: retryFormData
+    });
+    resJson = await response.json().catch(() => ({ ok: false }));
+  }
+
   if (!response.ok || !resJson.ok) {
     throw new Error(resJson.description || `Telegram API error: HTTP ${response.status}`);
+  }
+
+  // If follow-up text is queued (for long URLs/metadata), send it right away
+  if (followUpText) {
+    await sendMessageToTelegram(botToken, chatId, followUpText).catch(() => {});
   }
 
   return resJson;
@@ -608,6 +657,44 @@ export async function handleTelegramUpdate(update: any, botToken: string): Promi
 let isBotPollingRunning = false;
 let pollingOffset = 0;
 let isWebhookMode = false;
+let lastAutoRegisteredDomain = '';
+
+/**
+ * Automatically inspects the current request's domain and registers
+ * the Telegram webhook if the site is running on a live hosted URL.
+ */
+export async function autoRegisterWebhookIfHosted(req: express.Request): Promise<void> {
+  try {
+    const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+    if (!host || host.includes('localhost') || host.includes('127.0.0.1')) {
+      return; // Skip local development
+    }
+
+    const domainUrl = `${proto}://${host}`;
+    if (domainUrl === lastAutoRegisteredDomain) {
+      return;
+    }
+
+    const botToken = process.env.TELEGRAM_BOT_TOKEN || telegramConfig.botToken;
+    if (!botToken) return;
+
+    const checkRes = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`);
+    const checkData: any = await checkRes.json();
+    const expectedWebhookUrl = `${domainUrl}/api/telegram/webhook`;
+
+    if (checkData.ok && checkData.result?.url !== expectedWebhookUrl) {
+      console.log(`[Telegram Server] 🔄 Auto-updating webhook from "${checkData.result?.url || 'none'}" to "${expectedWebhookUrl}"`);
+      await setTelegramWebhook(domainUrl);
+      lastAutoRegisteredDomain = domainUrl;
+    } else if (checkData.ok && checkData.result?.url === expectedWebhookUrl) {
+      lastAutoRegisteredDomain = domainUrl;
+      isWebhookMode = true;
+    }
+  } catch (e) {
+    console.warn('[Telegram Server] Error in autoRegisterWebhookIfHosted:', e);
+  }
+}
 
 /**
  * Set Webhook for Hosted Domains
@@ -672,13 +759,18 @@ export function startTelegramBotPolling() {
   isBotPollingRunning = true;
 
   (async () => {
-    console.log('[Telegram Bot Polling] 🚀 Starting long-polling worker...');
+    console.log('[Telegram Bot Polling] 🚀 Starting worker...');
 
-    // Attempt clean startup: if not using webhook, delete any lingering webhook so getUpdates never conflicts
+    // Inspect current webhook status on Telegram FIRST - do not delete valid active webhooks!
     const initialToken = process.env.TELEGRAM_BOT_TOKEN || telegramConfig.botToken;
     if (initialToken) {
       try {
-        await fetch(`https://api.telegram.org/bot${initialToken}/deleteWebhook?drop_pending_updates=false`, { method: 'POST' });
+        const webhookCheck = await fetch(`https://api.telegram.org/bot${initialToken}/getWebhookInfo`);
+        const info: any = await webhookCheck.json();
+        if (info.ok && info.result?.url) {
+          isWebhookMode = true;
+          console.log(`[Telegram Server] 🔗 Active webhook preserved on startup: ${info.result.url}`);
+        }
       } catch (_) {}
     }
 
@@ -1164,23 +1256,102 @@ router.post('/forward', upload.single('file'), async (req, res) => {
       retryCount: 0
     };
 
-    telegramQueue.push(task);
+    // 🚀 STEP 6: DIRECT IMMEDIATE DELIVERY
+    // Keeping request open ensures Cloud Run / Serverless containers allocate 100% CPU to deliver files immediately!
+    let directDeliverySuccess = false;
+    let deliveredMessageId: number | undefined = undefined;
+    let deliveryError: string = '';
 
-    // Trigger queue worker in background (non-blocking)
+    const TELEGRAM_MAX_FILE_SIZE = 49 * 1024 * 1024;
+    for (const target of destinations) {
+      try {
+        if (stagedFilePath && fs.existsSync(stagedFilePath) && fileSize <= TELEGRAM_MAX_FILE_SIZE) {
+          const res = await sendDocumentToTelegram(
+            botToken,
+            target.id,
+            stagedFilePath,
+            fileName,
+            captionHtml,
+            meta.mimeType
+          );
+          if (res?.ok) {
+            directDeliverySuccess = true;
+            deliveredMessageId = res?.result?.message_id;
+          }
+        } else {
+          // Send notification message for large files or external URLs
+          const largeNotice = [
+            `⚠️ <b>ملف جديد مرفوع (يتجاوز 50MB)</b>`,
+            captionHtml,
+            downloadUrl ? `💾 <b>رابط التنزيل المباشر:</b> <a href="${downloadUrl}">${downloadUrl}</a>` : null
+          ].filter(Boolean).join('\n');
+          const res = await sendMessageToTelegram(botToken, target.id, largeNotice);
+          if (res?.ok) {
+            directDeliverySuccess = true;
+            deliveredMessageId = res?.result?.message_id;
+          }
+        }
+      } catch (err: any) {
+        deliveryError = err?.message || 'Error delivering to Telegram';
+        console.warn(`[Telegram Direct Dispatch] Attempt to ${target.label} note:`, deliveryError);
+      }
+    }
+
+    if (directDeliverySuccess) {
+      // Clean up staged file immediately after successful dispatch
+      if (stagedFilePath && fs.existsSync(stagedFilePath)) {
+        await fs.promises.unlink(stagedFilePath).catch(() => {});
+      }
+      recentSentHashes.set(dedupKey, Date.now());
+      stats.totalForwarded++;
+      stats.lastSentAt = new Date().toISOString();
+
+      addLog({
+        id: `sent_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        fileName,
+        fileSize,
+        fileSizeFormatted: formatBytes(fileSize),
+        category,
+        extension,
+        userId,
+        userName,
+        userEmail,
+        sourceFeature,
+        status: 'sent',
+        timestamp: new Date().toISOString(),
+        telegramMessageId: deliveredMessageId
+      });
+
+      console.log(`[Telegram Router] ✅ Instantly forwarded "${fileName}" (${formatBytes(fileSize)}) to Telegram directly.`);
+      return res.json({
+        success: true,
+        delivered: true,
+        fileName,
+        telegramMessageId: deliveredMessageId,
+        sendMode,
+        destinations: destinations.map(d => d.label),
+        message: `تم إرسال الملف بنجاح إلى التليجرام (${destinations.map(d => d.label).join(' + ')}).`
+      });
+    }
+
+    // Safety fallback: if direct delivery hit a temporary network blip, enqueue for background retry
+    telegramQueue.push(task);
     processTelegramQueueWorker().catch(err => {
       console.warn('[Telegram Router] Worker launch note:', err);
     });
 
-    console.log(`[Telegram Router] Staged & Enqueued "${fileName}" (${formatBytes(fileSize)}). Queue size: ${telegramQueue.length}`);
+    console.log(`[Telegram Router] Direct delivery fallback: Enqueued "${fileName}" (${formatBytes(fileSize)}). Queue size: ${telegramQueue.length}`);
 
     return res.json({
       success: true,
+      delivered: false,
       queued: true,
       queueLength: telegramQueue.length,
       fileName,
+      warning: deliveryError,
       sendMode,
       destinations: destinations.map(d => d.label),
-      message: `تم إدراج الملف في طابور الإرسال الآمن إلى Telegram (المحدد: ${sendMode === 'personal' ? 'الحساب الشخصي فقط' : sendMode}) بنجاح.`
+      message: `تم استقبال الملف في الموقع، ويجري تأكيد إرساله إلى Telegram في الخلفية (${deliveryError || 'Waiting queue'}).`
     });
 
   } catch (error: any) {
@@ -1541,12 +1712,10 @@ router.get('/logs', (req, res) => {
 
 /**
  * POST /api/telegram/webhook
- * Public endpoint that Telegram Bot API calls directly with updates on any hosting domain
+ * Public endpoint that Telegram Bot API calls directly with updates on any hosting domain.
+ * Awaits update handling before returning 200 OK so serverless containers maintain 100% CPU.
  */
 router.post('/webhook', async (req, res) => {
-  // Always respond fast with 200 OK to Telegram
-  res.status(200).send('OK');
-
   const botToken = process.env.TELEGRAM_BOT_TOKEN || telegramConfig.botToken;
   if (botToken && req.body) {
     try {
@@ -1555,6 +1724,100 @@ router.post('/webhook', async (req, res) => {
       console.warn('[Telegram Webhook] Error handling update:', e);
     }
   }
+
+  res.status(200).send('OK');
+});
+
+/**
+ * GET /api/telegram/webhook-info
+ * Returns live status directly from Telegram API (getWebhookInfo & getMe)
+ */
+router.get('/webhook-info', async (req, res) => {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN || telegramConfig.botToken;
+  if (!botToken) {
+    return res.json({ success: false, error: 'No bot token configured' });
+  }
+
+  try {
+    const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+    const currentDomain = host ? `${proto}://${host}` : '';
+    const expectedWebhookUrl = currentDomain ? `${currentDomain}/api/telegram/webhook` : '';
+
+    const [webhookRes, meRes] = await Promise.all([
+      fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`),
+      fetch(`https://api.telegram.org/bot${botToken}/getMe`)
+    ]);
+
+    const webhookData: any = await webhookRes.json();
+    const meData: any = await meRes.json();
+
+    const currentWebhookUrl = webhookData?.result?.url || '';
+    const isSynced = Boolean(currentWebhookUrl && expectedWebhookUrl && currentWebhookUrl === expectedWebhookUrl);
+
+    // Auto-fix if hosted and not synced
+    if (host && !host.includes('localhost') && !host.includes('127.0.0.1') && !isSynced && currentDomain) {
+      setTelegramWebhook(currentDomain).catch(() => {});
+    }
+
+    return res.json({
+      success: true,
+      bot: meData?.result || null,
+      webhook: webhookData?.result || null,
+      currentDomain,
+      expectedWebhookUrl,
+      currentWebhookUrl,
+      isSynced,
+      pendingUpdates: webhookData?.result?.pending_update_count || 0,
+      lastError: webhookData?.result?.last_error_message || null,
+      lastErrorDate: webhookData?.result?.last_error_date || null
+    });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+/**
+ * POST /api/telegram/auto-sync-domain
+ * Seamlessly registers the public hosting domain with Telegram Webhook
+ */
+router.post('/auto-sync-domain', async (req, res) => {
+  let domainUrl = req.body?.domainUrl;
+  if (!domainUrl) {
+    const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+    if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
+      domainUrl = `${proto}://${host}`;
+    }
+  }
+
+  if (!domainUrl) {
+    return res.json({ success: false, message: 'بيئة محلية أو رابط غير محدد' });
+  }
+
+  const result = await setTelegramWebhook(domainUrl);
+  return res.json({
+    success: result.ok,
+    webhookUrl: `${domainUrl.replace(/\/+$/, '')}/api/telegram/webhook`,
+    message: result.ok ? `تم ربط وتثبيت Webhook بنجاح مع رابط الاستضافة: ${domainUrl}` : result.description
+  });
+});
+
+/**
+ * POST /api/telegram/reset-stats
+ * Resets forwarding stats and clear memory logs
+ */
+router.post('/reset-stats', (req, res) => {
+  stats.totalForwarded = 0;
+  stats.totalSkippedAdmin = 0;
+  stats.totalFailed = 0;
+  stats.lastSentAt = null;
+  recentLogs.length = 0;
+
+  return res.json({
+    success: true,
+    message: 'تم تصفير وحذف إحصائيات التليجرام وسجلات التحويل بنجاح.'
+  });
 });
 
 /**

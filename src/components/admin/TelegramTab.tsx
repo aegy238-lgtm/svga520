@@ -19,7 +19,8 @@ import {
   Phone,
   Users,
   Sparkles,
-  MessageSquare
+  MessageSquare,
+  Trash2
 } from 'lucide-react';
 import { UserRecord } from '../../types';
 import { 
@@ -29,6 +30,8 @@ import {
   autoDetectTelegramAccount,
   syncTelegramWebhook,
   deleteTelegramWebhookClient,
+  resetTelegramStats,
+  getTelegramLiveInfo,
   TelegramStatusResponse 
 } from '../../services/telegramForwardService';
 
@@ -39,6 +42,7 @@ interface TelegramTabProps {
 export const TelegramTab: React.FC<TelegramTabProps> = ({ currentUser }) => {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<TelegramStatusResponse | null>(null);
+  const [liveInfo, setLiveInfo] = useState<any>(null);
 
   // Form Inputs
   const [botToken, setBotToken] = useState('');
@@ -49,7 +53,7 @@ export const TelegramTab: React.FC<TelegramTabProps> = ({ currentUser }) => {
   const [sendMode, setSendMode] = useState<'both' | 'personal' | 'group'>('personal');
   const [destinationAccount, setDestinationAccount] = useState('@Ss99ssbdnc');
   const [isEnabled, setIsEnabled] = useState(true);
-  const [ignoreAdminUploads, setIgnoreAdminUploads] = useState(true);
+  const [ignoreAdminUploads, setIgnoreAdminUploads] = useState(false);
   const [showToken, setShowToken] = useState(false);
 
   // Actions state
@@ -57,6 +61,7 @@ export const TelegramTab: React.FC<TelegramTabProps> = ({ currentUser }) => {
   const [testing, setTesting] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [syncingWebhook, setSyncingWebhook] = useState(false);
+  const [resettingStats, setResettingStats] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [detectResult, setDetectResult] = useState<{ success: boolean; message: string; botUsername?: string } | null>(null);
@@ -64,7 +69,10 @@ export const TelegramTab: React.FC<TelegramTabProps> = ({ currentUser }) => {
 
   const fetchStatus = async () => {
     setLoading(true);
-    const data = await getTelegramStatus();
+    const [data, live] = await Promise.all([
+      getTelegramStatus(),
+      getTelegramLiveInfo().catch(() => null)
+    ]);
     if (data) {
       setStatus(data);
       setIsEnabled(data.enabled);
@@ -74,6 +82,9 @@ export const TelegramTab: React.FC<TelegramTabProps> = ({ currentUser }) => {
       if (data.ownerName) setOwnerName(data.ownerName);
       if (data.groupTarget) setGroupTarget(data.groupTarget);
       if (data.sendMode) setSendMode(data.sendMode);
+    }
+    if (live) {
+      setLiveInfo(live);
     }
     setLoading(false);
   };
@@ -268,6 +279,41 @@ export const TelegramTab: React.FC<TelegramTabProps> = ({ currentUser }) => {
           <span>{ignoreAdminUploads ? 'تعطيل التجاهل (إرسال ملفاتي)' : 'تفعيل التجاهل (منع إرسال ملفاتي)'}</span>
         </button>
       </div>
+
+      {/* Live Connection & Diagnostics Badge */}
+      {liveInfo && (
+        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-3">
+            <div className={`w-3 h-3 rounded-full shrink-0 ${liveInfo.success ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
+            <div>
+              <span className="text-slate-300 font-bold">
+                حالة البوت المباشرة: {liveInfo.bot?.username ? `@${liveInfo.bot.username}` : 'متصل'}
+              </span>
+              <div className="text-slate-400 text-[11px] mt-0.5">
+                {liveInfo.currentWebhookUrl
+                  ? `Webhook نشط: ${liveInfo.currentWebhookUrl} (التحديثات المعلقة: ${liveInfo.pendingUpdates || 0})`
+                  : 'يعمل بالاستماع المباشر (Polling/Webhook Ready)'}
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            disabled={resettingStats}
+            onClick={async () => {
+              if (!window.confirm('هل تريد تصفير وحذف إحصائيات وسجلات إرسال التيليجرام؟')) return;
+              setResettingStats(true);
+              await resetTelegramStats();
+              await fetchStatus();
+              setResettingStats(false);
+            }}
+            className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-950/40 border border-slate-700 hover:border-rose-500/40 text-slate-300 hover:text-rose-300 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer text-xs font-semibold"
+          >
+            {resettingStats ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+            <span>تصفير إحصائيات التيليجرام</span>
+          </button>
+        </div>
+      )}
 
       {/* Live Statistics Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

