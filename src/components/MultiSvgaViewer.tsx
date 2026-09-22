@@ -1570,269 +1570,319 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         let player: any = null;
         let internalCanvas: HTMLCanvasElement | null = null;
         let audiosToMux: ExtractedAudioTrack[] = [];
+        let videoEncoder: VideoEncoder | null = null;
 
-        if (item.type === "pag") {
-          const PAG = await getPAG();
-          let pagFile = item.pagFile;
-          if (!pagFile) {
-            pagFile = await PAG.PAGFile.load(await item.file.arrayBuffer());
-            item.pagFile = pagFile;
-          }
-          internalCanvas = document.createElement("canvas");
-          const canvasId = "pag_indiv_" + Math.random().toString(36).substring(2, 9);
-          internalCanvas.id = canvasId;
-          internalCanvas.width = item.dimensions?.width || 500;
-          internalCanvas.height = item.dimensions?.height || 500;
-          internalCanvas.style.width = "100%";
-          internalCanvas.style.height = "100%";
-          internalCanvas.style.objectFit = "contain";
-          div.appendChild(internalCanvas);
-
-          player = await PAG.PAGPlayer.create();
-          player.setComposition(pagFile);
-          const pagSurface = PAG.PAGSurface.fromCanvas('#' + canvasId);
-          if (pagSurface) {
-            pagSurface.updateSize();
-            player.setSurface(pagSurface);
-          }
-          player.setVideoEnabled(true);
-          player.setProgress(0);
-          await player.flush();
-        } else {
-          const videoItem = await parseSvgaIfNeeded(item);
-          try {
-            const audioData = await extractAllSvgaAudioTracks(videoItem);
-            if (audioData.length > 0) {
-              audiosToMux = audioData;
-            }
-          } catch (e) {
-            console.warn("Could not extract audio for export", e);
-          }
-          player = new SVGA.Player(div);
-          player.setVideoItem(videoItem);
-          player.setContentMode('AspectFit');
-          player.stepToFrame(0, false);
-          internalCanvas = div.querySelector("canvas");
-        }
-
-        // Mix audio for this item if present
-        let mixedAudioBuffer: AudioBuffer | null = null;
-        let hasNativeAudioTrack = false;
-        if (audiosToMux.length > 0) {
-          try {
-            mixedAudioBuffer = await mixAudioTracksToBuffer(audiosToMux, {
-              durationSec,
-              fps: targetFps,
-              loopShorterAudio: true,
-            });
-            // @ts-ignore
-            if (mixedAudioBuffer && typeof AudioEncoder !== 'undefined') {
-              const codec = isWebM ? 'opus' : 'mp4a.40.2';
-              // @ts-ignore
-              const check = await AudioEncoder.isConfigSupported({
-                codec,
-                numberOfChannels: 2,
-                sampleRate: mixedAudioBuffer.sampleRate,
-                bitrate: 128000
-              });
-              if (check.supported) {
-                hasNativeAudioTrack = true;
-              }
-            }
-          } catch (audioErr) {
-            console.warn("[SVGA Individual Export] Audio mixing notice:", audioErr);
-          }
-        }
-
-        const muxer = isWebM 
-          ? new WebMMuxer({
-              target: new WebmArrayBufferTarget(),
-              video: { codec: 'V_VP9', width: finalWidth, height: finalHeight },
-              audio: hasNativeAudioTrack && mixedAudioBuffer ? { codec: 'A_OPUS', numberOfChannels: 2, sampleRate: mixedAudioBuffer.sampleRate } : undefined
-            })
-          : new Mp4Muxer({
-              target: new Mp4ArrayBufferTarget(),
-              video: { codec: "avc", width: finalWidth, height: finalHeight },
-              audio: hasNativeAudioTrack && mixedAudioBuffer ? { codec: 'aac', numberOfChannels: 2, sampleRate: mixedAudioBuffer.sampleRate } : undefined,
-              fastStart: "in-memory"
-            });
-
-        let hasEncoderError = false;
-        const videoEncoder = new VideoEncoder({
-          output: (chunk, metadata) => {
-            let safeMetadata: any = undefined;
-            if (metadata) {
-              safeMetadata = { ...metadata };
-              if (safeMetadata.decoderConfig) {
-                safeMetadata.decoderConfig = { ...safeMetadata.decoderConfig };
-                if (safeMetadata.decoderConfig.colorSpace === null) {
-                  delete safeMetadata.decoderConfig.colorSpace;
-                }
-              } else if (safeMetadata.decoderConfig === null) {
-                delete safeMetadata.decoderConfig;
-              }
-            }
-            muxer.addVideoChunk(chunk, safeMetadata);
-          },
-          error: (e) => {
-            console.error("Encoder Error:", e);
-            hasEncoderError = true;
-          }
-        });
-
-        if (hasNativeAudioTrack && mixedAudioBuffer) {
-          await encodeAudioBufferToMuxer(mixedAudioBuffer, muxer, isWebM);
-        }
-
-        const totalPixels = finalWidth * finalHeight;
-        const targetBitrate = exportQuality === 'high'
-          ? Math.max(12_000_000, Math.round(totalPixels * 4))
-          : exportQuality === 'medium'
-          ? Math.max(5_000_000, Math.round(totalPixels * 1.8))
-          : Math.max(2_000_000, Math.round(totalPixels * 0.9));
-
-        videoEncoder.configure({
-          codec: exportFormat === 'webm' ? "vp09.00.10.08" : "avc1.4D002A",
-          width: finalWidth,
-          height: finalHeight,
-          bitrate: targetBitrate,
-          framerate: targetFps
-        });
-
-        await new Promise(r => setTimeout(r, 200));
-
-        for (let frame = 0; frame < totalFrames; frame++) {
-          if (bgImg) {
-            ctx.drawImage(bgImg, 0, 0, finalWidth, finalHeight);
-          } else {
-            ctx.fillStyle = "#0f172a";
-            ctx.fillRect(0, 0, finalWidth, finalHeight);
-          }
-
-          const elapsedSeconds = frame / targetFps;
+        try {
           if (item.type === "pag") {
-            const pagDur = (item.pagFile?.duration() / 1000000) || 1;
-            try {
-              player.setProgress((elapsedSeconds % pagDur) / pagDur);
-              await player.flush();
-            } catch (e) { console.warn("PAG export frame error", e); }
-          } else {
-            const itemFrame = Math.floor(elapsedSeconds * (item.fps || 30)) % (item.frames || 1);
-            try {
-              player.stepToFrame(itemFrame, false);
-            } catch (e) { console.warn("SVGA export frame error", e); }
-          }
-
-          if (internalCanvas) {
-            const sw = internalCanvas.width || item.dimensions?.width || 500;
-            const sh = internalCanvas.height || item.dimensions?.height || 500;
-            const scale = Math.min(finalWidth / sw, finalHeight / sh);
-            const drawW = sw * scale;
-            const drawH = sh * scale;
-            const dx = (finalWidth - drawW) / 2;
-            const dy = (finalHeight - drawH) / 2;
-
-            ctx.drawImage(internalCanvas, dx, dy, drawW, drawH);
-          }
-
-          if (wmImg) {
-            const wmSize = Math.min(finalWidth, finalHeight) * (wmSettings.size / 100);
-            let wx = 0, wy = 0;
-            if (wmSettings.isAnimated) {
-              const speed = wmSettings.animationSpeed || 5;
-              const pxPerFrame = speed * 1.5;
-              const maxX = Math.max(1, finalWidth - wmSize);
-              const maxY = Math.max(1, finalHeight - wmSize);
-              const distX = frame * pxPerFrame;
-              const distY = frame * pxPerFrame * 0.75;
-              const modX = distX % (maxX * 2);
-              const modY = distY % (maxY * 2);
-              wx = modX > maxX ? (maxX * 2) - modX : modX;
-              wy = modY > maxY ? (maxY * 2) - modY : modY;
-            } else {
-              switch (wmSettings.position) {
-                case "top-left": wx = 20; wy = 20; break;
-                case "top-right": wx = finalWidth - wmSize - 20; wy = 20; break;
-                case "bottom-left": wx = 20; wy = finalHeight - wmSize - 20; break;
-                case "bottom-right": wx = finalWidth - wmSize - 20; wy = finalHeight - wmSize - 20; break;
-                case "center": wx = (finalWidth - wmSize) / 2; wy = (finalHeight - wmSize) / 2; break;
-              }
+            const PAG = await getPAG();
+            let pagFile = item.pagFile;
+            if (!pagFile) {
+              pagFile = await PAG.PAGFile.load(await item.file.arrayBuffer());
+              item.pagFile = pagFile;
             }
-            ctx.globalAlpha = wmSettings.opacity;
-            ctx.drawImage(wmImg, wx, wy, wmSize, wmSize);
-            ctx.globalAlpha = 1.0;
+            internalCanvas = document.createElement("canvas");
+            const canvasId = "pag_indiv_" + Math.random().toString(36).substring(2, 9);
+            internalCanvas.id = canvasId;
+            internalCanvas.width = item.dimensions?.width || 500;
+            internalCanvas.height = item.dimensions?.height || 500;
+            internalCanvas.style.width = "100%";
+            internalCanvas.style.height = "100%";
+            internalCanvas.style.objectFit = "contain";
+            div.appendChild(internalCanvas);
+
+            player = await PAG.PAGPlayer.create();
+            player.setComposition(pagFile);
+            const pagSurface = PAG.PAGSurface.fromCanvas('#' + canvasId);
+            if (pagSurface) {
+              pagSurface.updateSize();
+              player.setSurface(pagSurface);
+            }
+            player.setVideoEnabled(true);
+            player.setProgress(0);
+            await player.flush();
+          } else {
+            const videoItem = await parseSvgaIfNeeded(item);
+            try {
+              const audioData = await extractAllSvgaAudioTracks(videoItem);
+              if (audioData.length > 0) {
+                audiosToMux = audioData;
+              }
+            } catch (e) {
+              console.warn("Could not extract audio for export", e);
+            }
+            player = new SVGA.Player(div);
+            player.clearsAfterStop = false;
+            player.setVideoItem(videoItem);
+            player.setContentMode('AspectFit');
+            player.stepToFrame(0, false);
+            internalCanvas = div.querySelector("canvas");
           }
 
-          const timestamp = (frame / targetFps) * 1_000_000;
-          const videoFrame = new VideoFrame(canvas, { timestamp });
-
-          while (videoEncoder.encodeQueueSize > 30) { await new Promise(r => setTimeout(r, 1)); }
-
-          if (hasEncoderError) break;
-          videoEncoder.encode(videoFrame, { keyFrame: frame % 30 === 0 });
-          videoFrame.close();
-
-          if (frame % 5 === 0 || frame === totalFrames - 1) {
-            await new Promise(r => setTimeout(r, 0));
-            const baseProg = (i / list.length) * 88;
-            const frameProg = ((frame / totalFrames) / list.length) * 88;
-            setExportProgress(Math.max(1, Math.min(88, Math.round(baseProg + frameProg))));
+          // Mix audio for this item if present
+          let mixedAudioBuffer: AudioBuffer | null = null;
+          let hasNativeAudioTrack = false;
+          if (audiosToMux.length > 0) {
+            try {
+              mixedAudioBuffer = await mixAudioTracksToBuffer(audiosToMux, {
+                durationSec,
+                fps: targetFps,
+                loopShorterAudio: true,
+              });
+              // @ts-ignore
+              if (mixedAudioBuffer && typeof AudioEncoder !== 'undefined') {
+                const codec = isWebM ? 'opus' : 'mp4a.40.2';
+                // @ts-ignore
+                const check = await AudioEncoder.isConfigSupported({
+                  codec,
+                  numberOfChannels: 2,
+                  sampleRate: mixedAudioBuffer.sampleRate,
+                  bitrate: 128000
+                });
+                if (check.supported) {
+                  hasNativeAudioTrack = true;
+                }
+              }
+            } catch (audioErr) {
+              console.warn("[SVGA Individual Export] Audio mixing notice:", audioErr);
+            }
           }
-        }
 
-        if (hasEncoderError) {
-          if (videoEncoder.state !== "closed") {
-            try { videoEncoder.close(); } catch(e) {}
+          const muxer = isWebM 
+            ? new WebMMuxer({
+                target: new WebmArrayBufferTarget(),
+                video: { codec: 'V_VP9', width: finalWidth, height: finalHeight },
+                audio: hasNativeAudioTrack && mixedAudioBuffer ? { codec: 'A_OPUS', numberOfChannels: 2, sampleRate: mixedAudioBuffer.sampleRate } : undefined
+              })
+            : new Mp4Muxer({
+                target: new Mp4ArrayBufferTarget(),
+                video: { codec: "avc", width: finalWidth, height: finalHeight },
+                audio: hasNativeAudioTrack && mixedAudioBuffer ? { codec: 'aac', numberOfChannels: 2, sampleRate: mixedAudioBuffer.sampleRate } : undefined,
+                fastStart: "in-memory"
+              });
+
+          let hasEncoderError = false;
+          videoEncoder = new VideoEncoder({
+            output: (chunk, metadata) => {
+              let safeMetadata: any = undefined;
+              if (metadata) {
+                safeMetadata = { ...metadata };
+                if (safeMetadata.decoderConfig) {
+                  safeMetadata.decoderConfig = { ...safeMetadata.decoderConfig };
+                  if (safeMetadata.decoderConfig.colorSpace === null) {
+                    delete safeMetadata.decoderConfig.colorSpace;
+                  }
+                } else if (safeMetadata.decoderConfig === null) {
+                  delete safeMetadata.decoderConfig;
+                }
+              }
+              muxer.addVideoChunk(chunk, safeMetadata);
+            },
+            error: (e) => {
+              console.error("Encoder Error:", e);
+              hasEncoderError = true;
+            }
+          });
+
+          if (hasNativeAudioTrack && mixedAudioBuffer) {
+            await encodeAudioBufferToMuxer(mixedAudioBuffer, muxer, isWebM);
           }
-          throw new Error("حدث خطأ أثناء تشفير الفيديو. يرجى تقليل الجودة أو استخدام متصفح أحدث.");
-        } else {
-          if (videoEncoder.state !== "closed") {
-            await videoEncoder.flush();
-            videoEncoder.close();
+
+          const totalPixels = finalWidth * finalHeight;
+          const targetBitrate = exportQuality === 'high'
+            ? Math.min(16_000_000, Math.max(8_000_000, Math.round(totalPixels * 3.5)))
+            : exportQuality === 'medium'
+            ? Math.min(8_000_000, Math.max(3_500_000, Math.round(totalPixels * 1.6)))
+            : Math.min(4_000_000, Math.max(1_500_000, Math.round(totalPixels * 0.8)));
+
+          let selectedCodec = isWebM ? "vp09.00.10.08" : (totalPixels > 2200000 ? "avc1.4d0033" : "avc1.4D002A");
+          if (!isWebM && typeof (VideoEncoder as any).isConfigSupported === 'function') {
+            const testCodecs = totalPixels > 2200000
+              ? ["avc1.4d0033", "avc1.640033", "avc1.4D002A", "avc1.42001f"]
+              : ["avc1.4D002A", "avc1.42001f", "avc1.4d0033"];
+            for (const c of testCodecs) {
+              try {
+                const res = await (VideoEncoder as any).isConfigSupported({
+                  codec: c,
+                  width: finalWidth,
+                  height: finalHeight,
+                  bitrate: targetBitrate,
+                  framerate: targetFps
+                });
+                if (res.supported) {
+                  selectedCodec = c;
+                  break;
+                }
+              } catch (e) {}
+            }
           }
-          muxer.finalize();
+
+          videoEncoder.configure({
+            codec: selectedCodec,
+            width: finalWidth,
+            height: finalHeight,
+            bitrate: targetBitrate,
+            framerate: targetFps
+          });
+
+          await new Promise(r => setTimeout(r, 40));
+
+          for (let frame = 0; frame < totalFrames; frame++) {
+            if (bgImg) {
+              ctx.drawImage(bgImg, 0, 0, finalWidth, finalHeight);
+            } else {
+              ctx.fillStyle = "#0f172a";
+              ctx.fillRect(0, 0, finalWidth, finalHeight);
+            }
+
+            const elapsedSeconds = frame / targetFps;
+            if (item.type === "pag") {
+              const pagDur = (item.pagFile?.duration() / 1000000) || 1;
+              try {
+                player.setProgress((elapsedSeconds % pagDur) / pagDur);
+                await player.flush();
+              } catch (e) { console.warn("PAG export frame error", e); }
+            } else {
+              const itemFrame = Math.floor(elapsedSeconds * (item.fps || 30)) % (item.frames || 1);
+              try {
+                player.stepToFrame(itemFrame, false);
+              } catch (e) { console.warn("SVGA export frame error", e); }
+            }
+
+            if (internalCanvas) {
+              const sw = internalCanvas.width || item.dimensions?.width || 500;
+              const sh = internalCanvas.height || item.dimensions?.height || 500;
+              const scale = Math.min(finalWidth / sw, finalHeight / sh);
+              const drawW = sw * scale;
+              const drawH = sh * scale;
+              const dx = (finalWidth - drawW) / 2;
+              const dy = (finalHeight - drawH) / 2;
+
+              ctx.drawImage(internalCanvas, dx, dy, drawW, drawH);
+            }
+
+            if (wmImg) {
+              const wmSize = Math.min(finalWidth, finalHeight) * (wmSettings.size / 100);
+              let wx = 0, wy = 0;
+              if (wmSettings.isAnimated) {
+                const speed = wmSettings.animationSpeed || 5;
+                const pxPerFrame = speed * 1.5;
+                const maxX = Math.max(1, finalWidth - wmSize);
+                const maxY = Math.max(1, finalHeight - wmSize);
+                const distX = frame * pxPerFrame;
+                const distY = frame * pxPerFrame * 0.75;
+                const modX = distX % (maxX * 2);
+                const modY = distY % (maxY * 2);
+                wx = modX > maxX ? (maxX * 2) - modX : modX;
+                wy = modY > maxY ? (maxY * 2) - modY : modY;
+              } else {
+                switch (wmSettings.position) {
+                  case "top-left": wx = 20; wy = 20; break;
+                  case "top-right": wx = finalWidth - wmSize - 20; wy = 20; break;
+                  case "bottom-left": wx = 20; wy = finalHeight - wmSize - 20; break;
+                  case "bottom-right": wx = finalWidth - wmSize - 20; wy = finalHeight - wmSize - 20; break;
+                  case "center": wx = (finalWidth - wmSize) / 2; wy = (finalHeight - wmSize) / 2; break;
+                }
+              }
+              ctx.globalAlpha = wmSettings.opacity;
+              ctx.drawImage(wmImg, wx, wy, wmSize, wmSize);
+              ctx.globalAlpha = 1.0;
+            }
+
+            const timestamp = (frame / targetFps) * 1_000_000;
+            const videoFrame = new VideoFrame(canvas, { timestamp });
+
+            try {
+              while (videoEncoder.encodeQueueSize > 12 && !hasEncoderError) {
+                await new Promise(r => setTimeout(r, 2));
+              }
+
+              if (!hasEncoderError && videoEncoder.state === "configured") {
+                videoEncoder.encode(videoFrame, { keyFrame: frame % 30 === 0 });
+              }
+            } finally {
+              videoFrame.close();
+            }
+
+            if (hasEncoderError) break;
+
+            if (frame % 5 === 0 || frame === totalFrames - 1) {
+              await new Promise(r => setTimeout(r, 0));
+              const baseProg = (i / list.length) * 88;
+              const frameProg = ((frame / totalFrames) / list.length) * 88;
+              setExportProgress(Math.max(1, Math.min(88, Math.round(baseProg + frameProg))));
+            }
+          }
+
+          if (hasEncoderError) {
+            if (videoEncoder && videoEncoder.state !== "closed") {
+              try { videoEncoder.close(); } catch(e) {}
+            }
+            throw new Error("حدث خطأ أثناء تشفير الفيديو. يرجى تقليل الجودة أو استخدام متصفح أحدث.");
+          } else {
+            if (videoEncoder && videoEncoder.state !== "closed") {
+              await videoEncoder.flush();
+              videoEncoder.close();
+            }
+            muxer.finalize();
+          }
+
+          let { buffer } = muxer.target as any;
+          let finalMp4Buffer = buffer;
+
+          // If audio was present but not encoded via native AudioEncoder, run safe FFmpeg fallback
+          if (mixedAudioBuffer && !hasNativeAudioTrack) {
+            finalMp4Buffer = await muxAudioWithFFmpegFallback(buffer, mixedAudioBuffer, isWebM, ensureFFmpeg);
+          }
+
+          // Post-export verification
+          const verification = await verifyExportedVideo(finalMp4Buffer, isWebM ? 'webm' : 'mp4');
+          console.log("[SVGA Individual Export] Video verified:", item.name, verification);
+
+          const ext = isWebM ? 'webm' : 'mp4';
+          const mime = isWebM ? 'video/webm' : 'video/mp4';
+          const cleanName = uniqueNames[item.id];
+          const folderPrefix = item.folderPath ? `${item.folderPath}/` : '';
+          const videoFilename = `${folderPrefix}${cleanName}.${ext}`;
+
+          if (streamZip) {
+            // Add video file to ZIP archive
+            streamZip.addFile(videoFilename, new Uint8Array(finalMp4Buffer));
+          } else {
+            // Single video direct download
+            const blob = new Blob([finalMp4Buffer], { type: mime });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${cleanName}.${ext}`;
+            a.click();
+            URL.revokeObjectURL(url);
+          }
+        } finally {
+          // Guaranteed resource cleanup after each item
+          if (videoEncoder && (videoEncoder as any).state !== "closed") {
+            try { (videoEncoder as any).close(); } catch (e) {}
+          }
+          if (player) {
+            try {
+              if (item.type === "pag") {
+                player.destroy?.();
+              } else {
+                player.stopAnimation?.();
+              }
+            } catch (e) {}
+          }
+          try {
+            div.innerHTML = '';
+            if (renderContainer.contains(div)) {
+              renderContainer.removeChild(div);
+            }
+          } catch (e) {}
+          canvas.width = 0;
+          canvas.height = 0;
         }
 
-        let { buffer } = muxer.target as any;
-        let finalMp4Buffer = buffer;
-
-        // If audio was present but not encoded via native AudioEncoder, run safe FFmpeg fallback
-        if (mixedAudioBuffer && !hasNativeAudioTrack) {
-          finalMp4Buffer = await muxAudioWithFFmpegFallback(buffer, mixedAudioBuffer, isWebM, ensureFFmpeg);
-        }
-
-        // Post-export verification
-        const verification = await verifyExportedVideo(finalMp4Buffer, isWebM ? 'webm' : 'mp4');
-        console.log("[SVGA Individual Export] Video verified:", item.name, verification);
-
-        renderContainer.removeChild(div);
-        if (item.type === "pag" && player) {
-          try { player.destroy?.(); } catch (e) {}
-        }
-
-        const ext = isWebM ? 'webm' : 'mp4';
-        const mime = isWebM ? 'video/webm' : 'video/mp4';
-        const cleanName = uniqueNames[item.id];
-        const folderPrefix = item.folderPath ? `${item.folderPath}/` : '';
-        const videoFilename = `${folderPrefix}${cleanName}.${ext}`;
-
-        if (streamZip) {
-          // Add video file to ZIP archive
-          streamZip.addFile(videoFilename, new Uint8Array(finalMp4Buffer));
-        } else {
-          // Single video direct download
-          const blob = new Blob([finalMp4Buffer], { type: mime });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = `${cleanName}.${ext}`;
-          a.click();
-          URL.revokeObjectURL(url);
-        }
-
-        if (list.length > 5) {
-          item.videoItem = null;
-        }
+        // Allow garbage collector and event loop to breathe between items
+        await new Promise(r => setTimeout(r, 40));
           } catch (e) { console.warn("Failed individual export", e); } completedCount++;
           setExportProgress(Math.round(88 + (completedCount / list.length) * 12));
         }));
@@ -2383,14 +2433,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           const y = (dh - finalH) / 2;
           ctx.drawImage(svgaCanvas, x, y, finalW, finalH);
         }
-        
-        // Drop videoItem reference specifically for large exports to save memory!
-        if ((items as any[]).length > 50) { 
-           item.videoItem = undefined;
-        }
       } finally {
         if (player) {
-          try { player.clear(); } catch(e) {}
+          try { player.stopAnimation?.(); } catch(e) {}
         }
         if (div.parentNode) {
           document.body.removeChild(div);
@@ -2906,7 +2951,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         return await new Promise<Blob>((resolve) => finalCanvas.toBlob((b) => resolve(b || new Blob()), 'image/png', 1.0));
       } finally {
         if (player) {
-          try { player.clear(); } catch(e) {}
+          try { player.stopAnimation?.(); } catch(e) {}
         }
         if (div.parentNode) document.body.removeChild(div);
       }
@@ -3817,21 +3862,6 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 {isExporting ? `جاري التصدير ${exportProgress}%` : 'تصدير كل ملف فيديو منفصل (ZIP)'}
               </button>
 
-              <button 
-                onClick={handleExportGrid}
-                disabled={isExporting || isZipping}
-                className="relative overflow-hidden group px-8 py-3 bg-slate-800/60 border border-slate-700/60 rounded-2xl text-slate-300 font-bold text-xs uppercase tracking-wider hover:bg-slate-700/60 transition-all flex items-center gap-3 disabled:opacity-50"
-              >
-                <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]" />
-                {isExporting ? `جاري التسجيل ${exportProgress}%` : 'تسجيل فيديو مجمع (كل الملفات فيديو واحد)'}
-                {isExporting && (
-                  <motion.div 
-                    className="absolute bottom-0 left-0 h-1 bg-red-500"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${exportProgress}%` }}
-                  />
-                )}
-              </button>
               <button 
                 onClick={handleSelectAll}
                 className="px-6 py-3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-2xl border border-indigo-500/20 font-black text-sm transition-all flex items-center gap-2"
