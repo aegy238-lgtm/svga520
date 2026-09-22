@@ -12,7 +12,6 @@ import { logActivity } from '../utils/logger';
 import { AccountVersionsTab } from './admin/AccountVersionsTab';
 import { FeatureAccessControlTab } from './admin/FeatureAccessControlTab';
 import { ExternalLinksManagerTab } from './admin/ExternalLinksManagerTab';
-import { CloudStorageTab } from './admin/CloudStorageTab';
 import { MaintenanceScreen } from './MaintenanceScreen';
 
 // Secondary app for creating users without logging out admin
@@ -27,7 +26,7 @@ interface AdminPanelProps {
 const EXPORT_FORMATS = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP 1.0.5', 'VAP (MP4)', 'SVGA → YYEVA'];
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'store' | 'keys' | 'assets' | 'settings' | 'records' | 'account_versions' | 'features_access' | 'server_outage' | 'external_links' | 'cloud_storage'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'store' | 'keys' | 'assets' | 'settings' | 'records' | 'account_versions' | 'features_access' | 'server_outage' | 'external_links'>('users');
   const [dropdownState, setDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
   const [subDropdownState, setSubDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -84,7 +83,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
 
   const TABS = [
     { id: 'users', label: 'المستخدمين', icon: <Users /> },
-    { id: 'cloud_storage', label: 'Cloud Storage / كاش MEGA', icon: <Server className="text-emerald-400" /> },
     { id: 'features_access', label: 'تحديد الوظائف', icon: <ShieldCheck /> },
     { id: 'external_links', label: 'روابط الداشبورد', icon: <Link2 className="text-cyan-400" /> },
     { id: 'server_outage', label: 'تعطيل سيرفر التطبيق', icon: <PowerOff className="text-rose-400" /> },
@@ -976,7 +974,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
             </div>
           ) : (
             <>
-              {activeTab === 'cloud_storage' && <CloudStorageTab />}
               {activeTab === 'features_access' && <FeatureAccessControlTab />}
               {activeTab === 'external_links' && (
                 <ExternalLinksManagerTab 

@@ -5,11 +5,9 @@ import { LanguageProvider } from './contexts/LanguageContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { setupSvgaAudioPolyfill } from './utils/svgaAudio';
-import { initGlobalAutoStorageSync } from './services/autoStorageSync';
 import './index.css';
 
 setupSvgaAudioPolyfill();
-initGlobalAutoStorageSync();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

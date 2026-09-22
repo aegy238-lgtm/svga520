@@ -108,7 +108,6 @@ import { VersionBlockedModal } from './components/Auth/VersionBlockedModal';
 import { checkVersionCompatibility, verifyAccountVersionWithServer, getActiveClientVersion } from './utils/versionControl';
 import { AppUpdateToast } from './components/AppUpdateToast';
 import { extractSvgaFromPdfFile } from './utils/pdfSvgaExtractor';
-import { registerCurrentUserProvider, syncFileToStorage } from './services/autoStorageSync';
 
 declare var SVGA: any;
 
@@ -246,7 +245,6 @@ const App: React.FC = () => {
   // Ensure user always lands directly on the SVGA Editor / Dashboard home screen
 
   useEffect(() => {
-    registerCurrentUserProvider(() => currentUser);
     if (!currentUser) {
       setVersionBlockedState(prev => ({ ...prev, isBlocked: false }));
       return;
@@ -497,16 +495,6 @@ const App: React.FC = () => {
 
     if (expandedFiles.length === 0) return;
     const currentFiles = expandedFiles;
-
-    // Background auto-sync all uploaded files to central MEGA storage registry
-    currentFiles.forEach(f => {
-      syncFileToStorage(f, {
-        sourceFeature: uploadMode === 'batch-svga' ? 'batch_svga' : uploadMode === 'batch-mp4' ? 'batch_mp4' : 'main_uploader',
-        userId: currentUser?.id,
-        userName: currentUser?.name || currentUser?.email,
-        userEmail: currentUser?.email
-      }).catch(() => {});
-    });
 
     if (currentFiles.length > 1) {
       const svgaFiles = currentFiles.filter(f => (f?.name || '').toLowerCase().endsWith('.svga'));
