@@ -4,6 +4,8 @@ import { svgaSchema } from '../../svga-proto';
 import { EditableLayer, SVGAProjectData, FadeConfig, CropConfig, CropFeather } from './types';
 import { getLayerAnimatedTransform } from './motionEngine';
 import { ensureMp3WithId3 } from '../../utils/mp3Encoder';
+import { parseColorToRgb, calculateShineProgress, drawAnimatedShine, invertTransformPoint } from './shineEngine';
+import { ShineVectorPoint } from './types';
 import { 
   applyTransparencyToImage, 
   isTransparencyActive, 
@@ -77,6 +79,345 @@ async function optimizeImageBytes(bytes: Uint8Array, qualityRatio: number): Prom
   } catch {
     return bytes;
   }
+}
+
+/**
+ * Generates an optimized, hardware-accelerated shine beam sprite for SVGA export
+ */
+async function generateShineSpriteForLayer(
+  layer: EditableLayer,
+  project: SVGAProjectData,
+  exportImages: Record<string, Uint8Array>
+): Promise<any | null> {
+  const cfg = layer.shineConfig;
+  if (!cfg || !cfg.enabled) return null;
+
+  const totalFrames = project.totalFrames || 60;
+  const fps = project.fps || 30;
+  const beamWidth = cfg.beamWidth ?? 60;
+  const style = cfg.style ?? 'soft';
+  const color = cfg.color ?? '255, 255, 255';
+  const opacity = cfg.opacity ?? 0.85;
+  const featherSides = cfg.featherSides ?? 0.85;
+  const featherTopBottom = cfg.featherTopBottom ?? 0.7;
+  const direction = cfg.direction ?? 'forward';
+  const speedMultiplier = cfg.speedMultiplier ?? 1.0;
+  const durationSeconds = (cfg.durationSeconds ?? 2.0) / Math.max(0.1, speedMultiplier);
+  const repeatInterval = cfg.repeatInterval ?? 0.5;
+  const keyStart = cfg.keyframeStart ?? 0.0;
+  const keyEnd = cfg.keyframeEnd ?? 1.0;
+
+  // 1. Create beam image texture
+  const diagonal = Math.hypot(project.width, project.height);
+  const effBeamWidth = style === 'glow' ? Math.ceil(beamWidth * 1.6) : beamWidth;
+  const offW = Math.max(16, Math.ceil(effBeamWidth * 3));
+  const offH = Math.max(16, Math.ceil(diagonal * 1.8));
+
+  const beamCanvas = document.createElement('canvas');
+  beamCanvas.width = offW;
+  beamCanvas.height = offH;
+  const bCtx = beamCanvas.getContext('2d');
+  if (!bCtx) return null;
+
+  // Render beam profile onto beamCanvas
+  const rgb = parseColorToRgb(color);
+  const rgbStr = `${rgb.r}, ${rgb.g}, ${rgb.b}`;
+  const mid = offW / 2;
+  const hGrad = bCtx.createLinearGradient(0, 0, offW, 0);
+
+  if (style === 'double') {
+    const coreW = (effBeamWidth * 0.25) * Math.max(0.1, featherSides);
+    const wideW = (effBeamWidth * 0.75) * Math.max(0.1, featherSides);
+    hGrad.addColorStop(0, `rgba(${rgbStr}, 0)`);
+    hGrad.addColorStop(Math.max(0, (mid - wideW) / offW), `rgba(${rgbStr}, 0)`);
+    hGrad.addColorStop(Math.max(0, (mid - wideW * 0.5) / offW), `rgba(${rgbStr}, ${opacity * 0.3})`);
+    hGrad.addColorStop(Math.max(0, (mid - coreW) / offW), `rgba(${rgbStr}, ${opacity * 0.5})`);
+    hGrad.addColorStop(0.5, `rgba(${rgbStr}, ${opacity})`);
+    hGrad.addColorStop(Math.min(1, (mid + coreW) / offW), `rgba(${rgbStr}, ${opacity * 0.5})`);
+    hGrad.addColorStop(Math.min(1, (mid + wideW * 0.5) / offW), `rgba(${rgbStr}, ${opacity * 0.3})`);
+    hGrad.addColorStop(Math.min(1, (mid + wideW) / offW), `rgba(${rgbStr}, 0)`);
+    hGrad.addColorStop(1, `rgba(${rgbStr}, 0)`);
+  } else if (style === 'sharp') {
+    const coreW = Math.max(2, (effBeamWidth * 0.2) * Math.max(0.05, featherSides));
+    const haloW = (effBeamWidth * 0.5) * Math.max(0.1, featherSides);
+    hGrad.addColorStop(0, `rgba(${rgbStr}, 0)`);
+    hGrad.addColorStop(Math.max(0, (mid - haloW) / offW), `rgba(${rgbStr}, 0)`);
+    hGrad.addColorStop(Math.max(0, (mid - coreW) / offW), `rgba(${rgbStr}, ${opacity * 0.6})`);
+    hGrad.addColorStop(0.5, `rgba(${rgbStr}, ${opacity})`);
+    hGrad.addColorStop(Math.min(1, (mid + coreW) / offW), `rgba(${rgbStr}, ${opacity * 0.6})`);
+    hGrad.addColorStop(Math.min(1, (mid + haloW) / offW), `rgba(${rgbStr}, 0)`);
+    hGrad.addColorStop(1, `rgba(${rgbStr}, 0)`);
+  } else if (style === 'glow') {
+    const r = (effBeamWidth * 1.2) * Math.max(0.2, featherSides);
+    hGrad.addColorStop(0, `rgba(${rgbStr}, 0)`);
+    hGrad.addColorStop(Math.max(0, (mid - r) / offW), `rgba(${rgbStr}, 0)`);
+    hGrad.addColorStop(Math.max(0, (mid - r * 0.4) / offW), `rgba(${rgbStr}, ${opacity * 0.6})`);
+    hGrad.addColorStop(0.5, `rgba(${rgbStr}, ${opacity * 0.95})`);
+    hGrad.addColorStop(Math.min(1, (mid + r * 0.4) / offW), `rgba(${rgbStr}, ${opacity * 0.6})`);
+    hGrad.addColorStop(Math.min(1, (mid + r) / offW), `rgba(${rgbStr}, 0)`);
+    hGrad.addColorStop(1, `rgba(${rgbStr}, 0)`);
+  } else {
+    // Default 'soft'
+    const r = (effBeamWidth * 0.6) * Math.max(0.1, featherSides);
+    hGrad.addColorStop(0, `rgba(${rgbStr}, 0)`);
+    hGrad.addColorStop(Math.max(0, (mid - r) / offW), `rgba(${rgbStr}, 0)`);
+    hGrad.addColorStop(0.5, `rgba(${rgbStr}, ${opacity})`);
+    hGrad.addColorStop(Math.min(1, (mid + r) / offW), `rgba(${rgbStr}, 0)`);
+    hGrad.addColorStop(1, `rgba(${rgbStr}, 0)`);
+  }
+
+  bCtx.fillStyle = hGrad;
+  bCtx.fillRect(0, 0, offW, offH);
+
+  // Apply vertical feathering
+  if (featherTopBottom > 0) {
+    bCtx.globalCompositeOperation = 'destination-in';
+    const vGrad = bCtx.createLinearGradient(0, 0, 0, offH);
+    const fade = Math.min(0.45, 0.5 * featherTopBottom);
+    vGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    vGrad.addColorStop(fade, 'rgba(0,0,0,1)');
+    vGrad.addColorStop(1 - fade, 'rgba(0,0,0,1)');
+    vGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    bCtx.fillStyle = vGrad;
+    bCtx.fillRect(0, 0, offW, offH);
+    bCtx.globalCompositeOperation = 'source-over';
+  }
+
+  const beamBlob = await new Promise<Blob | null>(res => beamCanvas.toBlob(res, 'image/png'));
+  if (!beamBlob) return null;
+  const beamBytes = new Uint8Array(await beamBlob.arrayBuffer());
+  const shineImageKey = `shine_beam_${layer.id}.png`;
+  exportImages[shineImageKey] = beamBytes;
+
+  // 2. Trajectory points
+  const sPt = cfg.startPoint || {
+    x: Math.round(layer.transform.x + layer.transform.width / 2),
+    y: Math.max(0, Math.round(layer.transform.y - 30))
+  };
+  const ePt = cfg.endPoint || {
+    x: Math.round(layer.transform.x + layer.transform.width / 2),
+    y: Math.round(layer.transform.y + layer.transform.height + 30)
+  };
+
+  const dx = ePt.x - sPt.x;
+  const dy = ePt.y - sPt.y;
+  const pathLen = Math.hypot(dx, dy);
+  const pathAngle = pathLen > 1 ? Math.atan2(dy, dx) : 0;
+  const beamAngleRad = (pathLen <= 2 && cfg.angleDeg !== undefined)
+    ? (cfg.angleDeg * Math.PI) / 180 + Math.PI / 2
+    : pathAngle + Math.PI / 2;
+
+  const cos = Math.cos(beamAngleRad);
+  const sin = Math.sin(beamAngleRad);
+
+  // 3. Build frames for the sprite
+  const frames: any[] = [];
+  const inFrame = layer.inFrame !== undefined ? layer.inFrame : 0;
+  const outFrame = layer.outFrame !== undefined ? layer.outFrame : totalFrames - 1;
+
+  for (let f = 0; f < totalFrames; f++) {
+    if (f < inFrame || f > outFrame) {
+      frames.push({
+        alpha: 0,
+        transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 },
+        layout: { x: -offW / 2, y: -offH / 2, width: offW, height: offH }
+      });
+      continue;
+    }
+
+    const { isActive, progress } = calculateShineProgress(f, totalFrames, fps, cfg);
+
+    if (!isActive) {
+      frames.push({
+        alpha: 0,
+        transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 },
+        layout: { x: -offW / 2, y: -offH / 2, width: offW, height: offH }
+      });
+      continue;
+    }
+
+    // Adjust for direction
+    let dirProgress = progress;
+    if (direction === 'reverse') {
+      dirProgress = 1 - progress;
+    } else if (direction === 'pingpong') {
+      dirProgress = progress < 0.5 ? progress * 2 : (1 - progress) * 2;
+    }
+
+    const curX = sPt.x + dirProgress * dx;
+    const curY = sPt.y + dirProgress * dy;
+
+    frames.push({
+      alpha: 1,
+      transform: {
+        a: cos,
+        b: sin,
+        c: -sin,
+        d: cos,
+        tx: curX,
+        ty: curY
+      },
+      layout: {
+        x: -offW / 2,
+        y: -offH / 2,
+        width: offW,
+        height: offH
+      }
+    });
+  }
+
+  const shineSprite: any = {
+    imageKey: shineImageKey,
+    blendMode: 'screen',
+    frames
+  };
+
+  if (cfg.maskToAlpha && layer.imageKey) {
+    shineSprite.matteKey = layer.imageKey;
+  }
+
+  return shineSprite;
+}
+
+/**
+ * Bakes the Shine Effect directly into the base layer frames (تسلسل صور مدمجة).
+ * Guarantees 100% mathematical fidelity with canvas preview and seamless compatibility
+ * with all mobile SVGA players without requiring advanced matte or blendMode support.
+ */
+async function bakeShineIntoLayerFrames(
+  layer: EditableLayer,
+  project: SVGAProjectData,
+  exportImages: Record<string, Uint8Array>,
+  spriteClone: any
+): Promise<any[]> {
+  const cfg = layer.shineConfig;
+  if (!cfg || !cfg.enabled) return [spriteClone];
+
+  const totalFrames = project.totalFrames || 60;
+  const fps = project.fps || 30;
+  const inFrame = layer.inFrame !== undefined ? layer.inFrame : 0;
+  const outFrame = layer.outFrame !== undefined ? layer.outFrame : totalFrames - 1;
+
+  // Resolve base image source
+  const baseImgKey = layer.imageKey;
+  let baseBlobUrl = project.imagesMap[baseImgKey];
+  let revokeUrl = false;
+  if (!baseBlobUrl) {
+    const raw = exportImages[baseImgKey] || (project.rawImages && project.rawImages[baseImgKey]);
+    if (raw) {
+      baseBlobUrl = URL.createObjectURL(new Blob([raw], { type: 'image/png' }));
+      revokeUrl = true;
+    }
+  }
+
+  // If no base image at all, fallback to separate shine sprite
+  if (!baseBlobUrl) {
+    const separateSprite = await generateShineSpriteForLayer(layer, project, exportImages);
+    return separateSprite ? [spriteClone, separateSprite] : [spriteClone];
+  }
+
+  const baseImg = await new Promise<HTMLImageElement | null>((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = baseBlobUrl;
+  });
+
+  if (revokeUrl) {
+    URL.revokeObjectURL(baseBlobUrl);
+  }
+
+  if (!baseImg) {
+    const separateSprite = await generateShineSpriteForLayer(layer, project, exportImages);
+    return separateSprite ? [spriteClone, separateSprite] : [spriteClone];
+  }
+
+  const imgW = baseImg.naturalWidth || layer.transform.width || 200;
+  const imgH = baseImg.naturalHeight || layer.transform.height || 200;
+
+  const offCanvas = document.createElement('canvas');
+  offCanvas.width = imgW;
+  offCanvas.height = imgH;
+  const ctx = offCanvas.getContext('2d');
+  if (!ctx) return [spriteClone];
+
+  const newFrameSprites: any[] = [];
+  const bakedImageKeyMap: Record<number, string> = {};
+
+  for (let fIdx = 0; fIdx < totalFrames; fIdx++) {
+    if (fIdx < inFrame || fIdx > outFrame) {
+      continue;
+    }
+
+    const { isActive, progress } = calculateShineProgress(fIdx, totalFrames, fps, cfg);
+
+    let activeFrameKey = baseImgKey;
+
+    if (isActive) {
+      ctx.clearRect(0, 0, imgW, imgH);
+      ctx.drawImage(baseImg, 0, 0, imgW, imgH);
+
+      // Layer transform matrix for inverted points
+      const layerMatrix = spriteClone.frames[fIdx]?.transform ? [
+        spriteClone.frames[fIdx].transform.a ?? 1,
+        spriteClone.frames[fIdx].transform.b ?? 0,
+        spriteClone.frames[fIdx].transform.c ?? 0,
+        spriteClone.frames[fIdx].transform.d ?? 1,
+        spriteClone.frames[fIdx].transform.tx ?? 0,
+        spriteClone.frames[fIdx].transform.ty ?? 0
+      ] as [number, number, number, number, number, number] : null;
+
+      let localStart: ShineVectorPoint | undefined;
+      let localEnd: ShineVectorPoint | undefined;
+      if (cfg.startPoint && cfg.endPoint) {
+        if (layerMatrix) {
+          localStart = invertTransformPoint(cfg.startPoint.x, cfg.startPoint.y, layerMatrix);
+          localEnd = invertTransformPoint(cfg.endPoint.x, cfg.endPoint.y, layerMatrix);
+        } else {
+          const sx = project.width > 0 ? imgW / project.width : 1;
+          const sy = project.height > 0 ? imgH / project.height : 1;
+          localStart = { x: cfg.startPoint.x * sx, y: cfg.startPoint.y * sy };
+          localEnd = { x: cfg.endPoint.x * sx, y: cfg.endPoint.y * sy };
+        }
+      }
+
+      drawAnimatedShine(ctx, imgW, imgH, progress, {
+        beamWidth: cfg.beamWidth ?? 60,
+        angleDeg: cfg.angleDeg ?? 90,
+        opacity: cfg.opacity ?? 0.85,
+        featherSides: cfg.featherSides ?? 0.85,
+        featherTopBottom: cfg.featherTopBottom ?? 0.7,
+        maskToAlpha: cfg.maskToAlpha ?? true,
+        color: cfg.color ?? "255, 255, 255",
+        style: cfg.style ?? 'soft',
+        direction: cfg.direction ?? 'forward',
+        localStartPoint: localStart,
+        localEndPoint: localEnd
+      });
+
+      const blob = await new Promise<Blob | null>(res => offCanvas.toBlob(res, 'image/png'));
+      if (blob) {
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        activeFrameKey = `shine_baked_${layer.id}_f${fIdx}.png`;
+        exportImages[activeFrameKey] = bytes;
+        bakedImageKeyMap[fIdx] = activeFrameKey;
+      }
+    }
+
+    const frameSprite = JSON.parse(JSON.stringify(spriteClone));
+    frameSprite.imageKey = activeFrameKey;
+    frameSprite.frames = spriteClone.frames.map((fr: any, k: number) => {
+      const cloneFr = { ...fr };
+      if (k !== fIdx) {
+        cloneFr.alpha = 0;
+      }
+      return cloneFr;
+    });
+    newFrameSprites.push(frameSprite);
+  }
+
+  return newFrameSprites.length > 0 ? newFrameSprites : [spriteClone];
 }
 
 /**
@@ -484,9 +825,58 @@ export async function exportEditedSvga(
         });
         newSprites.push(frameSprite);
       }
+    } else if (layer.shineConfig && layer.shineConfig.enabled && (layer.shineConfig.exportMode === 'merge' || layer.shineExportMode === 'merge') && !layer.isShineLayer) {
+      // MODE 1: Merge Shine with Base Layer Frames (Bake into layer frame sequence)
+      try {
+        const bakedSprites = await bakeShineIntoLayerFrames(layer, project, exportImages, spriteClone);
+        newSprites.push(...bakedSprites);
+      } catch (err) {
+        console.warn(`Could not bake shine for layer ${layer.name}, falling back to standard sprite:`, err);
+        newSprites.push(spriteClone);
+      }
     } else {
-      newSprites.push(spriteClone);
+      // Standard layer export
+      if (!layer.isShineLayer) {
+        newSprites.push(spriteClone);
+      }
     }
+
+    // MODE 2: Separate Shine Layer Sprite (hardware accelerated beam with matteKey or standalone)
+    if (layer.shineConfig && layer.shineConfig.enabled) {
+      const isSeparate = layer.shineConfig.exportMode === 'separate' || layer.shineExportMode === 'separate' || layer.isShineLayer;
+      if (isSeparate) {
+        try {
+          const shineSprite = await generateShineSpriteForLayer(layer, project, exportImages);
+          if (shineSprite) {
+            newSprites.push(shineSprite);
+          }
+        } catch (err) {
+          console.warn(`Could not generate shine sprite for layer ${layer.name}:`, err);
+        }
+      }
+    }
+  }
+
+  // Embed comprehensive project metadata into the SVGA binary so shine and layer configs never disappear
+  try {
+    const metaObj = {
+      version: 2,
+      savedAt: Date.now(),
+      layers: layers.map(l => ({
+        id: l.id,
+        imageKey: l.imageKey,
+        name: l.name,
+        isShineLayer: l.isShineLayer,
+        shineExportMode: l.shineExportMode || l.shineConfig?.exportMode,
+        shineConfig: l.shineConfig
+      })),
+      fadeConfig: transparencyOptions?.fadeConfig,
+      cropConfig: transparencyOptions?.cropConfig,
+      cropFeather: transparencyOptions?.cropFeather
+    };
+    exportImages['__svga_editor_meta__.json'] = new TextEncoder().encode(JSON.stringify(metaObj));
+  } catch (e) {
+    console.warn('Failed to embed editor metadata:', e);
   }
 
   // Ensure every sprite has its imageKey in exportImages if available

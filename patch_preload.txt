@@ -1,4 +1,0 @@
-  // Preload FFmpeg to make ultra-fast operations instant
-  useEffect(() => {
-    getFFmpeg().catch((e) => console.log("FFmpeg preload failed (will retry later):", e));
-  }, []);

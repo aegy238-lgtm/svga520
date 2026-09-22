@@ -108,14 +108,18 @@ export const SvgaTimelineBar: React.FC<SvgaTimelineBarProps> = ({
 
         {/* Center: Selected Layer Keyframe Summary */}
         <div className="hidden md:flex items-center gap-2 text-xs font-mono text-slate-400">
-          {selectedLayer ? (
-            <div className="flex items-center gap-2 bg-slate-900 px-3 py-1 rounded-xl border border-white/10">
-              <Film size={12} className="text-indigo-400" />
-              <span className="text-white font-bold truncate max-w-[160px]">{selectedLayer.name}</span>
-              <span className="text-slate-600">|</span>
-              <span>Span: F{selectedLayer.keyframeSummary.startFrame} - F{selectedLayer.keyframeSummary.endFrame}</span>
-            </div>
-          ) : (
+          {selectedLayer ? (() => {
+            const startF = selectedLayer.inFrame ?? selectedLayer.keyframeSummary?.startFrame ?? 0;
+            const endF = selectedLayer.outFrame ?? selectedLayer.keyframeSummary?.endFrame ?? (totalFrames - 1);
+            return (
+              <div className="flex items-center gap-2 bg-slate-900 px-3 py-1 rounded-xl border border-white/10">
+                <Film size={12} className="text-indigo-400" />
+                <span className="text-white font-bold truncate max-w-[160px]">{selectedLayer.name}</span>
+                <span className="text-slate-600">|</span>
+                <span>Span: F{startF} - F{endF}</span>
+              </div>
+            );
+          })() : (
             <span className="text-slate-500 text-[11px]">حدد طبقة لمعاينة مسار الحركة</span>
           )}
         </div>
@@ -144,15 +148,19 @@ export const SvgaTimelineBar: React.FC<SvgaTimelineBarProps> = ({
         className="relative h-4 bg-slate-900/90 rounded-lg border border-white/10 cursor-pointer overflow-hidden group mb-1 flex items-center"
       >
         {/* Layer Active Span Highlight */}
-        {selectedLayer && (
-          <div
-            className="absolute top-0 bottom-0 bg-indigo-500/20 border-x border-indigo-400/40 pointer-events-none"
-            style={{
-              left: `${(selectedLayer.keyframeSummary.startFrame / (totalFrames - 1 || 1)) * 100}%`,
-              width: `${((selectedLayer.keyframeSummary.endFrame - selectedLayer.keyframeSummary.startFrame + 1) / (totalFrames - 1 || 1)) * 100}%`
-            }}
-          />
-        )}
+        {selectedLayer && (() => {
+          const startF = selectedLayer.inFrame ?? selectedLayer.keyframeSummary?.startFrame ?? 0;
+          const endF = selectedLayer.outFrame ?? selectedLayer.keyframeSummary?.endFrame ?? (totalFrames - 1);
+          return (
+            <div
+              className="absolute top-0 bottom-0 bg-indigo-500/20 border-x border-indigo-400/40 pointer-events-none"
+              style={{
+                left: `${(startF / (totalFrames - 1 || 1)) * 100}%`,
+                width: `${((endF - startF + 1) / (totalFrames - 1 || 1)) * 100}%`
+              }}
+            />
+          );
+        })()}
 
         {/* Progress Fill */}
         <div

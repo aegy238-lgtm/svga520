@@ -70,6 +70,11 @@ interface SvgaPropertiesPanelProps {
   onResetTransparency?: () => void;
   onUpdateShineConfig?: (layerId: string, config: Partial<ShineEffectConfig>) => void;
   onResetShine?: (layerId: string) => void;
+  onCreateShineLayer?: () => void;
+  onExportShineLayerOnly?: () => void;
+  shinePointStep?: 'idle' | 'place-start' | 'place-end';
+  onStartPickShinePoints?: () => void;
+  onCancelPickShinePoints?: () => void;
 }
 
 export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
@@ -107,7 +112,12 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
   onUpdateCropFeather,
   onResetTransparency,
   onUpdateShineConfig,
-  onResetShine
+  onResetShine,
+  onCreateShineLayer,
+  onExportShineLayerOnly,
+  shinePointStep,
+  onStartPickShinePoints,
+  onCancelPickShinePoints
 }) => {
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const [panelNudgeStep, setPanelNudgeStep] = useState<number>(1);
@@ -952,7 +962,16 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
     );
   }
 
-  const { transform, aspectRatioLocked, keyframeSummary } = layer;
+  const { transform, aspectRatioLocked } = layer;
+  const keyframeSummary = layer.keyframeSummary || {
+    startFrame: layer.inFrame ?? 0,
+    endFrame: layer.outFrame ?? ((project?.totalFrames || 1) - 1),
+    totalFrames: layer.framesCount ?? (project?.totalFrames || 1),
+    hasAlphaChange: false,
+    hasTransform: false,
+    hasShapes: false,
+    isSequenceOrRepeated: false
+  };
 
   // Handle Quick Alignments
   const handleAlign = (type: 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom') => {
@@ -1117,6 +1136,21 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
           <SvgaShinePanel
             layerName={layer?.name || 'الطبقة المحددة'}
             shineConfig={layer?.shineConfig}
+            totalLayersCount={allLayers?.length || 0}
+            projectWidth={project?.width}
+            projectHeight={project?.height}
+            layerBounds={layer ? {
+              x: layer.transform.x,
+              y: layer.transform.y,
+              width: layer.transform.width,
+              height: layer.transform.height
+            } : undefined}
+            isSeparateLayer={layer?.isShineLayer || layer?.shineConfig?.exportMode === 'separate'}
+            onCreateShineLayer={onCreateShineLayer}
+            onExportShineLayerOnly={onExportShineLayerOnly}
+            shinePointStep={shinePointStep}
+            onStartPickPoints={onStartPickShinePoints}
+            onCancelPickPoints={onCancelPickShinePoints}
             onUpdateShineConfig={(cfg) => {
               if (layer && onUpdateShineConfig) {
                 onUpdateShineConfig(layer.id, cfg);

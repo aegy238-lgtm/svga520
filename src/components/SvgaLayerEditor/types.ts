@@ -98,6 +98,8 @@ export interface EditableLayer {
   isMotionSynced?: boolean;
 
   // Layer Shine Effect Configuration
+  isShineLayer?: boolean;
+  shineExportMode?: 'merge' | 'separate';
   shineConfig?: ShineEffectConfig;
 
   // Video sequence animation properties (for imported MP4 video layers)
@@ -185,16 +187,61 @@ export interface GuideLine {
 
 export type CanvasTool = 'select' | 'hand' | 'zoom' | 'chroma-pen';
 
+export type ShineApplyScope = 'single' | 'selected' | 'all';
+export type ShineStyle = 'soft' | 'double' | 'sharp' | 'glow' | 'star';
+export type ShineDirection = 'forward' | 'reverse' | 'pingpong';
+export type ShineExportMode = 'merge' | 'separate';
+
+export interface ShineVectorPoint {
+  x: number;
+  y: number;
+}
+
+export interface ProjectSession {
+  id: string;
+  name: string;
+  originalFileName: string;
+  fileType: 'svga' | 'mp4' | 'image' | 'custom';
+  project: SVGAProjectData;
+  layers: EditableLayer[];
+  history: any[][];
+  historyIndex: number;
+  selectedLayerId: string | null;
+  selectedLayerIds: string[];
+  currentFrame: number;
+  zoom: number;
+  panOffset: { x: number; y: number };
+  fadeConfig: FadeConfig;
+  cropConfig: CropConfig;
+  cropFeather: CropFeather;
+  bgColor: string;
+  bgImageUrl: string | null;
+  exportFileName: string;
+  modifiedAt: number;
+  videoUrl?: string;
+  videoFile?: File;
+}
+
 export interface ShineEffectConfig {
   enabled: boolean;
-  beamWidth?: number;          // width in px (default 50)
+  applyScope?: ShineApplyScope; // 'single' | 'selected' | 'all'
+  exportMode?: ShineExportMode; // 'merge' | 'separate'
+  isSeparateLayer?: boolean;    // whether shine is maintained as an independent layer
+  beamWidth?: number;          // width in px (default 60)
   angleDeg?: number;           // angle deg (default 90)
   opacity?: number;            // max opacity (0.1 to 1.0)
   featherSides?: number;       // side feather (0 to 1)
   featherTopBottom?: number;   // top/bottom feather (0 to 1)
   maskToAlpha?: boolean;       // mask to layer image boundary
-  color?: string;              // RGB color string e.g. "255, 255, 255"
+  color?: string;              // RGB color string e.g. "255, 255, 255" or hex
   keyframeStart?: number;      // 0.0 to 1.0 (default 0.0)
   keyframeEnd?: number;        // 0.0 to 1.0 (default 1.0)
-  durationSeconds?: number;    // duration (default 2.0)
+  durationSeconds?: number;    // duration in seconds (default 2.0)
+  repeatInterval?: number;     // pause interval between sweeps (default 0.5s)
+  speedMultiplier?: number;    // 0.5x to 3.0x (default 1.0)
+  style?: ShineStyle;          // 'soft' | 'double' | 'sharp' | 'glow' | 'star'
+  direction?: ShineDirection;  // 'forward' | 'reverse' | 'pingpong'
+  startPoint?: ShineVectorPoint; // Canvas Project coordinates (x, y)
+  endPoint?: ShineVectorPoint;   // Canvas Project coordinates (x, y)
+  editPathOnCanvas?: boolean;  // Whether interactive handles are shown on canvas
 }

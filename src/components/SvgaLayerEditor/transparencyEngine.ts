@@ -63,6 +63,74 @@ export function isTransparencyActive(fade?: FadeConfig, crop?: CropConfig): bool
   return false;
 }
 
+/**
+ * Returns dynamic CSS properties for real-time visual edge fade, shape crop, and feather
+ * allowing MP4 videos and SVGA canvas elements to reflect transparency changes in 60fps immediately.
+ */
+export function getCombinedCssMaskStyle(
+  fadeConfig?: FadeConfig,
+  cropConfig?: CropConfig,
+  cropFeather?: CropFeather
+): React.CSSProperties {
+  const f = fadeConfig || DEFAULT_FADE_CONFIG;
+  const c = cropConfig || DEFAULT_CROP_CONFIG;
+  const feather = cropFeather || DEFAULT_CROP_FEATHER;
+
+  const hasFade = (f.top > 0 || f.bottom > 0 || f.left > 0 || f.right > 0);
+  const hasCrop = (c.top > 0 || c.bottom > 0 || c.left > 0 || c.right > 0 || (c.shape && c.shape !== 'rect'));
+  const hasFeather = (feather.top > 0 || feather.bottom > 0 || feather.left > 0 || feather.right > 0);
+
+  if (!hasFade && !hasCrop && !hasFeather) {
+    return {};
+  }
+
+  const shape = c.shape || 'rect';
+  const cornerRadius = c.cornerRadius ?? 25;
+
+  // 1. Build Vertical Gradient
+  const topFadeEnd = Math.min(100, Math.max(c.top, c.top + f.top + feather.top));
+  const bottomFadeStart = Math.max(0, Math.min(100 - c.bottom, 100 - (c.bottom + f.bottom + feather.bottom)));
+  const vGrad = `linear-gradient(to bottom, transparent 0%, transparent ${c.top}%, black ${topFadeEnd}%, black ${bottomFadeStart}%, transparent ${100 - c.bottom}%, transparent 100%)`;
+
+  // 2. Build Horizontal Gradient
+  const leftFadeEnd = Math.min(100, Math.max(c.left, c.left + f.left + feather.left));
+  const rightFadeStart = Math.max(0, Math.min(100 - c.right, 100 - (c.right + f.right + feather.right)));
+  const hGrad = `linear-gradient(to right, transparent 0%, transparent ${c.left}%, black ${leftFadeEnd}%, black ${rightFadeStart}%, transparent ${100 - c.right}%, transparent 100%)`;
+
+  let maskImage = `${vGrad}, ${hGrad}`;
+  let clipPath: string | undefined = undefined;
+  let borderRadius: string | undefined = undefined;
+
+  if (shape === 'circle') {
+    clipPath = 'circle(50% at 50% 50%)';
+  } else if (shape === 'ellipse') {
+    const rx = Math.max(5, 50 - Math.max(c.left, c.right));
+    const ry = Math.max(5, 50 - Math.max(c.top, c.bottom));
+    clipPath = `ellipse(${rx}% ${ry}% at 50% 50%)`;
+  } else if (shape === 'pill') {
+    borderRadius = '9999px';
+    if (!hasFade && !hasFeather) {
+      clipPath = `inset(${c.top}% ${c.right}% ${c.bottom}% ${c.left}% round 9999px)`;
+    }
+  } else if (shape === 'rounded' || (shape === 'rect' && cornerRadius > 0)) {
+    borderRadius = `${cornerRadius}px`;
+    if (!hasFade && !hasFeather && (c.top > 0 || c.bottom > 0 || c.left > 0 || c.right > 0)) {
+      clipPath = `inset(${c.top}% ${c.right}% ${c.bottom}% ${c.left}% round ${cornerRadius}px)`;
+    }
+  } else if (shape === 'rect' && !hasFade && !hasFeather && (c.top > 0 || c.bottom > 0 || c.left > 0 || c.right > 0)) {
+    clipPath = `inset(${c.top}% ${c.right}% ${c.bottom}% ${c.left}%)`;
+  }
+
+  return {
+    WebkitMaskImage: maskImage,
+    maskImage: maskImage,
+    WebkitMaskComposite: 'source-in, destination-in' as any,
+    maskComposite: 'intersect' as any,
+    clipPath,
+    borderRadius
+  };
+}
+
 function base64ToUint8(dataUrl: string): Uint8Array {
   const cleanB64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
   const binary = atob(cleanB64);

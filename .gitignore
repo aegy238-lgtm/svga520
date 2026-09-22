@@ -26,6 +26,7 @@ uploads/*
 !uploads/.gitkeep
 
 # Backup & Nested Repos / Archive duplicates
+public/vendor/
 svga00001-main/
 LiveTalk-main/
 app/

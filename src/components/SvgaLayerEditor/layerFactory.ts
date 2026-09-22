@@ -263,3 +263,79 @@ export async function createShapeLayer(
 
   return { layer, dataUrl, bytes };
 }
+
+/**
+ * Generate a dedicated, independent Shine Layer (طبقة لمعة مستقلة)
+ */
+export function createShineLayer(
+  projectWidth: number,
+  projectHeight: number,
+  totalFrames: number,
+  targetLayer?: EditableLayer
+): { layer: EditableLayer; dataUrl: string; bytes: Uint8Array; imageKey: string } {
+  const canvas = document.createElement('canvas');
+  const w = targetLayer ? (targetLayer.transform.width || projectWidth) : projectWidth;
+  const h = targetLayer ? (targetLayer.transform.height || projectHeight) : projectHeight;
+  canvas.width = Math.max(20, Math.min(2048, w));
+  canvas.height = Math.max(20, Math.min(2048, h));
+  
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+
+  const dataUrl = canvas.toDataURL('image/png');
+  const b64 = dataUrl.split(',')[1];
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+
+  const imageKey = `shine_layer_${Date.now()}`;
+  const startX = targetLayer ? targetLayer.transform.x : 0;
+  const startY = targetLayer ? targetLayer.transform.y : 0;
+
+  const baseLayer = createImageLayer(
+    imageKey,
+    targetLayer ? `لمعة (${targetLayer.name})` : 'طبقة اللمعة (Shine Layer)',
+    dataUrl,
+    canvas.width,
+    canvas.height,
+    projectWidth,
+    projectHeight,
+    totalFrames
+  );
+
+  baseLayer.isShineLayer = true;
+  baseLayer.trackColor = '#f59e0b';
+  baseLayer.transform.x = startX;
+  baseLayer.transform.y = startY;
+  baseLayer.transform.width = w;
+  baseLayer.transform.height = h;
+  baseLayer.initialBounds = { x: startX, y: startY, width: w, height: h };
+
+  baseLayer.shineConfig = {
+    enabled: true,
+    isSeparateLayer: true,
+    applyScope: 'single',
+    exportMode: 'separate',
+    beamWidth: 60,
+    angleDeg: 45,
+    opacity: 0.9,
+    featherSides: 0.85,
+    featherTopBottom: 0.7,
+    maskToAlpha: false,
+    color: '255, 255, 255',
+    keyframeStart: 0.0,
+    keyframeEnd: 1.0,
+    durationSeconds: 2.0,
+    repeatInterval: 0.5,
+    speedMultiplier: 1.0,
+    style: 'double',
+    direction: 'forward',
+    startPoint: { x: startX, y: startY },
+    endPoint: { x: startX + w, y: startY + h },
+    editPathOnCanvas: true
+  };
+
+  return { layer: baseLayer, dataUrl, bytes, imageKey };
+}

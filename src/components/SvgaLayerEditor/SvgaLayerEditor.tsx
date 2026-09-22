@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   EditableLayer, SVGAProjectData, CanvasTool, LayerKeyframe,
-  FadeConfig, CropConfig, CropFeather, ShineEffectConfig, SVGAAudioTrack
+  FadeConfig, CropConfig, CropFeather, ShineEffectConfig, SVGAAudioTrack,
+  ProjectSession
 } from './types';
 import { 
   DEFAULT_FADE_CONFIG, 
@@ -9,7 +10,8 @@ import {
   DEFAULT_CROP_FEATHER, 
   isTransparencyActive 
 } from './transparencyEngine';
-import { parseSvgaToProject, createNewSvgaProject } from './svgaParserEngine';
+import { parseSvgaToProject, createNewSvgaProject, convertImageToSvgaProject } from './svgaParserEngine';
+import { convertMp4ToSvgaProject, createFastMp4Project } from './mp4SvgaEngine';
 import { exportEditedSvga } from './svgaExportEngine';
 import { mergeSvgaFileIntoProject, transformLayerGroup, mergeLayersIntoSingleLayer, ungroupMergedLayer, syncLayerMotionWithReference } from './svgaMergeEngine';
 import { 
@@ -29,6 +31,10 @@ import { SvgaExportModal } from './SvgaExportModal';
 import { SvgaMp4ImportModal } from './SvgaMp4ImportModal';
 import { SvgaMergeCanvasModal } from './SvgaMergeCanvasModal';
 import { SvgaChromaPenStudio } from './SvgaChromaPenStudio';
+import { SvgaProjectsTabBar } from './SvgaProjectsTabBar';
+import { SvgaMultiProjectOverview } from './SvgaMultiProjectOverview';
+import { SvgaMultiCanvasStage } from './SvgaMultiCanvasStage';
+import { SvgaBatchExportModal } from './SvgaBatchExportModal';
 import { ChromaTargetColor, identifyColorType, applySmartChromaToSingleImage, isAudioSource } from './svgaSmartChromaEngine';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { 
@@ -36,7 +42,7 @@ import {
   Sparkles, MousePointer, Hand, ZoomIn, Grid, Compass, 
   FileCode, Check, AlertCircle, RefreshCw, X, Shield, Eye,
   Sliders, Play, Film, CheckCircle2, Music, Plus, FilePlus, Package,
-  Image as ImageIcon, Pipette
+  Image as ImageIcon, Pipette, LayoutGrid, Copy
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -166,6 +172,14 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mergeFileInputRef = useRef<HTMLInputElement>(null);
   const mp4FileInputRef = useRef<HTMLInputElement>(null);
+  const multiFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Multi-Project Compositions State (supports multiple files SVGA/MP4/Images side-by-side)
+  const [projects, setProjects] = useState<ProjectSession[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [canvasViewMode, setCanvasViewMode] = useState<'multi' | 'single'>('multi');
+  const [isOverviewMode, setIsOverviewMode] = useState<boolean>(false);
+  const [showBatchExportModal, setShowBatchExportModal] = useState<boolean>(false);
 
   // Project Data & Layers
   const [project, setProject] = useState<SVGAProjectData | null>(null);
@@ -221,6 +235,9 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const [fadeConfig, setFadeConfig] = useState<FadeConfig>(DEFAULT_FADE_CONFIG);
   const [cropConfig, setCropConfig] = useState<CropConfig>(DEFAULT_CROP_CONFIG);
   const [cropFeather, setCropFeather] = useState<CropFeather>(DEFAULT_CROP_FEATHER);
+
+  // Interactive Click-to-Place Shine Vector Points State
+  const [shinePointStep, setShinePointStep] = useState<'idle' | 'place-start' | 'place-end'>('idle');
 
   // Smart Chroma Key Pen State
   const [isChromaPenActive, setIsChromaPenActive] = useState<boolean>(false);
@@ -549,6 +566,24 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     setErrorMessage(null);
     try {
       const { project: parsedProject, layers: parsedLayers } = await parseSvgaToProject(file);
+
+      // Check localStorage for persisted shine configuration as safety net
+      try {
+        const localShineStr = localStorage.getItem(`svga_shine_${file.name}`);
+        if (localShineStr) {
+          const localShineMap = JSON.parse(localShineStr);
+          parsedLayers.forEach(l => {
+            if (!l.shineConfig && localShineMap[l.id]) {
+              l.shineConfig = localShineMap[l.id].shineConfig;
+              if (localShineMap[l.id].shineExportMode) l.shineExportMode = localShineMap[l.id].shineExportMode;
+              if (localShineMap[l.id].isShineLayer !== undefined) l.isShineLayer = localShineMap[l.id].isShineLayer;
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('Could not restore local shine config:', e);
+      }
+
       setProject(parsedProject);
       setLayers(parsedLayers);
       setSelectedLayerId(parsedLayers[0]?.id || null);
@@ -576,6 +611,35 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       setHistory([createLayersSnapshot(parsedLayers)]);
       setHistoryIndex(0);
 
+      const newSessionId = `proj_${Date.now()}`;
+      const newSession: ProjectSession = {
+        id: newSessionId,
+        name: file.name.replace(/\.svga$/i, ''),
+        originalFileName: file.name,
+        fileType: 'svga',
+        project: parsedProject,
+        layers: parsedLayers,
+        history: [createLayersSnapshot(parsedLayers)],
+        historyIndex: 0,
+        selectedLayerId: parsedLayers[0]?.id || null,
+        selectedLayerIds: parsedLayers[0]?.id ? [parsedLayers[0].id] : [],
+        currentFrame: 0,
+        zoom: fitZoom,
+        panOffset: { x: 0, y: 0 },
+        fadeConfig: parsedProject.fadeConfig ? { ...parsedProject.fadeConfig } : { top: 0, bottom: 0, left: 0, right: 0 },
+        cropConfig: parsedProject.cropConfig ? { ...parsedProject.cropConfig } : { top: 0, bottom: 0, left: 0, right: 0 },
+        cropFeather: parsedProject.cropFeather ? { ...parsedProject.cropFeather } : { top: 0, bottom: 0, left: 0, right: 0 },
+        bgColor: 'transparent',
+        bgImageUrl: null,
+        exportFileName: file.name.replace(/\.svga$/i, '') + '_edited.svga',
+        modifiedAt: Date.now()
+      };
+      setProjects(prev => {
+        const filtered = prev.filter(p => p.originalFileName !== file.name);
+        return [...filtered, newSession];
+      });
+      setActiveProjectId(newSessionId);
+
       setSuccessToast(`تم فتح الملف بنجاح (${parsedLayers.length} طبقة)`);
     } catch (err: any) {
       console.error("Failed to parse SVGA file:", err);
@@ -586,7 +650,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   }, []);
 
   // Handle Import MP4 as Full SVGA Project
-  const handleImportMp4AsProject = useCallback((newProject: SVGAProjectData, newLayers: EditableLayer[]) => {
+  const handleImportMp4AsProject = useCallback((newProject: SVGAProjectData, newLayers: EditableLayer[], videoFile?: File) => {
     setProject(newProject);
     setLayers(newLayers);
     setSelectedLayerId(newLayers[0]?.id || null);
@@ -612,8 +676,458 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     setHistory([createLayersSnapshot(newLayers)]);
     setHistoryIndex(0);
 
+    const videoUrl = videoFile ? URL.createObjectURL(videoFile) : undefined;
+    const newSessionId = `proj_${Date.now()}`;
+    const newSession: ProjectSession = {
+      id: newSessionId,
+      name: newProject.fileName.replace(/\.[^.]+$/, ''),
+      originalFileName: newProject.fileName,
+      fileType: 'mp4',
+      videoUrl,
+      videoFile,
+      project: newProject,
+      layers: newLayers,
+      history: [createLayersSnapshot(newLayers)],
+      historyIndex: 0,
+      selectedLayerId: newLayers[0]?.id || null,
+      selectedLayerIds: newLayers[0]?.id ? [newLayers[0].id] : [],
+      currentFrame: 0,
+      zoom: fitZoom,
+      panOffset: { x: 0, y: 0 },
+      fadeConfig: newProject.fadeConfig ? { ...newProject.fadeConfig } : { top: 0, bottom: 0, left: 0, right: 0 },
+      cropConfig: newProject.cropConfig ? { ...newProject.cropConfig } : { top: 0, bottom: 0, left: 0, right: 0 },
+      cropFeather: newProject.cropFeather ? { ...newProject.cropFeather } : { top: 0, bottom: 0, left: 0, right: 0 },
+      bgColor: 'transparent',
+      bgImageUrl: null,
+      exportFileName: newProject.fileName.replace(/\.svga$/i, '') + '_edited.svga',
+      modifiedAt: Date.now()
+    };
+    setProjects(prev => {
+      const filtered = prev.filter(p => p.originalFileName !== newProject.fileName);
+      const updated = [...filtered, newSession];
+      if (updated.length > 1) {
+        setCanvasViewMode('multi');
+      }
+      return updated;
+    });
+    setActiveProjectId(newSessionId);
+
     setSuccessToast(`تم استدعاء فيديو MP4 بنجاح كملف SVGA كامل (${newProject.totalFrames} إطار)`);
   }, []);
+
+  // Handle Import Multiple MP4 Projects concurrently
+  const handleImportMultipleProjects = useCallback((items: { project: SVGAProjectData; layers: EditableLayer[]; file?: File; videoUrl?: string }[]) => {
+    if (!items || items.length === 0) return;
+    
+    const newSessions: ProjectSession[] = items.map((item, idx) => {
+      const sessionId = `proj_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`;
+      const fileName = item.file?.name || item.project.fileName;
+      const baseName = fileName.replace(/\.[^.]+$/, '');
+      const isVid = (item.file?.name.toLowerCase().endsWith('.mp4') || item.file?.type.startsWith('video/'));
+      const videoUrl = item.videoUrl || (item.file ? URL.createObjectURL(item.file) : undefined);
+
+      return {
+        id: sessionId,
+        name: baseName,
+        originalFileName: fileName,
+        fileType: isVid ? 'mp4' : 'svga',
+        videoUrl,
+        videoFile: item.file,
+        project: item.project,
+        layers: item.layers,
+        history: [createLayersSnapshot(item.layers)],
+        historyIndex: 0,
+        selectedLayerId: item.layers[0]?.id || null,
+        selectedLayerIds: item.layers[0]?.id ? [item.layers[0].id] : [],
+        currentFrame: 0,
+        zoom: 100,
+        panOffset: { x: 0, y: 0 },
+        fadeConfig: item.project.fadeConfig ? { ...item.project.fadeConfig } : { top: 0, bottom: 0, left: 0, right: 0 },
+        cropConfig: item.project.cropConfig ? { ...item.project.cropConfig } : { top: 0, bottom: 0, left: 0, right: 0 },
+        cropFeather: item.project.cropFeather ? { ...item.project.cropFeather } : { top: 0, bottom: 0, left: 0, right: 0 },
+        bgColor: 'transparent',
+        bgImageUrl: null,
+        exportFileName: baseName + '_edited.svga',
+        modifiedAt: Date.now()
+      };
+    });
+
+    setProjects(prev => {
+      const updated = [...prev, ...newSessions];
+      if (updated.length > 1) {
+        setCanvasViewMode('multi');
+      }
+      return updated;
+    });
+
+    if (newSessions.length > 0) {
+      const first = newSessions[0];
+      setActiveProjectId(first.id);
+      setProject(first.project);
+      setLayers(first.layers);
+      setSelectedLayerId(first.selectedLayerId);
+      setSelectedLayerIds(first.selectedLayerIds);
+      setCurrentFrame(0);
+      setZoom(100);
+      setPanOffset({ x: 0, y: 0 });
+      setFadeConfig(first.fadeConfig);
+      setCropConfig(first.cropConfig);
+      setCropFeather(first.cropFeather);
+      setExportFileName(first.exportFileName);
+      masterLayersMapRef.current.clear();
+      first.layers.forEach(l => masterLayersMapRef.current.set(l.id, l));
+      setHistory([createLayersSnapshot(first.layers)]);
+      setHistoryIndex(0);
+    }
+
+    setSuccessToast(`🎉 تم استدعاء وتحويل ${newSessions.length} فيديوهات إلى مشاريع SVGA وعرضها معاً بنجاح!`);
+  }, []);
+
+  // Handle Import Multiple MP4 Layers into existing project
+  const handleImportMultipleLayers = useCallback((newLayers: EditableLayer[], addedAudios: SVGAAudioTrack[]) => {
+    if (!newLayers || newLayers.length === 0) return;
+    setLayers(prev => {
+      const updated = [...newLayers, ...prev];
+      pushHistory(updated);
+      return updated;
+    });
+
+    if (addedAudios && addedAudios.length > 0) {
+      setProject(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          audios: [...(prev.audios || []), ...addedAudios]
+        };
+      });
+    }
+
+    setSelectedLayerId(newLayers[0].id);
+    setSelectedLayerIds(newLayers.map(l => l.id));
+    setSuccessToast(`تمت إضافة ${newLayers.length} طبقات فيديو MP4 إلى المشروع بنجاح`);
+  }, [pushHistory]);
+
+  // Handle Load Multiple Files (SVGA / MP4 / Images) at once into parallel project compositions
+  const handleLoadMultipleFiles = useCallback(async (files: File[]) => {
+    if (!files || files.length === 0) return;
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    const newSessions: ProjectSession[] = [];
+    let count = 0;
+
+    for (const f of files) {
+      count++;
+      const lower = f.name.toLowerCase();
+      try {
+        let loadedProject: SVGAProjectData;
+        let loadedLayers: EditableLayer[];
+        let fileType: 'svga' | 'mp4' | 'image' | 'custom' = 'svga';
+        let videoUrl: string | undefined = undefined;
+        let videoFile: File | undefined = undefined;
+
+        if (lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mov') || f.type.startsWith('video/')) {
+          fileType = 'mp4';
+          videoFile = f;
+          const fastRes = await createFastMp4Project(f);
+          loadedProject = fastRes.project;
+          loadedLayers = fastRes.layers;
+          videoUrl = fastRes.videoUrl;
+        } else if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp') || lower.endsWith('.gif') || f.type.startsWith('image/')) {
+          fileType = 'image';
+          const conv = await convertImageToSvgaProject(f);
+          loadedProject = conv.project;
+          loadedLayers = conv.layers;
+        } else {
+          fileType = 'svga';
+          const res = await parseSvgaToProject(f);
+          loadedProject = res.project;
+          loadedLayers = res.layers;
+        }
+
+        const sessionId = `proj_${Date.now()}_${count}`;
+        const sessionName = f.name.replace(/\.[^.]+$/, '');
+        const session: ProjectSession = {
+          id: sessionId,
+          name: sessionName,
+          originalFileName: f.name,
+          fileType,
+          videoUrl,
+          videoFile,
+          project: loadedProject,
+          layers: loadedLayers,
+          history: [createLayersSnapshot(loadedLayers)],
+          historyIndex: 0,
+          selectedLayerId: loadedLayers[0]?.id || null,
+          selectedLayerIds: loadedLayers[0]?.id ? [loadedLayers[0].id] : [],
+          currentFrame: 0,
+          zoom: 100,
+          panOffset: { x: 0, y: 0 },
+          fadeConfig: loadedProject.fadeConfig ? { ...loadedProject.fadeConfig } : { top: 0, bottom: 0, left: 0, right: 0 },
+          cropConfig: loadedProject.cropConfig ? { ...loadedProject.cropConfig } : { top: 0, bottom: 0, left: 0, right: 0 },
+          cropFeather: loadedProject.cropFeather ? { ...loadedProject.cropFeather } : { top: 0, bottom: 0, left: 0, right: 0 },
+          bgColor: 'transparent',
+          bgImageUrl: null,
+          exportFileName: f.name.replace(/\.[^.]+$/, '') + '_edited.svga',
+          modifiedAt: Date.now()
+        };
+        newSessions.push(session);
+      } catch (err: any) {
+        console.error(`Failed to load file ${f.name}:`, err);
+      }
+    }
+
+    if (newSessions.length > 0) {
+      setProjects(prev => [...prev, ...newSessions]);
+      const first = newSessions[0];
+      setActiveProjectId(first.id);
+      setProject(first.project);
+      setLayers(first.layers);
+      setSelectedLayerId(first.selectedLayerId);
+      setSelectedLayerIds(first.selectedLayerIds);
+      setCurrentFrame(0);
+      setZoom(100);
+      setPanOffset({ x: 0, y: 0 });
+      setFadeConfig(first.fadeConfig);
+      setCropConfig(first.cropConfig);
+      setCropFeather(first.cropFeather);
+      setExportFileName(first.exportFileName);
+
+      masterLayersMapRef.current.clear();
+      first.layers.forEach(l => masterLayersMapRef.current.set(l.id, l));
+      setHistory([createLayersSnapshot(first.layers)]);
+      setHistoryIndex(0);
+
+      setIsOverviewMode(false);
+      setCanvasViewMode('multi');
+      setSuccessToast(`🎉 تم فتح وعرض ${newSessions.length} مشاريع وفيديوهات بنجاح على الشاشة!`);
+    } else {
+      setErrorMessage('تعذر قراءة الملفات المحددة. يرجى التأكد من سلامة صيغ الملفات.');
+    }
+    setIsLoading(false);
+  }, []);
+
+  // Multi-Project Switching & Management Handlers
+  const handleSwitchProject = useCallback((targetId: string) => {
+    if (targetId === activeProjectId) {
+      setIsOverviewMode(false);
+      return;
+    }
+
+    // Save current active state into projects array before switching
+    if (activeProjectId && project) {
+      setProjects(prev => prev.map(p => {
+        if (p.id === activeProjectId) {
+          return {
+            ...p,
+            project,
+            layers,
+            fadeConfig,
+            cropConfig,
+            cropFeather,
+            bgColor,
+            bgImageUrl,
+            currentFrame,
+            selectedLayerId,
+            selectedLayerIds,
+            history,
+            historyIndex,
+            modifiedAt: Date.now()
+          };
+        }
+        return p;
+      }));
+    }
+
+    const targetSession = projects.find(p => p.id === targetId);
+    if (!targetSession) return;
+
+    setIsPlaying(false);
+    setActiveProjectId(targetId);
+    setProject(targetSession.project);
+    setLayers(targetSession.layers);
+    setHistory(targetSession.history && targetSession.history.length > 0 ? targetSession.history : [createLayersSnapshot(targetSession.layers)]);
+    setHistoryIndex(targetSession.historyIndex >= 0 ? targetSession.historyIndex : 0);
+    setSelectedLayerId(targetSession.selectedLayerId);
+    setSelectedLayerIds(targetSession.selectedLayerIds || (targetSession.selectedLayerId ? [targetSession.selectedLayerId] : []));
+    setCurrentFrame(targetSession.currentFrame || 0);
+    setZoom(targetSession.zoom || 100);
+    setPanOffset(targetSession.panOffset || { x: 0, y: 0 });
+    setFadeConfig(targetSession.fadeConfig || { top: 0, bottom: 0, left: 0, right: 0 });
+    setCropConfig(targetSession.cropConfig || { top: 0, bottom: 0, left: 0, right: 0 });
+    setCropFeather(targetSession.cropFeather || { top: 0, bottom: 0, left: 0, right: 0 });
+    setBgColor(targetSession.bgColor || 'transparent');
+    setBgImageUrl(targetSession.bgImageUrl || null);
+    setExportFileName(targetSession.exportFileName || targetSession.project.fileName.replace(/\.svga$/i, '') + '_edited.svga');
+
+    masterLayersMapRef.current.clear();
+    targetSession.layers.forEach(l => masterLayersMapRef.current.set(l.id, l));
+
+    setIsOverviewMode(false);
+    setSuccessToast(`المشروع النشط للتعديل: ${targetSession.name}`);
+  }, [activeProjectId, project, layers, fadeConfig, cropConfig, cropFeather, bgColor, bgImageUrl, currentFrame, selectedLayerId, selectedLayerIds, history, historyIndex, projects]);
+
+  // Merge another project's layers into the active project canvas
+  const handleMergeProjectIntoActive = useCallback((sourceProjId: string) => {
+    if (!project) return;
+    const sourceProj = projects.find(p => p.id === sourceProjId);
+    if (!sourceProj) return;
+
+    const randKey = Math.random().toString(36).substring(2, 6);
+    const prefix = `m_${randKey}_`;
+
+    const updatedImagesMap = { ...project.imagesMap };
+    const updatedRawImages = { ...project.rawImages };
+    const keyTranslation: Record<string, string> = {};
+
+    for (const [key, dataUrl] of Object.entries(sourceProj.project.imagesMap)) {
+      const namespaced = `${prefix}${key}`;
+      keyTranslation[key] = namespaced;
+      updatedImagesMap[namespaced] = dataUrl;
+      if (sourceProj.project.rawImages?.[key]) {
+        updatedRawImages[namespaced] = sourceProj.project.rawImages[key];
+      }
+    }
+
+    const clonedLayers: EditableLayer[] = sourceProj.layers.map((l, idx) => ({
+      ...l,
+      id: `mrg_${randKey}_${l.id}`,
+      name: `[${sourceProj.name}] ${l.name}`,
+      imageKey: l.imageKey && keyTranslation[l.imageKey] ? keyTranslation[l.imageKey] : l.imageKey,
+      transform: {
+        ...l.transform,
+        x: l.transform.x + 20 * (idx + 1),
+        y: l.transform.y + 20 * (idx + 1)
+      }
+    }));
+
+    const newLayers = [...clonedLayers, ...layers];
+    clonedLayers.forEach(l => masterLayersMapRef.current.set(l.id, l));
+    setLayers(newLayers);
+    setProject({
+      ...project,
+      imagesMap: updatedImagesMap,
+      rawImages: updatedRawImages
+    });
+    pushHistory(newLayers);
+    setSuccessToast(`تم دمج طبقات "${sourceProj.name}" بنجاح في المشروع النشط!`);
+  }, [project, projects, layers, pushHistory]);
+
+  // Merge all open projects and videos into a single master canvas as layers
+  const handleMergeAllProjectsIntoSingleCanvas = useCallback(() => {
+    if (!project || projects.length <= 1) return;
+
+    let mergedImagesMap = { ...project.imagesMap };
+    let mergedRawImages = { ...project.rawImages };
+    let allAdditionalLayers: EditableLayer[] = [];
+
+    projects.forEach((proj, pIdx) => {
+      if (proj.id === activeProjectId) return;
+      const randKey = Math.random().toString(36).substring(2, 6);
+      const prefix = `m_${randKey}_`;
+      const keyTranslation: Record<string, string> = {};
+
+      for (const [key, dataUrl] of Object.entries(proj.project.imagesMap)) {
+        const namespaced = `${prefix}${key}`;
+        keyTranslation[key] = namespaced;
+        mergedImagesMap[namespaced] = dataUrl;
+        if (proj.project.rawImages?.[key]) {
+          mergedRawImages[namespaced] = proj.project.rawImages[key];
+        }
+      }
+
+      const clonedLayers: EditableLayer[] = proj.layers.map((l, idx) => ({
+        ...l,
+        id: `mrg_${randKey}_${l.id}`,
+        name: `[${proj.name}] ${l.name}`,
+        imageKey: l.imageKey && keyTranslation[l.imageKey] ? keyTranslation[l.imageKey] : l.imageKey,
+        transform: {
+          ...l.transform,
+          x: l.transform.x + 30 * (pIdx + 1),
+          y: l.transform.y + 30 * (pIdx + 1)
+        }
+      }));
+
+      clonedLayers.forEach(l => masterLayersMapRef.current.set(l.id, l));
+      allAdditionalLayers.push(...clonedLayers);
+    });
+
+    const finalLayers = [...allAdditionalLayers, ...layers];
+    setLayers(finalLayers);
+    setProject({
+      ...project,
+      imagesMap: mergedImagesMap,
+      rawImages: mergedRawImages
+    });
+    pushHistory(finalLayers);
+    setCanvasViewMode('single');
+    setSuccessToast(`🎉 تم دمج جميع المشاريع والفيديوهات المفتوحة كطبقات في كانفاس واحد!`);
+  }, [project, projects, activeProjectId, layers, pushHistory]);
+
+  const handleCloseProject = useCallback((id: string) => {
+    setProjects(prev => {
+      const remaining = prev.filter(p => p.id !== id);
+      if (id === activeProjectId) {
+        if (remaining.length > 0) {
+          const next = remaining[0];
+          setTimeout(() => handleSwitchProject(next.id), 0);
+        } else {
+          setActiveProjectId(null);
+          setProject(null);
+          setLayers([]);
+          setSelectedLayerId(null);
+          setSelectedLayerIds([]);
+        }
+      }
+      return remaining;
+    });
+  }, [activeProjectId, handleSwitchProject]);
+
+  const handleDuplicateProject = useCallback((id: string) => {
+    const target = projects.find(p => p.id === id);
+    if (!target) return;
+    const newId = `proj_${Date.now()}_copy`;
+    const copySession: ProjectSession = {
+      ...target,
+      id: newId,
+      name: `${target.name} (نسخة)`,
+      modifiedAt: Date.now()
+    };
+    setProjects(prev => [...prev, copySession]);
+    setSuccessToast(`تم إنشاء نسخة من المشروع: ${copySession.name}`);
+  }, [projects]);
+
+  const handleRenameProject = useCallback((id: string, newName: string) => {
+    setProjects(prev => prev.map(p => p.id === id ? { ...p, name: newName } : p));
+  }, []);
+
+  // Synchronize active project changes to projects session state (excluding currentFrame to prevent infinite loop & re-render spam during 60fps playback)
+  useEffect(() => {
+    if (!activeProjectId || !project) return;
+    setProjects(prev => prev.map(p => {
+      if (p.id === activeProjectId) {
+        return {
+          ...p,
+          project,
+          layers,
+          history,
+          historyIndex,
+          selectedLayerId,
+          selectedLayerIds,
+          zoom,
+          panOffset,
+          fadeConfig,
+          cropConfig,
+          cropFeather,
+          bgColor,
+          bgImageUrl,
+          exportFileName,
+          modifiedAt: Date.now()
+        };
+      }
+      return p;
+    }));
+  }, [activeProjectId, project, layers, fadeConfig, cropConfig, cropFeather, exportFileName]);
 
   // Handle Import MP4 as Layer into Existing SVGA Project
   const handleImportMp4AsLayer = useCallback((newLayer: EditableLayer, addedAudios: SVGAAudioTrack[]) => {
@@ -759,20 +1273,40 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             keyframeEnd: 1.0,
             durationSeconds: 2.0
           };
+          const newShine = {
+            ...currentShine,
+            ...shineDelta
+          };
           return {
             ...l,
-            shineConfig: {
-              ...currentShine,
-              ...shineDelta
-            }
+            shineExportMode: newShine.exportMode || l.shineExportMode,
+            shineConfig: newShine
           };
         }
         return l;
       });
       pushHistory(updated);
+
+      // Persist to localStorage for project
+      try {
+        if (project?.fileName) {
+          const shineMap: Record<string, any> = {};
+          updated.forEach(layerItem => {
+            if (layerItem.shineConfig && layerItem.shineConfig.enabled) {
+              shineMap[layerItem.id] = {
+                shineConfig: layerItem.shineConfig,
+                shineExportMode: layerItem.shineExportMode,
+                isShineLayer: layerItem.isShineLayer
+              };
+            }
+          });
+          localStorage.setItem(`svga_shine_${project.fileName}`, JSON.stringify(shineMap));
+        }
+      } catch (e) {}
+
       return updated;
     });
-  }, [pushHistory]);
+  }, [pushHistory, project]);
 
   const handleResetShine = useCallback((layerId: string) => {
     setLayers(prev => {
@@ -801,6 +1335,112 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       return updated;
     });
   }, [pushHistory]);
+
+  const handleCreateShineLayer = useCallback(() => {
+    if (!project) return;
+    const shineLayerId = `shine_layer_${Date.now()}`;
+    const newLayer: EditableLayer = {
+      id: shineLayerId,
+      originalIndex: 0,
+      aspectRatioLocked: false,
+      spriteRef: { imageKey: '', frames: [] },
+      name: `✨ طبقة لمعة مستمرة ${layers.filter(l => l.isShineLayer).length + 1}`,
+      type: 'shape',
+      imageKey: '',
+      isShineLayer: true,
+      visible: true,
+      locked: false,
+      blendMode: 'screen',
+      inFrame: 0,
+      outFrame: project.totalFrames - 1,
+      framesCount: project.totalFrames,
+      keyframeSummary: {
+        startFrame: 0,
+        endFrame: project.totalFrames - 1,
+        hasTransform: false,
+        hasShapes: true,
+        isSequenceOrRepeated: false
+      },
+      initialBounds: {
+        x: 0,
+        y: 0,
+        width: project.width,
+        height: project.height
+      },
+      transform: {
+        x: 0,
+        y: 0,
+        width: project.width,
+        height: project.height,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: 0,
+        opacity: 100
+      },
+      shineConfig: {
+        enabled: true,
+        beamWidth: 80,
+        angleDeg: 45,
+        opacity: 0.9,
+        featherSides: 0.85,
+        featherTopBottom: 0.7,
+        maskToAlpha: false,
+        color: '#ffffff',
+        speedMultiplier: 1.0,
+        durationSeconds: 2.0,
+        repeatInterval: 0.5,
+        style: 'soft',
+        direction: 'forward',
+        exportMode: 'separate',
+        editPathOnCanvas: true,
+        startPoint: { x: 0, y: 0 },
+        endPoint: { x: project.width, y: project.height }
+      }
+    };
+    setLayers(prev => {
+      const updated = [newLayer, ...prev];
+      pushHistory(updated);
+      return updated;
+    });
+    setSelectedLayerId(shineLayerId);
+    setSelectedLayerIds([shineLayerId]);
+    setSuccessToast('تم إنشاء طبقة لمعة مستقلة جديدة بنجاح ✨');
+  }, [project, layers, pushHistory]);
+
+  const handleExportShineLayerOnly = useCallback(async () => {
+    if (!project) return;
+    try {
+      setIsExporting(true);
+      const shineLayers = layers.filter(l => l.isShineLayer || l.shineConfig?.enabled);
+      if (shineLayers.length === 0) {
+        alert('لا توجد طبقات لمعة مفعلة لتصديرها وحدها');
+        setIsExporting(false);
+        return;
+      }
+      
+      const { blob, fileName } = await exportEditedSvga(
+        project,
+        shineLayers,
+        `${project.fileName.replace(/\.svga$/i, '')}_shine_only.svga`,
+        { fadeConfig, cropConfig, cropFeather }
+      );
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setSuccessToast(`تم تصدير طبقة اللمعة وحدها بنجاح: ${fileName} (${(blob.size / 1024).toFixed(1)} KB)`);
+    } catch (err: any) {
+      console.error('Error exporting shine layer only:', err);
+      alert(err?.message || 'فشل تصدير طبقة اللمعة');
+    } finally {
+      setIsExporting(false);
+    }
+  }, [project, layers, fadeConfig, cropConfig, cropFeather]);
 
   // Synchronize motion path across all layers in a sequence/repeated group (SVGA 2.0 Motion Sync)
   const handleSyncSequenceMotion = useCallback((layerIdOrGroupId: string) => {
@@ -2062,13 +2702,42 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const handleCreateNewProject = () => {
     try {
       const { project: newProj, layers: newLayers } = createNewSvgaProject(newProjectConfig);
+      const newSessionId = `proj_${Date.now()}`;
+      const exportName = (newProjectConfig.name || 'custom_svga_animation').replace(/\.svga$/i, '') + '_edited.svga';
+      const newSession: ProjectSession = {
+        id: newSessionId,
+        name: newProjectConfig.name || `مشروع ${projects.length + 1}`,
+        originalFileName: newProj.fileName,
+        fileType: 'custom',
+        project: newProj,
+        layers: newLayers,
+        history: [createLayersSnapshot(newLayers)],
+        historyIndex: 0,
+        selectedLayerId: null,
+        selectedLayerIds: [],
+        currentFrame: 0,
+        zoom: 100,
+        panOffset: { x: 0, y: 0 },
+        fadeConfig: { top: 0, bottom: 0, left: 0, right: 0 },
+        cropConfig: { top: 0, bottom: 0, left: 0, right: 0 },
+        cropFeather: { top: 0, bottom: 0, left: 0, right: 0 },
+        bgColor: 'transparent',
+        bgImageUrl: null,
+        exportFileName: exportName,
+        modifiedAt: Date.now()
+      };
+
+      setProjects(prev => [...prev, newSession]);
+      setActiveProjectId(newSessionId);
       setProject(newProj);
       setLayers(newLayers);
       setSelectedLayerId(null);
+      setSelectedLayerIds([]);
       setCurrentFrame(0);
-      setHistory([JSON.parse(JSON.stringify(newLayers))]);
+      setHistory([createLayersSnapshot(newLayers)]);
       setHistoryIndex(0);
-      setExportFileName(newProjectConfig.name || 'custom_svga_animation');
+      setExportFileName(exportName);
+      setIsOverviewMode(false);
       setShowNewProjectModal(false);
       setSuccessToast(`تم إنشاء المشروع "${newProjectConfig.name}" بمقاس ${newProjectConfig.width}×${newProjectConfig.height} بنجاح!`);
       setTimeout(() => setSuccessToast(null), 3500);
@@ -2093,17 +2762,37 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       <input
         type="file"
         ref={fileInputRef}
-        accept=".svga,video/mp4,video/*,.mp4"
+        accept=".svga,video/mp4,video/*,.mp4,image/*,.gif,.webp,.png,.jpg,.jpeg"
+        multiple
         className="hidden"
         onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) {
+          const files = e.target.files ? Array.from(e.target.files) : [];
+          if (files.length > 1) {
+            handleLoadMultipleFiles(files);
+          } else if (files.length === 1) {
+            const f = files[0];
             if (f.name.toLowerCase().endsWith('.mp4') || f.type.startsWith('video/')) {
               setMp4InitialFiles([f]);
               setShowMp4ImportModal(true);
+            } else if (f.type.startsWith('image/') || f.name.toLowerCase().endsWith('.gif') || f.name.toLowerCase().endsWith('.webp') || f.name.toLowerCase().endsWith('.png') || f.name.toLowerCase().endsWith('.jpg')) {
+              handleLoadMultipleFiles([f]);
             } else {
               loadSvgaFile(f);
             }
+          }
+          e.target.value = '';
+        }}
+      />
+
+      <input
+        type="file"
+        ref={multiFileInputRef}
+        accept=".svga,video/mp4,video/*,image/*,.gif,.webp,.png,.jpg,.jpeg"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            handleLoadMultipleFiles(Array.from(e.target.files));
           }
           e.target.value = '';
         }}
@@ -2391,6 +3080,17 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             </button>
           )}
 
+          {projects.length > 0 && (
+            <button
+              onClick={() => setShowBatchExportModal(true)}
+              className="flex items-center gap-1.5 text-xs font-black text-white bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 px-3.5 py-1.5 rounded-xl border border-emerald-400/40 shadow-lg shadow-emerald-900/30 transition-all cursor-pointer hover:scale-105"
+              title="تصدير كافة المشاريع المفتوحة دفعة واحدة لأي صيغة تختارها"
+            >
+              <Download size={13} />
+              <span>تصدير جماعي ({projects.length})</span>
+            </button>
+          )}
+
           {project && (
             <button
               onClick={() => setShowExportModal(true)}
@@ -2403,6 +3103,23 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         </div>
       </header>
 
+      {/* Compositions / Projects Tab Bar */}
+      {projects.length > 0 && (
+        <SvgaProjectsTabBar
+          projects={projects}
+          activeProjectId={activeProjectId}
+          onSelectProject={handleSwitchProject}
+          onCloseProject={handleCloseProject}
+          onDuplicateProject={handleDuplicateProject}
+          onRenameProject={handleRenameProject}
+          onAddNewProject={() => setShowNewProjectModal(true)}
+          onOpenFiles={() => multiFileInputRef.current?.click()}
+          onBatchExport={() => setShowBatchExportModal(true)}
+          isOverviewMode={projects.length > 1 && canvasViewMode === 'multi'}
+          onToggleOverviewMode={() => setCanvasViewMode(prev => prev === 'multi' ? 'single' : 'multi')}
+        />
+      )}
+
       {/* Main Workspace Body */}
       {project ? (
         <div className="flex flex-1 overflow-hidden relative">
@@ -2413,6 +3130,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               selectedLayerId={selectedLayerId}
               selectedLayerIds={selectedLayerIds}
               currentFrame={currentFrame}
+              totalFrames={project.totalFrames}
               onSelectLayer={(id, isMulti) => handleSelectLayer(id, isMulti)}
               onToggleLayerSelection={handleToggleLayerSelection}
               onSelectAllLayers={handleSelectAllLayers}
@@ -2445,34 +3163,87 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
 
           {/* Center Viewport: Interactive Canvas + Timeline */}
           <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#070b14]">
-            <div className="flex-1 relative overflow-hidden">
-              <SvgaDesignCanvas
-                project={project}
-                layers={layers}
-                selectedLayerId={selectedLayerId}
-                selectedLayerIds={selectedLayerIds}
-                currentFrame={currentFrame}
-                activeTool={activeTool}
-                zoom={zoom}
-                panOffset={panOffset}
-                showGrid={showGrid}
-                showRulers={showRulers}
-                showGuides={showGuides}
-                bgColor={bgColor}
-                onSelectLayer={handleSelectLayer}
-                onUpdateLayerTransform={handleUpdateLayerTransform}
-                onBulkUpdateTransforms={handleBulkUpdateTransforms}
-                onZoomChange={setZoom}
-                onPanChange={setPanOffset}
-                onDeleteLayer={handleDeleteLayer}
-                onUpdateProjectDimensions={handleUpdateProjectDimensions}
-                fadeConfig={fadeConfig}
-                cropConfig={cropConfig}
-                cropFeather={cropFeather}
-                bgImageUrl={bgImageUrl}
-                onChromaPickColor={handleChromaPickColor}
-                onChromaHoverColor={setChromaActiveColor}
-              />
+            <div className="flex-1 relative overflow-hidden flex flex-col">
+              {projects.length > 1 && canvasViewMode === 'multi' ? (
+                <SvgaMultiCanvasStage
+                  projects={projects}
+                  activeProjectId={activeProjectId}
+                  activeFadeConfig={fadeConfig}
+                  activeCropConfig={cropConfig}
+                  activeCropFeather={cropFeather}
+                  onSelectProject={handleSwitchProject}
+                  onFocusProjectSingleView={(id) => {
+                    handleSwitchProject(id);
+                    setCanvasViewMode('single');
+                  }}
+                  onCloseProject={handleCloseProject}
+                  onDuplicateProject={handleDuplicateProject}
+                  onRenameProject={handleRenameProject}
+                  onOpenFiles={() => multiFileInputRef.current?.click()}
+                  onOpenMp4Import={() => {
+                    setMp4InitialFiles([]);
+                    setShowMp4ImportModal(true);
+                  }}
+                  onBatchExport={() => setShowBatchExportModal(true)}
+                  onExportSingleProject={(proj) => {
+                    handleSwitchProject(proj.id);
+                    setShowExportModal(true);
+                  }}
+                  onMergeProjectIntoActive={handleMergeProjectIntoActive}
+                  onMergeAllProjectsIntoSingleCanvas={handleMergeAllProjectsIntoSingleCanvas}
+                  isMasterPlaying={isPlaying}
+                  onToggleMasterPlay={() => setIsPlaying(prev => !prev)}
+                  masterCurrentFrame={currentFrame}
+                  onFilesDrop={handleLoadMultipleFiles}
+                />
+              ) : (
+                <>
+                  {projects.length > 1 && (
+                    <div className="absolute top-3 left-3 z-30 flex items-center gap-2 bg-slate-900/95 border border-white/20 rounded-xl px-3 py-1.5 backdrop-blur-md shadow-xl animate-in fade-in duration-150">
+                      <span className="text-[11px] font-bold text-slate-300">وضع الكانفاس الفردي</span>
+                      <button
+                        onClick={() => setCanvasViewMode('multi')}
+                        className="flex items-center gap-1.5 text-xs font-bold text-indigo-300 hover:text-white bg-indigo-600/30 hover:bg-indigo-600/50 px-2.5 py-1 rounded-lg border border-indigo-500/40 transition-all cursor-pointer shadow-sm hover:scale-105"
+                        title="عرض جميع المشاريع والفيديوهات المفتوحة جنباً إلى جنب على الشاشة"
+                      >
+                        <LayoutGrid size={12} className="text-indigo-400" />
+                        <span>عرض الكل على الشاشة ({projects.length})</span>
+                      </button>
+                    </div>
+                  )}
+
+                  <SvgaDesignCanvas
+                    project={project}
+                    layers={layers}
+                    selectedLayerId={selectedLayerId}
+                    selectedLayerIds={selectedLayerIds}
+                    currentFrame={currentFrame}
+                    activeTool={activeTool}
+                    zoom={zoom}
+                    panOffset={panOffset}
+                    showGrid={showGrid}
+                    showRulers={showRulers}
+                    showGuides={showGuides}
+                    bgColor={bgColor}
+                    onSelectLayer={handleSelectLayer}
+                    onUpdateLayerTransform={handleUpdateLayerTransform}
+                    onBulkUpdateTransforms={handleBulkUpdateTransforms}
+                    onZoomChange={setZoom}
+                    onPanChange={setPanOffset}
+                    onDeleteLayer={handleDeleteLayer}
+                    onUpdateProjectDimensions={handleUpdateProjectDimensions}
+                    fadeConfig={fadeConfig}
+                    cropConfig={cropConfig}
+                    cropFeather={cropFeather}
+                    bgImageUrl={bgImageUrl}
+                    onChromaPickColor={handleChromaPickColor}
+                    onChromaHoverColor={setChromaActiveColor}
+                    onUpdateShineConfig={handleUpdateLayerShineConfig}
+                    shinePointStep={shinePointStep}
+                    onShinePointStepChange={setShinePointStep}
+                  />
+                </>
+              )}
             </div>
 
             {/* Smart Chroma Key Pen Studio Control Panel */}
@@ -2578,6 +3349,11 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               onResetTransparency={handleResetTransparency}
               onUpdateShineConfig={handleUpdateLayerShineConfig}
               onResetShine={handleResetShine}
+              onCreateShineLayer={handleCreateShineLayer}
+              onExportShineLayerOnly={handleExportShineLayerOnly}
+              shinePointStep={shinePointStep}
+              onStartPickShinePoints={() => setShinePointStep('place-start')}
+              onCancelPickShinePoints={() => setShinePointStep('idle')}
             />
           </aside>
         </div>
@@ -2588,26 +3364,31 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault();
-            const f = e.dataTransfer.files?.[0];
-            if (f) {
+            const files = e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
+            if (files.length > 1) {
+              handleLoadMultipleFiles(files);
+            } else if (files.length === 1) {
+              const f = files[0];
               if (f.name.toLowerCase().endsWith('.mp4') || f.type.startsWith('video/')) {
                 setMp4InitialFiles([f]);
                 setShowMp4ImportModal(true);
+              } else if (f.type.startsWith('image/') || f.name.toLowerCase().endsWith('.gif') || f.name.toLowerCase().endsWith('.webp') || f.name.toLowerCase().endsWith('.png') || f.name.toLowerCase().endsWith('.jpg')) {
+                handleLoadMultipleFiles([f]);
               } else {
                 loadSvgaFile(f);
               }
             }
           }}
         >
-          <div className="max-w-3xl w-full bg-slate-900/60 border border-white/10 rounded-3xl p-8 text-center space-y-6 shadow-2xl backdrop-blur-xl" dir="rtl">
+          <div className="max-w-4xl w-full bg-slate-900/60 border border-white/10 rounded-3xl p-8 text-center space-y-6 shadow-2xl backdrop-blur-xl" dir="rtl">
             <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-indigo-500/20 to-purple-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 mx-auto shadow-glow-indigo">
               <Layers size={36} />
             </div>
 
             <div className="space-y-2">
               <h2 className="text-2xl font-black text-white">محرر وفك طبقات SVGA الاحترافي</h2>
-              <p className="text-slate-400 text-xs leading-relaxed max-w-lg mx-auto">
-                أنشئ مشروعاً جديداً بمقاسات مخصصة وصمم من الصفر، أو افتح وفك ضغط أي ملف SVGA، أو استدعِ ملفات فيديو MP4 للتحكم بها كطبقات وحفظها أو تصديرها لأي صيغة متاحة.
+              <p className="text-slate-400 text-xs leading-relaxed max-w-xl mx-auto">
+                يمكنك رفع 3 إلى 4 مشاريع من أي صيغة (SVGA، MP4، صور) والعمل عليها في تكوينات مستقلة والتنقل بينها وتصديرها معاً دفعة واحدة بنقرة واحدة!
               </p>
             </div>
 
@@ -2618,9 +3399,30 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               </div>
             )}
 
-            {/* Quick Actions Cards: 1. New Project, 2. Open SVGA, 3. Import MP4 */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-right">
-              {/* Option 1: Create New Project */}
+            {/* Quick Actions Cards: 1. Multi-Files (3-4 Projects), 2. New Project, 3. Open SVGA, 4. Import MP4 */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-right">
+              {/* Option 1: Multi-Files (3-4 Projects) */}
+              <button
+                onClick={() => multiFileInputRef.current?.click()}
+                className="p-5 bg-gradient-to-b from-teal-600/20 via-emerald-600/15 to-transparent hover:from-teal-600/30 hover:via-emerald-600/25 border border-emerald-500/40 hover:border-emerald-400 rounded-2xl transition-all cursor-pointer group flex flex-col justify-between text-right shadow-lg shadow-emerald-600/10 hover:scale-[1.02]"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-md shadow-emerald-600/40 group-hover:scale-110 transition-transform">
+                    <Package size={20} />
+                  </div>
+                  <span className="text-[10px] font-black text-emerald-300 bg-emerald-500/20 px-2.5 py-1 rounded-full border border-emerald-500/40">
+                    مشاريع متعددة (3-4)
+                  </span>
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white group-hover:text-emerald-300 transition-colors">رفع عدة ملفات (3-4 مشاريع)</h3>
+                  <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
+                    رفع ملفات متعددة (SVGA / MP4 / صور) في تبويبات مستقلة وتصديرها معاً دفعة واحدة
+                  </p>
+                </div>
+              </button>
+
+              {/* Option 2: Create New Project */}
               <button
                 onClick={() => setShowNewProjectModal(true)}
                 className="p-5 bg-gradient-to-b from-indigo-600/20 via-purple-600/15 to-transparent hover:from-indigo-600/30 hover:via-purple-600/25 border border-indigo-500/40 hover:border-indigo-400 rounded-2xl transition-all cursor-pointer group flex flex-col justify-between text-right shadow-lg shadow-indigo-600/10 hover:scale-[1.02]"
@@ -2641,7 +3443,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                 </div>
               </button>
 
-              {/* Option 2: Open / Decompress SVGA File */}
+              {/* Option 3: Open / Decompress SVGA File */}
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="p-5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-indigo-400/40 rounded-2xl transition-all cursor-pointer group flex flex-col justify-between text-right shadow-lg hover:scale-[1.02]"
@@ -2662,7 +3464,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                 </div>
               </button>
 
-              {/* Option 3: Import MP4 Video as SVGA */}
+              {/* Option 4: Import MP4 Video as SVGA */}
               <button
                 onClick={() => {
                   setMp4InitialFiles([]);
@@ -2689,11 +3491,11 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
 
             {/* Drop Zone Strip */}
             <div
-              onClick={() => fileInputRef.current?.click()}
-              className="border border-dashed border-white/15 hover:border-indigo-500/40 bg-black/20 hover:bg-black/40 rounded-2xl p-4 transition-all cursor-pointer flex items-center justify-center gap-2 text-xs text-slate-400 hover:text-slate-200"
+              onClick={() => multiFileInputRef.current?.click()}
+              className="border border-dashed border-white/15 hover:border-emerald-500/40 bg-black/20 hover:bg-black/40 rounded-2xl p-4 transition-all cursor-pointer flex items-center justify-center gap-2 text-xs text-slate-400 hover:text-slate-200"
             >
-              <Upload size={15} className="text-indigo-400" />
-              <span>أو اسحب وأفلت أي ملف SVGA أو فيديو MP4 هنا مباشرة للفتح الفوري</span>
+              <Upload size={15} className="text-emerald-400" />
+              <span>أو اسحب وأفلت 3 إلى 4 ملفات (SVGA / MP4 / صور) هنا مباشرة للفتح المتوازي الفوري</span>
             </div>
           </div>
         </div>
@@ -2899,7 +3701,9 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               hasExistingProject={!!project}
               existingProject={project}
               onImportAsProject={handleImportMp4AsProject}
+              onImportMultipleProjects={handleImportMultipleProjects}
               onImportAsLayer={handleImportMp4AsLayer}
+              onImportMultipleLayers={handleImportMultipleLayers}
             />
           </ErrorBoundary>
         )}
@@ -2920,6 +3724,18 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             isMergingLayers={isMergingLayers}
             selectedLayerIds={selectedLayerIds}
             setSuccessToast={(msg) => setSuccessToast(msg)}
+          />
+        </ErrorBoundary>
+      )}
+
+      {/* Batch Multi-Project Export Modal (Export all open 3-4 projects at once) */}
+      {showBatchExportModal && (
+        <ErrorBoundary fallbackTitle="حدث خطأ في واجهة التصدير الجماعي" onReset={() => setShowBatchExportModal(false)}>
+          <SvgaBatchExportModal
+            isOpen={showBatchExportModal}
+            onClose={() => setShowBatchExportModal(false)}
+            projects={projects}
+            onSuccessToast={(msg) => setSuccessToast(msg)}
           />
         </ErrorBoundary>
       )}

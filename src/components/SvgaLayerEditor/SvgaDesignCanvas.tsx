@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
-import { EditableLayer, SVGAProjectData, CanvasTool, GuideLine, FadeConfig, CropConfig, CropFeather } from './types';
+import { EditableLayer, SVGAProjectData, CanvasTool, GuideLine, FadeConfig, CropConfig, CropFeather, ShineVectorPoint } from './types';
 import { getLayerAnimatedTransform } from './motionEngine';
 import { applyTransparencyEffects } from './transparencyEngine';
 import { renderLayerShine } from './shineEngine';
@@ -33,13 +33,16 @@ interface SvgaDesignCanvasProps {
   onUpdateProjectDimensions?: (width: number, height: number, scaleLayers?: boolean) => void;
   onChromaPickColor?: (color: ChromaTargetColor) => void;
   onChromaHoverColor?: (color: ChromaTargetColor | null) => void;
+  onUpdateShineConfig?: (layerId: string, shineDelta: any, targetScope?: any) => void;
   fadeConfig?: FadeConfig;
   cropConfig?: CropConfig;
   cropFeather?: CropFeather;
   bgImageUrl?: string | null;
+  shinePointStep?: 'idle' | 'place-start' | 'place-end';
+  onShinePointStepChange?: (step: 'idle' | 'place-start' | 'place-end') => void;
 }
 
-type DragHandleType = 'move' | 'nw' | 'ne' | 'se' | 'sw' | 'n' | 's' | 'e' | 'w' | 'rot' | 'pan';
+type DragHandleType = 'move' | 'nw' | 'ne' | 'se' | 'sw' | 'n' | 's' | 'e' | 'w' | 'rot' | 'pan' | 'shine-start' | 'shine-end' | 'shine-mid';
 
 interface Point {
   x: number;
@@ -454,10 +457,13 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
   onUpdateProjectDimensions,
   onChromaPickColor,
   onChromaHoverColor,
+  onUpdateShineConfig,
   fadeConfig,
   cropConfig,
   cropFeather,
-  bgImageUrl
+  bgImageUrl,
+  shinePointStep: externalShinePointStep,
+  onShinePointStepChange
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -475,6 +481,13 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     canvasY: number;
     color: ChromaTargetColor;
   } | null>(null);
+
+  // Interactive Click-to-Place Shine Vector Points State
+  const [internalShinePointStep, setInternalShinePointStep] = useState<'idle' | 'place-start' | 'place-end'>('idle');
+  const shinePointStep = externalShinePointStep !== undefined ? externalShinePointStep : internalShinePointStep;
+  const setShinePointStep = onShinePointStepChange || setInternalShinePointStep;
+  const [tempShineStart, setTempShineStart] = useState<ShineVectorPoint | null>(null);
+  const [hoverCanvasCoords, setHoverCanvasCoords] = useState<{ x: number; y: number } | null>(null);
 
   // Project Dimensions Controls State
   const [showDimensionsMenu, setShowDimensionsMenu] = useState<boolean>(false);
@@ -1021,8 +1034,34 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         targetCtx.drawImage(cachedImg, 0, 0, drawW, drawH);
 
         if (layerItem.shineConfig && layerItem.shineConfig.enabled) {
-          renderLayerShine(targetCtx, drawW, drawH, currentFrame, project.totalFrames, layerItem.shineConfig);
+          renderLayerShine(
+            targetCtx,
+            drawW,
+            drawH,
+            currentFrame,
+            project.totalFrames,
+            layerItem.shineConfig,
+            project.width,
+            project.height,
+            finalTotalMatrix,
+            project.fps || 30
+          );
         }
+      } else if (layerItem.shineConfig && layerItem.shineConfig.enabled) {
+        const drawW = layerItem.transform.width || project.width;
+        const drawH = layerItem.transform.height || project.height;
+        renderLayerShine(
+          targetCtx,
+          drawW,
+          drawH,
+          currentFrame,
+          project.totalFrames,
+          layerItem.shineConfig,
+          project.width,
+          project.height,
+          finalTotalMatrix,
+          project.fps || 30
+        );
       }
 
       targetCtx.restore();
@@ -1490,6 +1529,23 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     const rotOffset = isTinyElement ? 36 : isSmallElement ? 32 : 28;
     const rotHandle = { x: midTop.x + normalX * rotOffset, y: midTop.y + normalY * rotOffset };
 
+    // 0. Shine vector path handles check (if shine enabled on selected layer)
+    if (selectedLayer.shineConfig?.enabled && selectedLayer.shineConfig.editPathOnCanvas !== false) {
+      const sPt = selectedLayer.shineConfig.startPoint || {
+        x: Math.round(selectedLayer.transform.x + selectedLayer.transform.width / 2),
+        y: Math.max(0, Math.round(selectedLayer.transform.y - 30))
+      };
+      const ePt = selectedLayer.shineConfig.endPoint || {
+        x: Math.round(selectedLayer.transform.x + selectedLayer.transform.width / 2),
+        y: Math.round(selectedLayer.transform.y + selectedLayer.transform.height + 30)
+      };
+      const mPt = { x: (sPt.x + ePt.x) / 2, y: (sPt.y + ePt.y) / 2 };
+
+      if (Math.hypot(cx - sPt.x, cy - sPt.y) <= 26) return 'shine-start';
+      if (Math.hypot(cx - ePt.x, cy - ePt.y) <= 26) return 'shine-end';
+      if (Math.hypot(cx - mPt.x, cy - mPt.y) <= 24) return 'shine-mid';
+    }
+
     // 1. Rotation knob test (tested first, outside the box)
     if (Math.hypot(cx - rotHandle.x, cy - rotHandle.y) <= (isTinyElement ? 10 : 12)) return 'rot';
 
@@ -1554,8 +1610,27 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
     if (e.button !== 0) return;
 
-    const isModifierKey = e.ctrlKey || e.metaKey || e.shiftKey;
     const coords = clientToCanvasCoords(e.clientX, e.clientY);
+
+    // Interactive Step-by-Step Shine Point Placement (Start -> End)
+    if (shinePointStep === 'place-start' && selectedLayer?.shineConfig && onUpdateShineConfig) {
+      setTempShineStart(coords);
+      setShinePointStep('place-end');
+      return;
+    }
+    if (shinePointStep === 'place-end' && selectedLayer?.shineConfig && onUpdateShineConfig && tempShineStart) {
+      const angle = Math.round((Math.atan2(coords.y - tempShineStart.y, coords.x - tempShineStart.x) * 180) / Math.PI);
+      onUpdateShineConfig(selectedLayer.id, {
+        startPoint: tempShineStart,
+        endPoint: coords,
+        angleDeg: (angle + 360) % 360
+      });
+      setShinePointStep('idle');
+      setTempShineStart(null);
+      return;
+    }
+
+    const isModifierKey = e.ctrlKey || e.metaKey || e.shiftKey;
     const handle = getHandleUnderMouse(coords.x, coords.y);
 
     if (handle) {
@@ -1655,10 +1730,19 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         return;
       }
       const coords = clientToCanvasCoords(e.clientX, e.clientY);
+      setHoverCanvasCoords(coords);
+
+      if (shinePointStep !== 'idle') {
+        setCanvasCursor('crosshair');
+        return;
+      }
+
       const handle = getHandleUnderMouse(coords.x, coords.y);
 
       if (handle) {
         if (handle === 'rot') setCanvasCursor('crosshair');
+        else if (handle === 'shine-start' || handle === 'shine-end') setCanvasCursor('pointer');
+        else if (handle === 'shine-mid') setCanvasCursor('grab');
         else if (handle === 'nw' || handle === 'se') setCanvasCursor('nwse-resize');
         else if (handle === 'ne' || handle === 'sw') setCanvasCursor('nesw-resize');
         else if (handle === 'n' || handle === 's') setCanvasCursor('ns-resize');
@@ -1684,9 +1768,51 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       return;
     }
 
+    const coords = clientToCanvasCoords(e.clientX, e.clientY);
+
+    if (dragHandle === 'shine-start' && selectedLayer?.shineConfig && onUpdateShineConfig) {
+      const ePt = selectedLayer.shineConfig.endPoint || {
+        x: Math.round(selectedLayer.transform.x + selectedLayer.transform.width / 2),
+        y: Math.round(selectedLayer.transform.y + selectedLayer.transform.height + 30)
+      };
+      const newStart = { x: Math.round(coords.x), y: Math.round(coords.y) };
+      const angle = Math.round((Math.atan2(ePt.y - newStart.y, ePt.x - newStart.x) * 180) / Math.PI);
+      onUpdateShineConfig(selectedLayer.id, { startPoint: newStart, angleDeg: (angle + 360) % 360 });
+      return;
+    }
+
+    if (dragHandle === 'shine-end' && selectedLayer?.shineConfig && onUpdateShineConfig) {
+      const sPt = selectedLayer.shineConfig.startPoint || {
+        x: Math.round(selectedLayer.transform.x + selectedLayer.transform.width / 2),
+        y: Math.max(0, Math.round(selectedLayer.transform.y - 30))
+      };
+      const newEnd = { x: Math.round(coords.x), y: Math.round(coords.y) };
+      const angle = Math.round((Math.atan2(newEnd.y - sPt.y, newEnd.x - sPt.x) * 180) / Math.PI);
+      onUpdateShineConfig(selectedLayer.id, { endPoint: newEnd, angleDeg: (angle + 360) % 360 });
+      return;
+    }
+
+    if (dragHandle === 'shine-mid' && selectedLayer?.shineConfig && onUpdateShineConfig) {
+      const deltaX = coords.x - dragStart.x;
+      const deltaY = coords.y - dragStart.y;
+      const sPt = selectedLayer.shineConfig.startPoint || {
+        x: Math.round(selectedLayer.transform.x + selectedLayer.transform.width / 2),
+        y: Math.max(0, Math.round(selectedLayer.transform.y - 30))
+      };
+      const ePt = selectedLayer.shineConfig.endPoint || {
+        x: Math.round(selectedLayer.transform.x + selectedLayer.transform.width / 2),
+        y: Math.round(selectedLayer.transform.y + selectedLayer.transform.height + 30)
+      };
+      onUpdateShineConfig(selectedLayer.id, {
+        startPoint: { x: Math.round(sPt.x + deltaX), y: Math.round(sPt.y + deltaY) },
+        endPoint: { x: Math.round(ePt.x + deltaX), y: Math.round(ePt.y + deltaY) }
+      });
+      setDragStart(coords);
+      return;
+    }
+
     if (!selectedLayer || !initialTransform) return;
 
-    const coords = clientToCanvasCoords(e.clientX, e.clientY);
     const deltaX = coords.x - dragStart.x;
     const deltaY = coords.y - dragStart.y;
 
@@ -2238,7 +2364,114 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
           height={project.height}
           className="block pointer-events-none"
         />
+
+        {/* Interactive Shine Vector Path Overlay on Canvas */}
+        {selectedLayer?.shineConfig?.enabled && selectedLayer.shineConfig.editPathOnCanvas !== false && (() => {
+          const sPt = tempShineStart || selectedLayer.shineConfig.startPoint || {
+            x: Math.round(selectedLayer.transform.x + selectedLayer.transform.width / 2),
+            y: Math.max(0, Math.round(selectedLayer.transform.y - 30))
+          };
+          const ePt = (shinePointStep === 'place-end' && hoverCanvasCoords) 
+            ? hoverCanvasCoords 
+            : (selectedLayer.shineConfig.endPoint || {
+                x: Math.round(selectedLayer.transform.x + selectedLayer.transform.width / 2),
+                y: Math.round(selectedLayer.transform.y + selectedLayer.transform.height + 30)
+              });
+          const mPt = { x: (sPt.x + ePt.x) / 2, y: (sPt.y + ePt.y) / 2 };
+          const len = Math.round(Math.hypot(ePt.x - sPt.x, ePt.y - sPt.y));
+
+          return (
+            <svg
+              className="absolute inset-0 w-full h-full pointer-events-none z-20 overflow-visible select-none"
+              viewBox={`0 0 ${project.width} ${project.height}`}
+            >
+              <defs>
+                <linearGradient id="shineVectorGrad" x1={sPt.x} y1={sPt.y} x2={ePt.x} y2={ePt.y} gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stopColor="#10b981" />
+                  <stop offset="50%" stopColor="#06b6d4" />
+                  <stop offset="100%" stopColor="#a855f7" />
+                </linearGradient>
+                <filter id="shinePinGlow" x="-30%" y="-30%" width="160%" height="160%">
+                  <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#000000" floodOpacity="0.8" />
+                </filter>
+              </defs>
+
+              {/* Dashed trajectory line */}
+              <line
+                x1={sPt.x}
+                y1={sPt.y}
+                x2={ePt.x}
+                y2={ePt.y}
+                stroke="url(#shineVectorGrad)"
+                strokeWidth="2.8"
+                strokeDasharray="6 4"
+              />
+
+              {/* Middle Trajectory Drag Handle */}
+              {shinePointStep === 'idle' && (
+                <g transform={`translate(${mPt.x}, ${mPt.y})`} filter="url(#shinePinGlow)" className="pointer-events-auto cursor-grab">
+                  <circle r="12" fill="#06b6d4" stroke="#ffffff" strokeWidth="2" />
+                  <path d="M-4 0 L4 0 M0 -4 L0 4" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" />
+                  <rect x="-42" y="16" width="84" height="20" rx="10" fill="rgba(15, 23, 42, 0.95)" stroke="#06b6d4" strokeWidth="1.2" />
+                  <text x="0" y="29.5" textAnchor="middle" fill="#38bdf8" fontSize="10" fontWeight="bold" fontFamily="sans-serif">
+                    سحب ({len}px)
+                  </text>
+                </g>
+              )}
+
+              {/* Start Point Pin (Green) */}
+              <g transform={`translate(${sPt.x}, ${sPt.y})`} filter="url(#shinePinGlow)" className="pointer-events-auto cursor-pointer">
+                <circle r="14" fill="#10b981" stroke="#ffffff" strokeWidth="2.5" />
+                <text x="0" y="4" textAnchor="middle" fill="#ffffff" fontSize="11" fontWeight="900" fontFamily="sans-serif">
+                  S
+                </text>
+                {/* Start Label Badge */}
+                <rect x="-48" y="-28" width="96" height="20" rx="10" fill="rgba(15, 23, 42, 0.95)" stroke="#10b981" strokeWidth="1.2" />
+                <text x="0" y="-14.5" textAnchor="middle" fill="#34d399" fontSize="10" fontWeight="bold" fontFamily="sans-serif">
+                  بداية اللمعة (Start)
+                </text>
+              </g>
+
+              {/* End Point Pin (Purple) */}
+              {(shinePointStep === 'idle' || shinePointStep === 'place-end') && (
+                <g transform={`translate(${ePt.x}, ${ePt.y})`} filter="url(#shinePinGlow)" className="pointer-events-auto cursor-pointer">
+                  <circle r="14" fill="#a855f7" stroke="#ffffff" strokeWidth="2.5" />
+                  <text x="0" y="4" textAnchor="middle" fill="#ffffff" fontSize="11" fontWeight="900" fontFamily="sans-serif">
+                    E
+                  </text>
+                  {/* End Label Badge */}
+                  <rect x="-48" y="-28" width="96" height="20" rx="10" fill="rgba(15, 23, 42, 0.95)" stroke="#a855f7" strokeWidth="1.2" />
+                  <text x="0" y="-14.5" textAnchor="middle" fill="#c084fc" fontSize="10" fontWeight="bold" fontFamily="sans-serif">
+                    نهاية اللمعة (End)
+                  </text>
+                </g>
+              )}
+            </svg>
+          );
+        })()}
       </div>
+
+      {/* Floating Guidance Banner when placing Shine Points */}
+      {shinePointStep !== 'idle' && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-900/95 border border-emerald-500/60 shadow-2xl px-5 py-3 rounded-2xl backdrop-blur-md text-white animate-in slide-in-from-top-2 duration-150">
+          <div className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
+          <span className="text-sm font-bold text-emerald-300">
+            {shinePointStep === 'place-start' 
+              ? '📌 الخطوة 1: انقر بالماوس على المكان الذي تبدأ منه حركة اللمعة (نقطة البداية S)' 
+              : '🎯 الخطوة 2: انقر بالماوس على المكان الذي تريد أن تصل إليه اللمعة (نقطة النهاية E)'}
+          </span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShinePointStep('idle');
+              setTempShineStart(null);
+            }}
+            className="px-3 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 rounded-xl text-xs font-semibold transition-colors"
+          >
+            إلغاء
+          </button>
+        </div>
+      )}
 
       {/* Interactive Smart Chroma Magnifier Loupe */}
       {activeTool === 'chroma-pen' && chromaLoupe && (

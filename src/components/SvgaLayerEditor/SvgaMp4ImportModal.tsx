@@ -38,8 +38,10 @@ interface SvgaMp4ImportModalProps {
   initialFiles?: File[];
   hasExistingProject?: boolean;
   existingProject?: SVGAProjectData | null;
-  onImportAsProject: (project: SVGAProjectData, layers: EditableLayer[]) => void;
+  onImportAsProject: (project: SVGAProjectData, layers: EditableLayer[], file?: File) => void;
+  onImportMultipleProjects?: (items: { project: SVGAProjectData; layers: EditableLayer[]; file?: File; videoUrl?: string }[]) => void;
   onImportAsLayer?: (layer: EditableLayer, audios: SVGAAudioTrack[]) => void;
+  onImportMultipleLayers?: (layers: EditableLayer[], audios: SVGAAudioTrack[]) => void;
 }
 
 export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
@@ -49,7 +51,9 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
   hasExistingProject = false,
   existingProject = null,
   onImportAsProject,
-  onImportAsLayer
+  onImportMultipleProjects,
+  onImportAsLayer,
+  onImportMultipleLayers
 }) => {
   const [files, setFiles] = useState<File[]>([]);
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
@@ -252,53 +256,107 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
 
   // Convert/Import Execution
   const handleExecuteImport = async () => {
-    if (!activeFile) return;
+    if (files.length === 0) return;
 
     setIsProcessing(true);
     setErrorMsg(null);
     setProgressPercent(5);
-    setProgressPhase('بدء تهيئة استدعاء الفيديو...');
+    setProgressPhase('بدء تهيئة استدعاء وتحويل الفيديوهات...');
 
     try {
-      const conversionOptions = {
-        fps,
-        targetDuration: durationMode === 'custom' ? customDuration : undefined,
-        durationStrategy,
-        targetWidth: customWidth > 0 ? customWidth : undefined,
-        targetHeight: customHeight > 0 ? customHeight : undefined,
-        quality: qualityMode,
-        maxFrames: maxFramesLimit > 0 ? maxFramesLimit : undefined,
-        preserveAudio,
-        onProgress: (phase: string, percent: number) => {
-          setProgressPhase(phase);
-          setProgressPercent(percent);
-        }
-      };
+      if (importMode === 'add_layer' && hasExistingProject && existingProject) {
+        // Add as video layer(s) into current project
+        const allNewLayers: EditableLayer[] = [];
+        const allAddedAudios: SVGAAudioTrack[] = [];
 
-      if (importMode === 'add_layer' && hasExistingProject && existingProject && onImportAsLayer) {
-        // Add as video layer into current project
-        const { newLayer, addedAudios } = await importMp4AsLayerIntoProject(
-          activeFile,
-          existingProject,
-          conversionOptions
-        );
+        for (let i = 0; i < files.length; i++) {
+          const currentFile = files[i];
+          const fileProbe = probes[currentFile.name] || await probeMp4Video(currentFile).catch(() => null);
+
+          const conversionOptions = {
+            fps,
+            targetDuration: durationMode === 'custom' ? customDuration : (fileProbe ? fileProbe.duration : undefined),
+            durationStrategy,
+            targetWidth: customWidth > 0 ? customWidth : undefined,
+            targetHeight: customHeight > 0 ? customHeight : undefined,
+            quality: qualityMode,
+            maxFrames: maxFramesLimit > 0 ? maxFramesLimit : undefined,
+            preserveAudio,
+            onProgress: (phase: string, percent: number) => {
+              const overallPercent = Math.round(((i + percent / 100) / files.length) * 100);
+              setProgressPhase(`[${i + 1}/${files.length}] ${currentFile.name}: ${phase}`);
+              setProgressPercent(overallPercent);
+            }
+          };
+
+          const { newLayer, addedAudios } = await importMp4AsLayerIntoProject(
+            currentFile,
+            existingProject,
+            conversionOptions
+          );
+          allNewLayers.push(newLayer);
+          allAddedAudios.push(...addedAudios);
+        }
+
         setIsProcessing(false);
-        onImportAsLayer(newLayer, addedAudios);
+        if (onImportMultipleLayers && allNewLayers.length > 1) {
+          onImportMultipleLayers(allNewLayers, allAddedAudios);
+        } else if (allNewLayers.length > 0) {
+          if (onImportMultipleLayers) {
+            onImportMultipleLayers(allNewLayers, allAddedAudios);
+          } else if (onImportAsLayer) {
+            onImportAsLayer(allNewLayers[0], allAddedAudios);
+          }
+        }
         onClose();
       } else {
-        // Create full SVGA project
-        const { project, layers } = await convertMp4ToSvgaProject(
-          activeFile,
-          conversionOptions
-        );
+        // Create full SVGA project(s)
+        const results: { project: SVGAProjectData; layers: EditableLayer[]; file?: File; videoUrl?: string }[] = [];
+
+        for (let i = 0; i < files.length; i++) {
+          const currentFile = files[i];
+          const fileProbe = probes[currentFile.name] || await probeMp4Video(currentFile).catch(() => null);
+
+          const conversionOptions = {
+            fps,
+            targetDuration: durationMode === 'custom' ? customDuration : (fileProbe ? fileProbe.duration : undefined),
+            durationStrategy,
+            targetWidth: customWidth > 0 ? customWidth : undefined,
+            targetHeight: customHeight > 0 ? customHeight : undefined,
+            quality: qualityMode,
+            maxFrames: maxFramesLimit > 0 ? maxFramesLimit : undefined,
+            preserveAudio,
+            onProgress: (phase: string, percent: number) => {
+              const overallPercent = Math.round(((i + percent / 100) / files.length) * 100);
+              setProgressPhase(`[${i + 1}/${files.length}] ${currentFile.name}: ${phase}`);
+              setProgressPercent(overallPercent);
+            }
+          };
+
+          const { project, layers } = await convertMp4ToSvgaProject(
+            currentFile,
+            conversionOptions
+          );
+          const videoUrl = URL.createObjectURL(currentFile);
+          results.push({ project, layers, file: currentFile, videoUrl });
+        }
+
         setIsProcessing(false);
-        onImportAsProject(project, layers);
+        if (results.length > 1 && onImportMultipleProjects) {
+          onImportMultipleProjects(results);
+        } else if (results.length > 0) {
+          if (onImportMultipleProjects) {
+            onImportMultipleProjects(results);
+          } else {
+            onImportAsProject(results[0].project, results[0].layers, results[0].file);
+          }
+        }
         onClose();
       }
     } catch (err: any) {
       console.error('MP4 import error:', err);
       setIsProcessing(false);
-      setErrorMsg(err?.message || 'حدث خطأ أثناء استدعاء وتحويل الفيديو. يرجى المحاولة مرة أخرى.');
+      setErrorMsg(err?.message || 'حدث خطأ أثناء استدعاء وتحويل الفيديوهات. يرجى المحاولة مرة أخرى.');
     }
   };
 
@@ -381,19 +439,41 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
                   <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-white/10">
                     <span className="text-xs font-bold text-slate-400 shrink-0">الفيديوهات المختارة ({files.length}):</span>
                     {files.map((f, idx) => (
-                      <button
+                      <div
                         key={`${f.name}_${idx}`}
-                        onClick={() => setSelectedIndex(idx)}
-                        disabled={isProcessing}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shrink-0 ${
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shrink-0 ${
                           selectedIndex === idx
                             ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
                             : 'bg-white/5 hover:bg-white/10 text-slate-300'
                         }`}
                       >
-                        <Video size={13} />
-                        <span className="max-w-[130px] truncate">{f.name}</span>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedIndex(idx)}
+                          disabled={isProcessing}
+                          className="flex items-center gap-1.5 cursor-pointer outline-none"
+                        >
+                          <Video size={13} />
+                          <span className="max-w-[130px] truncate">{f.name}</span>
+                        </button>
+                        {!isProcessing && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const updated = files.filter((_, i) => i !== idx);
+                              setFiles(updated);
+                              if (selectedIndex >= updated.length) {
+                                setSelectedIndex(Math.max(0, updated.length - 1));
+                              }
+                            }}
+                            className="p-0.5 rounded hover:bg-white/20 text-slate-400 hover:text-rose-300 transition-colors cursor-pointer"
+                            title="حذف هذا الفيديو من القائمة"
+                          >
+                            <X size={12} />
+                          </button>
+                        )}
+                      </div>
                     ))}
                     <button
                       onClick={() => fileInputRef.current?.click()}
@@ -1114,13 +1194,24 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
                 {isProcessing ? (
                   <>
                     <Loader2 size={15} className="animate-spin" />
-                    <span>جاري الاستدعاء والتحويل...</span>
+                    <span>
+                      {files.length > 1
+                        ? `جاري تحويل الفيديوهات (${files.length})...`
+                        : 'جاري الاستدعاء والتحويل...'}
+                    </span>
                   </>
                 ) : (
                   <>
                     <Sparkles size={15} className="text-indigo-200" />
                     <span>
-                      {importMode === 'add_layer' ? 'دمج الفيديو في المشروع الآن' : 'استدعاء وبدء التحرير في محرر SVGA'}
+                      {importMode === 'add_layer'
+                        ? (files.length > 1
+                            ? `دمج كافة الفيديوهات (${files.length}) كطبقات في المشروع`
+                            : 'دمج الفيديو في المشروع الآن')
+                        : (files.length > 1
+                            ? `استدعاء وتحويل كافة الفيديوهات (${files.length}) إلى SVGA`
+                            : 'استدعاء وبدء التحرير في محرر SVGA')
+                      }
                     </span>
                   </>
                 )}
