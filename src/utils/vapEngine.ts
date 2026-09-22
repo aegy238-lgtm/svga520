@@ -340,9 +340,9 @@ export const detectVapChannelLayout = (
   };
 };
 
-// Ultra-fast, hardware-accelerated video frame seeker
+// Ultra-fast, frame-accurate video frame seeker without keyframe-skipping stutter
 export const seekVideoToFrame = (video: HTMLVideoElement, targetTime: number): Promise<void> => {
-  if (Math.abs(video.currentTime - targetTime) < 0.005) {
+  if (Math.abs(video.currentTime - targetTime) < 0.001) {
     return Promise.resolve();
   }
 
@@ -351,30 +351,54 @@ export const seekVideoToFrame = (video: HTMLVideoElement, targetTime: number): P
     const finish = () => {
       if (!isDone) {
         isDone = true;
-        video.removeEventListener('seeked', finish);
-        video.removeEventListener('error', finish);
+        video.removeEventListener('seeked', onSeeked);
+        video.removeEventListener('error', onError);
         resolve();
       }
     };
 
-    video.addEventListener('seeked', finish, { once: true });
-    video.addEventListener('error', finish, { once: true });
+    const onSeeked = () => {
+      // If requestVideoFrameCallback is available, wait for the decoded frame to paint into texture
+      if ('requestVideoFrameCallback' in video && typeof (video as any).requestVideoFrameCallback === 'function') {
+        let rvfcDone = false;
+        try {
+          (video as any).requestVideoFrameCallback(() => {
+            if (!rvfcDone) {
+              rvfcDone = true;
+              finish();
+            }
+          });
+          setTimeout(() => {
+            if (!rvfcDone) {
+              rvfcDone = true;
+              finish();
+            }
+          }, 35);
+        } catch {
+          finish();
+        }
+      } else {
+        finish();
+      }
+    };
+
+    const onError = () => {
+      finish();
+    };
+
+    video.addEventListener('seeked', onSeeked, { once: true });
+    video.addEventListener('error', onError, { once: true });
 
     try {
-      if ('fastSeek' in video && typeof (video as any).fastSeek === 'function') {
-        (video as any).fastSeek(targetTime);
-      } else {
-        video.currentTime = targetTime;
-      }
+      // CRITICAL FIX: NEVER use fastSeek! fastSeek rounds to the nearest keyframe (I-frame),
+      // which causes severe video lag, frame skipping, and freezing during export!
+      video.currentTime = targetTime;
     } catch {
       video.currentTime = targetTime;
     }
 
-    if (!video.seeking) {
-      setTimeout(finish, 10);
-    } else {
-      setTimeout(finish, 120);
-    }
+    // Safe fallback timeout in case the browser drops the seeked event
+    setTimeout(finish, 400);
   });
 };
 
@@ -676,7 +700,21 @@ export const convertVapToMp4 = async (options: VapExportOptions): Promise<{ mp4B
   const vh = video.videoHeight || 1334;
   const videoDuration = video.duration || 3;
   const finalDuration = exportDuration && exportDuration > 0 ? exportDuration : videoDuration;
-  const fps = config?.info?.f || 24;
+  
+  // Robust FPS sanitization: VAP format specs use 'f' for framerate (24-30).
+  // If 'f' was bloated (>60), it was mistakenly written as total frame count in legacy files.
+  let fps = config?.info?.fps || config?.info?.f || 24;
+  if (fps > 60) {
+    if (config?.info?.fps && config.info.fps <= 60) {
+      fps = config.info.fps;
+    } else if (videoDuration > 0) {
+      const estimatedFps = Math.round(fps / videoDuration);
+      fps = estimatedFps >= 15 && estimatedFps <= 60 ? estimatedFps : 30;
+    } else {
+      fps = 30;
+    }
+  }
+  fps = Math.max(15, Math.min(60, Math.round(fps)));
   const totalFrames = Math.max(1, Math.floor(finalDuration * fps));
 
   let cfgW = config?.info?.w || Math.round(vw / 2);
@@ -914,8 +952,17 @@ export const convertVapToMp4 = async (options: VapExportOptions): Promise<{ mp4B
     });
 
     const isKeyFrame = i === 0 || i % Math.max(12, Math.min(30, Math.round(fps))) === 0;
+
+    while (videoEncoder.encodeQueueSize > 10 && !cancelSignal?.cancelled) {
+      await new Promise(r => setTimeout(r, 4));
+    }
+
     videoEncoder.encode(frame, { keyFrame: isKeyFrame });
     frame.close();
+
+    if (i % 6 === 0) {
+      await new Promise(r => setTimeout(r, 0));
+    }
 
     const pct = Math.round(15 + ((i + 1) / totalFrames) * 75);
     onProgress?.(pct, `تشفير إطار ${i + 1} من ${totalFrames} (${pct}%)`);

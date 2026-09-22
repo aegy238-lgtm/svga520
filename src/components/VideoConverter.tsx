@@ -644,16 +644,13 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
           }
         };
         video.addEventListener("seeked", onSeek, { once: true });
-        if ('fastSeek' in video && typeof (video as any).fastSeek === 'function') {
-          try {
-            (video as any).fastSeek(clamped);
-          } catch {
-            video.currentTime = clamped;
-          }
-        } else {
+        video.addEventListener("error", onSeek, { once: true });
+        try {
+          video.currentTime = clamped;
+        } catch {
           video.currentTime = clamped;
         }
-        setTimeout(onSeek, 100);
+        setTimeout(onSeek, 350);
       });
     }
 

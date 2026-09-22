@@ -5910,10 +5910,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         const jsonConfig = {
             info: {
                 v: 2,
-                f: totalFrames,
+                f: Math.round(fps) || 30,
                 w: width,
                 h: height,
-                fps: fps,
+                fps: Math.round(fps) || 30,
+                totalFrames: totalFrames,
                 videoW: videoW,
                 videoH: videoH,
                 aFrame: [width + gap, 0, alphaWidth, alphaHeight],
@@ -6650,6 +6651,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 // This ensures seekability and recovery from errors without bloating size too much.
                 const isKeyFrame = i === 0 || (i % fps === 0);
 
+                while (videoEncoder.encodeQueueSize > 10) {
+                    await new Promise(r => requestAnimationFrame(r));
+                }
+
                 videoEncoder.encode(frame, { keyFrame: isKeyFrame });
                 frame.close();
                 bitmap.close();
@@ -6675,10 +6680,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 const jsonConfig = {
                     info: {
                         v: 2,
-                        f: totalFrames,
+                        f: Math.round(fps) || 30,
                         w: safeWidth,
                         h: safeHeight,
-                        fps: fps,
+                        fps: Math.round(fps) || 30,
+                        totalFrames: totalFrames,
                         videoW: vapWidth,
                         videoH: vapHeight,
                         aFrame: isYYEVA ? [safeWidth, 0, safeWidth, safeHeight] : [0, 0, safeWidth, safeHeight],

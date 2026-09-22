@@ -1825,18 +1825,14 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       video.addEventListener('seeked', finish, { once: true });
       video.addEventListener('error', finish, { once: true });
 
-      if (typeof (video as any).fastSeek === 'function') {
-        try {
-          (video as any).fastSeek(targetTime);
-        } catch (e) {
-          video.currentTime = targetTime;
-        }
-      } else {
+      try {
+        video.currentTime = targetTime;
+      } catch (e) {
         video.currentTime = targetTime;
       }
 
-      // Safe immediate fallback timeout to prevent hanging on dropped events
-      setTimeout(finish, 80);
+      // Safe fallback timeout to prevent hanging on dropped events
+      setTimeout(finish, 350);
     });
   };
 

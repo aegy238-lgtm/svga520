@@ -627,7 +627,49 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           let frames: number | undefined = undefined;
           let duration: number | undefined = undefined;
 
-          if (itemType === 'vap') {
+          if (itemType === 'svga') {
+            try {
+              const parser = new SVGA.Parser();
+              await new Promise<void>((res) => {
+                const tid = setTimeout(() => res(), 1500);
+                parser.load(url, (videoItem: any) => {
+                  clearTimeout(tid);
+                  if (videoItem) {
+                    fps = videoItem.FPS || videoItem.fps || 30;
+                    frames = videoItem.frames || 1;
+                    duration = frames / fps;
+                    if (videoItem.videoSize) {
+                      dimensions = {
+                        width: videoItem.videoSize.width || 500,
+                        height: videoItem.videoSize.height || 500
+                      };
+                    }
+                  }
+                  res();
+                }, () => {
+                  clearTimeout(tid);
+                  res();
+                });
+              });
+            } catch (e) {
+              console.warn("SVGA metadata extraction error in handleFiles", e);
+            }
+          } else if (itemType === 'pag') {
+            try {
+              const PAG = await getPAG();
+              const pagFile = await PAG.PAGFile.load(await item.file.arrayBuffer());
+              if (pagFile) {
+                const dur = (pagFile.duration() / 1000000) || 1;
+                const pfps = pagFile.frameRate() || 30;
+                fps = pfps;
+                duration = dur;
+                frames = Math.max(1, Math.round(dur * pfps));
+                dimensions = { width: pagFile.width() || 500, height: pagFile.height() || 500 };
+              }
+            } catch (e) {
+              console.warn("PAG metadata extraction error in handleFiles", e);
+            }
+          } else if (itemType === 'vap') {
             try {
               vapConfig = await extractVapConfigFromBlob(item.file);
               if (vapConfig?.info) {
@@ -986,16 +1028,43 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       canvas.height = finalHeight;
       const ctx = canvas.getContext("2d", { alpha: false, willReadFrequently: true })!;
 
+      // Pre-parse all active items so their true durations, fps, and frame counts are guaranteed
+      for (const item of activeItems) {
+        try {
+          if (item.type === "vap") {
+            if (!item.vapConfig) {
+              try { item.vapConfig = await extractVapConfigFromBlob(item.file); } catch (e) {}
+            }
+          } else if (item.type === "pag") {
+            const PAG = await getPAG();
+            if (!item.pagFile) {
+              item.pagFile = await PAG.PAGFile.load(await item.file.arrayBuffer());
+            }
+            if (item.pagFile) {
+              const pagDur = (item.pagFile.duration() / 1000000) || 1;
+              const pagFps = item.pagFile.frameRate() || 30;
+              item.fps = pagFps;
+              item.duration = pagDur;
+              item.frames = Math.max(1, Math.round(pagDur * pagFps));
+              item.dimensions = { width: item.pagFile.width() || 500, height: item.pagFile.height() || 500 };
+            }
+          } else {
+            await parseSvgaIfNeeded(item);
+          }
+        } catch (err) {
+          console.warn("Pre-parse error for item in grid export:", item.name, err);
+        }
+      }
+
       let maxFrames = 0;
       activeItems.forEach(item => {
         const frames = item.frames || 1;
         const fps = item.fps || 30;
-        let duration = frames / fps;
-        if (item.duration) duration = item.duration;
+        let duration = item.duration || (frames / fps);
         maxFrames = Math.max(maxFrames, duration * targetFps);
       });
-      const totalFrames = (!useNativeDuration && exportDuration)
-        ? Math.round(exportDuration * targetFps)
+      const totalFrames = (!useNativeDuration && exportDuration && exportDuration > 0)
+        ? Math.max(1, Math.round(exportDuration * targetFps))
         : Math.max(1, Math.round(maxFrames));
 
       let bgImg: HTMLImageElement | null = null;
@@ -1487,6 +1556,36 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         
         setExportProgress(Math.round((completedCount / list.length) * 100));
 
+        // Pre-parse the item so dimensions, FPS, frames, and native duration are 100% accurate
+        if (item.type === "vap") {
+          if (!item.vapConfig) {
+            try { item.vapConfig = await extractVapConfigFromBlob(item.file); } catch (e) {}
+          }
+        } else if (item.type === "pag") {
+          try {
+            const PAG = await getPAG();
+            if (!item.pagFile) {
+              item.pagFile = await PAG.PAGFile.load(await item.file.arrayBuffer());
+            }
+            if (item.pagFile) {
+              const pagDur = (item.pagFile.duration() / 1000000) || 1;
+              const pagFps = item.pagFile.frameRate() || 30;
+              item.fps = pagFps;
+              item.duration = pagDur;
+              item.frames = Math.max(1, Math.round(pagDur * pagFps));
+              item.dimensions = { width: item.pagFile.width() || 500, height: item.pagFile.height() || 500 };
+            }
+          } catch (e) {
+            console.warn("Failed to pre-parse PAG in export:", e);
+          }
+        } else {
+          try {
+            await parseSvgaIfNeeded(item);
+          } catch (e) {
+            console.warn("Failed to pre-parse SVGA in export:", item.name, e);
+          }
+        }
+
         const effectivePresetId = item.presetId && item.presetId !== 'auto' ? item.presetId : selectedPresetId;
         const preset = DEVICE_PRESETS.find(p => p.id === effectivePresetId);
         let itemW = (isCustomDimensionsActive && customWidth) ? customWidth : (preset?.width || item.dimensions?.width || 500);
@@ -1550,12 +1649,13 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
         const itemFrames = item.frames || 1;
         const itemFps = item.fps || 30;
-        let durationSec = itemFrames / itemFps;
-        if (item.duration) {
-          durationSec = item.duration;
+        let durationSec = item.duration || (itemFrames / itemFps);
+        if (durationSec <= 0.05 && item.videoItem?.frames) {
+          durationSec = item.videoItem.frames / (item.videoItem.FPS || item.videoItem.fps || 30);
         }
-        const totalFrames = (!useNativeDuration && exportDuration)
-          ? Math.round(exportDuration * targetFps)
+
+        const totalFrames = (!useNativeDuration && exportDuration && exportDuration > 0)
+          ? Math.max(1, Math.round(exportDuration * targetFps))
           : Math.max(1, Math.round(durationSec * targetFps));
 
         const isWebM = exportFormat === 'webm';
@@ -2000,8 +2100,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     const successfulBlobs: { name: string; blob: Blob; buffer: ArrayBuffer }[] = [];
     let completedCount = 0;
 
-    // Parallel Concurrency Pool (3 simultaneous exports for maximum speed without overloading)
-    const CONCURRENCY = Math.min(3, targetList.length);
+    // Sequential Concurrency (1 export at a time to give 100% GPU/WebCodecs resources without frame dropping or stutter)
+    const CONCURRENCY = 1;
     let currentIndex = 0;
 
     const processItem = async (item: MultiSvgaItem, index: number) => {
@@ -2239,14 +2339,36 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   };
 
   const parseSvgaIfNeeded = async (item: MultiSvgaItem): Promise<any> => {
-    // ensure videoItem is valid and has images before returning early
-    if (item.videoItem && item.videoItem.images) return item.videoItem;
+    // If videoItem is valid and has images, ensure metadata fields are populated before returning
+    if (item.videoItem && item.videoItem.images) {
+      if (item.videoItem.frames && !item.frames) item.frames = item.videoItem.frames;
+      if (!item.fps) item.fps = item.videoItem.FPS || item.videoItem.fps || 30;
+      if (!item.duration && item.frames && item.fps) item.duration = item.frames / item.fps;
+      if (!item.dimensions && item.videoItem.videoSize) {
+        item.dimensions = {
+          width: item.videoItem.videoSize.width || 500,
+          height: item.videoItem.videoSize.height || 500
+        };
+      }
+      return item.videoItem;
+    }
     
     return new Promise((resolve, reject) => {
       const parser = new SVGA.Parser();
+      let isDone = false;
+      const tid = setTimeout(() => {
+        if (!isDone) {
+          isDone = true;
+          reject(new Error(`SVGA parser timed out for ${item.name}`));
+        }
+      }, 25000);
+
       // Bypass cache just in case player.clear() destructed the cached images previously
       const bypassUrl = item.url + '#' + Math.random().toString(36).substr(2, 9);
       parser.load(bypassUrl, (videoItem: any) => {
+        if (isDone) return;
+        isDone = true;
+        clearTimeout(tid);
         if (!videoItem || !videoItem.images) {
           return reject(new Error("Invalid SVGA format - missing images"));
         }
@@ -2257,8 +2379,14 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         };
         item.fps = videoItem.FPS || videoItem.fps || 30;
         item.frames = videoItem.frames || 1;
+        item.duration = item.frames / item.fps;
         resolve(videoItem);
-      }, reject);
+      }, (err: any) => {
+        if (isDone) return;
+        isDone = true;
+        clearTimeout(tid);
+        reject(err);
+      });
     });
   };
 
@@ -3860,6 +3988,16 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               >
                 {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Film className="w-4 h-4" />}
                 {isExporting ? `جاري التصدير ${exportProgress}%` : 'تصدير كل ملف فيديو منفصل (ZIP)'}
+              </button>
+
+              <button 
+                onClick={handleExportGrid}
+                disabled={isExporting || isZipping}
+                className="relative overflow-hidden group px-6 py-3 bg-slate-900/90 hover:bg-slate-800 text-white rounded-2xl shadow-lg border border-red-500/40 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50"
+                title="تسجيل جميع العناصر المحددة في فيديو واحد كشبكة متزامنة بدقة عالية"
+              >
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></span>
+                <span>{isExporting ? `جاري التسجيل ${exportProgress}%` : 'تسجيل فيديو مجمع (كل الملفات فيديو واحد)'}</span>
               </button>
 
               <button 

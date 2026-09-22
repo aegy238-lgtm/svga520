@@ -202,17 +202,14 @@ export async function transferVideoEditsToLayerEditor(
         }
       };
       video.addEventListener('seeked', onSeeked, { once: true });
-      if ('fastSeek' in video && typeof (video as any).fastSeek === 'function') {
-        try {
-          (video as any).fastSeek(clamped);
-        } catch {
-          video.currentTime = clamped;
-        }
-      } else {
+      video.addEventListener('error', onSeeked, { once: true });
+      try {
+        video.currentTime = clamped;
+      } catch {
         video.currentTime = clamped;
       }
       // Fail-safe timeout to prevent hanging
-      setTimeout(onSeeked, 100);
+      setTimeout(onSeeked, 350);
     });
   };
 
