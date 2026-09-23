@@ -107,12 +107,12 @@ export function getCombinedCssMaskStyle(
     const rx = Math.max(5, 50 - Math.max(c.left, c.right));
     const ry = Math.max(5, 50 - Math.max(c.top, c.bottom));
     clipPath = `ellipse(${rx}% ${ry}% at 50% 50%)`;
-  } else if (shape === 'pill') {
+  } else if (shape === 'capsule') {
     borderRadius = '9999px';
     if (!hasFade && !hasFeather) {
       clipPath = `inset(${c.top}% ${c.right}% ${c.bottom}% ${c.left}% round 9999px)`;
     }
-  } else if (shape === 'rounded' || (shape === 'rect' && cornerRadius > 0)) {
+  } else if (shape === 'rounded-rect' || (shape === 'rect' && cornerRadius > 0)) {
     borderRadius = `${cornerRadius}px`;
     if (!hasFade && !hasFeather && (c.top > 0 || c.bottom > 0 || c.left > 0 || c.right > 0)) {
       clipPath = `inset(${c.top}% ${c.right}% ${c.bottom}% ${c.left}% round ${cornerRadius}px)`;

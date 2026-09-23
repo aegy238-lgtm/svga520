@@ -35,6 +35,7 @@ import { SvgaProjectsTabBar } from './SvgaProjectsTabBar';
 import { SvgaMultiProjectOverview } from './SvgaMultiProjectOverview';
 import { SvgaMultiCanvasStage } from './SvgaMultiCanvasStage';
 import { SvgaBatchExportModal } from './SvgaBatchExportModal';
+import { SvgaBackgroundLibraryModal, downloadImageUrl } from './SvgaBackgroundLibraryModal';
 import { ChromaTargetColor, identifyColorType, applySmartChromaToSingleImage, isAudioSource } from './svgaSmartChromaEngine';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { 
@@ -218,6 +219,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const [showAudioStudioModal, setShowAudioStudioModal] = useState<boolean>(false);
   const [showMergeCanvasModal, setShowMergeCanvasModal] = useState<boolean>(false);
   const [showMp4ImportModal, setShowMp4ImportModal] = useState<boolean>(false);
+  const [showBgLibraryModal, setShowBgLibraryModal] = useState<boolean>(false);
   const [mp4InitialFiles, setMp4InitialFiles] = useState<File[]>([]);
   const [newProjectConfig, setNewProjectConfig] = useState({
     name: 'مشروع SVGA جديد',
@@ -461,12 +463,41 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       const result = event.target?.result as string;
       if (result) {
         setBgImageUrl(result);
-        setSuccessToast('تم رفع وتثبيت صورة الخلفية بنجاح للمعاينة خلف الهدية');
+        // Apply background to all open projects in multi-project view
+        setProjects(prev => prev.map(p => ({
+          ...p,
+          bgImageUrl: result
+        })));
+        setSuccessToast(`تم رفع وتثبيت صورة الخلفية بنجاح على جميع المشاريع (${projects.length || 1}) للمعاينة الموحدة!`);
       }
     };
     reader.readAsDataURL(file);
     e.target.value = '';
-  }, []);
+  }, [projects.length]);
+
+  const handleSelectBackground = useCallback((url: string | null, applyToAll: boolean) => {
+    setBgImageUrl(url);
+    if (applyToAll) {
+      setProjects(prev => prev.map(p => ({
+        ...p,
+        bgImageUrl: url
+      })));
+      if (url) {
+        setSuccessToast(`تم تطبيق الخلفية وتثبيتها بنجاح على جميع المشاريع (${projects.length || 1}) للمعاينة الموحدة`);
+      } else {
+        setSuccessToast('تمت إزالة صورة الخلفية والعودة للوضع الافتراضي في جميع المشاريع');
+      }
+    } else {
+      if (activeProjectId) {
+        setProjects(prev => prev.map(p => p.id === activeProjectId ? { ...p, bgImageUrl: url } : p));
+      }
+      if (url) {
+        setSuccessToast('تم تطبيق الخلفية على المشروع الحالي');
+      } else {
+        setSuccessToast('تمت إزالة صورة الخلفية عن المشروع الحالي');
+      }
+    }
+  }, [activeProjectId, projects.length]);
 
   const handleResetTransparency = useCallback(() => {
     setFadeConfig({ top: 0, bottom: 0, left: 0, right: 0 });
@@ -630,7 +661,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         cropConfig: parsedProject.cropConfig ? { ...parsedProject.cropConfig } : { top: 0, bottom: 0, left: 0, right: 0 },
         cropFeather: parsedProject.cropFeather ? { ...parsedProject.cropFeather } : { top: 0, bottom: 0, left: 0, right: 0 },
         bgColor: 'transparent',
-        bgImageUrl: null,
+        bgImageUrl: bgImageUrl || null,
         exportFileName: file.name.replace(/\.svga$/i, '') + '_edited.svga',
         modifiedAt: Date.now()
       };
@@ -698,7 +729,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       cropConfig: newProject.cropConfig ? { ...newProject.cropConfig } : { top: 0, bottom: 0, left: 0, right: 0 },
       cropFeather: newProject.cropFeather ? { ...newProject.cropFeather } : { top: 0, bottom: 0, left: 0, right: 0 },
       bgColor: 'transparent',
-      bgImageUrl: null,
+      bgImageUrl: bgImageUrl || null,
       exportFileName: newProject.fileName.replace(/\.svga$/i, '') + '_edited.svga',
       modifiedAt: Date.now()
     };
@@ -746,7 +777,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         cropConfig: item.project.cropConfig ? { ...item.project.cropConfig } : { top: 0, bottom: 0, left: 0, right: 0 },
         cropFeather: item.project.cropFeather ? { ...item.project.cropFeather } : { top: 0, bottom: 0, left: 0, right: 0 },
         bgColor: 'transparent',
-        bgImageUrl: null,
+        bgImageUrl: bgImageUrl || null,
         exportFileName: baseName + '_edited.svga',
         modifiedAt: Date.now()
       };
@@ -867,7 +898,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
           cropConfig: loadedProject.cropConfig ? { ...loadedProject.cropConfig } : { top: 0, bottom: 0, left: 0, right: 0 },
           cropFeather: loadedProject.cropFeather ? { ...loadedProject.cropFeather } : { top: 0, bottom: 0, left: 0, right: 0 },
           bgColor: 'transparent',
-          bgImageUrl: null,
+          bgImageUrl: bgImageUrl || null,
           exportFileName: f.name.replace(/\.[^.]+$/, '') + '_edited.svga',
           modifiedAt: Date.now()
         };
@@ -2722,7 +2753,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         cropConfig: { top: 0, bottom: 0, left: 0, right: 0 },
         cropFeather: { top: 0, bottom: 0, left: 0, right: 0 },
         bgColor: 'transparent',
-        bgImageUrl: null,
+        bgImageUrl: bgImageUrl || null,
         exportFileName: exportName,
         modifiedAt: Date.now()
       };
@@ -2918,76 +2949,98 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               </button>
             </div>
 
-            {/* Background Color Swatches & Custom Image Upload */}
-            <div className="flex items-center gap-1.5 pl-1">
-              {bgSwatches.map(swatch => (
-                <button
-                  key={swatch.label}
-                  onClick={() => {
-                    setBgColor(swatch.value);
-                    if (bgImageUrl) {
-                      setBgImageUrl(null);
-                    }
-                  }}
-                  className={`w-4 h-4 rounded-full border transition-all cursor-pointer ${
-                    bgColor === swatch.value && !bgImageUrl ? 'scale-125 border-white ring-2 ring-indigo-500/50' : 'border-white/20 hover:scale-110'
-                  }`}
-                  style={{
-                    backgroundColor: swatch.isChecker ? '#1e293b' : swatch.value,
-                    backgroundImage: swatch.isChecker ? 'radial-gradient(circle, #475569 20%, transparent 20%)' : 'none',
-                    backgroundSize: '4px 4px'
-                  }}
-                  title={swatch.label}
+              {/* Background Color Swatches, Library & Custom Image Upload */}
+              <div className="flex items-center gap-1.5 pl-1">
+                {bgSwatches.map(swatch => (
+                  <button
+                    key={swatch.label}
+                    onClick={() => {
+                      setBgColor(swatch.value);
+                      if (bgImageUrl) {
+                        setBgImageUrl(null);
+                        setProjects(prev => prev.map(p => ({ ...p, bgImageUrl: null, bgColor: swatch.value })));
+                      }
+                    }}
+                    className={`w-4 h-4 rounded-full border transition-all cursor-pointer ${
+                      bgColor === swatch.value && !bgImageUrl ? 'scale-125 border-white ring-2 ring-indigo-500/50' : 'border-white/20 hover:scale-110'
+                    }`}
+                    style={{
+                      backgroundColor: swatch.isChecker ? '#1e293b' : swatch.value,
+                      backgroundImage: swatch.isChecker ? 'radial-gradient(circle, #475569 20%, transparent 20%)' : 'none',
+                      backgroundSize: '4px 4px'
+                    }}
+                    title={swatch.label}
+                  />
+                ))}
+
+                <div className="h-3 w-px bg-white/10 mx-0.5" />
+
+                {/* Upload Background Image for Gift Preview (Fixed & Uncropped) */}
+                <input
+                  type="file"
+                  ref={bgFileInputRef}
+                  onChange={handleBackgroundUpload}
+                  accept="image/png,image/jpeg,image/webp,image/jpg"
+                  className="hidden"
                 />
-              ))}
 
-              <div className="h-3 w-px bg-white/10 mx-0.5" />
+                {/* Open Background Library Button (Dashboard + Presets) */}
+                <button
+                  onClick={() => setShowBgLibraryModal(true)}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10px] font-bold border transition-all cursor-pointer shadow-sm hover:scale-105 ${
+                    bgImageUrl 
+                      ? 'bg-indigo-600/30 text-cyan-300 border-indigo-400/50 hover:bg-indigo-600/50'
+                      : 'bg-white/5 hover:bg-indigo-600/20 text-slate-300 hover:text-indigo-200 border-white/10 hover:border-indigo-500/40'
+                  }`}
+                  title="مكتبة خلفيات المنصة والداشبورد (تطبيق أو تنزيل الخلفيات المرفوعة على جميع المشاريع)"
+                >
+                  <ImageIcon size={12} className="text-cyan-400" />
+                  <span>مكتبة الخلفيات</span>
+                </button>
 
-              {/* Upload Background Image for Gift Preview (Fixed & Uncropped) */}
-              <input
-                type="file"
-                ref={bgFileInputRef}
-                onChange={handleBackgroundUpload}
-                accept="image/png,image/jpeg,image/webp,image/jpg"
-                className="hidden"
-              />
-
-              {bgImageUrl ? (
-                <div className="flex items-center gap-1 bg-indigo-950/80 border border-indigo-500/50 rounded-xl px-1.5 py-0.5 shadow-sm">
+                {bgImageUrl ? (
+                  <div className="flex items-center gap-1 bg-indigo-950/80 border border-indigo-500/50 rounded-xl px-1.5 py-0.5 shadow-sm">
+                    <button
+                      onClick={() => setShowBgLibraryModal(true)}
+                      className="flex items-center gap-1 text-[10px] text-cyan-300 hover:text-white font-bold cursor-pointer"
+                      title="فتح مكتبة الخلفيات لتغيير أو استعراض الخلفيات"
+                    >
+                      <img
+                        src={bgImageUrl}
+                        alt="Background Preview"
+                        className="w-4 h-4 rounded object-cover border border-cyan-400/50"
+                      />
+                      <span className="hidden xl:inline text-[9px]">خلفية موحدة ✓</span>
+                    </button>
+                    {/* Direct Download Active Background */}
+                    <button
+                      onClick={() => downloadImageUrl(bgImageUrl, 'background_preview')}
+                      className="p-1 text-slate-400 hover:text-cyan-300 rounded transition-colors cursor-pointer"
+                      title="تحميل وتنزيل صورة الخلفية الحالية على جهازك"
+                    >
+                      <Download size={11} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleSelectBackground(null, true);
+                      }}
+                      className="p-1 text-slate-400 hover:text-rose-400 rounded transition-colors cursor-pointer"
+                      title="إزالة صورة الخلفية من جميع المشاريع"
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                ) : (
                   <button
                     onClick={() => bgFileInputRef.current?.click()}
-                    className="flex items-center gap-1 text-[10px] text-cyan-300 hover:text-white font-bold cursor-pointer"
-                    title="تغيير صورة الخلفية المعاينة (الخلفية ثابتة وكاملة)"
+                    className="flex items-center gap-1 px-2 py-1 bg-white/5 hover:bg-indigo-600/20 text-slate-300 hover:text-indigo-200 rounded-xl text-[10px] font-medium border border-white/10 hover:border-indigo-500/40 transition-all cursor-pointer"
+                    title="رفع صورة خلفية جديدة من جهازك وتطبيقها على جميع المشاريع المعروضة"
                   >
-                    <img
-                      src={bgImageUrl}
-                      alt="Background Preview"
-                      className="w-4 h-4 rounded object-cover border border-cyan-400/50"
-                    />
-                    <span className="hidden xl:inline text-[9px]">خلفية ثابتة ✓</span>
+                    <Upload size={11} className="text-indigo-400" />
+                    <span className="hidden lg:inline text-[9px] font-bold">رفع للكل</span>
                   </button>
-                  <button
-                    onClick={() => {
-                      setBgImageUrl(null);
-                      setSuccessToast('تمت إزالة صورة الخلفية والعودة للوضع الافتراضي');
-                    }}
-                    className="p-0.5 text-slate-400 hover:text-rose-400 rounded transition-colors cursor-pointer"
-                    title="إزالة صورة الخلفية"
-                  >
-                    <X size={11} />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => bgFileInputRef.current?.click()}
-                  className="flex items-center gap-1 px-2 py-1 bg-white/5 hover:bg-indigo-600/20 text-slate-300 hover:text-indigo-200 rounded-xl text-[10px] font-medium border border-white/10 hover:border-indigo-500/40 transition-all cursor-pointer"
-                  title="رفع صورة خلفية للمعاينة (تثبيت خلفية حية للهدية بدون قصها)"
-                >
-                  <ImageIcon size={12} className="text-indigo-400" />
-                  <span className="hidden lg:inline text-[9px] font-bold">رفع خلفية</span>
-                </button>
-              )}
-            </div>
+                )}
+              </div>
           </div>
         )}
 
@@ -3195,6 +3248,8 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                   onToggleMasterPlay={() => setIsPlaying(prev => !prev)}
                   masterCurrentFrame={currentFrame}
                   onFilesDrop={handleLoadMultipleFiles}
+                  globalBgImageUrl={bgImageUrl}
+                  onOpenBgLibrary={() => setShowBgLibraryModal(true)}
                 />
               ) : (
                 <>
@@ -3736,6 +3791,19 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             onClose={() => setShowBatchExportModal(false)}
             projects={projects}
             onSuccessToast={(msg) => setSuccessToast(msg)}
+          />
+        </ErrorBoundary>
+      )}
+
+      {/* Platform & Dashboard Backgrounds Library Modal */}
+      {showBgLibraryModal && (
+        <ErrorBoundary fallbackTitle="حدث خطأ في مكتبة الخلفيات" onReset={() => setShowBgLibraryModal(false)}>
+          <SvgaBackgroundLibraryModal
+            isOpen={showBgLibraryModal}
+            onClose={() => setShowBgLibraryModal(false)}
+            activeBgUrl={bgImageUrl}
+            onSelectBackground={handleSelectBackground}
+            projectsCount={projects.length}
           />
         </ErrorBoundary>
       )}

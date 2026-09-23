@@ -763,6 +763,25 @@ export function getOrPreloadProjectImages(
   return cache;
 }
 
+const globalBgImagesCache = new Map<string, HTMLImageElement>();
+
+function getOrPreloadBackgroundImage(url: string, onImageLoaded?: () => void): HTMLImageElement | null {
+  if (!url) return null;
+  const cached = globalBgImagesCache.get(url);
+  if (cached) {
+    if (cached.complete && cached.naturalWidth > 0) return cached;
+    return null;
+  }
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  if (onImageLoaded) {
+    img.onload = () => onImageLoaded();
+  }
+  img.src = url;
+  globalBgImagesCache.set(url, img);
+  return null;
+}
+
 /**
  * High-performance direct single frame renderer.
  * Directly renders ONLY the requested frameIndex without re-rendering all frames.
@@ -778,6 +797,7 @@ export function renderSingleProjectFrameDirect(
     cropConfig?: CropConfig;
     cropFeather?: CropFeather;
     bgColor?: string;
+    bgImageUrl?: string | null;
     onImageLoaded?: () => void;
   }
 ): void {
@@ -794,7 +814,17 @@ export function renderSingleProjectFrameDirect(
   if (!ctx) return;
 
   ctx.save();
-  if (options?.bgColor && options.bgColor !== 'transparent') {
+  if (options?.bgImageUrl) {
+    const bgImg = getOrPreloadBackgroundImage(options.bgImageUrl, options?.onImageLoaded);
+    if (bgImg && bgImg.complete && bgImg.naturalWidth > 0) {
+      ctx.drawImage(bgImg, 0, 0, width, height);
+    } else if (options?.bgColor && options.bgColor !== 'transparent') {
+      ctx.fillStyle = options.bgColor;
+      ctx.fillRect(0, 0, width, height);
+    } else {
+      ctx.clearRect(0, 0, width, height);
+    }
+  } else if (options?.bgColor && options.bgColor !== 'transparent') {
     ctx.fillStyle = options.bgColor;
     ctx.fillRect(0, 0, width, height);
   } else {

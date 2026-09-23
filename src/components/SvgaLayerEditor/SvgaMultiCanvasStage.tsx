@@ -32,6 +32,8 @@ interface SvgaMultiCanvasStageProps {
   activeFadeConfig?: FadeConfig;
   activeCropConfig?: CropConfig;
   activeCropFeather?: CropFeather;
+  globalBgImageUrl?: string | null;
+  onOpenBgLibrary?: () => void;
 }
 
 export const SvgaMultiCanvasStage: React.FC<SvgaMultiCanvasStageProps> = ({
@@ -54,7 +56,9 @@ export const SvgaMultiCanvasStage: React.FC<SvgaMultiCanvasStageProps> = ({
   onFilesDrop,
   activeFadeConfig,
   activeCropConfig,
-  activeCropFeather
+  activeCropFeather,
+  globalBgImageUrl,
+  onOpenBgLibrary
 }) => {
   const [layoutMode, setLayoutMode] = useState<'row' | 'grid' | 'auto'>('auto');
   const [mutedMap, setMutedMap] = useState<Record<string, boolean>>({});
@@ -198,11 +202,12 @@ export const SvgaMultiCanvasStage: React.FC<SvgaMultiCanvasStageProps> = ({
           cropConfig: effCrop,
           cropFeather: effFeather,
           bgColor: p.bgColor,
+          bgImageUrl: p.bgImageUrl || globalBgImageUrl,
           onImageLoaded: triggerCanvasRedraw
         }
       );
     });
-  }, [projects, frameMap, triggerCanvasRedraw, activeProjectId, activeFadeConfig, activeCropConfig, activeCropFeather]);
+  }, [projects, frameMap, triggerCanvasRedraw, activeProjectId, activeFadeConfig, activeCropConfig, activeCropFeather, globalBgImageUrl]);
 
   // Individual project frame scrub handler
   const handleSeekProjectFrame = (proj: ProjectSession, frameIndex: number, e?: React.SyntheticEvent) => {
@@ -437,6 +442,22 @@ export const SvgaMultiCanvasStage: React.FC<SvgaMultiCanvasStageProps> = ({
             </button>
           )}
 
+          {/* Background Library Button */}
+          {onOpenBgLibrary && (
+            <button
+              onClick={onOpenBgLibrary}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm hover:scale-105 ${
+                globalBgImageUrl
+                  ? 'bg-indigo-600/30 text-cyan-300 border border-indigo-400/50 hover:bg-indigo-600/50'
+                  : 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10'
+              }`}
+              title="تغيير أو اختيار خلفية المعاينة لجميع المشاريع المعروضة من مكتبة المنصة"
+            >
+              <ImageIcon size={13} className="text-cyan-400" />
+              <span>خلفية المعاينة {globalBgImageUrl ? '✓' : ''}</span>
+            </button>
+          )}
+
           {/* Quick Import MP4 Button */}
           <button
             onClick={onOpenMp4Import}
@@ -632,14 +653,17 @@ export const SvgaMultiCanvasStage: React.FC<SvgaMultiCanvasStageProps> = ({
               <div 
                 className="flex-1 relative flex items-center justify-center p-3 overflow-hidden bg-black/50 min-h-[220px]"
                 style={{
-                  backgroundImage: `
+                  backgroundImage: (proj.bgImageUrl || globalBgImageUrl) 
+                    ? `url(${proj.bgImageUrl || globalBgImageUrl})` 
+                    : `
                     linear-gradient(45deg, rgba(255,255,255,0.03) 25%, transparent 25%), 
                     linear-gradient(-45deg, rgba(255,255,255,0.03) 25%, transparent 25%), 
                     linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.03) 75%), 
                     linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.03) 75%)
                   `,
-                  backgroundSize: '16px 16px',
-                  backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0px'
+                  backgroundSize: (proj.bgImageUrl || globalBgImageUrl) ? 'cover' : '16px 16px',
+                  backgroundPosition: 'center',
+                  backgroundRepeat: 'no-repeat'
                 }}
               >
                 {/* Render MP4 Native Video or SVGA Canvas with real-time mask and crop */}
