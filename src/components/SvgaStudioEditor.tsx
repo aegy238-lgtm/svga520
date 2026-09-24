@@ -84,6 +84,8 @@ export const SvgaStudioEditor: React.FC<SvgaStudioEditorProps> = ({
   const [assetFilter, setAssetFilter] = useState<'all' | 'used' | 'unused'>('all');
   const [imagesMap, setImagesMap] = useState<Record<string, string>>({});
   const [isAeModalOpen, setIsAeModalOpen] = useState<boolean>(false);
+  const [showLeftSidebar, setShowLeftSidebar] = useState(false);
+  const [showRightSidebar, setShowRightSidebar] = useState(false);
 
   // Convert imagesMap into Uint8Array format for AE export
   const rawImagesData = useMemo(() => {
@@ -874,7 +876,7 @@ export const SvgaStudioEditor: React.FC<SvgaStudioEditorProps> = ({
         <div className="flex-1 flex overflow-hidden relative">
           
           {/* Left Vertical Dock Navigation */}
-          <div className="w-12 bg-[#12141D] border-r border-white/10 flex flex-col items-center py-3 gap-4 shrink-0 z-20">
+          <div className="w-12 bg-[#12141D] border-r border-white/10 hidden md:flex flex-col items-center py-3 gap-4 shrink-0 z-20">
             <button 
               onClick={() => setActiveTab('layers')}
               className={`p-2.5 rounded-xl transition-all ${activeTab === 'layers' ? 'bg-purple-600/30 text-purple-400 border border-purple-500/30' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
@@ -900,8 +902,18 @@ export const SvgaStudioEditor: React.FC<SvgaStudioEditorProps> = ({
             </button>
           </div>
 
+          {/* Scrim Overlay for mobile left sidebar */}
+          {showLeftSidebar && (
+            <div 
+              onClick={() => setShowLeftSidebar(false)} 
+              className="fixed inset-0 bg-black/60 z-30 md:hidden backdrop-blur-xs"
+            />
+          )}
+
           {/* Left Drawer Panel */}
-          <div className="w-64 bg-[#141622] border-r border-white/10 flex flex-col shrink-0 z-10">
+          <div className={`fixed md:relative top-0 bottom-0 right-0 md:top-auto md:bottom-auto md:right-auto md:left-auto md:flex w-64 h-full md:h-auto bg-[#141622] border-r border-white/10 shrink-0 z-40 transition-transform duration-300 flex flex-col ${
+            showLeftSidebar ? 'translate-x-0' : 'translate-x-full md:translate-x-0'
+          }`}>
             {activeTab === 'layers' && (
               <div className="flex-1 flex flex-col overflow-hidden">
                 <div className="flex items-center justify-between p-3 border-b border-white/10">
@@ -1017,6 +1029,24 @@ export const SvgaStudioEditor: React.FC<SvgaStudioEditorProps> = ({
                 />
               </div>
 
+              {/* Floating Mobile Sidebar Toggles */}
+              <div className="md:hidden absolute top-4 left-4 right-4 flex justify-between z-30 pointer-events-none">
+                <button 
+                  onClick={() => setShowLeftSidebar(!showLeftSidebar)} 
+                  className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 bg-[#8b5cf6]/90 active:bg-purple-600 text-white text-[11px] font-bold rounded-lg shadow-lg border border-purple-400/30"
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>الطبقات والقوائم</span>
+                </button>
+                <button 
+                  onClick={() => setShowRightSidebar(!showRightSidebar)} 
+                  className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 bg-[#8b5cf6]/90 active:bg-purple-600 text-white text-[11px] font-bold rounded-lg shadow-lg border border-purple-400/30"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>لوحة الخصائص</span>
+                </button>
+              </div>
+
               {/* View zoom overlay */}
               <div className="absolute bottom-4 left-4 bg-slate-900/80 border border-white/10 rounded-xl px-3 py-1.5 flex items-center gap-3 text-xs text-slate-300 backdrop-blur-md">
                 <button onClick={() => setZoom(z => Math.max(25, z - 25))}>-</button>
@@ -1030,7 +1060,7 @@ export const SvgaStudioEditor: React.FC<SvgaStudioEditorProps> = ({
               <div className="flex h-full">
                 
                 {/* Left track headers */}
-                <div className="w-64 border-r border-white/10 flex flex-col shrink-0 bg-[#141622]">
+                <div className="w-40 md:w-64 border-r border-white/10 flex flex-col shrink-0 bg-[#141622]">
                   <div className="h-10 border-b border-white/10 flex items-center gap-4 px-4 bg-[#0a0a0a]">
                     <button onClick={() => setIsPlaying(!isPlaying)} className="hover:text-white text-slate-400">
                       {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
@@ -1111,8 +1141,18 @@ export const SvgaStudioEditor: React.FC<SvgaStudioEditorProps> = ({
             </div>
           </div>
 
+          {/* Scrim Overlay for mobile right sidebar */}
+          {showRightSidebar && (
+            <div 
+              onClick={() => setShowRightSidebar(false)} 
+              className="fixed inset-0 bg-black/60 z-30 md:hidden backdrop-blur-xs"
+            />
+          )}
+
           {/* Right Inspector Panel */}
-          <div className="w-72 bg-[#141622] border-l border-white/10 flex flex-col p-4 overflow-y-auto shrink-0 z-10 text-xs">
+          <div className={`fixed md:relative top-0 bottom-0 left-0 md:top-auto md:bottom-auto md:left-auto md:flex w-72 h-full md:h-auto bg-[#141622] border-l border-white/10 flex-col p-4 overflow-y-auto shrink-0 z-40 transition-transform duration-300 text-xs flex ${
+            showRightSidebar ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+          }`}>
             {selectedLayer ? (
               /* Selected Layer Properties */
               <div className="space-y-5">

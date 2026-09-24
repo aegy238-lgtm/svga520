@@ -807,8 +807,8 @@ export const convertVapToMp4 = async (options: VapExportOptions): Promise<{ mp4B
     height: outH,
     bitrate: bitrate,
     framerate: fps,
-    bitrateMode: 'variable',
-    latencyMode: 'quality',
+    bitrateMode: 'constant',
+    latencyMode: 'realtime',
     avc: { format: 'avc' }
   });
 

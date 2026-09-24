@@ -595,6 +595,8 @@ export async function exportToVap(
     height: vapHeight,
     bitrate: 4_000_000,
     framerate: fps,
+    bitrateMode: 'constant',
+    latencyMode: 'realtime'
   });
 
   const totalFrames = framesCanvasList.length;
@@ -706,7 +708,7 @@ export async function exportToPngZip(
     }
   }
 
-  return await zip.generateAsync({ type: 'blob' });
+  return await zip.generateAsync({ type: 'blob', compression: 'STORE' });
 }
 
 /**
@@ -746,6 +748,8 @@ export async function exportToGreenScreenMp4(
     height: height,
     bitrate: 5_000_000,
     framerate: fps,
+    bitrateMode: 'constant',
+    latencyMode: 'realtime'
   });
 
   const totalFrames = framesCanvasList.length;

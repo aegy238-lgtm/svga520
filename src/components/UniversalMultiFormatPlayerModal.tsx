@@ -664,6 +664,22 @@ export const UniversalMultiFormatPlayerModal: React.FC<UniversalMultiFormatPlaye
       const videoFps = vapConfig?.info?.f || vapConfig?.info?.fps || 30;
       setFps(videoFps);
       setTotalFrames(Math.max(1, Math.round((vid.duration || 1) * videoFps)));
+
+      // Auto-detect reversed channel layout (RGB vs Alpha placement)
+      try {
+        const detection = detectVapChannelLayout(vid, null);
+        if (detection) {
+          const currentCoordsRgbLeft = rgbRect[0] < alphaRect[0] || rgbRect[1] < alphaRect[1];
+          const actualPixelsAlphaLeft = detection.layout === 'right_rgb_left_alpha' || detection.layout === 'bottom_rgb_top_alpha';
+          if (currentCoordsRgbLeft && actualPixelsAlphaLeft) {
+            setIsAlphaReversed(true);
+          } else {
+            setIsAlphaReversed(false);
+          }
+        }
+      } catch (e) {
+        console.warn("Auto-detect channel layout failed:", e);
+      }
     };
 
     vid.onloadedmetadata = handleLoadedMetadata;
@@ -680,6 +696,7 @@ export const UniversalMultiFormatPlayerModal: React.FC<UniversalMultiFormatPlaye
     let offCtx: CanvasRenderingContext2D | null = null;
 
     // Render transparent alpha channel shader loop on canvas
+    let autoDetected = false;
     const renderLoop = () => {
       if (videoRef.current && canvasRef.current && !videoRef.current.paused && !videoRef.current.ended) {
         const v = videoRef.current;
@@ -703,6 +720,28 @@ export const UniversalMultiFormatPlayerModal: React.FC<UniversalMultiFormatPlaye
 
           if (offCtx) {
             offCtx.drawImage(v, 0, 0, vw, vh);
+
+            // Automatically detect alpha channel layout on the first active frames
+            if (!autoDetected && v.readyState >= 2) {
+              try {
+                const detection = detectVapChannelLayout(v, vapConfig);
+                if (detection && detection.isVap) {
+                  if (detection.layout === 'right_rgb_left_alpha') {
+                    setIsAlphaReversed(true);
+                    // Swap rect coordinates in closure for immediate frame render
+                    const temp = rgbRect;
+                    rgbRect = alphaRect;
+                    alphaRect = temp;
+                  } else {
+                    setIsAlphaReversed(false);
+                  }
+                  autoDetected = true;
+                }
+              } catch (e) {
+                console.warn('Auto-layout detection in loop failed:', e);
+              }
+            }
+
             const imgData = offCtx.getImageData(0, 0, vw, vh);
             const src = imgData.data;
 

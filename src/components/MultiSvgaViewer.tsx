@@ -1989,7 +1989,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             width: finalWidth,
             height: finalHeight,
             bitrate: targetBitrate,
-            framerate: targetFps
+            framerate: targetFps,
+            bitrateMode: 'constant',
+            latencyMode: 'realtime'
           });
 
           await new Promise(r => setTimeout(r, 40));

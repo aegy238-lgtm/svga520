@@ -231,6 +231,19 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     durationSec: 2
   });
   const [exportFileName, setExportFileName] = useState<string>('');
+  const [isMobile, setIsMobile] = useState<boolean>(false);
+  const [activeMobileTab, setActiveMobileTab] = useState<'canvas' | 'layers' | 'properties'>('canvas');
+  const [isTimelineOpenMobile, setIsTimelineOpenMobile] = useState<boolean>(false);
+  const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 1024);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
   const [lastExportedBlob, setLastExportedBlob] = useState<{ blob: Blob; fileName: string } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
@@ -3211,30 +3224,32 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       </AnimatePresence>
 
       {/* Top Navbar */}
-      <header className="h-14 bg-[#0a0f1d] border-b border-white/10 px-6 flex items-center justify-between shrink-0 z-30">
+      <header className="h-14 bg-[#0a0f1d] border-b border-white/10 px-3 lg:px-6 flex items-center justify-between shrink-0 z-30">
         {/* Left: Brand & Back */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 lg:gap-4 overflow-hidden">
           <button
             onClick={onClose}
-            className="flex items-center gap-1.5 text-xs font-bold text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 transition-all cursor-pointer"
+            className="flex items-center gap-1.5 text-xs font-bold text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 px-2 py-1.5 lg:px-3 lg:py-1.5 rounded-xl border border-white/10 transition-all cursor-pointer shrink-0"
           >
-            <ArrowLeft size={14} /> خروج
+            <ArrowLeft size={14} /> <span className="hidden sm:inline">خروج</span>
           </button>
 
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-glow-indigo">
               <Layers size={16} />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-black text-sm tracking-tight text-white">تحرير طبقات SVGA</span>
-                <span className="text-[10px] font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full">
+            <div className="overflow-hidden">
+              <div className="flex items-center gap-1.5 lg:gap-2">
+                <span className="font-black text-xs lg:text-sm tracking-tight text-white truncate">
+                  {isMobile ? 'الاستوديو Pro' : 'تحرير طبقات SVGA'}
+                </span>
+                <span className="hidden sm:inline text-[9px] font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full shrink-0">
                   Pro Layer Studio
                 </span>
               </div>
               {project && (
-                <p className="text-[10px] text-slate-400 font-mono">
-                  {project.fileName} • {(project.fileSize / 1024).toFixed(1)} KB
+                <p className="text-[9px] lg:text-[10px] text-slate-400 font-mono truncate">
+                  {project.fileName.length > 15 ? project.fileName.substr(0, 12) + '...' : project.fileName} • {(project.fileSize / 1024).toFixed(0)} KB
                 </p>
               )}
             </div>
@@ -3242,7 +3257,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         </div>
 
         {/* Center: Canvas View Controls & Tools */}
-        {project && (
+        {project && !isMobile && (
           <div className="hidden lg:flex items-center gap-3 bg-white/5 p-1 rounded-2xl border border-white/5">
             {/* Tool Modes */}
             <div className="flex items-center gap-1 pr-2 border-r border-white/10">
@@ -3385,6 +3400,8 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
 
         {/* Right Actions: Undo, Redo, Open, Export */}
         <div className="flex items-center gap-2">
+        {/* Right Actions: Desktop only */}
+        <div className="hidden lg:flex items-center gap-2">
           {project && (
             <>
               <button
@@ -3482,6 +3499,28 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             </button>
           )}
         </div>
+
+        {/* Mobile Actions Header Bar */}
+        <div className="lg:hidden flex items-center gap-2">
+          {project && (
+            <button
+              onClick={() => setShowExportModal(true)}
+              disabled={isExporting}
+              className="flex items-center gap-1.5 text-xs font-black text-white bg-indigo-600 px-3.5 py-1.5 rounded-xl shadow-md transition-all cursor-pointer"
+            >
+              <Download size={12} />
+              <span>{isExporting ? 'جاري...' : 'تصدير'}</span>
+            </button>
+          )}
+          <button
+            onClick={() => setShowMobileMenu(true)}
+            className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-slate-300 hover:text-white cursor-pointer"
+            title="خيارات إضافية"
+          >
+            <Sliders size={14} />
+          </button>
+        </div>
+        </div>
       </header>
 
       {/* Compositions / Projects Tab Bar */}
@@ -3503,9 +3542,11 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
 
       {/* Main Workspace Body */}
       {project ? (
-        <div className="flex flex-1 overflow-hidden relative">
+        <div className="flex flex-1 overflow-hidden relative pb-16 lg:pb-0">
           {/* Left Panel: Layers */}
-          <aside className="w-[360px] 2xl:w-[400px] h-full shrink-0 border-r border-white/10 z-10 flex flex-col">
+          <aside className={`h-full shrink-0 border-r border-white/10 z-10 flex-col ${
+            activeMobileTab === 'layers' ? 'w-full flex' : 'hidden lg:flex lg:w-[360px] lg:2xl:w-[400px]'
+          }`}>
             <SvgaLayersList
               layers={layers}
               selectedLayerId={selectedLayerId}
@@ -3543,7 +3584,9 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
           </aside>
 
           {/* Center Viewport: Interactive Canvas + Timeline */}
-          <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#070b14]">
+          <main className={`h-full overflow-hidden bg-[#070b14] flex-col ${
+            activeMobileTab === 'canvas' ? 'w-full flex flex-1' : 'hidden lg:flex lg:flex-1'
+          }`}>
             <div className="flex-1 relative overflow-hidden flex flex-col">
               {projects.length > 1 && canvasViewMode === 'multi' ? (
                 <SvgaMultiCanvasStage
@@ -3625,6 +3668,17 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                     shinePointStep={shinePointStep}
                     onShinePointStepChange={setShinePointStep}
                   />
+
+                  {/* Floating Timeline Toggle on Mobile */}
+                  {isMobile && (
+                    <button
+                      onClick={() => setIsTimelineOpenMobile(!isTimelineOpenMobile)}
+                      className="absolute bottom-4 right-4 z-30 flex items-center gap-1.5 text-xs font-bold text-white bg-slate-900/95 border border-white/20 px-3.5 py-2 rounded-2xl backdrop-blur-md shadow-lg cursor-pointer"
+                    >
+                      <Film size={12} className="text-indigo-400" />
+                      <span>{isTimelineOpenMobile ? 'إخفاء التايم لاين' : 'تعديل التايم لاين والتدريج'}</span>
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -3658,44 +3712,48 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             />
 
             {/* Bottom Keyframe & Motion Timeline */}
-            <SvgaMotionTimeline
-              totalFrames={project.totalFrames}
-              currentFrame={currentFrame}
-              fps={project.fps}
-              isPlaying={isPlaying}
-              isLoop={isLoop}
-              selectedLayer={selectedLayer}
-              layers={layers}
-              projectAudios={project.audios}
-              onOpenAudioStudio={() => setShowAudioStudioModal(true)}
-              onSelectLayer={(id) => handleSelectLayer(id, false)}
-              onTogglePlay={() => setIsPlaying(!isPlaying)}
-              onStepFrame={(delta) => {
-                setIsPlaying(false);
-                setCurrentFrame(prev => Math.max(0, Math.min(project.totalFrames - 1, prev + delta)));
-              }}
-              onSeekFrame={(f) => {
-                setIsPlaying(false);
-                setCurrentFrame(Math.max(0, Math.min(project.totalFrames - 1, f)));
-              }}
-              onToggleLoop={() => setIsLoop(!isLoop)}
-              onUpdateLayerTransform={handleUpdateLayerTransform}
-              onUpdateLayerKeyframes={handleUpdateLayerKeyframes}
-              onUpdateProjectDuration={handleUpdateProjectDuration}
-              onUpdateLayerTimeRange={handleUpdateLayerTimeRange}
-              onTrimProject={handleTrimProject}
-              onMergeSvga={() => mergeFileInputRef.current?.click()}
-              onOpenMergeCanvasStudio={() => setShowMergeCanvasModal(true)}
-              onToggleChromaPen={handleToggleChromaPen}
-              isChromaPenActive={isChromaPenActive}
-              onExport={() => setShowExportModal(true)}
-              isExporting={isExporting}
-              isMerging={isMergingLayers}
-            />
+            {(!isMobile || isTimelineOpenMobile) && (
+              <SvgaMotionTimeline
+                totalFrames={project.totalFrames}
+                currentFrame={currentFrame}
+                fps={project.fps}
+                isPlaying={isPlaying}
+                isLoop={isLoop}
+                selectedLayer={selectedLayer}
+                layers={layers}
+                projectAudios={project.audios}
+                onOpenAudioStudio={() => setShowAudioStudioModal(true)}
+                onSelectLayer={(id) => handleSelectLayer(id, false)}
+                onTogglePlay={() => setIsPlaying(!isPlaying)}
+                onStepFrame={(delta) => {
+                  setIsPlaying(false);
+                  setCurrentFrame(prev => Math.max(0, Math.min(project.totalFrames - 1, prev + delta)));
+                }}
+                onSeekFrame={(f) => {
+                  setIsPlaying(false);
+                  setCurrentFrame(Math.max(0, Math.min(project.totalFrames - 1, f)));
+                }}
+                onToggleLoop={() => setIsLoop(!isLoop)}
+                onUpdateLayerTransform={handleUpdateLayerTransform}
+                onUpdateLayerKeyframes={handleUpdateLayerKeyframes}
+                onUpdateProjectDuration={handleUpdateProjectDuration}
+                onUpdateLayerTimeRange={handleUpdateLayerTimeRange}
+                onTrimProject={handleTrimProject}
+                onMergeSvga={() => mergeFileInputRef.current?.click()}
+                onOpenMergeCanvasStudio={() => setShowMergeCanvasModal(true)}
+                onToggleChromaPen={handleToggleChromaPen}
+                isChromaPenActive={isChromaPenActive}
+                onExport={() => setShowExportModal(true)}
+                isExporting={isExporting}
+                isMerging={isMergingLayers}
+              />
+            )}
           </main>
 
           {/* Right Panel: Properties */}
-          <aside className="w-[320px] h-full shrink-0">
+          <aside className={`h-full shrink-0 ${
+            activeMobileTab === 'properties' ? 'w-full flex flex-col' : 'hidden lg:flex lg:w-[320px]'
+          }`}>
             <SvgaPropertiesPanel
               project={project}
               layer={selectedLayer}
@@ -4141,6 +4199,211 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
           />
         </ErrorBoundary>
       )}
+
+      {/* Mobile Bottom Tab Bar */}
+      {isMobile && (
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-[#0a0f1d]/95 backdrop-blur-md border-t border-white/10 grid grid-cols-3 z-[45] select-none pb-safe">
+          <button
+            onClick={() => setActiveMobileTab('layers')}
+            className={`flex flex-col items-center justify-center gap-1 cursor-pointer transition-colors ${
+              activeMobileTab === 'layers' ? 'text-indigo-400 font-black' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Layers size={18} />
+            <span className="text-[10px]">الطبقات ({layers.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveMobileTab('canvas')}
+            className={`flex flex-col items-center justify-center gap-1 cursor-pointer transition-colors ${
+              activeMobileTab === 'canvas' ? 'text-indigo-400 font-black' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Compass size={18} />
+            <span className="text-[10px]">الكانفاس والتايم لاين</span>
+          </button>
+
+          <button
+            onClick={() => setActiveMobileTab('properties')}
+            className={`flex flex-col items-center justify-center gap-1 cursor-pointer transition-colors ${
+              activeMobileTab === 'properties' ? 'text-indigo-400 font-black' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Sliders size={18} />
+            <span className="text-[10px]">خصائص الطبقة {selectedLayerId ? '✓' : ''}</span>
+          </button>
+        </div>
+      )}
+
+      {/* Mobile Actions Drawer Menu */}
+      <AnimatePresence>
+        {showMobileMenu && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-end justify-center"
+            onClick={() => setShowMobileMenu(false)}
+          >
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="w-full max-h-[85vh] bg-[#0c1224] rounded-t-[2.5rem] border-t border-white/15 p-6 overflow-y-auto flex flex-col gap-5 pb-safe"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={16} className="text-indigo-400" />
+                  <span className="font-black text-sm text-slate-200">الأدوات والإعدادات المتقدمة</span>
+                </div>
+                <button
+                  onClick={() => setShowMobileMenu(false)}
+                  className="p-2 hover:bg-white/5 rounded-full text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Grid of Mobile Actions */}
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => {
+                    setShowNewProjectModal(true);
+                    setShowMobileMenu(false);
+                  }}
+                  className="flex flex-col items-center justify-center p-4 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-2xl gap-2 text-emerald-300 transition-all font-bold cursor-pointer"
+                >
+                  <Plus size={20} />
+                  <span className="text-[11px]">مشروع جديد</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    fileInputRef.current?.click();
+                    setShowMobileMenu(false);
+                  }}
+                  className="flex flex-col items-center justify-center p-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl gap-2 text-slate-200 transition-all font-bold cursor-pointer"
+                >
+                  <Upload size={20} className="text-indigo-400" />
+                  <span className="text-[11px]">فتح SVGA</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setMp4InitialFiles([]);
+                    setShowMp4ImportModal(true);
+                    setShowMobileMenu(false);
+                  }}
+                  className="flex flex-col items-center justify-center p-4 bg-pink-500/10 hover:bg-pink-500/20 border border-pink-500/30 rounded-2xl gap-2 text-pink-300 transition-all font-bold cursor-pointer"
+                >
+                  <Film size={20} className="text-pink-400" />
+                  <span className="text-[11px]">استدعاء MP4</span>
+                </button>
+
+                {project && (
+                  <button
+                    onClick={() => {
+                      setShowAudioStudioModal(true);
+                      setShowMobileMenu(false);
+                    }}
+                    className="flex flex-col items-center justify-center p-4 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 rounded-2xl gap-2 text-indigo-200 transition-all font-bold cursor-pointer"
+                  >
+                    <Music size={20} className="text-indigo-400" />
+                    <span className="text-[11px]">دمج وقص الصوت</span>
+                  </button>
+                )}
+
+                {project && (
+                  <button
+                    onClick={() => {
+                      mergeFileInputRef.current?.click();
+                      setShowMobileMenu(false);
+                    }}
+                    className="flex flex-col items-center justify-center p-4 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 rounded-2xl gap-2 text-purple-200 transition-all font-bold cursor-pointer"
+                  >
+                    <Sparkles size={20} className="text-purple-400" />
+                    <span className="text-[11px]">دمج SVGA +</span>
+                  </button>
+                )}
+
+                {project && layers.length > 1 && (
+                  <button
+                    onClick={() => {
+                      handleMergeAllLayers();
+                      setShowMobileMenu(false);
+                    }}
+                    disabled={isMergingLayers}
+                    className="flex flex-col items-center justify-center p-4 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 rounded-2xl gap-2 text-purple-200 transition-all font-bold disabled:opacity-50 cursor-pointer"
+                  >
+                    <Layers size={20} className="text-purple-400" />
+                    <span className="text-[11px]">دمج كافة الطبقات</span>
+                  </button>
+                )}
+
+                {project && (
+                  <button
+                    onClick={() => {
+                      setShowBgLibraryModal(true);
+                      setShowMobileMenu(false);
+                    }}
+                    className="flex flex-col items-center justify-center p-4 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 rounded-2xl gap-2 text-sky-200 transition-all font-bold cursor-pointer"
+                  >
+                    <ImageIcon size={20} className="text-sky-400" />
+                    <span className="text-[11px]">مكتبة الخلفيات</span>
+                  </button>
+                )}
+
+                {project && (
+                  <button
+                    onClick={() => {
+                      handleToggleChromaPen();
+                      setShowMobileMenu(false);
+                    }}
+                    className={`flex flex-col items-center justify-center p-4 border rounded-2xl gap-2 transition-all font-bold cursor-pointer ${
+                      isChromaPenActive 
+                        ? 'bg-indigo-600/30 border-indigo-400 text-indigo-200' 
+                        : 'bg-white/5 border-white/10 text-slate-200'
+                    }`}
+                  >
+                    <Pipette size={20} className="text-indigo-400" />
+                    <span className="text-[11px]">أداة كروما بن (Chroma)</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Undo / Redo Row */}
+              {project && (
+                <div className="flex gap-2 border-t border-white/10 pt-4">
+                  <button
+                    onClick={() => {
+                      handleUndo();
+                      setShowMobileMenu(false);
+                    }}
+                    disabled={historyIndex <= 0}
+                    className="flex-1 py-3 bg-white/5 disabled:opacity-30 rounded-xl flex items-center justify-center gap-2 border border-white/10 font-bold text-xs text-slate-300 hover:text-white cursor-pointer"
+                  >
+                    <RotateCcw size={14} />
+                    <span>تراجع</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleRedo();
+                      setShowMobileMenu(false);
+                    }}
+                    disabled={historyIndex >= history.length - 1}
+                    className="flex-1 py-3 bg-white/5 disabled:opacity-30 rounded-xl flex items-center justify-center gap-2 border border-white/10 font-bold text-xs text-slate-300 hover:text-white cursor-pointer"
+                  >
+                    <RotateCcw size={14} className="scale-x-[-1]" />
+                    <span>إعادة</span>
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
