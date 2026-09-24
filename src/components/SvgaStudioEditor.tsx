@@ -13,6 +13,7 @@ import protobuf from 'protobufjs';
 import { svgaSchema } from '../svga-proto';
 import { UserRecord } from '../types';
 import { logActivity } from '../utils/logger';
+import { AeExportModal } from './AeExportModal';
 
 // Setup Protobuf MovieEntity
 const root = protobuf.parse(svgaSchema).root;
@@ -82,6 +83,31 @@ export const SvgaStudioEditor: React.FC<SvgaStudioEditorProps> = ({
   const [activeTab, setActiveTab] = useState<'layers' | 'shapes' | 'text' | 'assets'>('layers');
   const [assetFilter, setAssetFilter] = useState<'all' | 'used' | 'unused'>('all');
   const [imagesMap, setImagesMap] = useState<Record<string, string>>({});
+  const [isAeModalOpen, setIsAeModalOpen] = useState<boolean>(false);
+
+  // Convert imagesMap into Uint8Array format for AE export
+  const rawImagesData = useMemo(() => {
+    const dataObj: Record<string, Uint8Array> = {};
+    if (movieData?.images) {
+      for (const [key, val] of Object.entries(movieData.images)) {
+        if (val instanceof Uint8Array) dataObj[key] = val;
+        else if ((val as any)?.buffer instanceof ArrayBuffer) dataObj[key] = new Uint8Array((val as any).buffer);
+      }
+    }
+    for (const [key, rawDataUrl] of Object.entries(imagesMap)) {
+      const dataUrl = rawDataUrl as string;
+      if (dataUrl) {
+        try {
+          const base64 = dataUrl.startsWith('data:') ? dataUrl.split(',')[1] : dataUrl;
+          const binary = atob(base64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          dataObj[key] = bytes;
+        } catch (e) {}
+      }
+    }
+    return dataObj;
+  }, [imagesMap, movieData]);
 
   // Canvas interaction
   const [zoom, setZoom] = useState<number>(100);
@@ -754,6 +780,16 @@ export const SvgaStudioEditor: React.FC<SvgaStudioEditorProps> = ({
             <Download className="w-4 h-4" />
             <span>Export SVGA</span>
           </button>
+
+          <button 
+            onClick={() => setIsAeModalOpen(true)}
+            disabled={!isLoaded}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded font-bold transition-all disabled:opacity-40 ml-2 shadow-sm"
+            title="Export to Adobe After Effects"
+          >
+            <Film className="w-4 h-4" />
+            <span>🎬 Export to AE</span>
+          </button>
         </div>
       </header>
 
@@ -1249,6 +1285,30 @@ export const SvgaStudioEditor: React.FC<SvgaStudioEditorProps> = ({
           </div>
 
         </div>
+      )}
+
+      {isAeModalOpen && (
+        <AeExportModal
+          isOpen={isAeModalOpen}
+          onClose={() => setIsAeModalOpen(false)}
+          metadata={{
+            name: fileName || 'svga_project.svga',
+            fps,
+            frames: totalFrames,
+            originalWidth: sceneWidth,
+            originalHeight: sceneHeight,
+            videoItem: {
+              videoSize: { width: sceneWidth, height: sceneHeight },
+              fps,
+              frames: totalFrames,
+              sprites: movieData?.sprites || [],
+              images: rawImagesData
+            }
+          }}
+          sprites={movieData?.sprites || []}
+          imagesData={rawImagesData}
+          onSuccessToast={(msg) => setLastAction(msg)}
+        />
       )}
 
     </div>

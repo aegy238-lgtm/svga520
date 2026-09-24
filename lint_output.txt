@@ -1,0 +1,86 @@
+
+> copy-of-svg666a-enius-processor@0.0.0 lint
+> tsc --noEmit
+
+src/App.tsx(713,17): error TS2322: Type '{ onCancel: () => void; currentUser: UserRecord; onSubscriptionRequired: () => void; }' is not assignable to type 'IntrinsicAttributes'.
+  Property 'onCancel' does not exist on type 'IntrinsicAttributes'.
+src/components/AdminDashboard.tsx(20,11): error TS2339: Property 'user' does not exist on type 'AuthContextType'.
+src/components/AdminDashboard.tsx(1578,11): error TS2339: Property 'user' does not exist on type 'AuthContextType'.
+src/components/AdminDashboard.tsx(2310,11): error TS2339: Property 'user' does not exist on type 'AuthContextType'.
+src/components/AdminPanel.tsx(335,16): error TS2345: Argument of type '(UserRecord | { isVIP: boolean; subscriptionType: string; subscriptionExpiry: any; activatedKey: any; id: string; name: string; email?: string; password?: string; role: UserRole; ... 11 more ...; hasSvgaExAccess?: boolean; })[]' is not assignable to parameter of type 'SetStateAction<UserRecord[]>'.
+  Type '(UserRecord | { isVIP: boolean; subscriptionType: string; subscriptionExpiry: any; activatedKey: any; id: string; name: string; email?: string; password?: string; role: UserRole; ... 11 more ...; hasSvgaExAccess?: boolean; })[]' is not assignable to type 'UserRecord[]'.
+    Type 'UserRecord | { isVIP: boolean; subscriptionType: string; subscriptionExpiry: any; activatedKey: any; id: string; name: string; email?: string; password?: string; role: UserRole; ... 11 more ...; hasSvgaExAccess?: boolean; }' is not assignable to type 'UserRecord'.
+      Type '{ isVIP: boolean; subscriptionType: string; subscriptionExpiry: any; activatedKey: any; id: string; name: string; email?: string; password?: string; role: UserRole; isApproved: boolean; ... 10 more ...; hasSvgaExAccess?: boolean; }' is not assignable to type 'UserRecord'.
+        Types of property 'subscriptionType' are incompatible.
+          Type 'string' is not assignable to type 'SubscriptionType'.
+src/components/AdminPanel.tsx(423,16): error TS2345: Argument of type '(UserRecord | { role: string; permissions: any[]; isVIP: boolean; subscriptionType: string; subscriptionExpiry: any; coins: number; freeAttempts: number; hasSvgaExAccess: boolean; ... 12 more ...; allowedExportFormat?: string | string[]; })[]' is not assignable to parameter of type 'SetStateAction<UserRecord[]>'.
+  Type '(UserRecord | { role: string; permissions: any[]; isVIP: boolean; subscriptionType: string; subscriptionExpiry: any; coins: number; freeAttempts: number; hasSvgaExAccess: boolean; ... 12 more ...; allowedExportFormat?: string | string[]; })[]' is not assignable to type 'UserRecord[]'.
+    Type 'UserRecord | { role: string; permissions: any[]; isVIP: boolean; subscriptionType: string; subscriptionExpiry: any; coins: number; freeAttempts: number; hasSvgaExAccess: boolean; ... 12 more ...; allowedExportFormat?: string | string[]; }' is not assignable to type 'UserRecord'.
+      Type '{ role: string; permissions: any[]; isVIP: boolean; subscriptionType: string; subscriptionExpiry: any; coins: number; freeAttempts: number; hasSvgaExAccess: boolean; id: string; name: string; email?: string; ... 9 more ...; allowedExportFormat?: string | string[]; }' is not assignable to type 'UserRecord'.
+        Types of property 'role' are incompatible.
+          Type 'string' is not assignable to type 'UserRole'.
+src/components/AdminPanel.tsx(629,103): error TS2322: Type '{ className: string; title: string; }' is not assignable to type 'IntrinsicAttributes & Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>'.
+  Property 'title' does not exist on type 'IntrinsicAttributes & Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>'.
+src/components/AdminPanel.tsx(630,128): error TS2322: Type '{ className: string; title: string; }' is not assignable to type 'IntrinsicAttributes & Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>'.
+  Property 'title' does not exist on type 'IntrinsicAttributes & Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>'.
+src/components/AdminPanel.tsx(631,106): error TS2322: Type '{ className: string; title: string; }' is not assignable to type 'IntrinsicAttributes & Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>'.
+  Property 'title' does not exist on type 'IntrinsicAttributes & Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>'.
+src/components/AdminPanel.tsx(632,103): error TS2322: Type '{ className: string; title: string; }' is not assignable to type 'IntrinsicAttributes & Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>'.
+  Property 'title' does not exist on type 'IntrinsicAttributes & Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>'.
+src/components/AdminPanel.tsx(1368,75): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Object literal may only specify known properties, and 'className' does not exist in type 'Partial<unknown> & Attributes'.
+src/components/AdminPanel.tsx(1408,55): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Object literal may only specify known properties, and 'className' does not exist in type 'Partial<unknown> & Attributes'.
+src/components/BackgroundSelector.tsx(9,11): error TS2339: Property 'user' does not exist on type 'AuthContextType'.
+src/components/BatchImageProcessor.tsx(450,100): error TS2322: Type '{ className: string; title: string; }' is not assignable to type 'IntrinsicAttributes & Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>'.
+  Property 'title' does not exist on type 'IntrinsicAttributes & Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>'.
+src/components/Dashboard.tsx(157,84): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Object literal may only specify known properties, and 'className' does not exist in type 'Partial<unknown> & Attributes'.
+src/components/DiscoverPage.tsx(140,11): error TS2339: Property 'user' does not exist on type 'AuthContextType'.
+src/components/Header.tsx(206,68): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Object literal may only specify known properties, and 'className' does not exist in type 'Partial<unknown> & Attributes'.
+src/components/Header.tsx(389,87): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Object literal may only specify known properties, and 'className' does not exist in type 'Partial<unknown> & Attributes'.
+src/components/Header.tsx(470,90): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Object literal may only specify known properties, and 'className' does not exist in type 'Partial<unknown> & Attributes'.
+src/components/HomePage.tsx(9,11): error TS2339: Property 'user' does not exist on type 'AuthContextType'.
+src/components/ImageEnhancer.tsx(50,22): error TS2554: Expected 1 arguments, but got 0.
+src/components/ImageToSvga.tsx(876,24): error TS2554: Expected 1 arguments, but got 0.
+src/components/LiveRoom.tsx(29,11): error TS2339: Property 'user' does not exist on type 'AuthContextType'.
+src/components/LiveRoom.tsx(1033,19): error TS2322: Type '(el: HTMLDivElement) => HTMLDivElement' is not assignable to type 'Ref<HTMLDivElement>'.
+  Type '(el: HTMLDivElement) => HTMLDivElement' is not assignable to type '(instance: HTMLDivElement) => void | (() => VoidOrUndefinedOnly)'.
+    Type 'HTMLDivElement' is not assignable to type 'void | (() => VoidOrUndefinedOnly)'.
+src/components/LiveRoom.tsx(2263,139): error TS2322: Type '"high-quality"' is not assignable to type 'ImageRendering'.
+src/components/LoginScreen.tsx(26,11): error TS2339: Property 'loginWithEmail' does not exist on type 'AuthContextType'.
+src/components/LoginScreen.tsx(26,27): error TS2339: Property 'signupWithEmail' does not exist on type 'AuthContextType'.
+src/components/LoginScreen.tsx(26,59): error TS2339: Property 'user' does not exist on type 'AuthContextType'.
+src/components/LoginScreen.tsx(26,65): error TS2339: Property 'updateUserProfile' does not exist on type 'AuthContextType'.
+src/components/LoginScreen.tsx(216,19): error TS2322: Type '(email: string, pass: string) => Promise<void>' is not assignable to type 'MouseEventHandler<HTMLButtonElement>'.
+  Target signature provides too few arguments. Expected 2 or more, but got 1.
+src/components/MessagesPage.tsx(9,11): error TS2339: Property 'user' does not exist on type 'AuthContextType'.
+src/components/PrivateChat.tsx(15,11): error TS2339: Property 'user' does not exist on type 'AuthContextType'.
+src/components/ProfilePage.tsx(12,11): error TS2339: Property 'user' does not exist on type 'AuthContextType'.
+src/components/ProfilePage.tsx(12,25): error TS2339: Property 'updateUserProfile' does not exist on type 'AuthContextType'.
+src/components/ProfilePage.tsx(237,128): error TS2322: Type '"high-quality"' is not assignable to type 'ImageRendering'.
+src/components/ProfilePage.tsx(359,11): error TS2339: Property 'user' does not exist on type 'AuthContextType'.
+src/components/ShineEffectSystem.tsx(12,24): error TS2554: Expected 1 arguments, but got 0.
+src/components/VapPlayer.tsx(14,24): error TS2554: Expected 1 arguments, but got 0.
+src/components/Workspace.tsx(7543,11): error TS2367: This comparison appears to be unintentional because the types '"SVGA → YYEVA"' and '"VAP 1.0.5"' have no overlap.
+src/components/Workspace.tsx(11974,25): error TS2322: Type '(options?: { decrement?: boolean; }) => Promise<void>' is not assignable to type 'MouseEventHandler<HTMLButtonElement>'.
+  Types of parameters 'options' and 'event' are incompatible.
+    Type 'MouseEvent<HTMLButtonElement, MouseEvent>' has no properties in common with type '{ decrement?: boolean; }'.
+src/components/Workspace.tsx(12889,19): error TS2322: Type '(options?: { decrement?: boolean; }) => Promise<void>' is not assignable to type 'MouseEventHandler<HTMLButtonElement>'.
+  Types of parameters 'options' and 'event' are incompatible.
+    Type 'MouseEvent<HTMLButtonElement, MouseEvent>' has no properties in common with type '{ decrement?: boolean; }'.
+src/components/admin/AdminResetTab.tsx(8,11): error TS2339: Property 'user' does not exist on type 'AuthContextType'.
+src/components/games/FruitRoulette.tsx(16,11): error TS2339: Property 'user' does not exist on type 'AuthContextType'.
+src/components/games/JackpotFruits.tsx(41,11): error TS2339: Property 'user' does not exist on type 'AuthContextType'.
+src/components/games/LuckyCatGame.tsx(27,11): error TS2339: Property 'user' does not exist on type 'AuthContextType'.
+src/components/games/RocketCrash.tsx(8,11): error TS2339: Property 'user' does not exist on type 'AuthContextType'.
+src/components/games/ZeusSlots.tsx(9,11): error TS2339: Property 'user' does not exist on type 'AuthContextType'.

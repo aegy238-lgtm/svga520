@@ -10,6 +10,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 interface DashboardProps {
   onUpload: (files: File[], mode?: UploadMode) => void;
   onAction: (actionKey: string) => void;
+  onUniversalPlay?: (file: File) => void;
   currentUser?: UserRecord | null;
   settings?: AppSettings | null;
   onOpenVipModal?: () => void;
@@ -19,6 +20,7 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({ 
   onUpload, 
   onAction, 
+  onUniversalPlay,
   currentUser,
   settings,
   onOpenVipModal,
@@ -97,6 +99,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <Uploader 
                     onUpload={onUpload} 
                     isUploading={false}
+                    onUniversalPlay={onUniversalPlay}
                     onAnimationManagerOpen={isFeatureAllowed('animationManager') ? () => onAction('animationManager') : undefined}
                     onConverterOpen={isFeatureAllowed('videoConverter') ? () => onAction('videoConverter') : undefined}
                     onMultiSvgaOpen={isFeatureAllowed('multiSvga') ? () => onAction('multiSvga') : undefined}

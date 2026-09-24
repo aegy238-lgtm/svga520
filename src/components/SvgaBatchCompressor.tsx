@@ -77,6 +77,10 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
   const [quality, setQuality] = useState<number>(75);
   const [preset, setPreset] = useState<PresetMode>('smart');
   const [scale, setScale] = useState<number>(1.0);
+  const [dimensionMode, setDimensionMode] = useState<'original' | 'scale' | 'custom' | 'fixed'>('original');
+  const [customWidth, setCustomWidth] = useState<number>(750);
+  const [customHeight, setCustomHeight] = useState<number>(750);
+  const [lockAspectRatio, setLockAspectRatio] = useState<boolean>(true);
   const [optimizeTransforms, setOptimizeTransforms] = useState<boolean>(true);
   const [stripUnusedImages, setStripUnusedImages] = useState<boolean>(true);
   const [preserveAudio, setPreserveAudio] = useState<boolean>(true);
@@ -257,7 +261,10 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
         const vapSettings: VapCompressionSettings = {
           quality: activeQuality,
           preset,
-          scale,
+          scale: dimensionMode === 'scale' ? scale : 1.0,
+          targetWidth: (dimensionMode === 'custom' || dimensionMode === 'fixed') ? customWidth : undefined,
+          targetHeight: (dimensionMode === 'custom' || dimensionMode === 'fixed') ? customHeight : undefined,
+          lockAspectRatio,
           preserveAudio,
           filenameSuffix,
           format: targetItem.format
@@ -300,7 +307,11 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
         const svgaSettings: SvgaCompressionSettings = {
           quality: activeQuality,
           preset,
-          scale,
+          scale: dimensionMode === 'scale' ? scale : 1.0,
+          targetWidth: (dimensionMode === 'custom' || dimensionMode === 'fixed') ? customWidth : undefined,
+          targetHeight: (dimensionMode === 'custom' || dimensionMode === 'fixed') ? customHeight : undefined,
+          lockAspectRatio,
+          resizeMode: dimensionMode === 'original' ? undefined : (dimensionMode as any),
           optimizeTransforms,
           stripUnusedImages,
           preserveAudio,
@@ -974,6 +985,177 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
                 <span>100% (أعلى جودة)</span>
               </div>
             </div>
+          </div>
+
+          {/* Dimension & Resolution Controller (العرض والطول وتثبيت المقاس) */}
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-950/40 via-purple-950/30 to-slate-900/50 border border-indigo-500/20 space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Gauge className="w-4 h-4 text-indigo-400" />
+                <span className="text-xs font-black text-white">التحكم في الأبعاد والمقاس (العرض x الطول):</span>
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                  {dimensionMode === 'original' ? 'المقاس الأصلي 100%' :
+                   dimensionMode === 'scale' ? `مقياس ${(scale * 100).toFixed(0)}%` :
+                   `${customWidth} × ${customHeight} px`}
+                </span>
+              </div>
+
+              {/* Mode Switcher Tabs */}
+              <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl border border-white/10 text-xs">
+                <button
+                  onClick={() => setDimensionMode('original')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                    dimensionMode === 'original' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  المقاس الأصلي
+                </button>
+                <button
+                  onClick={() => setDimensionMode('scale')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                    dimensionMode === 'scale' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  نسبة مئوية (%)
+                </button>
+                <button
+                  onClick={() => setDimensionMode('custom')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                    dimensionMode === 'custom' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  تحديد المقاس (px)
+                </button>
+              </div>
+            </div>
+
+            {/* Scale percentage mode */}
+            {dimensionMode === 'scale' && (
+              <div className="space-y-1.5 pt-1">
+                <div className="flex justify-between text-xs text-slate-300 font-bold">
+                  <span>مقياس الأبعاد:</span>
+                  <span className="text-indigo-400">{(scale * 100).toFixed(0)}% من الحجم الأصلي</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.25"
+                  max="1.0"
+                  step="0.05"
+                  value={scale}
+                  onChange={(e) => setScale(parseFloat(e.target.value))}
+                  className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                />
+                <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                  <span>25% (أصغر حجم)</span>
+                  <span>50%</span>
+                  <span>75%</span>
+                  <span>100% (أبعاد كاملة)</span>
+                </div>
+              </div>
+            )}
+
+            {/* Custom Pixel Dimensions Mode */}
+            {(dimensionMode === 'custom' || dimensionMode === 'fixed') && (
+              <div className="space-y-3 pt-1">
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Width Input */}
+                  <div className="flex-1 min-w-[120px] bg-black/40 border border-white/10 rounded-xl p-2.5 space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 block">العرض (Width):</label>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        min="50"
+                        max="3840"
+                        step="2"
+                        value={customWidth}
+                        onChange={(e) => {
+                          const w = Math.max(50, parseInt(e.target.value) || 50);
+                          if (lockAspectRatio && customWidth > 0 && customHeight > 0) {
+                            const ratio = customWidth / customHeight;
+                            setCustomHeight(Math.max(50, Math.round(w / ratio)));
+                          }
+                          setCustomWidth(w);
+                          setDimensionMode('custom');
+                        }}
+                        className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1 text-sm font-mono text-white focus:outline-none focus:border-indigo-500"
+                      />
+                      <span className="text-xs text-slate-500 font-mono">px</span>
+                    </div>
+                  </div>
+
+                  {/* Lock Aspect Ratio Toggle */}
+                  <div className="flex flex-col items-center justify-center pt-3">
+                    <button
+                      onClick={() => setLockAspectRatio(!lockAspectRatio)}
+                      className={`p-2 rounded-xl border transition-all cursor-pointer ${
+                        lockAspectRatio
+                          ? 'bg-indigo-600/30 border-indigo-500/50 text-indigo-300 shadow-md'
+                          : 'bg-white/5 border-white/10 text-slate-500 hover:text-slate-300'
+                      }`}
+                      title={lockAspectRatio ? 'قفل تناسب الأبعاد مفعّل' : 'قفل تناسب الأبعاد معطّل'}
+                    >
+                      <Zap className="w-4 h-4" />
+                    </button>
+                    <span className="text-[9px] text-slate-400 mt-0.5">
+                      {lockAspectRatio ? 'قفل النسبة' : 'حر'}
+                    </span>
+                  </div>
+
+                  {/* Height Input */}
+                  <div className="flex-1 min-w-[120px] bg-black/40 border border-white/10 rounded-xl p-2.5 space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 block">الطول (Height):</label>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        min="50"
+                        max="3840"
+                        step="2"
+                        value={customHeight}
+                        onChange={(e) => {
+                          const h = Math.max(50, parseInt(e.target.value) || 50);
+                          if (lockAspectRatio && customWidth > 0 && customHeight > 0) {
+                            const ratio = customWidth / customHeight;
+                            setCustomWidth(Math.max(50, Math.round(h * ratio)));
+                          }
+                          setCustomHeight(h);
+                          setDimensionMode('custom');
+                        }}
+                        className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1 text-sm font-mono text-white focus:outline-none focus:border-indigo-500"
+                      />
+                      <span className="text-xs text-slate-500 font-mono">px</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Preset Dimensions Quick Selector */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[10px] font-bold text-slate-400 ml-1">مقاسات سريعة جاهزة:</span>
+                  {[
+                    { label: '500 × 500 (مربع هدايا)', w: 500, h: 500 },
+                    { label: '750 × 750 (قياسي SVGA)', w: 750, h: 750 },
+                    { label: '720 × 1280 (طولي HD)', w: 720, h: 1280 },
+                    { label: '1080 × 1920 (FHD)', w: 1080, h: 1920 },
+                    { label: '1000 × 1000', w: 1000, h: 1000 },
+                  ].map(pre => (
+                    <button
+                      key={pre.label}
+                      onClick={() => {
+                        setCustomWidth(pre.w);
+                        setCustomHeight(pre.h);
+                        setDimensionMode('fixed');
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                        customWidth === pre.w && customHeight === pre.h && dimensionMode === 'fixed'
+                          ? 'bg-indigo-600 text-white border-indigo-400'
+                          : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300'
+                      }`}
+                    >
+                      {pre.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Advanced Settings Drawer */}

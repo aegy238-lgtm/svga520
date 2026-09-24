@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { FileMetadata, MaterialAsset, AppSettings, UserRecord, PresetBackground } from '../types';
-import { Layers, Download, Copy, Trash2, Lock, ListOrdered, Upload, CheckCircle2, Image as ImageIcon, Music, Scissors } from 'lucide-react';
+import { Layers, Download, Copy, Trash2, Lock, ListOrdered, Upload, CheckCircle2, Image as ImageIcon, Music, Scissors, Film } from 'lucide-react';
 import { logActivity } from '../utils/logger';
 import * as Mp4Muxer from 'mp4-muxer';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
@@ -34,6 +34,7 @@ import { LottieViewer } from './LottieViewer';
 
 import { calculateSafeDimensions, getDefaultDimensions } from '../utils/dimensions';
 import { generateAEProject } from '../services/aeExportService';
+import { AeExportModal } from './AeExportModal';
 import { ErrorBoundary } from './ErrorBoundary';
 import { ensureMp3WithId3 } from '../utils/svgaAudio';
 import { decodeAudioSource } from '../utils/svgaAudioTrimmer';
@@ -238,6 +239,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const [exportScale, setExportScale] = useState(1.0); // 0.1 to 1.0 for file size control
   const [isProcessingVideo, setIsProcessingVideo] = useState(false);
   const [exportResult, setExportResult] = useState<{ url: string; filename: string } | null>(null);
+  const [isAeExportModalOpen, setIsAeExportModalOpen] = useState<boolean>(false);
+  const [aeExportPayload, setAeExportPayload] = useState<{
+    sprites: any[];
+    imagesData: { [key: string]: Uint8Array };
+  } | null>(null);
   const [fadeModalTarget, setFadeModalTarget] = useState<string | null>(null);
   const [fadeModalValues, setFadeModalValues] = useState({ top: 0, bottom: 0, left: 0, right: 0 });
   
@@ -3589,10 +3595,24 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       if (message.sprites) {
           message.sprites.forEach((s: any) => {
               if (s.imageKey && !imagesData[s.imageKey]) {
-                  const binaryString = atob(TRANSPARENT_PIXEL.split(',')[1]);
-                  const bytes = new Uint8Array(binaryString.length);
-                  for (let j = 0; j < binaryString.length; j++) bytes[j] = binaryString.charCodeAt(j);
-                  imagesData[s.imageKey] = bytes;
+                  const clean = s.imageKey.replace(/\.png$/i, '');
+                  if (imagesData[clean]) {
+                      imagesData[s.imageKey] = imagesData[clean];
+                  } else if (imagesData[`${clean}.png`]) {
+                      imagesData[s.imageKey] = imagesData[`${clean}.png`];
+                  } else {
+                      // Check case-insensitive match
+                      const lower = clean.toLowerCase();
+                      const matchedKey = Object.keys(imagesData).find(k => k.toLowerCase().replace(/\.png$/i, '') === lower);
+                      if (matchedKey) {
+                          imagesData[s.imageKey] = imagesData[matchedKey];
+                      } else {
+                          const binaryString = atob(TRANSPARENT_PIXEL.split(',')[1]);
+                          const bytes = new Uint8Array(binaryString.length);
+                          for (let j = 0; j < binaryString.length; j++) bytes[j] = binaryString.charCodeAt(j);
+                          imagesData[s.imageKey] = bytes;
+                      }
+                  }
               }
           });
       }
@@ -3836,7 +3856,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   };
 
   const handleExportAEProject = async (options: any = {}) => {
-    const { decrement = true } = options;
     if (!svgaInstance) return;
 
     if (!currentUser) {
@@ -3844,40 +3863,48 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       return;
     }
 
-    const { allowed } = await checkAccess('AE Project Export', { decrement, subscriptionOnly: true });
-    if (!allowed) {
-      onSubscriptionRequired();
-      return;
+    try {
+      const { message, imagesData } = await getProcessedSVGAData(true);
+      setAeExportPayload({
+        sprites: message.sprites || [],
+        imagesData: imagesData || {}
+      });
+      setIsAeExportModalOpen(true);
+    } catch (e) {
+      console.error("Failed to prepare data for AE Export", e);
+      setAeExportPayload({
+        sprites: metadata.videoItem?.sprites || [],
+        imagesData: {}
+      });
+      setIsAeExportModalOpen(true);
     }
+  };
 
-    setIsExporting(true);
-    setExportPhase('تحليل مصفوفة الطبقات Quantum v5.6...');
+  const handleDirectDownloadJsx = async () => {
+    if (!svgaInstance) return;
     try {
       const { message, imagesData, originalWidth, originalHeight } = await getProcessedSVGAData(true);
-
-      await generateAEProject({
+      const result = await generateAEProject({
         metadata,
         originalWidth,
         originalHeight,
         sprites: message.sprites || [],
-        imagesData,
+        imagesData: imagesData || {},
         previewBg,
         audioFile,
         audioUrl,
         bgPos,
-        bgScale,
-        setProgress
+        bgScale
       });
-
-      if (currentUser) {
-        logActivity(currentUser, 'export', `Exported After Effects Project: ${metadata.name}.zip`);
-      }
-
-    } catch (e) { 
-      console.error(e); 
-      alert("❌ Error during After Effects export!");
-    } finally { 
-      setTimeout(() => setIsExporting(false), 800); 
+      const blob = new Blob([result.jsxContent], { type: 'text/javascript;charset=utf-8' });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `${result.baseFileName}.jsx`;
+      link.click();
+      alert(`✅ تم تحميل ملف السكريبت بنجاح: ${result.baseFileName}.jsx`);
+    } catch (e) {
+      console.error(e);
+      alert("حدث خطأ أثناء استخراج السكريبت");
     }
   };
 
@@ -9874,27 +9901,38 @@ class _MyAppState extends State<MyApp> {
                 })}
              </div>
 
-             {/* Dedicated Export Buttons */}
+             {/* Dedicated Export to Adobe After Effects Button */}
              <div className="flex flex-col gap-2 mb-2">
-               <div className="flex gap-2">
+               <button 
+                 onClick={() => handleExportAEProject({ decrement: false })}
+                 className="w-full py-4 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-black rounded-xl shadow-glow-indigo active:scale-95 transition-all flex items-center justify-center gap-2 border border-indigo-400/30 group"
+                 title="تصدير مشروع After Effects قابل للتعديل بالكامل مع الطبقات والكي فريمز"
+               >
+                 <Film className="w-4 h-4 text-indigo-200 group-hover:rotate-12 transition-transform" />
+                 <span>🎬 Export to Adobe After Effects</span>
+               </button>
+               
+               <div className="grid grid-cols-2 gap-2">
                  <button 
-                   onClick={handleExportAEProject}
-                   className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-black rounded-xl shadow-glow-indigo active:scale-95 transition-all flex items-center justify-center gap-2"
-                   title="تصدير مشروع After Effects"
+                   onClick={handleDirectDownloadJsx}
+                   className="py-2.5 px-2 bg-indigo-950/70 hover:bg-indigo-900/80 text-indigo-200 hover:text-white text-[10px] font-black rounded-lg active:scale-95 transition-all flex items-center justify-center gap-1.5 border border-indigo-500/40 shadow-sm"
+                   title="تحميل ملف السكريبت (.jsx) فقط بضغطة واحدة مباشرة"
                  >
-                   🎬 After Effects
+                   <Download className="w-3.5 h-3.5 text-indigo-400" />
+                   <span>تحميل السكريبت (.jsx)</span>
                  </button>
-                 
+
                  <button 
                    onClick={() => aeJsonInputRef.current?.click()}
-                   className={`px-4 py-4 text-white text-[11px] font-black rounded-xl active:scale-95 transition-all flex items-center justify-center gap-2 border ${
+                   className={`py-2.5 px-2 text-white text-[10px] font-bold rounded-lg active:scale-95 transition-all flex items-center justify-center gap-1.5 border ${
                      aeJsonData 
                        ? 'bg-emerald-600 border-emerald-400 shadow-glow-emerald' 
-                       : 'bg-slate-800 border-white/10 hover:bg-slate-700'
+                       : 'bg-slate-800 border-white/10 hover:bg-slate-700 text-slate-300'
                    }`}
-                   title="رفع ملف quantum_export.json"
+                   title="رفع ملف quantum_export.json المعدل من After Effects"
                  >
-                   {aeJsonData ? <CheckCircle2 className="w-5 h-5" /> : <Upload className="w-5 h-5" />}
+                   {aeJsonData ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> : <Upload className="w-3.5 h-3.5" />}
+                   <span className="truncate">{aeJsonData ? 'تعديلات AE جاهزة' : 'استيراد تعديل AE'}</span>
                  </button>
                </div>
                
@@ -10266,6 +10304,23 @@ class _MyAppState extends State<MyApp> {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Adobe After Effects Export Modal */}
+      {isAeExportModalOpen && (
+        <AeExportModal
+          isOpen={isAeExportModalOpen}
+          onClose={() => setIsAeExportModalOpen(false)}
+          metadata={metadata}
+          sprites={aeExportPayload?.sprites || metadata.videoItem?.sprites || []}
+          imagesData={aeExportPayload?.imagesData || {}}
+          previewBg={previewBg}
+          audioFile={audioFile}
+          audioUrl={audioUrl}
+          bgPos={bgPos}
+          bgScale={bgScale}
+          onSuccessToast={(msg) => alert(msg)}
+        />
+      )}
     </div>
   );
 };

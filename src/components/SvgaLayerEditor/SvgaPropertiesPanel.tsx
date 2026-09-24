@@ -4,6 +4,7 @@ import { upsertKeyframe, deleteKeyframe } from './motionEngine';
 import { FadeConfig, CropConfig, CropFeather, isTransparencyActive } from './transparencyEngine';
 import { SvgaTransparencyPanel } from './SvgaTransparencyPanel';
 import { SvgaShinePanel } from './SvgaShinePanel';
+import { sniffImageFormat, SupportedImageFormat } from './imageConverter';
 import { 
   Sliders, Link, Unlink, RotateCcw, 
   AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter,
@@ -15,7 +16,7 @@ import {
   Layers, Box, Trash2, Maximize2, Move, Package, CheckSquare,
   Square as UncheckedSquare, Link2, Check,
   ZoomIn, ZoomOut, Scaling, SlidersHorizontal, ArrowLeftRight,
-  RotateCw, Target, CheckCheck, Minimize2, Diamond
+  RotateCw, Target, CheckCheck, Minimize2, Diamond, FileType
 } from 'lucide-react';
 
 interface SvgaPropertiesPanelProps {
@@ -44,6 +45,7 @@ interface SvgaPropertiesPanelProps {
   }) => void;
   onToggleAspectLock: () => void;
   onReplaceAsset: (file: File) => void;
+  onConvertLayerFormat?: (layerId: string, format: SupportedImageFormat, forceResizeToLayer?: boolean) => void;
   onResetTransform: () => void;
   onUpdateFrameRange?: (startFrame: number, endFrame: number) => void;
   onMergeSelectedLayers?: () => void;
@@ -75,6 +77,11 @@ interface SvgaPropertiesPanelProps {
   shinePointStep?: 'idle' | 'place-start' | 'place-end';
   onStartPickShinePoints?: () => void;
   onCancelPickShinePoints?: () => void;
+  onLinkMirroredLayer?: (layerId: string, twinLayerId: string | null) => void;
+  onSyncMirroredLayerAsset?: (layerId: string, twinLayerId?: string) => void;
+  onToggleAutoSyncMirrored?: (layerId: string, enabled: boolean) => void;
+  onToggleAutoFlipMirrored?: (layerId: string, enabled: boolean) => void;
+  onDuplicateLayer?: (layerId: string, mirror?: boolean) => void;
 }
 
 export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
@@ -88,6 +95,7 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
   onBulkTransform,
   onToggleAspectLock,
   onReplaceAsset,
+  onConvertLayerFormat,
   onResetTransform,
   onUpdateFrameRange,
   onMergeSelectedLayers,
@@ -117,7 +125,12 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
   onExportShineLayerOnly,
   shinePointStep,
   onStartPickShinePoints,
-  onCancelPickShinePoints
+  onCancelPickShinePoints,
+  onLinkMirroredLayer,
+  onSyncMirroredLayerAsset,
+  onToggleAutoSyncMirrored,
+  onToggleAutoFlipMirrored,
+  onDuplicateLayer
 }) => {
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const [panelNudgeStep, setPanelNudgeStep] = useState<number>(1);
@@ -1577,6 +1590,229 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Layer Image Format Sniffer & Converter (e.g. WebP to PNG/JPEG) */}
+      {layer.type === 'image' && (layer.thumbnailUrl || (layer.imageKey && project.imagesMap?.[layer.imageKey])) && (() => {
+        const imgSource = (layer.imageKey && project.imagesMap?.[layer.imageKey]) || layer.thumbnailUrl || '';
+        const detected = sniffImageFormat(imgSource);
+        return (
+          <div className="bg-slate-900/60 border border-white/10 rounded-2xl p-2.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+                <FileType size={12} className="text-cyan-400" />
+                صيغة صورة الطبقة (Image Format):
+              </span>
+              <span className="text-[10px] font-mono font-black px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 uppercase">
+                {detected.formatName}
+              </span>
+            </div>
+
+            <div className="space-y-1">
+              <div className="text-[10px] text-slate-400">
+                تغيير صيغة الطبقة فوراً (Convert Format):
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  type="button"
+                  disabled={detected.formatName === 'PNG'}
+                  onClick={() => onConvertLayerFormat?.(layer.id, 'image/png', true)}
+                  className={`py-1 px-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 transition-all ${
+                    detected.formatName === 'PNG'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 cursor-default'
+                      : 'bg-white/5 hover:bg-indigo-600/40 text-slate-300 hover:text-white border border-white/10 cursor-pointer active:scale-95'
+                  }`}
+                  title="تحويل إلى PNG عالية الدقة مع تثبيت المقاس الحالي وضغط الحجم"
+                >
+                  {detected.formatName === 'PNG' ? '✓ PNG نشطة' : 'إلى PNG'}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={detected.formatName === 'WEBP'}
+                  onClick={() => onConvertLayerFormat?.(layer.id, 'image/webp', true)}
+                  className={`py-1 px-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 transition-all ${
+                    detected.formatName === 'WEBP'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 cursor-default'
+                      : 'bg-white/5 hover:bg-cyan-600/40 text-slate-300 hover:text-white border border-white/10 cursor-pointer active:scale-95'
+                  }`}
+                  title="تحويل إلى WEBP خفيفة الحجم مع تثبيت المقاس الحالي وضغط الحجم"
+                >
+                  {detected.formatName === 'WEBP' ? '✓ WEBP نشطة' : 'إلى WEBP'}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={detected.formatName === 'JPEG'}
+                  onClick={() => onConvertLayerFormat?.(layer.id, 'image/jpeg', true)}
+                  className={`py-1 px-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 transition-all ${
+                    detected.formatName === 'JPEG'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 cursor-default'
+                      : 'bg-white/5 hover:bg-amber-600/40 text-slate-300 hover:text-white border border-white/10 cursor-pointer active:scale-95'
+                  }`}
+                  title="تحويل إلى JPEG مضغوطة مع تثبيت المقاس الحالي وضغط الحجم"
+                >
+                  {detected.formatName === 'JPEG' ? '✓ JPEG نشطة' : 'إلى JPEG'}
+                </button>
+              </div>
+
+              <div className="pt-2 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => onConvertLayerFormat?.(layer.id, detected.mimeType as SupportedImageFormat, true)}
+                  className="w-full py-1.5 px-2 bg-gradient-to-r from-cyan-600/30 to-indigo-600/30 hover:from-cyan-600/50 hover:to-indigo-600/50 border border-cyan-500/40 text-cyan-200 hover:text-white rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm"
+                  title="تثبيت المقاس الحالي للطبقة وضغط حجم الملف ليطابق الأبعاد الجديدة دون أي تضخم"
+                >
+                  <Scaling size={13} className="text-cyan-300" />
+                  <span>تثبيت المقاس وضغط الحجم ({Math.round(layer.transform.width)}×{Math.round(layer.transform.height)}px)</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Mirrored Twin Layer Controls (الطبقة التوأم المعكوسة) */}
+      {layer && layer.type === 'image' && (() => {
+        const twinLayer = allLayers.find(l => 
+          l.id !== layer.id && (
+            l.id === layer.linkedMirroredLayerId ||
+            layer.linkedMirroredLayerId === l.id ||
+            l.sourceLayerId === layer.id ||
+            layer.sourceLayerId === l.id
+          )
+        );
+
+        const isAutoSync = layer.autoSyncMirroredAsset !== false;
+        const isAutoFlip = (twinLayer?.autoFlipMirroredAsset !== false && (twinLayer?.isMirroredLayer || layer.isMirroredLayer || twinLayer?.transform.scaleX < 0 || layer.transform.scaleX < 0));
+
+        return (
+          <div className="bg-gradient-to-b from-purple-950/40 via-slate-900/60 to-slate-900/60 border border-purple-500/30 rounded-2xl p-3 space-y-2.5 shadow-md">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-purple-300 flex items-center gap-1.5">
+                <FlipHorizontal size={13} className="text-pink-400" />
+                الطبقة التوأم المعكوسة (Mirrored Twin):
+              </span>
+              {twinLayer ? (
+                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                  <Check size={10} />
+                  مقترنة
+                </span>
+              ) : (
+                <span className="text-[9px] font-medium px-2 py-0.5 rounded-full bg-white/5 text-slate-400 border border-white/10">
+                  غير مقترنة
+                </span>
+              )}
+            </div>
+
+            {twinLayer ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 p-2 rounded-xl bg-purple-900/20 border border-purple-500/20">
+                  <div className="w-10 h-10 rounded-lg bg-black/40 border border-white/10 overflow-hidden flex items-center justify-center shrink-0">
+                    {twinLayer.thumbnailUrl ? (
+                      <img src={twinLayer.thumbnailUrl} alt={twinLayer.name} className="w-full h-full object-contain" />
+                    ) : (
+                      <ImageIcon size={14} className="text-purple-400" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[11px] font-bold text-white truncate">{twinLayer.name}</div>
+                    <div className="text-[9px] text-purple-300 font-mono truncate">{twinLayer.imageKey}</div>
+                    <div className="text-[9px] text-slate-400">
+                      {Math.round(twinLayer.transform.width)}×{Math.round(twinLayer.transform.height)}px
+                    </div>
+                  </div>
+                </div>
+
+                {/* Auto Sync Toggle */}
+                <label className="flex items-center justify-between p-1.5 rounded-lg bg-white/5 hover:bg-white/10 cursor-pointer transition-colors text-[10px] text-slate-300">
+                  <span className="flex items-center gap-1.5">
+                    <RefreshCw size={11} className={isAutoSync ? "text-emerald-400" : "text-slate-500"} />
+                    مزامنة استبدال الصورة تلقائياً
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={isAutoSync}
+                    onChange={(e) => onToggleAutoSyncMirrored?.(layer.id, e.target.checked)}
+                    className="rounded border-white/20 bg-black/40 text-purple-600 focus:ring-0 cursor-pointer"
+                  />
+                </label>
+
+                {/* Auto Flip Toggle */}
+                <label className="flex items-center justify-between p-1.5 rounded-lg bg-white/5 hover:bg-white/10 cursor-pointer transition-colors text-[10px] text-slate-300">
+                  <span className="flex items-center gap-1.5">
+                    <FlipHorizontal size={11} className={isAutoFlip ? "text-pink-400" : "text-slate-500"} />
+                    عكس اتجاه الصورة أفقياً للطبقة التوأم
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(isAutoFlip)}
+                    onChange={(e) => onToggleAutoFlipMirrored?.(twinLayer.id, e.target.checked)}
+                    className="rounded border-white/20 bg-black/40 text-pink-600 focus:ring-0 cursor-pointer"
+                  />
+                </label>
+
+                {/* Sync Action Buttons */}
+                <div className="grid grid-cols-2 gap-1.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => onSyncMirroredLayerAsset?.(layer.id, twinLayer.id)}
+                    className="py-1.5 px-2 bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 hover:text-white rounded-xl text-[10px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer shadow-sm active:scale-95"
+                    title="تطبيق نفس صورة الطبقة الحالية فوراً على الطبقة المقترنة مع تطبيق العكس إن لزم"
+                  >
+                    <RefreshCw size={11} />
+                    <span>مزامنة فورية ⟵</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onLinkMirroredLayer?.(layer.id, null)}
+                    className="py-1.5 px-2 bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 text-red-300 hover:text-white rounded-xl text-[10px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer active:scale-95"
+                  >
+                    <Unlink size={11} />
+                    <span>فك الارتباط</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  اربط هذه الطبقة مع طبقة أخرى معكوسة داخل الملف لتتم مزامنة واستبدال الصورة وحفظها تلقائياً أثناء التصدير.
+                </p>
+
+                {/* Layer Selector Dropdown */}
+                <div className="space-y-1">
+                  <span className="text-[9px] text-slate-400">اختيار طبقة توأم للربط:</span>
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) onLinkMirroredLayer?.(layer.id, e.target.value);
+                    }}
+                    className="w-full py-1.5 px-2 bg-black/40 border border-white/10 rounded-xl text-[10px] text-slate-300 focus:outline-none focus:border-purple-500 cursor-pointer"
+                  >
+                    <option value="">-- اختر طبقة من المشروع للربط --</option>
+                    {allLayers
+                      .filter(l => l.id !== layer.id && l.type === 'image')
+                      .map(l => (
+                        <option key={l.id} value={l.id}>
+                          {l.name} ({Math.round(l.transform.width)}×{Math.round(l.transform.height)})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                {/* Quick Duplicate & Mirror Button */}
+                <button
+                  type="button"
+                  onClick={() => onDuplicateLayer?.(layer.id, true)}
+                  className="w-full py-1.5 px-2 bg-pink-600/20 hover:bg-pink-600/30 border border-pink-500/30 text-pink-300 hover:text-white rounded-xl text-[10px] font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
+                >
+                  <FlipHorizontal size={12} />
+                  <span>تكرار الطبقة وعكسها أفقياً الآن (Duplicate & Mirror)</span>
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Alignment Tools */}
       <div className="space-y-1.5">

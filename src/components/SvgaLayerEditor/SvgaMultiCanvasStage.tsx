@@ -21,7 +21,7 @@ interface SvgaMultiCanvasStageProps {
   onRenameProject: (id: string, newName: string) => void;
   onOpenFiles: () => void;
   onOpenMp4Import: () => void;
-  onBatchExport: () => void;
+  onBatchExport?: () => void;
   onExportSingleProject: (project: ProjectSession) => void;
   onMergeProjectIntoActive?: (sourceProjId: string) => void;
   onMergeAllProjectsIntoSingleCanvas?: () => void;
@@ -476,16 +476,6 @@ export const SvgaMultiCanvasStage: React.FC<SvgaMultiCanvasStageProps> = ({
           >
             <Plus size={13} className="text-indigo-400" />
             <span>+ فتح ملفات</span>
-          </button>
-
-          {/* Batch Export Button */}
-          <button
-            onClick={onBatchExport}
-            className="flex items-center gap-1 px-3.5 py-1 text-xs font-black text-white bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 rounded-xl border border-emerald-400/40 shadow-lg shadow-emerald-900/30 transition-all cursor-pointer hover:scale-105"
-            title="تصدير كافة المشاريع المعروضة دفعة واحدة"
-          >
-            <Download size={13} />
-            <span>تصدير جماعي ({projects.length})</span>
           </button>
         </div>
       </div>

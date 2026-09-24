@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, X, Download, Image as ImageIcon, ShieldCheck, Monitor, Smartphone, Loader2, Camera, Video, Film, FileVideo, Volume2, Music , SquareCheck, Gift, Sparkles, FileText, Lock, Key, Square, CheckSquare, Check, SlidersHorizontal, Sliders } from 'lucide-react';
+import { Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, FolderUp, X, Download, Image as ImageIcon, ShieldCheck, Monitor, Smartphone, Loader2, Camera, Video, Film, FileVideo, Volume2, Music , SquareCheck, Gift, Sparkles, FileText, Lock, Unlock, Key, Square, CheckSquare, Check, SlidersHorizontal, Sliders } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { PresetBackground, UserRecord } from '../types';
@@ -213,6 +213,10 @@ export interface MultiSvgaItem {
   scale?: number;
   posX?: number;
   posY?: number;
+  avatarWidth?: number;
+  avatarHeight?: number;
+  lockAvatarAspect?: boolean;
+  avatarImgUrl?: string;
 }
 
 interface MultiSvgaViewerProps {
@@ -370,6 +374,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const [customWidth, setCustomWidth] = useState<number | null>(null);
   const [customHeight, setCustomHeight] = useState<number | null>(null);
   const [isCustomDimensionsActive, setIsCustomDimensionsActive] = useState<boolean>(false);
+  const [lockAspectRatio, setLockAspectRatio] = useState<boolean>(false);
+  const [fitMode, setFitMode] = useState<'contain' | 'cover' | 'fill' | 'native'>('contain');
   const [includePdfCatalog, setIncludePdfCatalog] = useState(false);
   const [isPdfAllInOneExporting, setIsPdfAllInOneExporting] = useState(false);
   const [pdfAllInOneProgress, setPdfAllInOneProgress] = useState(0);
@@ -379,7 +385,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     preventDuplicatesRef.current = preventDuplicates;
   }, [preventDuplicates]);
   const [dedupNotice, setDedupNotice] = useState<{ count: number; names: string[] } | null>(null);
-  const [isDockCollapsed, setIsDockCollapsed] = useState(false);
+  const [isDockCollapsed, setIsDockCollapsed] = useState(true);
+  const [showSideDock, setShowSideDock] = useState(false);
   
   const selectedPreset = useMemo(() => DEVICE_PRESETS.find(p => p.id === selectedPresetId), [selectedPresetId]);
 
@@ -3600,35 +3607,146 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const selectedItem = useMemo(() => items.find(i => i.id === selectedItemId), [items, selectedItemId]);
 
   return (
-    <div className={`flex flex-col h-full animate-in fade-in duration-500 transition-all duration-300 ${isDockCollapsed ? 'xl:pr-16' : 'xl:pr-[335px]'}`}>
-      {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-6">
-        <div>
-          <h2 className="text-3xl font-black text-white flex items-center gap-3">
-            <Layers className="w-8 h-8 text-indigo-500" />
-            نظام العرض الذكي لملفات SVGA
+    <div className="flex flex-col h-full animate-in fade-in duration-500 transition-all duration-300 w-full">
+      {/* Hidden File Input for SVGA/VAP/PAG/PDF/ZIP Uploads */}
+      <input 
+        ref={fileInputRef}
+        type="file" 
+        multiple 
+        accept=".svga,.SVGA,.pag,.PAG,.vap,.VAP,.mp4,.MP4,.zip,.ZIP,.pdf,.PDF,application/pdf,*/*" 
+        className="hidden" 
+        onChange={(e) => {
+          if (e.target.files) {
+            const fileObjects = Array.from(e.target.files).map(file => ({ file }));
+            handleFiles(fileObjects);
+            e.target.value = '';
+          }
+        }}
+      />
+
+      {/* TOP HEADER SECTION */}
+      <div className="flex flex-col gap-4 mb-6">
+        {/* Row 1: Header Title + Primary Quick Actions */}
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 bg-slate-900/90 border border-white/10 p-4 sm:p-5 rounded-3xl backdrop-blur-xl shadow-2xl">
+          {/* Right side: Title & Stats */}
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30 shrink-0">
+              <Layers className="w-7 h-7" />
+            </div>
+            <div>
+              <div className="flex items-center gap-3">
+                <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">نظام العرض الذكي لملفات SVGA</h2>
+                {(items as any[]).length > 0 && (
+                  <motion.div 
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="flex items-center gap-2 px-3 py-1 bg-indigo-500/15 border border-indigo-500/30 rounded-full"
+                  >
+                    <div className="w-2 h-2 bg-indigo-400 rounded-full animate-pulse" />
+                    <span className="text-xs font-black text-indigo-300">
+                      {(items as any[]).length} {(items as any[]).length === 1 ? 'ملف مرفوع' : 'ملفات مرفوعة'}
+                    </span>
+                  </motion.div>
+                )}
+              </div>
+              <p className="text-slate-400 font-bold text-xs mt-0.5">
+                دعم كامل لجميع المقاسات (500×500, 750×1334, 2000×2000) مع الحفاظ على الجودة وتثبيت الأبعاد
+              </p>
+            </div>
+          </div>
+
+          {/* Center/Left: Master Primary Action Buttons */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Upload Files */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl font-black text-xs shadow-lg shadow-indigo-600/25 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+            >
+              <Upload className="w-4 h-4" />
+              <span>رفع ملفات</span>
+            </button>
+
+            {/* Upload Folders */}
+            <button
+              onClick={handleUploadFolders}
+              className="px-3.5 py-2.5 bg-white/10 hover:bg-white/15 text-slate-200 hover:text-white rounded-xl font-black text-xs border border-white/15 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+              title="رفع مجلد كامل بالملفات الفرعية"
+            >
+              <FolderUp className="w-4 h-4 text-sky-400" />
+              <span>رفع مجلدات</span>
+            </button>
+
+            {/* Extract from PDF */}
+            <button
+              onClick={handleExtractFromPdf}
+              className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-400 hover:to-rose-500 text-white rounded-xl font-black text-xs shadow-lg shadow-amber-500/25 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer border border-amber-400/40"
+              title="فك واستخراج هدايا SVGA من ملفات PDF المحمية والعادية بنقرة واحدة"
+            >
+              <Lock className="w-4 h-4 text-amber-200" />
+              <span>فك من PDF</span>
+            </button>
+
+            {/* Deduplication Toggle */}
+            <button
+              onClick={handleToggleDeduplication}
+              className={`px-3.5 py-2.5 rounded-xl font-black text-xs border flex items-center gap-2 transition-all cursor-pointer ${
+                preventDuplicates 
+                  ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 shadow-md shadow-amber-500/10' 
+                  : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'
+              }`}
+              title={preventDuplicates ? 'منع التكرار مفعل: يتم حذف وتصفية الملفات المكررة تلقائياً' : 'منع التكرار معطل: يسمح بتكرار الملفات'}
+            >
+              <ShieldCheck className={`w-4 h-4 ${preventDuplicates ? 'text-amber-400' : 'text-slate-400'}`} />
+              <span>منع التكرار: {preventDuplicates ? 'مفعل ✓' : 'معطل'}</span>
+            </button>
+
+            {/* Select All / Clear All */}
             {(items as any[]).length > 0 && (
-              <motion.div 
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="flex items-center gap-2 px-3 py-1 bg-indigo-500/10 border border-indigo-500/20 rounded-full"
-              >
-                <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse" />
-                <span className="text-xs font-black text-indigo-400 uppercase tracking-widest">
-                  {(items as any[]).length} {(items as any[]).length === 1 ? 'ملف مرفوع' : 'ملفات مرفوعة'}
-                </span>
-              </motion.div>
+              <div className="flex items-center gap-1 bg-white/5 border border-white/10 p-1 rounded-xl">
+                <button
+                  onClick={handleSelectAll}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-300 hover:text-white hover:bg-white/10 transition-all flex items-center gap-1.5"
+                  title="تحديد كل الملفات"
+                >
+                  <SquareCheck className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>تحديد الكل</span>
+                </button>
+                <div className="w-px h-4 bg-white/10" />
+                <button
+                  onClick={clearAll}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-all flex items-center gap-1.5"
+                  title="مسح وحذف جميع الملفات المعروضة"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>مسح الكل</span>
+                </button>
+              </div>
             )}
-          </h2>
-          <p className="text-slate-500 font-bold mt-1 uppercase tracking-widest text-xs">
-            دعم كامل لجميع المقاسات (500×500, 750×1334, 2000×2000) مع الحفاظ على الجودة
-          </p>
+
+            {/* Optional Side Dock Toggle */}
+            <button
+              onClick={() => {
+                setShowSideDock(prev => !prev);
+                if (!showSideDock) setIsDockCollapsed(false);
+              }}
+              className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 cursor-pointer ${
+                showSideDock 
+                  ? 'bg-indigo-600 border-indigo-500 text-white shadow-md shadow-indigo-600/20' 
+                  : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'
+              }`}
+              title="إظهار أو إخفاء لوحة العمليات الجانبية"
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              <span>لوحة جانبية</span>
+            </button>
+          </div>
         </div>
 
+        {/* Deduplication Notification Banner if any */}
         {dedupNotice && (
-          <div className="w-full lg:w-auto flex-1 max-w-2xl rounded-2xl p-3 px-4 bg-yellow-400/20 border-2 border-yellow-400 flex items-center justify-between gap-4 font-arabic shadow-xl shadow-yellow-500/10 backdrop-blur-md animate-in fade-in">
+          <div className="rounded-2xl p-3 px-4 bg-yellow-400/20 border-2 border-yellow-400 flex items-center justify-between gap-4 font-arabic shadow-xl shadow-yellow-500/10 backdrop-blur-md animate-in fade-in">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-yellow-400 text-slate-950 flex items-center justify-center font-black shadow-md flex-shrink-0">
+              <div className="w-9 h-9 rounded-xl bg-yellow-400 text-slate-950 flex items-center justify-center font-black shadow-md shrink-0">
                 <ShieldCheck className="w-5 h-5" />
               </div>
               <div className="flex flex-col gap-0.5 text-right">
@@ -3657,36 +3775,185 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             </button>
           </div>
         )}
-        
-        <div className="flex flex-wrap items-center gap-3">
-          {(items as any[]).length > 0 && (
-            <>
-              {/* Custom Dimensions Box */}
-              <div className="flex items-center gap-2 bg-indigo-950/40 border border-indigo-500/30 p-1.5 px-3 rounded-2xl shadow-inner" title="تحديد مقاس مخصص للمشروع (العرض × الارتفاع)">
-                <span className="text-[10px] font-black text-indigo-300 whitespace-nowrap">مقاس مخصص:</span>
-                <input 
-                  type="number" 
-                  placeholder="العرض"
-                  value={customWidth || ''}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value) || 0;
-                    setCustomWidth(val > 0 ? val : null);
-                    setIsCustomDimensionsActive(val > 0 && (customHeight || 0) > 0);
-                  }}
-                  className="w-16 px-2 py-1 bg-black/60 border border-indigo-400/40 rounded-xl text-white font-mono font-bold text-xs text-center focus:outline-none focus:border-indigo-400"
-                />
-                <span className="text-indigo-400 text-xs font-bold font-mono">×</span>
-                <input 
-                  type="number" 
-                  placeholder="الارتفاع"
-                  value={customHeight || ''}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value) || 0;
-                    setCustomHeight(val > 0 ? val : null);
-                    setIsCustomDimensionsActive((customWidth || 0) > 0 && val > 0);
-                  }}
-                  className="w-16 px-2 py-1 bg-black/60 border border-indigo-400/40 rounded-xl text-white font-mono font-bold text-xs text-center focus:outline-none focus:border-indigo-400"
-                />
+
+        {/* Row 2: All Action & Export Buttons in Top Bar (إرجاع جميع الزرار بالأعلى كما طلب المستخدم) */}
+        {(items as any[]).length > 0 && (
+          <div className="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-indigo-500/30 p-3 sm:p-4 rounded-3xl shadow-xl backdrop-blur-md flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-4">
+            {/* Section 1: Packages, PDF & Bundles */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-black text-indigo-300 uppercase tracking-wider pl-2 border-l border-white/10 hidden sm:inline">
+                حزم وتصدير:
+              </span>
+
+              {/* Download Gift Bundles */}
+              <button
+                onClick={handleDownloadAllGiftBundles}
+                disabled={isZipping || (items as any[]).length === 0}
+                className="px-4 py-2 bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 disabled:opacity-50 text-white rounded-xl font-black text-xs shadow-md shadow-rose-600/20 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                title="تنزيل حزم الهدايا كاملة (ملف الهدية + أحلى صورة كادر داخل ZIP)"
+              >
+                {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Gift className="w-4 h-4" />}
+                <span>تنزيل حزم الهدايا ZIP</span>
+              </button>
+
+              {/* All-in-One PDF */}
+              <div className="flex items-center bg-gradient-to-r from-amber-600 to-orange-600 rounded-xl shadow-md shadow-orange-600/20 overflow-hidden">
+                <button
+                  onClick={handleDownloadAllSvgaInOnePdf}
+                  disabled={isPdfAllInOneExporting || (items as any[]).length === 0}
+                  className="px-4 py-2 hover:bg-white/10 disabled:opacity-50 text-white font-black text-xs flex items-center gap-2 transition-all cursor-pointer"
+                  title="تصدير جميع الملفات في ملف PDF واحد ذكي مدمج"
+                >
+                  {isPdfAllInOneExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                  <span>{isPdfAllInOneExporting ? `جاري التصدير (${pdfAllInOneProgress}%)` : 'ملف PDF واحد موحد'}</span>
+                </button>
+                <label className="flex items-center gap-1.5 px-2.5 py-2 bg-black/20 hover:bg-black/30 text-amber-100 text-[10px] font-bold cursor-pointer border-r border-white/15" title="تضمين كتالوج PDF موحد داخل الحزمة">
+                  <input
+                    type="checkbox"
+                    checked={includePdfCatalog}
+                    onChange={() => setIncludePdfCatalog(!includePdfCatalog)}
+                    className="w-3.5 h-3.5 accent-amber-400 rounded"
+                  />
+                  <span>كتالوج</span>
+                </label>
+              </div>
+
+              {/* Download All SVGA ZIP */}
+              <button
+                onClick={handleDownloadAllSvga}
+                disabled={isZipping || (items as any[]).length === 0}
+                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl font-black text-xs shadow-md shadow-blue-600/20 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                title="تنزيل جميع ملفات SVGA / VAP الأصلية فقط في ملف ZIP"
+              >
+                <Download className="w-4 h-4" />
+                <span>تنزيل كل الملفات (ZIP)</span>
+              </button>
+
+              {/* Download All Combined */}
+              <button
+                onClick={handleDownloadAllCombined}
+                disabled={isZipping || (items as any[]).length === 0}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl font-black text-xs shadow-md shadow-emerald-600/20 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                title="تنزيل شامل لجميع الملفات والصور والكتالوج"
+              >
+                <Sparkles className="w-4 h-4 text-emerald-200" />
+                <span>تنزيل الكل الشامل</span>
+              </button>
+            </div>
+
+            {/* Section 2: Video Studio */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-black text-purple-300 uppercase tracking-wider pl-2 border-l border-white/10 hidden sm:inline">
+                استوديو الفيديو:
+              </span>
+
+              {/* Convert VAP to MP4 */}
+              <button
+                onClick={handleExportAllVapToMp4}
+                disabled={vapBatchProgress?.isOpen}
+                className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white rounded-xl font-black text-xs shadow-md shadow-purple-600/20 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                title="تحويل جميع ملفات VAP إلى MP4 بالصوت المدمج والشفافية"
+              >
+                {vapBatchProgress?.isOpen ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4 text-purple-200" />}
+                <span>{vapBatchProgress?.isOpen ? `تحويل (${vapBatchProgress.overallPercent}%)` : 'تحويل VAP ➔ MP4 بالصوت'}</span>
+              </button>
+
+              {/* Export Individual Videos ZIP */}
+              <button
+                onClick={() => handleExportIndividualVideos()}
+                disabled={isExporting}
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-purple-300 hover:text-white border border-purple-500/30 rounded-xl font-black text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                title="تصدير فيديو منفصل لكل ملف على حدة وتنزيلها مضغوطة في ملف ZIP"
+              >
+                <Film className="w-4 h-4 text-purple-400" />
+                <span>فيديو منفصل لكل ملف (ZIP)</span>
+              </button>
+
+              {/* Record Grid Video */}
+              <button
+                onClick={handleExportGrid}
+                disabled={isExporting}
+                className="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl font-black text-xs shadow-md shadow-rose-600/20 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                title="تسجيل وتصدير فيديو مجمع للشاشة بالكامل"
+              >
+                <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                <span>{isExporting ? `تسجيل (${exportProgress}%)` : 'تسجيل فيديو مجمع (شاشة)'}</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Row 3: Display & Dimensions Control Studio (استوديو خانات العرض والمقاسات والتصدير - منظم بدون أي تداخل) */}
+        {(items as any[]).length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 bg-slate-900/70 border border-white/10 p-3 sm:p-4 rounded-3xl backdrop-blur-md">
+            {/* Box 1: Columns / Grid Slots Selector (خانات وأعمدة العرض) */}
+            <div className="lg:col-span-3 bg-black/40 border border-white/10 rounded-2xl p-3 flex flex-col justify-between gap-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-indigo-300 flex items-center gap-1.5">
+                  <Sliders className="w-3.5 h-3.5 text-indigo-400" />
+                  خانات العرض في الشاشة:
+                </span>
+                <span className="px-2 py-0.5 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-lg text-[10px] font-black">
+                  {gridCols} {gridCols === 1 ? 'خانة' : gridCols === 2 ? 'خانتين' : `${gridCols} خانات`}
+                </span>
+              </div>
+
+              {/* Quick Column Pills 1 to 6 */}
+              <div className="flex items-center justify-between gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
+                {[1, 2, 3, 4, 5, 6].map(num => (
+                  <button
+                    key={num}
+                    type="button"
+                    onClick={() => setGridCols(num)}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-black transition-all ${
+                      gridCols === num 
+                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 scale-105' 
+                        : 'text-slate-400 hover:text-white hover:bg-white/5'
+                    }`}
+                    title={`عرض ${num} خانات متوازية بالكامل`}
+                  >
+                    {num}
+                  </button>
+                ))}
+              </div>
+
+              {/* Stepper controls */}
+              <div className="flex items-center justify-between gap-2 text-xs font-bold text-slate-400">
+                <span>تحديد يدوي:</span>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setGridCols(prev => Math.max(1, prev - 1))}
+                    className="w-7 h-7 bg-white/10 hover:bg-white/20 text-white rounded-lg flex items-center justify-center font-black"
+                    title="تقليل خانة"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    min="1"
+                    max="8"
+                    value={gridCols}
+                    onChange={(e) => setGridCols(Math.max(1, Math.min(8, parseInt(e.target.value) || 1)))}
+                    className="w-10 bg-black/60 border border-white/20 text-white text-center rounded-lg py-1 font-mono font-bold text-xs"
+                  />
+                  <button
+                    onClick={() => setGridCols(prev => Math.min(8, prev + 1))}
+                    className="w-7 h-7 bg-white/10 hover:bg-white/20 text-white rounded-lg flex items-center justify-center font-black"
+                    title="زيادة خانة"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Box 2: Custom Dimensions, Presets & Aspect Ratio Lock (أبعاد العرض والمقاسات) */}
+            <div className="lg:col-span-6 bg-black/40 border border-white/10 rounded-2xl p-3 flex flex-col justify-between gap-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-purple-300 flex items-center gap-1.5">
+                  <Monitor className="w-3.5 h-3.5 text-purple-400" />
+                  أبعاد ومقاسات العرض (W × H):
+                </span>
                 {isCustomDimensionsActive && (
                   <button
                     onClick={() => {
@@ -3696,16 +3963,99 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                       setSelectedPresetId('auto');
                       setItems(prev => prev.map(i => ({ ...i, presetId: 'auto' })));
                     }}
-                    className="p-1 hover:bg-rose-500/20 text-rose-400 rounded-lg text-[10px] transition-colors"
+                    className="px-2 py-0.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors"
                     title="إلغاء المقاس المخصص والعودة للوضع التلقائي"
                   >
-                    <X className="w-3.5 h-3.5" />
+                    <X className="w-3 h-3" />
+                    <span>إلغاء المخصص</span>
                   </button>
                 )}
               </div>
 
-              {/* Standard Sizes */}
-              <div className="flex items-center gap-1.5 bg-white/5 p-1.5 rounded-2xl border border-white/10">
+              {/* Inputs row: Width + Aspect Ratio Lock + Height + Fit Mode */}
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Width */}
+                <div className="flex items-center gap-1.5 bg-slate-900 border border-purple-500/40 rounded-xl px-2.5 py-1 flex-1 min-w-[100px]">
+                  <span className="text-[10px] text-slate-400 font-bold shrink-0">عرض (W):</span>
+                  <input 
+                    type="number" 
+                    placeholder="العرض"
+                    value={customWidth || ''}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || 0;
+                      if (val > 0) {
+                        setCustomWidth(val);
+                        if (lockAspectRatio && customWidth && customHeight) {
+                          const ratio = customHeight / customWidth;
+                          setCustomHeight(Math.round(val * ratio));
+                        }
+                        setIsCustomDimensionsActive(true);
+                      } else {
+                        setCustomWidth(null);
+                        setIsCustomDimensionsActive((customHeight || 0) > 0);
+                      }
+                    }}
+                    className="w-full bg-transparent text-white font-mono font-black text-xs text-center focus:outline-none"
+                  />
+                  <span className="text-[9px] text-slate-500 font-mono">px</span>
+                </div>
+
+                {/* Aspect Ratio Lock Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setLockAspectRatio(prev => !prev)}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1 border ${
+                    lockAspectRatio 
+                      ? 'bg-purple-600/30 border-purple-500 text-purple-200 shadow-md shadow-purple-500/20' 
+                      : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'
+                  }`}
+                  title={lockAspectRatio ? 'نسبة الأبعاد مقفلة (تغيير العرض يغير الارتفاع تلقائياً)' : 'نسبة الأبعاد حرة'}
+                >
+                  {lockAspectRatio ? <Lock className="w-3.5 h-3.5 text-purple-300" /> : <Unlock className="w-3.5 h-3.5 text-slate-400" />}
+                  <span className="text-[10px] hidden sm:inline">{lockAspectRatio ? 'نسبة مقفلة' : 'نسبة حرة'}</span>
+                </button>
+
+                {/* Height */}
+                <div className="flex items-center gap-1.5 bg-slate-900 border border-purple-500/40 rounded-xl px-2.5 py-1 flex-1 min-w-[100px]">
+                  <span className="text-[10px] text-slate-400 font-bold shrink-0">طول (H):</span>
+                  <input 
+                    type="number" 
+                    placeholder="الارتفاع"
+                    value={customHeight || ''}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || 0;
+                      if (val > 0) {
+                        setCustomHeight(val);
+                        if (lockAspectRatio && customWidth && customHeight) {
+                          const ratio = customWidth / customHeight;
+                          setCustomWidth(Math.round(val * ratio));
+                        }
+                        setIsCustomDimensionsActive(true);
+                      } else {
+                        setCustomHeight(null);
+                        setIsCustomDimensionsActive((customWidth || 0) > 0);
+                      }
+                    }}
+                    className="w-full bg-transparent text-white font-mono font-black text-xs text-center focus:outline-none"
+                  />
+                  <span className="text-[9px] text-slate-500 font-mono">px</span>
+                </div>
+
+                {/* Fit Mode */}
+                <select
+                  value={fitMode}
+                  onChange={(e) => setFitMode(e.target.value as any)}
+                  className="bg-slate-900 border border-purple-500/40 rounded-xl text-[10px] font-black text-purple-200 px-2 py-1.5 focus:outline-none"
+                  title="طريقة ملاءمة واحتواء العمل داخل الإطار"
+                >
+                  <option value="contain" className="bg-slate-900 text-white">احتواء كامل (AspectFit)</option>
+                  <option value="cover" className="bg-slate-900 text-white">تعبئة وتغطية (Cover)</option>
+                  <option value="fill" className="bg-slate-900 text-white">تمدد كامل (Fill)</option>
+                </select>
+              </div>
+
+              {/* Quick Presets Pills */}
+              <div className="flex flex-wrap items-center gap-1.5">
                 <button 
                   onClick={() => {
                     setSelectedPresetId('ip8');
@@ -3714,7 +4064,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                     setIsCustomDimensionsActive(true);
                     setItems(prev => prev.map(i => ({ ...i, presetId: 'ip8' })));
                   }}
-                  className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all ${selectedPresetId === 'ip8' || (customWidth === 750 && customHeight === 1334) ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-400 hover:text-white'}`}
+                  className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all ${
+                    (customWidth === 750 && customHeight === 1334) ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white/5 text-slate-400 hover:text-white'
+                  }`}
                 >
                   750 × 1334
                 </button>
@@ -3726,7 +4078,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                     setIsCustomDimensionsActive(true);
                     setItems(prev => prev.map(i => ({ ...i, presetId: 'sq500' })));
                   }}
-                  className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all ${selectedPresetId === 'sq500' || (customWidth === 500 && customHeight === 500) ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-400 hover:text-white'}`}
+                  className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all ${
+                    (customWidth === 500 && customHeight === 500) ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white/5 text-slate-400 hover:text-white'
+                  }`}
                 >
                   500 × 500
                 </button>
@@ -3738,9 +4092,23 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                     setIsCustomDimensionsActive(true);
                     setItems(prev => prev.map(i => ({ ...i, presetId: 'custom750x240' })));
                   }}
-                  className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all ${selectedPresetId === 'custom750x240' || (customWidth === 750 && customHeight === 240) ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-400 hover:text-white'}`}
+                  className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all ${
+                    (customWidth === 750 && customHeight === 240) ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white/5 text-slate-400 hover:text-white'
+                  }`}
                 >
                   750 × 240
+                </button>
+                <button 
+                  onClick={() => {
+                    setCustomWidth(200);
+                    setCustomHeight(200);
+                    setIsCustomDimensionsActive(true);
+                  }}
+                  className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all ${
+                    (customWidth === 200 && customHeight === 200) ? 'bg-purple-600 text-white shadow-sm' : 'bg-white/5 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  200 × 200 (أفاتار)
                 </button>
                 <button 
                   onClick={() => {
@@ -3750,190 +4118,164 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                     setIsCustomDimensionsActive(false);
                     setItems(prev => prev.map(i => ({ ...i, presetId: 'auto' })));
                   }}
-                  className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all ${selectedPresetId === 'auto' && !isCustomDimensionsActive ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white'}`}
+                  className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all ${
+                    !isCustomDimensionsActive && selectedPresetId === 'auto' ? 'bg-white/15 text-white' : 'bg-white/5 text-slate-400 hover:text-white'
+                  }`}
                 >
                   تلقائي
                 </button>
-              </div>
 
-              <div className="h-8 w-px bg-white/10 mx-1" />
+                {/* Native Presets Dropdown */}
+                <div className="relative inline-block mr-auto">
+                  <button 
+                    onClick={() => setShowPresetMenu(!showPresetMenu)}
+                    className="px-2.5 py-1 bg-white/5 hover:bg-white/10 text-indigo-300 border border-white/10 rounded-lg text-[10px] font-black flex items-center gap-1 transition-colors"
+                  >
+                    <Smartphone className="w-3 h-3" />
+                    <span>{selectedPreset ? selectedPreset.name : 'قائمة الأجهزة'}</span>
+                  </button>
 
-              <div className="relative">
-                <button 
-                  onClick={() => setShowPresetMenu(!showPresetMenu)}
-                  className={`px-6 py-3 rounded-2xl border font-black text-sm transition-all flex items-center gap-2 ${selectedPresetId !== 'auto' ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'}`}
-                >
-                  <Smartphone className="w-4 h-4" />
-                  {selectedPreset ? selectedPreset.name : 'تلقائي (Native)'}
-                </button>
+                  <AnimatePresence>
+                    {showPresetMenu && (
+                      <>
+                        <div className="fixed inset-0 z-[100]" onClick={() => setShowPresetMenu(false)} />
+                        <motion.div 
+                          initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                          className="absolute top-full right-0 mt-2 w-[550px] max-h-[450px] bg-slate-900 border border-white/15 rounded-3xl shadow-2xl overflow-hidden z-[110] flex flex-col"
+                        >
+                          <div className="p-4 border-b border-white/5 flex items-center justify-between bg-white/2">
+                            <h4 className="text-white font-black text-xs flex items-center gap-2">
+                              <Monitor className="w-4 h-4 text-indigo-500" />
+                              اختر مقاس العرض المفضل
+                            </h4>
+                            <button onClick={() => { setSelectedPresetId('auto'); setShowPresetMenu(false); }} className="text-[10px] font-black text-indigo-400 hover:text-indigo-300 uppercase">
+                              إعادة للوضع التلقائي
+                            </button>
+                          </div>
 
-                <AnimatePresence>
-                  {showPresetMenu && (
-                    <>
-                      <div className="fixed inset-0 z-[100]" onClick={() => setShowPresetMenu(false)} />
-                      <motion.div 
-                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                        className="absolute top-full right-0 mt-4 w-[600px] max-h-[500px] bg-slate-900 border border-white/10 rounded-[2.5rem] shadow-2xl overflow-hidden z-[110] flex flex-col"
-                      >
-                        <div className="p-6 border-b border-white/5 flex items-center justify-between bg-white/2">
-                          <h4 className="text-white font-black text-sm flex items-center gap-2">
-                            <Monitor className="w-4 h-4 text-indigo-500" />
-                            اختر مقاس العرض المفضل
-                          </h4>
-                          <button onClick={() => setSelectedPresetId('auto')} className="text-[10px] font-black text-indigo-400 hover:text-indigo-300 uppercase tracking-widest">
-                            إعادة للوضع التلقائي
-                          </button>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-                          {['iPhone', 'Android', 'Tablet', 'PC'].map(cat => (
-                            <div key={cat} className="mb-8 last:mb-0">
-                              <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
-                                <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full" />
-                                {cat === 'iPhone' ? 'سلسلة آيفون' : cat === 'Android' ? 'سلسلة أندرويد' : cat === 'Tablet' ? 'سلسلة الأجهزة اللوحية' : 'سلسلة الكمبيوتر'}
-                              </h5>
-                              <div className="grid grid-cols-3 gap-2">
-                                {DEVICE_PRESETS.filter(p => p.category === cat).map(preset => (
-                                  <button
-                                    key={preset.id}
-                                    onClick={() => {
-                                      setSelectedPresetId(preset.id);
-                                      setShowPresetMenu(false);
-                                    }}
-                                    className={`px-3 py-2.5 rounded-xl text-[10px] font-bold text-right transition-all border ${selectedPresetId === preset.id ? 'bg-indigo-500 border-indigo-400 text-white shadow-lg shadow-indigo-500/20' : 'bg-white/5 border-white/5 text-slate-400 hover:bg-white/10 hover:text-white'}`}
-                                  >
-                                    <div className="flex flex-col">
-                                      <span>{preset.name}</span>
-                                      <span className="text-[8px] opacity-50">{preset.width} × {preset.height}</span>
-                                    </div>
-                                  </button>
-                                ))}
+                          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+                            {['iPhone', 'Android', 'Tablet', 'PC'].map(cat => (
+                              <div key={cat} className="mb-6 last:mb-0">
+                                <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2.5 flex items-center gap-2">
+                                  <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full" />
+                                  {cat === 'iPhone' ? 'سلسلة آيفون' : cat === 'Android' ? 'سلسلة أندرويد' : cat === 'Tablet' ? 'الأجهزة اللوحية' : 'الكمبيوتر'}
+                                </h5>
+                                <div className="grid grid-cols-3 gap-2">
+                                  {DEVICE_PRESETS.filter(p => p.category === cat).map(preset => (
+                                    <button
+                                      key={preset.id}
+                                      onClick={() => {
+                                        setSelectedPresetId(preset.id);
+                                        setShowPresetMenu(false);
+                                      }}
+                                      className={`px-2.5 py-2 rounded-xl text-[10px] font-bold text-right transition-all border ${selectedPresetId === preset.id ? 'bg-indigo-500 border-indigo-400 text-white shadow-lg shadow-indigo-500/20' : 'bg-white/5 border-white/5 text-slate-400 hover:bg-white/10 hover:text-white'}`}
+                                    >
+                                      <div className="flex flex-col">
+                                        <span>{preset.name}</span>
+                                        <span className="text-[8px] opacity-50">{preset.width} × {preset.height}</span>
+                                      </div>
+                                    </button>
+                                  ))}
+                                </div>
                               </div>
-                            </div>
-                          ))}
-                        </div>
-                      </motion.div>
-                    </>
-                  )}
-                </AnimatePresence>
+                            ))}
+                          </div>
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+            </div>
+
+            {/* Box 3: Video Export & Encoding Settings (إعدادات تصدير وجودة الفيديو) */}
+            <div className="lg:col-span-3 bg-black/40 border border-white/10 rounded-2xl p-3 flex flex-col justify-between gap-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-amber-300 flex items-center gap-1.5">
+                  <Film className="w-3.5 h-3.5 text-amber-400" />
+                  إعدادات وجودة التصدير:
+                </span>
+                <span className="text-[10px] font-mono font-bold text-slate-400">
+                  {exportFormat.toUpperCase()} • {exportResolution}
+                </span>
               </div>
 
-              <div className="h-8 w-px bg-white/10 mx-2" />
+              {/* Dropdowns */}
+              <div className="grid grid-cols-3 gap-1.5">
+                <select 
+                  value={exportFormat}
+                  onChange={(e) => setExportFormat(e.target.value as 'mp4' | 'webm')}
+                  className="bg-slate-900 border border-white/15 rounded-xl text-[10px] font-black text-white px-2 py-1.5 focus:outline-none"
+                  title="صيغة التصدير"
+                >
+                  <option value="mp4" className="bg-slate-900 text-white">MP4</option>
+                  <option value="webm" className="bg-slate-900 text-white">WebM</option>
+                </select>
 
-              <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2">
-                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">عدد الأعمدة:</span>
-                <input 
-                  type="number" 
-                  min="1" 
-                  max="5"
-                  value={gridCols}
-                  onChange={(e) => setGridCols(Math.max(1, Math.min(5, parseInt(e.target.value) || 1)))}
-                  className="w-16 bg-transparent text-white font-black text-sm focus:outline-none text-center"
-                />
-              </div>
-              <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    checked={forceMobileSize}
-                    onChange={(e) => setForceMobileSize(e.target.checked)}
-                    className="w-4 h-4 accent-indigo-500"
-                  />
-                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">تصدير لمقاس جوال (9:16)</span>
-                </label>
-              </div>
-              <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2">
-                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">الدقة:</span>
                 <select 
                   value={exportResolution}
                   onChange={(e) => setExportResolution(e.target.value as 'natural' | '720p' | '1080p')}
-                  className="bg-transparent text-white font-black text-xs focus:outline-none"
+                  className="bg-slate-900 border border-white/15 rounded-xl text-[10px] font-black text-white px-2 py-1.5 focus:outline-none"
+                  title="دقة التصدير"
                 >
                   <option value="natural" className="bg-slate-900 text-white">طبيعي</option>
                   <option value="720p" className="bg-slate-900 text-white">720p</option>
                   <option value="1080p" className="bg-slate-900 text-white">1080p</option>
                 </select>
-              </div>
-              <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2">
-                <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">صيغة التصدير:</span>
-                <select 
-                  value={exportFormat}
-                  onChange={(e) => setExportFormat(e.target.value as 'mp4' | 'webm')}
-                  className="bg-transparent text-white font-black text-xs focus:outline-none"
-                >
-                  <option value="mp4" className="bg-slate-900 text-white">MP4</option>
-                  <option value="webm" className="bg-slate-900 text-white">WebM</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2" title="التحكم في ضغط الفيديو وحجم الملف وسرعة التصدير">
-                <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest">حجم/ضغط الفيديو:</span>
+
                 <select 
                   value={exportQuality}
                   onChange={(e) => setExportQuality(e.target.value as 'high' | 'medium' | 'low')}
-                  className="bg-transparent text-white font-black text-xs focus:outline-none"
+                  className="bg-slate-900 border border-white/15 rounded-xl text-[10px] font-black text-amber-300 px-1.5 py-1.5 focus:outline-none"
+                  title="حجم وضغط الفيديو"
                 >
-                  <option value="medium" className="bg-slate-900 text-white">⚡ متوازن (موصى به - حجم مثالي وسرعة)</option>
-                  <option value="low" className="bg-slate-900 text-white">🚀 فائق الضغط (حجم أصغر - أسرع تصدير)</option>
-                  <option value="high" className="bg-slate-900 text-white">💎 أعلى جودة (حجم أصلي)</option>
+                  <option value="medium" className="bg-slate-900 text-white">⚡ متوازن</option>
+                  <option value="low" className="bg-slate-900 text-white">🚀 فائق الضغط</option>
+                  <option value="high" className="bg-slate-900 text-white">💎 أعلى جودة</option>
                 </select>
               </div>
-              <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2">
+
+              {/* Checkbox Options */}
+              <div className="flex flex-col gap-1 text-[10px] font-bold text-slate-300">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input 
                     type="checkbox" 
-                    checked={useNativeDuration}
-                    onChange={(e) => setUseNativeDuration(e.target.checked)}
-                    className="w-4 h-4 accent-indigo-500"
+                    checked={forceMobileSize}
+                    onChange={(e) => setForceMobileSize(e.target.checked)}
+                    className="w-3.5 h-3.5 accent-indigo-500 rounded"
                   />
-                  <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">تصدير بالمدة الأصلية لكل ملف</span>
+                  <span>تصدير لمقاس جوال (9:16)</span>
                 </label>
-              </div>
-              {!useNativeDuration && (
-                <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2">
-                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">مدة مخصصة (ثواني):</span>
-                  <input 
-                    type="number" 
-                    min="1" 
-                    max="60"
-                    value={exportDuration}
-                    onChange={(e) => setExportDuration(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-16 bg-transparent text-white font-black text-sm focus:outline-none text-center"
-                  />
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={useNativeDuration}
+                      onChange={(e) => setUseNativeDuration(e.target.checked)}
+                      className="w-3.5 h-3.5 accent-indigo-500 rounded"
+                    />
+                    <span>بالمدة الأصلية</span>
+                  </label>
+                  {!useNativeDuration && (
+                    <div className="flex items-center gap-1">
+                      <input 
+                        type="number" 
+                        min="1" 
+                        max="60"
+                        value={exportDuration}
+                        onChange={(e) => setExportDuration(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-10 bg-slate-900 border border-white/20 text-white text-center rounded py-0.5 font-mono text-[10px]"
+                      />
+                      <span className="text-[9px] text-slate-500">ثواني</span>
+                    </div>
+                  )}
                 </div>
-              )}
-
-              {/* Action Dock Quick Toggle in Top Bar */}
-              <button
-                type="button"
-                onClick={() => setIsDockCollapsed(prev => !prev)}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600/25 hover:bg-indigo-600/40 text-indigo-300 hover:text-white border border-indigo-500/40 rounded-2xl text-xs font-black transition-all cursor-pointer shadow-sm hover:scale-105"
-                title="لوحة العمليات السريعة الثابتة على الجانب الأيمن"
-              >
-                <Sliders className="w-3.5 h-3.5 text-indigo-400" />
-                <span>لوحة العمليات الثابتة</span>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              </button>
-            </>
-          )}
-
-          {/* Hidden File Input for SVGA/VAP/PAG/PDF/ZIP Uploads */}
-          <input 
-            ref={fileInputRef}
-            type="file" 
-            multiple 
-            accept=".svga,.SVGA,.pag,.PAG,.vap,.VAP,.mp4,.MP4,.zip,.ZIP,.pdf,.PDF,application/pdf,*/*" 
-            className="hidden" 
-            onChange={(e) => {
-              if (e.target.files) {
-                const fileObjects = Array.from(e.target.files).map(file => ({ file }));
-                handleFiles(fileObjects);
-                e.target.value = '';
-              }
-            }}
-          />
-        </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
         {/* Toolbar: Background & Watermark */}
@@ -4135,14 +4477,15 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                   </div>
                 )}
                 <div 
-                  className="grid gap-8"
+                  className="grid gap-5 sm:gap-6 w-full"
                   style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}
                 >
                   <AnimatePresence mode="popLayout">
                     {(folderItems as any[]).map((item) => (
                       <SvgaCard 
-                        key={`${item.id}-${item.presetId}-${customWidth}-${customHeight}`} 
+                        key={`${item.id}-${item.presetId}-${customWidth}-${customHeight}-${gridCols}`} 
                         item={item} 
+                        gridCols={gridCols}
                         customDimensions={isCustomDimensionsActive && customWidth && customHeight ? { width: customWidth, height: customHeight } : null}
                         onRemove={() => removeItem(item.id)} 
                         onMaximize={() => setSelectedItemId(item.id)}
@@ -4411,36 +4754,38 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         )}
       </AnimatePresence>
 
-      {/* Right Fixed Action Dock (Ultra-Professional & Anchored during Canvas Scrolling) */}
-      <SvgaActionDock 
-        itemsCount={(items as any[]).length}
-        selectedCount={selectedItemIds.size}
-        allSelected={selectedItemIds.size === (items as any[]).length && (items as any[]).length > 0}
-        onSelectAll={handleSelectAll}
-        onClearAll={clearAll}
-        preventDuplicates={preventDuplicates}
-        onToggleDeduplication={handleToggleDeduplication}
-        includePdfCatalog={includePdfCatalog}
-        onToggleIncludePdfCatalog={() => setIncludePdfCatalog(!includePdfCatalog)}
-        isZipping={isZipping}
-        isExporting={isExporting}
-        isPdfAllInOneExporting={isPdfAllInOneExporting}
-        exportProgress={exportProgress}
-        pdfAllInOneProgress={pdfAllInOneProgress}
-        vapBatchProgress={vapBatchProgress}
-        onDownloadGiftBundles={handleDownloadAllGiftBundles}
-        onDownloadAllSvgaInOnePdf={handleDownloadAllSvgaInOnePdf}
-        onDownloadAllCombined={handleDownloadAllCombined}
-        onDownloadAllSvga={handleDownloadAllSvga}
-        onExportAllVapToMp4={handleExportAllVapToMp4}
-        onExportIndividualVideos={() => handleExportIndividualVideos()}
-        onExportGrid={handleExportGrid}
-        onUploadFiles={() => fileInputRef.current?.click()}
-        onUploadFolders={handleUploadFolders}
-        onExtractFromPdf={handleExtractFromPdf}
-        isCollapsed={isDockCollapsed}
-        onToggleCollapse={setIsDockCollapsed}
-      />
+      {/* Right Fixed Action Dock (Optional Overlay) */}
+      {showSideDock && (
+        <SvgaActionDock 
+          itemsCount={(items as any[]).length}
+          selectedCount={selectedItemIds.size}
+          allSelected={selectedItemIds.size === (items as any[]).length && (items as any[]).length > 0}
+          onSelectAll={handleSelectAll}
+          onClearAll={clearAll}
+          preventDuplicates={preventDuplicates}
+          onToggleDeduplication={handleToggleDeduplication}
+          includePdfCatalog={includePdfCatalog}
+          onToggleIncludePdfCatalog={() => setIncludePdfCatalog(!includePdfCatalog)}
+          isZipping={isZipping}
+          isExporting={isExporting}
+          isPdfAllInOneExporting={isPdfAllInOneExporting}
+          exportProgress={exportProgress}
+          pdfAllInOneProgress={pdfAllInOneProgress}
+          vapBatchProgress={vapBatchProgress}
+          onDownloadGiftBundles={handleDownloadAllGiftBundles}
+          onDownloadAllSvgaInOnePdf={handleDownloadAllSvgaInOnePdf}
+          onDownloadAllCombined={handleDownloadAllCombined}
+          onDownloadAllSvga={handleDownloadAllSvga}
+          onExportAllVapToMp4={handleExportAllVapToMp4}
+          onExportIndividualVideos={() => handleExportIndividualVideos()}
+          onExportGrid={handleExportGrid}
+          onUploadFiles={() => fileInputRef.current?.click()}
+          onUploadFolders={handleUploadFolders}
+          onExtractFromPdf={handleExtractFromPdf}
+          isCollapsed={isDockCollapsed}
+          onToggleCollapse={setIsDockCollapsed}
+        />
+      )}
     </div>
   );
 };
@@ -4759,6 +5104,7 @@ const SvgaPlayer: React.FC<{ item: any }> = ({ item }) => {
 const SvgaCard: React.FC<{ 
   item: MultiSvgaItem; 
   customDimensions?: { width: number; height: number } | null;
+  gridCols?: number;
   onRemove: () => void; 
   onMaximize: () => void;
   onDownload: () => void;
@@ -4772,7 +5118,7 @@ const SvgaCard: React.FC<{
   isSelected?: boolean;
   onToggleSelect?: () => void;
   onUpdateItem?: (updates: Partial<MultiSvgaItem>) => void;
-}> = ({ item, customDimensions, onRemove, onMaximize, onDownload, onDownloadSvga, onDownloadGiftBundle, onExportVideo, previewBg, watermark, wmSettings, onUpdatePreset, isSelected, onToggleSelect, onUpdateItem }) => {
+}> = ({ item, customDimensions, gridCols, onRemove, onMaximize, onDownload, onDownloadSvga, onDownloadGiftBundle, onExportVideo, previewBg, watermark, wmSettings, onUpdatePreset, isSelected, onToggleSelect, onUpdateItem }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
@@ -5176,25 +5522,29 @@ const SvgaCard: React.FC<{
     }
   };
 
+  const effectiveRatio = (customDimensions && customDimensions.width > 0 && customDimensions.height > 0)
+    ? (customDimensions.height / customDimensions.width)
+    : selectedPreset 
+    ? (selectedPreset.height / selectedPreset.width) 
+    : (itemHeight / (itemWidth || 1));
+
+  const cols = gridCols || 3;
+  const baseH = cols <= 1 ? 420 : cols === 2 ? 370 : cols === 3 ? 310 : cols === 4 ? 260 : 210;
+  const cardPreviewHeight = Math.min(560, Math.max(170, Math.round(effectiveRatio * baseH)));
+
   return (
     <motion.div 
       layout
       initial={{ opacity: 0, scale: 0.9, y: 20 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.9, y: 20 }}
-      className={`group relative bg-white/5 rounded-[3rem] border border-white/10 overflow-hidden hover:border-indigo-500/50 transition-all duration-500 hover:shadow-2xl hover:shadow-indigo-500/10 flex flex-col shrink-0 ${selectedPreset ? 'w-[350px]' : 'w-[400px]'}`}
+      className="group relative bg-white/5 rounded-[2.5rem] border border-white/10 overflow-hidden hover:border-indigo-500/50 transition-all duration-300 hover:shadow-2xl hover:shadow-indigo-500/10 flex flex-col w-full min-w-0"
     >
       {/* Preview Area - Forced Ratio */}
       <div 
         ref={wrapperRef}
-        className={`relative bg-slate-950/50 flex items-center justify-center overflow-hidden w-full`}
-        style={{
-          height: (customDimensions && customDimensions.width > 0 && customDimensions.height > 0)
-            ? `${(customDimensions.height / customDimensions.width) * 350}px`
-            : selectedPreset 
-            ? `${(selectedPreset.height / selectedPreset.width) * 350}px` 
-            : `${(itemHeight / itemWidth) * 350}px`
-        }}
+        className="relative bg-slate-950/60 flex items-center justify-center overflow-hidden w-full"
+        style={{ height: `${cardPreviewHeight}px` }}
       >
         {previewBg && <img src={previewBg} alt="Background" className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none" referrerPolicy="no-referrer" />}
         <div 
@@ -5480,6 +5830,84 @@ const SvgaCard: React.FC<{
                   onChange={(e) => onUpdateItem?.({ posY: Number(e.target.value) })}
                   className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-purple-500"
                 />
+              </div>
+
+              {/* Avatar / Frame Fixed Dimensions Controller */}
+              <div className="space-y-1.5 pt-2 border-t border-white/10">
+                <div className="flex justify-between items-center text-[10px] font-bold">
+                  <span className="text-indigo-300 flex items-center gap-1">
+                    <ImageIcon className="w-3 h-3 text-indigo-400" />
+                    تثبيت مقاس الصورة / الأفاتار
+                  </span>
+                  <span className="text-indigo-300 font-mono text-[9px]">
+                    {item.avatarWidth || 200} × {item.avatarHeight || 200}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 flex items-center gap-1 bg-black/50 border border-indigo-400/30 rounded-lg px-2 py-1">
+                    <span className="text-[8px] text-slate-400 font-bold">عرض:</span>
+                    <input 
+                      type="number"
+                      value={item.avatarWidth || 200}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value) || 0;
+                        const updates: any = { avatarWidth: val };
+                        if (item.lockAvatarAspect !== false && item.avatarWidth && item.avatarHeight) {
+                          const ratio = item.avatarHeight / item.avatarWidth;
+                          updates.avatarHeight = Math.round(val * ratio);
+                        }
+                        onUpdateItem?.(updates);
+                      }}
+                      className="w-full bg-transparent text-white font-mono font-bold text-[10px] text-center focus:outline-none"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => onUpdateItem?.({ lockAvatarAspect: !(item.lockAvatarAspect !== false) })}
+                    className={`p-1 rounded-md text-[9px] font-bold transition-all ${item.lockAvatarAspect !== false ? 'bg-indigo-500 text-white' : 'bg-white/5 text-slate-400'}`}
+                    title={item.lockAvatarAspect !== false ? 'قفل نسبة أبعاد الصورة' : 'أبعاد حرة'}
+                  >
+                    {item.lockAvatarAspect !== false ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                  </button>
+
+                  <div className="flex-1 flex items-center gap-1 bg-black/50 border border-indigo-400/30 rounded-lg px-2 py-1">
+                    <span className="text-[8px] text-slate-400 font-bold">طول:</span>
+                    <input 
+                      type="number"
+                      value={item.avatarHeight || 200}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value) || 0;
+                        const updates: any = { avatarHeight: val };
+                        if (item.lockAvatarAspect !== false && item.avatarWidth && item.avatarHeight) {
+                          const ratio = item.avatarWidth / item.avatarHeight;
+                          updates.avatarWidth = Math.round(val * ratio);
+                        }
+                        onUpdateItem?.(updates);
+                      }}
+                      className="w-full bg-transparent text-white font-mono font-bold text-[10px] text-center focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Quick Avatar Dimension Buttons */}
+                <div className="grid grid-cols-3 gap-1 pt-1">
+                  {[
+                    { label: '200 × 200', w: 200, h: 200 },
+                    { label: '300 × 300', w: 300, h: 300 },
+                    { label: '150 × 150', w: 150, h: 150 }
+                  ].map(preset => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => onUpdateItem?.({ avatarWidth: preset.w, avatarHeight: preset.h })}
+                      className={`py-0.5 px-1 rounded bg-white/5 hover:bg-white/10 border text-[8px] font-bold transition-all text-center ${(item.avatarWidth === preset.w && item.avatarHeight === preset.h) ? 'border-indigo-400 text-indigo-300 bg-indigo-500/10' : 'border-white/5 text-slate-400'}`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </motion.div>
           )}

@@ -292,18 +292,27 @@ export function duplicateSelectedLayers(
       cloned.name = `${layer.name} (نسخة ${mirror ? 'معكوسة' : ''})`;
       cloned.isDuplicate = true;
       cloned.sourceLayerId = layer.id;
+      cloned.isMirroredLayer = mirror;
+      cloned.linkedMirroredLayerId = layer.id;
+      cloned.autoSyncMirroredAsset = true;
+      cloned.autoFlipMirroredAsset = mirror;
       cloned.isMotionSynced = false;
       cloned.motionReferenceLayerId = undefined;
 
+      // Update source layer to link back to twin
+      layer.linkedMirroredLayerId = newId;
+      layer.autoSyncMirroredAsset = true;
+
+      const layerW = layer.transform.width || layer.initialBounds?.width || 100;
       if (mirror) {
-        cloned.transform.x = canvasWidth - layer.transform.x;
+        cloned.transform.x = canvasWidth - (layer.transform.x + layerW);
         cloned.transform.scaleX = -layer.transform.scaleX;
         if (cloned.transform.rotation) {
           cloned.transform.rotation = -cloned.transform.rotation;
         }
         if (cloned.keyframes) {
           cloned.keyframes.forEach(kf => {
-            if (kf.x !== undefined) kf.x = canvasWidth - kf.x;
+            if (kf.x !== undefined) kf.x = canvasWidth - (kf.x + layerW);
             if (kf.scaleX !== undefined) kf.scaleX = -kf.scaleX;
             if (kf.rotation !== undefined) kf.rotation = -kf.rotation;
           });

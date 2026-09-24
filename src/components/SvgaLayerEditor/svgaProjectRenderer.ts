@@ -498,6 +498,8 @@ export async function renderAllProjectFrames(
     frameCanvas.height = height;
     const ctx = frameCanvas.getContext('2d');
     if (!ctx) continue;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
 
     // Background color
     if (options?.bgColor && options.bgColor !== 'transparent') {
@@ -812,6 +814,8 @@ export function renderSingleProjectFrameDirect(
 
   const ctx = targetCanvas.getContext('2d');
   if (!ctx) return;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
   ctx.save();
   if (options?.bgImageUrl) {

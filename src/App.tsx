@@ -86,6 +86,7 @@ const AdminPanel = lazyWithRetry(() => import('./components/AdminPanel').then(m 
 const Store = lazyWithRetry(() => import('./components/Store').then(m => ({ default: m.Store })));
 const VapHub = lazyWithRetry(() => import('./components/VapHub').then(m => ({ default: m.VapHub })));
 const EmbeddedPortalViewer = lazyWithRetry(() => import('./components/EmbeddedPortalViewer').then(m => ({ default: m.EmbeddedPortalViewer })));
+const UniversalMultiFormatPlayerModal = lazyWithRetry(() => import('./components/UniversalMultiFormatPlayerModal').then(m => ({ default: m.UniversalMultiFormatPlayerModal || m.default })));
 
 import { LanguageTranslatorWidget } from './components/LanguageTranslatorWidget';
 
@@ -134,6 +135,7 @@ const App: React.FC = () => {
   const [showWelcomeGuide, setShowWelcomeGuide] = useState(false);
   const [showBatchImage, setShowBatchImage] = useState(false);
   const [uploadedPagFile, setUploadedPagFile] = useState<File | null>(null);
+  const [universalPlayerFile, setUniversalPlayerFile] = useState<File | null>(null);
   const [layerEditorInitialFile, setLayerEditorInitialFile] = useState<File | null>(null);
   const [layerEditorInitialProject, setLayerEditorInitialProject] = useState<any>(null);
   const [layerEditorInitialLayers, setLayerEditorInitialLayers] = useState<any[] | null>(null);
@@ -473,6 +475,12 @@ const App: React.FC = () => {
       return;
     }
 
+    if ((uploadMode as any) === 'universal' && files.length > 0) {
+      setLayerEditorInitialFile(files[0]);
+      handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
+      return;
+    }
+
     // Expand any PDF files (single or multiple) into their extracted SVGA files
     const expandedFiles: File[] = [];
     for (const f of files) {
@@ -496,6 +504,12 @@ const App: React.FC = () => {
     if (expandedFiles.length === 0) return;
     const currentFiles = expandedFiles;
 
+    if (uploadMode === 'universal' && currentFiles.length > 0) {
+      setLayerEditorInitialFile(currentFiles[0]);
+      handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
+      return;
+    }
+
     if (currentFiles.length > 1) {
       const svgaFiles = currentFiles.filter(f => (f?.name || '').toLowerCase().endsWith('.svga'));
       const videoFiles = currentFiles.filter(f => {
@@ -518,22 +532,30 @@ const App: React.FC = () => {
 
     const file = currentFiles[0];
     const fileUrl = URL.createObjectURL(file);
+    const fileName = (file?.name || '').toLowerCase();
 
-    // Check for PAG file
-    if ((file?.name || '').toLowerCase().endsWith('.pag')) {
-      setUploadedPagFile(file);
+    // Check for Universal Multi-Format files (PAG, Lottie, DotLottie, GIF, WebP, APNG, PNG sequence ZIP, SVG/SMIL)
+    const isMultiFormat = fileName.endsWith('.lottie') || 
+                          fileName.endsWith('.pag') || 
+                          fileName.endsWith('.gif') || 
+                          fileName.endsWith('.webp') || 
+                          fileName.endsWith('.apng') || 
+                          fileName.endsWith('.svg') || 
+                          (fileName.endsWith('.zip') && !fileName.endsWith('.svga'));
+
+    if (isMultiFormat) {
+      setUniversalPlayerFile(file);
       return;
     }
 
     // Check for Lottie JSON
-    if ((file?.name || '').toLowerCase().endsWith('.json') || file?.type === 'application/json') {
+    if (fileName.endsWith('.json') || file?.type === 'application/json') {
         try {
             const text = await file.text();
             const json = JSON.parse(text);
             if (json.v && json.layers && json.fr) {
-                // It's a Lottie file - redirect to Image Converter
-                setInitialLottieFile(file);
-                setState(AppState.IMAGE_CONVERTER);
+                // Open in Universal Player for instant playback
+                setUniversalPlayerFile(file);
                 return;
             }
         } catch (e) {
@@ -877,12 +899,30 @@ const App: React.FC = () => {
               <div className="py-10 animate-in fade-in zoom-in duration-700 w-[100vw] relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]">
                 <Dashboard 
                   onUpload={handleFileUpload} 
+                  onUniversalPlay={(file) => {
+                    setLayerEditorInitialFile(file);
+                    handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
+                  }}
                   currentUser={currentUser}
                   settings={settings}
                   onOpenVipModal={() => setShowVipModal(true)}
                   onOpenEmbeddedPortal={handleOpenEmbeddedPortal}
                   onAction={(actionKey: string) => {
                      switch(actionKey) {
+                        case 'universal':
+                        case 'universalPlayer': {
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.accept = '.svga,.SVGA,.json,.JSON,.lottie,.LOTTIE,.pag,.PAG,.gif,.GIF,.webp,.WEBP,.apng,.APNG,.png,.PNG,.zip,.ZIP,.mp4,.MP4,.mov,.MOV,.webm,.WEBM,.vap,.VAP,.svg,.SVG,video/*,image/*,*/*';
+                          input.onchange = (e: any) => {
+                            if (e.target.files && e.target.files.length > 0) {
+                              setLayerEditorInitialFile(e.target.files[0]);
+                              handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
+                            }
+                          };
+                          input.click();
+                          break;
+                        }
                         case 'videoDurationSpeed': handleVideoDurationSpeedOpen(); break;
                         case 'animationManager': handleFeatureAccess(AppState.ANIMATION_MANAGER, 'Animation File Manager'); break;
                         case 'aiVideoMatting': handleFeatureAccess(AppState.AI_VIDEO_MATTING, 'AI Video Matting Studio'); break;
@@ -1178,6 +1218,38 @@ const App: React.FC = () => {
         <BatchImageConverter
           onClose={() => setShowBatchImage(false)}
         />
+      )}
+
+      {/* Universal Multi-Format Player Modal (مشغل الصيغ الشامل 15 صيغة) */}
+      {universalPlayerFile && (
+        <Suspense fallback={<Loading />}>
+          <UniversalMultiFormatPlayerModal
+            file={universalPlayerFile}
+            onClose={() => setUniversalPlayerFile(null)}
+            onOpenInEditor={(f) => {
+              setUniversalPlayerFile(null);
+              if (f.name.toLowerCase().endsWith('.svga')) {
+                setLayerEditorInitialFile(f);
+                handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
+              } else {
+                handleFileUpload([f]);
+              }
+            }}
+            onConvertToSvga={(f) => {
+              setUniversalPlayerFile(null);
+              const name = f.name.toLowerCase();
+              if (name.endsWith('.pag')) {
+                setUploadedPagFile(f);
+                handleFeatureAccess(AppState.PAG_TO_SVGA, 'PAG to SVGA');
+              } else if (name.endsWith('.mp4') || name.endsWith('.vap') || name.endsWith('.mov') || name.endsWith('.webm')) {
+                setInitialVideoFiles([f]);
+                handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter');
+              } else {
+                handleFileUpload([f]);
+              }
+            }}
+          />
+        </Suspense>
       )}
 
         

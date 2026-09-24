@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { UploadCloud, Video, Images, LayoutGrid, Zap, Layers, Lock, Film, Gift, FileVideo, ShoppingBag, Globe, Sparkles } from 'lucide-react';
 import { DashboardExternalLinks } from '../types';
+import { UniversalFormatDropZone } from './UniversalFormatDropZone';
 
-export type UploadMode = 'single' | 'batch-mp4' | 'batch-svga';
+export type UploadMode = 'single' | 'batch-mp4' | 'batch-svga' | 'universal';
 
 interface UploaderProps {
   onUpload: (files: File[], mode?: UploadMode) => void;
@@ -11,6 +12,7 @@ interface UploaderProps {
   onMultiSvgaOpen?: () => void;
   onBatchImageOpen?: () => void;
   onAnimationManagerOpen?: () => void;
+  onUniversalPlay?: (file: File) => void;
   globalQuality?: 'low' | 'medium' | 'high';
   setGlobalQuality?: (q: 'low' | 'medium' | 'high') => void;
   initialMode?: UploadMode;
@@ -25,6 +27,7 @@ export const Uploader: React.FC<UploaderProps> = ({
   onMultiSvgaOpen, 
   onBatchImageOpen, 
   onAnimationManagerOpen, 
+  onUniversalPlay,
   globalQuality = 'high', 
   setGlobalQuality,
   initialMode = 'single',
@@ -33,13 +36,16 @@ export const Uploader: React.FC<UploaderProps> = ({
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadMode, setUploadMode] = useState<UploadMode>(initialMode);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const storeLink = externalLinksConfig?.storeLink;
   const svgaEditorLink = externalLinksConfig?.svgaEditorLink;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      onUpload(Array.from(e.target.files), uploadMode);
+      const files = Array.from(e.target.files);
+      onUpload(files, uploadMode);
+      e.target.value = '';
     }
   };
 
@@ -56,7 +62,9 @@ export const Uploader: React.FC<UploaderProps> = ({
     e.preventDefault();
     setIsDragOver(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      onUpload(Array.from(e.dataTransfer.files), uploadMode);
+      const files = Array.from(e.dataTransfer.files);
+      onUpload(files, uploadMode);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -110,9 +118,36 @@ export const Uploader: React.FC<UploaderProps> = ({
           <span>هدايا SVGA جماعي</span>
           <span className="px-1.5 py-0.5 rounded-full text-[9px] bg-purple-400/20 text-purple-200 border border-purple-400/30">مستقل</span>
         </button>
+
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setUploadMode('universal'); }}
+          className={`flex-1 py-3 px-4 rounded-[1.5rem] font-black text-xs transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            uploadMode === 'universal'
+              ? 'bg-gradient-to-r from-amber-500 via-pink-600 to-indigo-600 text-white shadow-lg shadow-pink-500/30 scale-[1.02]'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <Sparkles className="w-4 h-4 shrink-0 text-amber-300 animate-pulse" />
+          <span>مشغل الصيغ الشامل</span>
+          <span className="px-1.5 py-0.5 rounded-full text-[9px] bg-amber-400/20 text-amber-200 border border-amber-400/30 font-bold">15 صيغة</span>
+        </button>
       </div>
 
-      {/* Main Drop Area */}
+      {uploadMode === 'universal' ? (
+        <div className="w-full">
+          <UniversalFormatDropZone 
+            onFileSelected={(file) => {
+              if (onUniversalPlay) {
+                onUniversalPlay(file);
+              } else {
+                onUpload([file], 'single');
+              }
+            }}
+          />
+        </div>
+      ) : (
+      /* Main Drop Area */
       <div 
         className={`relative w-full min-h-[350px] sm:h-[430px] rounded-[2.5rem] sm:rounded-[3rem] border transition-all duration-700 flex flex-col items-center justify-center gap-6 sm:gap-8 p-6 sm:p-12 cursor-pointer overflow-hidden shadow-2xl glass-panel group
           ${isDragOver 
@@ -136,10 +171,11 @@ export const Uploader: React.FC<UploaderProps> = ({
             onOpenEmbeddedPortal(externalLinksConfig.heroUploadTarget || 'first');
             return;
           }
-          document.getElementById('file-input')?.click();
+          fileInputRef.current?.click();
         }}
       >
         <input 
+          ref={fileInputRef}
           id="file-input"
           type="file" 
           accept={acceptTypes}
@@ -201,9 +237,29 @@ export const Uploader: React.FC<UploaderProps> = ({
             </>
           )}
         </div>
+      </div>
+    )}
 
       <div className="mt-8 relative z-10 w-full px-2 sm:px-4 max-w-5xl mx-auto">
         <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 w-full">
+            <button
+              type="button"
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                setUploadMode('universal');
+                if (uploadMode === 'universal') {
+                  document.getElementById('universal-format-file-input')?.click();
+                }
+              }}
+              className="flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-r from-amber-500/20 via-pink-500/20 to-purple-500/20 hover:from-amber-500/30 hover:to-purple-500/30 rounded-2xl border border-amber-400/40 shadow-lg hover:shadow-[0_10px_20px_rgba(245,158,11,0.2)] hover:-translate-y-1 active:translate-y-1 transition-all group/btn cursor-pointer"
+              title="مشغل كافة صيغ الأنيميشن والفيديو الـ 15 الموحد"
+            >
+              <Sparkles className="w-5 h-5 text-amber-300 animate-pulse drop-shadow-md" />
+              <span className="text-xs text-amber-200 font-bold uppercase tracking-wide drop-shadow-sm whitespace-nowrap">
+                مشغل كافة الصيغ (15 صيغة)
+              </span>
+            </button>
+
             <div className="flex items-center justify-center gap-3 px-6 py-3 bg-slate-900/80 rounded-2xl border border-white/10 shadow-[0_8px_16px_rgba(0,0,0,0.4)] backdrop-blur-md">
                <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse shadow-[0_0_8px_rgba(99,102,241,0.8)]"></div>
                <span className="text-xs text-slate-300 font-bold uppercase tracking-widest">SVGA 1.0 / 2.0</span>
@@ -299,7 +355,6 @@ export const Uploader: React.FC<UploaderProps> = ({
             </button>
         </div>
       </div>
-    </div>
     </div>
   );
 };

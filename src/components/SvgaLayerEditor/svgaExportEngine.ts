@@ -81,6 +81,42 @@ async function optimizeImageBytes(bytes: Uint8Array, qualityRatio: number): Prom
   }
 }
 
+async function getFlippedImageBytes(
+  originalBytes: Uint8Array,
+  flipH: boolean,
+  flipV: boolean
+): Promise<Uint8Array> {
+  try {
+    const blob = new Blob([originalBytes]);
+    const bmp = await createImageBitmap(blob);
+    const canvas = document.createElement('canvas');
+    canvas.width = bmp.width;
+    canvas.height = bmp.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return originalBytes;
+
+    ctx.save();
+    if (flipH && flipV) {
+      ctx.translate(canvas.width, canvas.height);
+      ctx.scale(-1, -1);
+    } else if (flipH) {
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+    } else if (flipV) {
+      ctx.translate(0, canvas.height);
+      ctx.scale(1, -1);
+    }
+    ctx.drawImage(bmp, 0, 0);
+    ctx.restore();
+
+    const outBlob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
+    if (!outBlob) return originalBytes;
+    return new Uint8Array(await outBlob.arrayBuffer());
+  } catch {
+    return originalBytes;
+  }
+}
+
 /**
  * Generates an optimized, hardware-accelerated shine beam sprite for SVGA export
  */
@@ -473,6 +509,27 @@ export async function exportEditedSvga(
     }
   }
 
+  // Ensure all layer thumbnails (e.g. newly mirrored layers or imported assets) are resolved into exportImages
+  for (const l of layers) {
+    if (l.imageKey && !exportImages[l.imageKey] && l.thumbnailUrl) {
+      if (l.thumbnailUrl.startsWith('data:')) {
+        try {
+          exportImages[l.imageKey] = base64ToUint8ArrayFast(l.thumbnailUrl);
+        } catch (e) {
+          console.warn('Could not convert layer thumbnail to bytes:', l.name, e);
+        }
+      } else if (l.thumbnailUrl.startsWith('blob:')) {
+        try {
+          const res = await fetch(l.thumbnailUrl);
+          const ab = await res.arrayBuffer();
+          exportImages[l.imageKey] = new Uint8Array(ab);
+        } catch (e) {
+          console.warn('Could not fetch layer blob for key:', l.imageKey, e);
+        }
+      }
+    }
+  }
+
   if (project.audios && Array.isArray(project.audios)) {
     for (const track of project.audios) {
       const key = track.audioKey;
@@ -634,7 +691,30 @@ export async function exportEditedSvga(
     }
 
     const spriteClone = layer.spriteRef ? JSON.parse(JSON.stringify(layer.spriteRef)) : {};
-    spriteClone.imageKey = layer.imageKey || spriteClone.imageKey;
+    let activeImageKey = layer.imageKey || spriteClone.imageKey;
+
+    const baseAnimTransform = getLayerAnimatedTransform(layer, 0);
+    const isFlipH = baseAnimTransform.scaleX < 0;
+    const isFlipV = baseAnimTransform.scaleY < 0;
+    const isAlreadyFlipped = Boolean(
+      activeImageKey && (activeImageKey.includes('_mirrored_') || activeImageKey.startsWith('flipped_'))
+    );
+
+    if (!isAlreadyFlipped && (isFlipH || isFlipV) && activeImageKey && exportImages[activeImageKey]) {
+      const flippedKey = `flipped_${isFlipH ? 'h' : ''}${isFlipV ? 'v' : ''}_${activeImageKey}`;
+      if (!exportImages[flippedKey]) {
+        try {
+          exportImages[flippedKey] = await getFlippedImageBytes(exportImages[activeImageKey], isFlipH, isFlipV);
+        } catch (e) {
+          console.warn('Could not generate flipped image bytes for layer:', layer.name, e);
+        }
+      }
+      if (exportImages[flippedKey]) {
+        activeImageKey = flippedKey;
+      }
+    }
+
+    spriteClone.imageKey = activeImageKey;
     if (layer.matteKey) {
       spriteClone.matteKey = layer.matteKey;
     } else {
@@ -701,10 +781,13 @@ export async function exportEditedSvga(
         
         globalAlphaMul *= Math.max(0, Math.min(1, opacity / 100));
 
-        let uA = scaleX * cos;
-        let uB = scaleX * sin;
-        let uC = -scaleY * sin;
-        let uD = scaleY * cos;
+        const absScaleX = Math.abs(scaleX);
+        const absScaleY = Math.abs(scaleY);
+
+        let uA = absScaleX * cos;
+        let uB = absScaleX * sin;
+        let uC = -absScaleY * sin;
+        let uD = absScaleY * cos;
         let uTx = (pivotX + deltaX) - (uA * pivotX + uC * pivotY);
         let uTy = (pivotY + deltaY) - (uB * pivotX + uD * pivotY);
 
@@ -868,7 +951,11 @@ export async function exportEditedSvga(
         name: l.name,
         isShineLayer: l.isShineLayer,
         shineExportMode: l.shineExportMode || l.shineConfig?.exportMode,
-        shineConfig: l.shineConfig
+        shineConfig: l.shineConfig,
+        linkedMirroredLayerId: l.linkedMirroredLayerId,
+        isMirroredLayer: l.isMirroredLayer,
+        autoSyncMirroredAsset: l.autoSyncMirroredAsset,
+        autoFlipMirroredAsset: l.autoFlipMirroredAsset
       })),
       fadeConfig: transparencyOptions?.fadeConfig,
       cropConfig: transparencyOptions?.cropConfig,

@@ -11,6 +11,7 @@ import {
   isTransparencyActive 
 } from './transparencyEngine';
 import { parseSvgaToProject, createNewSvgaProject, convertImageToSvgaProject } from './svgaParserEngine';
+import { loadUniversalProject } from './universalProjectLoader';
 import { convertMp4ToSvgaProject, createFastMp4Project } from './mp4SvgaEngine';
 import { exportEditedSvga } from './svgaExportEngine';
 import { mergeSvgaFileIntoProject, transformLayerGroup, mergeLayersIntoSingleLayer, ungroupMergedLayer, syncLayerMotionWithReference } from './svgaMergeEngine';
@@ -21,7 +22,8 @@ import {
   duplicateSelectedLayers, 
   deleteSelectedLayers 
 } from './svgaMultiSelectEngine';
-import { fileToImageBuffer, createImageLayer, createShapeLayer } from './layerFactory';
+import { fileToImageBuffer, getFlippedImageBuffer, createImageLayer, createShapeLayer } from './layerFactory';
+import { convertImageData, SupportedImageFormat } from './imageConverter';
 import { SvgaDesignCanvas } from './SvgaDesignCanvas';
 import { SvgaLayersList } from './SvgaLayersList';
 import { SvgaPropertiesPanel } from './SvgaPropertiesPanel';
@@ -591,12 +593,14 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     setHistoryIndex(prev => Math.min(prev + 1, MAX_HISTORY_STEPS - 1));
   }, [historyIndex]);
 
-  // Load File
+  // Load File (Universal Multi-Format Support)
   const loadSvgaFile = useCallback(async (file: File) => {
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const { project: parsedProject, layers: parsedLayers } = await parseSvgaToProject(file);
+      const res = await loadUniversalProject(file);
+      const parsedProject = res.project;
+      const parsedLayers = res.layers;
 
       // Check localStorage for persisted shine configuration as safety net
       try {
@@ -618,9 +622,10 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       setProject(parsedProject);
       setLayers(parsedLayers);
       setSelectedLayerId(parsedLayers[0]?.id || null);
+      setSelectedLayerIds(parsedLayers[0]?.id ? [parsedLayers[0].id] : []);
       setCurrentFrame(0);
-      setIsPlaying(false);
-      setExportFileName(file.name.replace(/\.svga$/i, '') + '_edited.svga');
+      setIsPlaying(true); // Automatically play as requested!
+      setExportFileName(file.name.replace(/\.[^.]+$/, '') + '_edited.svga');
 
       // Initialize Edge Fade & Crop configs from project if present, or reset to 0
       setFadeConfig(parsedProject.fadeConfig ? { ...parsedProject.fadeConfig } : { top: 0, bottom: 0, left: 0, right: 0 });
@@ -645,9 +650,11 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       const newSessionId = `proj_${Date.now()}`;
       const newSession: ProjectSession = {
         id: newSessionId,
-        name: file.name.replace(/\.svga$/i, ''),
+        name: file.name.replace(/\.[^.]+$/, ''),
         originalFileName: file.name,
-        fileType: 'svga',
+        fileType: (res.fileType as any) || 'svga',
+        videoUrl: res.videoUrl,
+        videoFile: res.videoFile,
         project: parsedProject,
         layers: parsedLayers,
         history: [createLayersSnapshot(parsedLayers)],
@@ -662,7 +669,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         cropFeather: parsedProject.cropFeather ? { ...parsedProject.cropFeather } : { top: 0, bottom: 0, left: 0, right: 0 },
         bgColor: 'transparent',
         bgImageUrl: bgImageUrl || null,
-        exportFileName: file.name.replace(/\.svga$/i, '') + '_edited.svga',
+        exportFileName: file.name.replace(/\.[^.]+$/, '') + '_edited.svga',
         modifiedAt: Date.now()
       };
       setProjects(prev => {
@@ -671,14 +678,14 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       });
       setActiveProjectId(newSessionId);
 
-      setSuccessToast(`تم فتح الملف بنجاح (${parsedLayers.length} طبقة)`);
+      setSuccessToast(`🎉 تم فتح وتشغيل المشروع بنجاح في سكريبت أفتر افكت (${parsedLayers.length} طبقة - ${parsedProject.totalFrames} إطار)`);
     } catch (err: any) {
-      console.error("Failed to parse SVGA file:", err);
-      setErrorMessage(err.message || 'حدث خطأ أثناء قراءة ملف SVGA.');
+      console.error("Failed to load project file:", err);
+      setErrorMessage(err.message || 'حدث خطأ أثناء قراءة وتفكيك ملف المشروع.');
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [bgImageUrl]);
 
   // Handle Import MP4 as Full SVGA Project
   const handleImportMp4AsProject = useCallback((newProject: SVGAProjectData, newLayers: EditableLayer[], videoFile?: File) => {
@@ -849,32 +856,13 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
 
     for (const f of files) {
       count++;
-      const lower = f.name.toLowerCase();
       try {
-        let loadedProject: SVGAProjectData;
-        let loadedLayers: EditableLayer[];
-        let fileType: 'svga' | 'mp4' | 'image' | 'custom' = 'svga';
-        let videoUrl: string | undefined = undefined;
-        let videoFile: File | undefined = undefined;
-
-        if (lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mov') || f.type.startsWith('video/')) {
-          fileType = 'mp4';
-          videoFile = f;
-          const fastRes = await createFastMp4Project(f);
-          loadedProject = fastRes.project;
-          loadedLayers = fastRes.layers;
-          videoUrl = fastRes.videoUrl;
-        } else if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp') || lower.endsWith('.gif') || f.type.startsWith('image/')) {
-          fileType = 'image';
-          const conv = await convertImageToSvgaProject(f);
-          loadedProject = conv.project;
-          loadedLayers = conv.layers;
-        } else {
-          fileType = 'svga';
-          const res = await parseSvgaToProject(f);
-          loadedProject = res.project;
-          loadedLayers = res.layers;
-        }
+        const res = await loadUniversalProject(f);
+        const loadedProject: SVGAProjectData = res.project;
+        const loadedLayers: EditableLayer[] = res.layers;
+        const fileType: 'svga' | 'mp4' | 'image' | 'custom' = (res.fileType as any) || 'svga';
+        const videoUrl: string | undefined = res.videoUrl;
+        const videoFile: File | undefined = res.videoFile;
 
         const sessionId = `proj_${Date.now()}_${count}`;
         const sessionName = f.name.replace(/\.[^.]+$/, '');
@@ -917,6 +905,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       setSelectedLayerId(first.selectedLayerId);
       setSelectedLayerIds(first.selectedLayerIds);
       setCurrentFrame(0);
+      setIsPlaying(true);
       setZoom(100);
       setPanOffset({ x: 0, y: 0 });
       setFadeConfig(first.fadeConfig);
@@ -1860,12 +1849,17 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       cloned.name = `${target.name} (نسخة ${mirror ? 'معكوسة' : ''})`;
       cloned.isDuplicate = true;
       cloned.sourceLayerId = target.id;
+      cloned.isMirroredLayer = mirror;
+      cloned.linkedMirroredLayerId = target.id;
+      cloned.autoSyncMirroredAsset = true;
+      cloned.autoFlipMirroredAsset = mirror;
       cloned.isMotionSynced = false;
       cloned.motionReferenceLayerId = undefined;
-      
+
+      const layerW = target.transform.width || target.initialBounds?.width || 100;
       if (mirror && project) {
-        // Mirror horizontally across the canvas center
-        cloned.transform.x = project.width - target.transform.x;
+        // Mirror horizontally across the canvas center with exact bounding box alignment
+        cloned.transform.x = project.width - (target.transform.x + layerW);
         cloned.transform.scaleX = -target.transform.scaleX;
         if (cloned.transform.rotation) {
           cloned.transform.rotation = -cloned.transform.rotation;
@@ -1874,7 +1868,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         // Mirror all keyframes
         if (cloned.keyframes) {
           cloned.keyframes.forEach(kf => {
-            if (kf.x !== undefined) kf.x = project.width - kf.x;
+            if (kf.x !== undefined) kf.x = project.width - (kf.x + layerW);
             if (kf.scaleX !== undefined) kf.scaleX = -kf.scaleX;
             if (kf.rotation !== undefined) kf.rotation = -kf.rotation;
           });
@@ -1903,15 +1897,26 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       cloned.originalSpriteFrames = JSON.parse(JSON.stringify(cloned.spriteRef?.frames || []));
       cloned.originalKeyframes = cloned.keyframes ? JSON.parse(JSON.stringify(cloned.keyframes)) : undefined;
 
+      // Update source target layer to link back to twin
+      const updatedTarget: EditableLayer = {
+        ...target,
+        linkedMirroredLayerId: newId,
+        autoSyncMirroredAsset: true
+      };
+
+      masterLayersMapRef.current.set(newId, cloned);
+      masterLayersMapRef.current.set(target.id, updatedTarget);
+
       const updated = [
         ...prev.slice(0, targetIndex),
+        updatedTarget,
         cloned,
-        ...prev.slice(targetIndex)
+        ...prev.slice(targetIndex + 1)
       ];
       setSelectedLayerId(newId);
       setSelectedLayerIds([newId]);
       pushHistory(updated);
-      setSuccessToast(mirror ? `تم تكرار الطبقة وعكسها أفقياً` : `تم تكرار الطبقة: ${target.name}`);
+      setSuccessToast(mirror ? `تم تكرار الطبقة وعكسها أفقياً وربطها توأماً مع الأصلية` : `تم تكرار الطبقة: ${target.name}`);
       return updated;
     });
   }, [selectedLayerIds, pushHistory, project]);
@@ -2042,6 +2047,60 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       const targetW = layer.transform.width;
       const targetH = layer.transform.height;
 
+      // Find twin / mirrored layers linked to this layer
+      const twinLayers = layers.filter(other => 
+        other.id !== layer.id && (
+          other.id === layer.linkedMirroredLayerId ||
+          other.linkedMirroredLayerId === layer.id ||
+          other.sourceLayerId === layer.id ||
+          layer.sourceLayerId === other.id ||
+          (other.imageKey === imgKey && other.isMirroredLayer)
+        )
+      );
+
+      const shouldSyncTwin = layer.autoSyncMirroredAsset !== false;
+      let flippedBuffer: { dataUrl: string; bytes: Uint8Array; width: number; height: number } | null = null;
+
+      if (shouldSyncTwin && twinLayers.length > 0) {
+        const needsFlip = twinLayers.some(t => t.autoFlipMirroredAsset !== false);
+        if (needsFlip) {
+          try {
+            flippedBuffer = await getFlippedImageBuffer(bytes, true, false);
+          } catch (e) {
+            console.warn('Could not generate flipped buffer for mirrored twin:', e);
+          }
+        }
+      }
+
+      const projectUpdatesRaw: Record<string, Uint8Array> = { [imgKey]: bytes };
+      const projectUpdatesMap: Record<string, string> = { [imgKey]: dataUrl };
+
+      const twinKeyMap = new Map<string, string>();
+      const twinUrlMap = new Map<string, string>();
+
+      if (shouldSyncTwin) {
+        for (const twin of twinLayers) {
+          const isMirrored = twin.isMirroredLayer || 
+                             twin.transform.scaleX < 0 || 
+                             Boolean(twin.autoFlipMirroredAsset);
+          
+          const willFlip = isMirrored && twin.autoFlipMirroredAsset !== false && flippedBuffer;
+          const assignedDataUrl = willFlip ? flippedBuffer!.dataUrl : dataUrl;
+          const assignedBytes = willFlip ? flippedBuffer!.bytes : bytes;
+
+          let targetTwinKey = twin.imageKey;
+          if (willFlip && targetTwinKey === imgKey) {
+            targetTwinKey = `${imgKey}_mirrored_${Date.now()}`;
+          }
+
+          twinKeyMap.set(twin.id, targetTwinKey);
+          twinUrlMap.set(twin.id, assignedDataUrl);
+
+          projectUpdatesRaw[targetTwinKey] = assignedBytes;
+          projectUpdatesMap[targetTwinKey] = assignedDataUrl;
+        }
+      }
+
       // Update in project imagesMap and rawImages (ensures both canvas preview and SVGA binary export update immediately)
       setProject(prev => {
         if (!prev) return prev;
@@ -2049,11 +2108,11 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
           ...prev,
           rawImages: {
             ...prev.rawImages,
-            [imgKey]: bytes
+            ...projectUpdatesRaw
           },
           imagesMap: {
             ...prev.imagesMap,
-            [imgKey]: dataUrl
+            ...projectUpdatesMap
           }
         };
       });
@@ -2061,7 +2120,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       // Update layer thumbnail, dimensions, and sprite frames
       setLayers(prev => {
         const updated = prev.map(l => {
-          if (l.id === selectedLayerId || l.imageKey === imgKey) {
+          if (l.id === selectedLayerId || (!shouldSyncTwin && l.imageKey === imgKey)) {
             let updatedSpriteRef = l.spriteRef;
             if (l.spriteRef && l.spriteRef.frames) {
               const updatedFrames = l.spriteRef.frames.map((fr: any) => {
@@ -2091,7 +2150,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               };
             }
 
-            return {
+            const updatedLayer: EditableLayer = {
               ...l,
               thumbnailUrl: dataUrl,
               spriteRef: updatedSpriteRef,
@@ -2106,6 +2165,193 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                 height: targetH
               }
             };
+            masterLayersMapRef.current.set(l.id, updatedLayer);
+            return updatedLayer;
+          }
+
+          if (shouldSyncTwin && twinLayers.some(t => t.id === l.id)) {
+            const twinKey = twinKeyMap.get(l.id) || l.imageKey;
+            const twinUrl = twinUrlMap.get(l.id) || dataUrl;
+
+            const twinLayoutW = l.spriteRef?.frames?.[0]?.layout?.width || l.initialBounds?.width || l.transform?.width || newWidth;
+            const twinLayoutH = l.spriteRef?.frames?.[0]?.layout?.height || l.initialBounds?.height || l.transform?.height || newHeight;
+            const twinScaleX = (newWidth > 0 && twinLayoutW > 0) ? (twinLayoutW / newWidth) : 1;
+            const twinScaleY = (newHeight > 0 && twinLayoutH > 0) ? (twinLayoutH / newHeight) : 1;
+
+            let updatedTwinSprite = l.spriteRef;
+            if (l.spriteRef && l.spriteRef.frames) {
+              const updatedFrames = l.spriteRef.frames.map((fr: any) => {
+                if (!fr) return fr;
+                const t = fr.transform || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+                return {
+                  ...fr,
+                  layout: {
+                    ...(fr.layout || {}),
+                    width: newWidth,
+                    height: newHeight
+                  },
+                  transform: {
+                    ...t,
+                    a: (t.a ?? 1) * twinScaleX,
+                    b: (t.b ?? 0) * twinScaleY,
+                    c: (t.c ?? 0) * twinScaleX,
+                    d: (t.d ?? 1) * twinScaleY,
+                    tx: t.tx ?? 0,
+                    ty: t.ty ?? 0
+                  }
+                };
+              });
+              updatedTwinSprite = {
+                ...l.spriteRef,
+                imageKey: twinKey,
+                frames: updatedFrames
+              };
+            }
+
+            const updatedTwin: EditableLayer = {
+              ...l,
+              imageKey: twinKey,
+              thumbnailUrl: twinUrl,
+              spriteRef: updatedTwinSprite,
+              transform: {
+                ...l.transform,
+                width: targetW,
+                height: targetH
+              },
+              initialBounds: {
+                ...l.initialBounds,
+                width: targetW,
+                height: targetH
+              }
+            };
+            masterLayersMapRef.current.set(l.id, updatedTwin);
+            return updatedTwin;
+          }
+
+          return l;
+        });
+        pushHistory(updated);
+        return updated;
+      });
+
+      const syncedMsg = (shouldSyncTwin && twinLayers.length > 0)
+        ? ` وتمت مزامنة وعكس الصورة للطبقة المقترنة (${twinLayers.map(t => t.name).join(', ')}) بنجاح`
+        : '';
+      setSuccessToast(`تم استبدال صورة الطبقة ومطابقة مقاسها تلقائياً مع الطبقة الأصلية (${targetW}×${targetH}): ${layer.name}${syncedMsg}`);
+    } catch (err: any) {
+      console.error('Failed to replace image asset:', err);
+    }
+  }, [selectedLayerId, project, layers, pushHistory]);
+
+  // Link or unlink a mirrored twin layer
+  const handleLinkMirroredLayer = useCallback((layerId: string, twinLayerId: string | null) => {
+    setLayers(prev => {
+      const updated = prev.map(l => {
+        if (l.id === layerId) {
+          return {
+            ...l,
+            linkedMirroredLayerId: twinLayerId || undefined,
+            autoSyncMirroredAsset: true
+          };
+        }
+        if (twinLayerId && l.id === twinLayerId) {
+          return {
+            ...l,
+            linkedMirroredLayerId: layerId,
+            isMirroredLayer: true,
+            autoSyncMirroredAsset: true,
+            autoFlipMirroredAsset: true
+          };
+        }
+        // If unlinking previous twin
+        if (!twinLayerId && l.linkedMirroredLayerId === layerId) {
+          return {
+            ...l,
+            linkedMirroredLayerId: undefined
+          };
+        }
+        return l;
+      });
+      pushHistory(updated);
+      setSuccessToast(twinLayerId ? 'تم ربط الطبقة المعكوسة بنجاح وتفعيل المزامنة التلقائية' : 'تم إلغاء ربط الطبقة المعكوسة');
+      return updated;
+    });
+  }, [pushHistory]);
+
+  // Toggle auto sync / auto flip on mirrored twin
+  const handleToggleAutoSyncMirrored = useCallback((layerId: string, enabled: boolean) => {
+    setLayers(prev => {
+      const updated = prev.map(l => (l.id === layerId ? { ...l, autoSyncMirroredAsset: enabled } : l));
+      pushHistory(updated);
+      return updated;
+    });
+  }, [pushHistory]);
+
+  const handleToggleAutoFlipMirrored = useCallback((layerId: string, enabled: boolean) => {
+    setLayers(prev => {
+      const updated = prev.map(l => (l.id === layerId ? { ...l, autoFlipMirroredAsset: enabled } : l));
+      pushHistory(updated);
+      return updated;
+    });
+  }, [pushHistory]);
+
+  // Manually sync current layer's image to twin right now
+  const handleSyncMirroredLayerAsset = useCallback(async (layerId: string, customTwinId?: string) => {
+    if (!project) return;
+    const layer = layers.find(l => l.id === layerId);
+    if (!layer || !layer.imageKey) return;
+
+    const twinId = customTwinId || layer.linkedMirroredLayerId;
+    if (!twinId) return;
+
+    const twin = layers.find(l => l.id === twinId);
+    if (!twin) return;
+
+    const rawSrcBytes = project.rawImages?.[layer.imageKey];
+    const dataUrlSrc = project.imagesMap?.[layer.imageKey] || layer.thumbnailUrl;
+    if (!rawSrcBytes && !dataUrlSrc) return;
+
+    try {
+      const isMirrored = twin.isMirroredLayer || twin.transform.scaleX < 0 || Boolean(twin.autoFlipMirroredAsset);
+      const shouldFlip = isMirrored && twin.autoFlipMirroredAsset !== false;
+
+      let finalBytes = rawSrcBytes;
+      let finalDataUrl = dataUrlSrc;
+
+      if (shouldFlip) {
+        const flipped = await getFlippedImageBuffer(rawSrcBytes || dataUrlSrc!, true, false);
+        finalBytes = flipped.bytes;
+        finalDataUrl = flipped.dataUrl;
+      }
+
+      let twinKey = twin.imageKey;
+      if (shouldFlip && twinKey === layer.imageKey) {
+        twinKey = `${layer.imageKey}_mirrored_${Date.now()}`;
+      }
+
+      setProject(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          rawImages: { ...prev.rawImages, [twinKey]: finalBytes! },
+          imagesMap: { ...prev.imagesMap, [twinKey]: finalDataUrl! }
+        };
+      });
+
+      setLayers(prev => {
+        const updated = prev.map(l => {
+          if (l.id === twin.id) {
+            const updatedTwin: EditableLayer = {
+              ...l,
+              imageKey: twinKey,
+              thumbnailUrl: finalDataUrl,
+              spriteRef: {
+                ...l.spriteRef,
+                imageKey: twinKey
+              }
+            };
+            masterLayersMapRef.current.set(l.id, updatedTwin);
+            return updatedTwin;
           }
           return l;
         });
@@ -2113,11 +2359,112 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         return updated;
       });
 
-      setSuccessToast(`تم استبدال صورة الطبقة ومطابقة مقاسها تلقائياً مع الطبقة الأصلية (${targetW}×${targetH}): ${layer.name}`);
-    } catch (err: any) {
-      console.error('Failed to replace image asset:', err);
+      setSuccessToast(`تمت مزامنة صورة الطبقة المعكوسة (${twin.name}) بنجاح`);
+    } catch (e: any) {
+      console.error('Failed to sync mirrored layer asset:', e);
+      alert('تعذر مزامنة صورة الطبقة المعكوسة');
     }
-  }, [selectedLayerId, project, layers, pushHistory]);
+  }, [project, layers, pushHistory]);
+
+  // Convert layer image format and/or bake current size & dimensions
+  const handleConvertLayerFormat = useCallback(async (layerId: string, targetMime: SupportedImageFormat, forceResizeToLayer: boolean = true) => {
+    if (!project) return;
+    const targetLayer = layers.find(l => l.id === layerId);
+    if (!targetLayer || !targetLayer.imageKey) return;
+
+    const imgKey = targetLayer.imageKey;
+    const sourceDataUrl = project.imagesMap?.[imgKey] || targetLayer.thumbnailUrl;
+    const sourceBytes = project.rawImages?.[imgKey];
+    const source = sourceBytes || sourceDataUrl;
+
+    if (!source) {
+      alert('لم يتم العثور على بيانات الصورة الأصلية لتحويلها');
+      return;
+    }
+
+    try {
+      const targetW = forceResizeToLayer ? Math.round((targetLayer.initialBounds?.width || targetLayer.transform.width) * (targetLayer.transform.scaleX || 1)) : undefined;
+      const targetH = forceResizeToLayer ? Math.round((targetLayer.initialBounds?.height || targetLayer.transform.height) * (targetLayer.transform.scaleY || 1)) : undefined;
+
+      const { dataUrl, bytes, width: newW, height: newH } = await convertImageData(source, targetMime, 0.95, targetW, targetH);
+
+      const formatLabel = targetMime === 'image/png' ? 'PNG' : targetMime === 'image/webp' ? 'WEBP' : 'JPEG';
+
+      // Update project rawImages and imagesMap
+      setProject(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          rawImages: {
+            ...prev.rawImages,
+            [imgKey]: bytes
+          },
+          imagesMap: {
+            ...prev.imagesMap,
+            [imgKey]: dataUrl
+          }
+        };
+      });
+
+      // Update layer thumbnailUrl, sprite frames, initialBounds, and transform
+      setLayers(prev => {
+        const updated = prev.map(l => {
+          if (l.id === layerId) {
+            let updatedSpriteRef = l.spriteRef;
+            if (forceResizeToLayer && l.spriteRef && l.spriteRef.frames) {
+              const updatedFrames = l.spriteRef.frames.map((fr: any) => {
+                if (!fr) return fr;
+                const t = fr.transform || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+                return {
+                  ...fr,
+                  layout: {
+                    ...(fr.layout || {}),
+                    width: newW,
+                    height: newH
+                  },
+                  transform: {
+                    ...t,
+                    a: 1,
+                    d: 1
+                  }
+                };
+              });
+              updatedSpriteRef = {
+                ...l.spriteRef,
+                frames: updatedFrames
+              };
+            }
+
+            return {
+              ...l,
+              thumbnailUrl: dataUrl,
+              spriteRef: updatedSpriteRef,
+              initialBounds: forceResizeToLayer ? {
+                ...l.initialBounds,
+                width: newW,
+                height: newH
+              } : l.initialBounds,
+              transform: forceResizeToLayer ? {
+                ...l.transform,
+                width: newW,
+                height: newH,
+                scaleX: 1,
+                scaleY: 1
+              } : l.transform
+            };
+          }
+          return l;
+        });
+        pushHistory(updated);
+        return updated;
+      });
+
+      setSuccessToast(forceResizeToLayer ? `تم تثبيت المقاس (${newW}×${newH}) وضغط الحجم بصيغة ${formatLabel} بنجاح ولن يتضخم حجم الملف! ✨` : `تم تحويل صيغة الصورة بنجاح إلى ${formatLabel} بدقة وجودة فائقة! ✨`);
+    } catch (err: any) {
+      console.error('Failed to convert layer image format:', err);
+      alert(`فشل تحويل صيغة الصورة: ${err.message || 'خطأ غير معروف'}`);
+    }
+  }, [project, layers, pushHistory]);
 
   // Add New Image Layer
   const handleAddImageLayer = useCallback(async (file: File) => {
@@ -2793,7 +3140,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       <input
         type="file"
         ref={fileInputRef}
-        accept=".svga,video/mp4,video/*,.mp4,image/*,.gif,.webp,.png,.jpg,.jpeg"
+        accept=".svga,.SVGA,.json,.JSON,.lottie,.LOTTIE,.pag,.PAG,.gif,.GIF,.webp,.WEBP,.apng,.APNG,.png,.PNG,.zip,.ZIP,.mp4,.MP4,.mov,.MOV,.webm,.WEBM,.vap,.VAP,.svg,.SVG,video/*,image/*,*/*"
         multiple
         className="hidden"
         onChange={(e) => {
@@ -2801,15 +3148,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
           if (files.length > 1) {
             handleLoadMultipleFiles(files);
           } else if (files.length === 1) {
-            const f = files[0];
-            if (f.name.toLowerCase().endsWith('.mp4') || f.type.startsWith('video/')) {
-              setMp4InitialFiles([f]);
-              setShowMp4ImportModal(true);
-            } else if (f.type.startsWith('image/') || f.name.toLowerCase().endsWith('.gif') || f.name.toLowerCase().endsWith('.webp') || f.name.toLowerCase().endsWith('.png') || f.name.toLowerCase().endsWith('.jpg')) {
-              handleLoadMultipleFiles([f]);
-            } else {
-              loadSvgaFile(f);
-            }
+            loadSvgaFile(files[0]);
           }
           e.target.value = '';
         }}
@@ -3368,6 +3707,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               onBulkTransform={handleBulkTransform}
               onToggleAspectLock={handleToggleAspectLock}
               onReplaceAsset={handleReplaceAsset}
+              onConvertLayerFormat={handleConvertLayerFormat}
               onResetTransform={handleResetTransform}
               onUpdateFrameRange={handleUpdateFrameRange}
               onMergeSelectedLayers={handleMergeSelectedLayers}
@@ -3398,6 +3738,11 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               shinePointStep={shinePointStep}
               onStartPickShinePoints={() => setShinePointStep('place-start')}
               onCancelPickShinePoints={() => setShinePointStep('idle')}
+              onLinkMirroredLayer={handleLinkMirroredLayer}
+              onSyncMirroredLayerAsset={handleSyncMirroredLayerAsset}
+              onToggleAutoSyncMirrored={handleToggleAutoSyncMirrored}
+              onToggleAutoFlipMirrored={handleToggleAutoFlipMirrored}
+              onDuplicateLayer={handleDuplicateLayer}
             />
           </aside>
         </div>

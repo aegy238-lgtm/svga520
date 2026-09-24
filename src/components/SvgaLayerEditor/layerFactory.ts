@@ -27,6 +27,64 @@ export async function fileToImageBuffer(file: File | Blob): Promise<{
   return { dataUrl, bytes, width, height };
 }
 
+// Helper to flip an image horizontally and/or vertically and return its buffer
+export async function getFlippedImageBuffer(
+  source: Uint8Array | string | Blob,
+  flipH: boolean = true,
+  flipV: boolean = false
+): Promise<{
+  dataUrl: string;
+  bytes: Uint8Array;
+  width: number;
+  height: number;
+}> {
+  let imgSource = '';
+  let needRevoke = false;
+  if (typeof source === 'string') {
+    imgSource = source;
+  } else if (source instanceof Blob) {
+    imgSource = URL.createObjectURL(source);
+    needRevoke = true;
+  } else if (source instanceof Uint8Array) {
+    const blob = new Blob([source as any], { type: 'image/png' });
+    imgSource = URL.createObjectURL(blob);
+    needRevoke = true;
+  }
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = (e) => reject(e);
+    el.src = imgSource;
+  });
+
+  const w = img.naturalWidth || 200;
+  const h = img.naturalHeight || 200;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not get canvas context');
+
+  ctx.save();
+  ctx.translate(flipH ? w : 0, flipV ? h : 0);
+  ctx.scale(flipH ? -1 : 1, flipV ? -1 : 1);
+  ctx.drawImage(img, 0, 0);
+  ctx.restore();
+
+  if (needRevoke && imgSource.startsWith('blob:')) {
+    URL.revokeObjectURL(imgSource);
+  }
+
+  const dataUrl = canvas.toDataURL('image/png');
+  const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
+  if (!blob) throw new Error('Failed to create flipped blob');
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+
+  return { dataUrl, bytes, width: w, height: h };
+}
+
 // Generate new Image Layer
 export function createImageLayer(
   imageKey: string,

@@ -30,6 +30,10 @@ export interface SvgaCompressionSettings {
   quality: number; // 0 - 100
   preset?: 'smart' | 'max_quality' | 'high_quality' | 'balanced' | 'high_compression' | 'max_compression' | 'custom';
   scale?: number; // 0.25 - 1.0 (default 1.0)
+  targetWidth?: number; // Custom target width in pixels
+  targetHeight?: number; // Custom target height in pixels
+  lockAspectRatio?: boolean; // Maintain aspect ratio when resizing
+  resizeMode?: 'scale' | 'custom' | 'contain' | 'fit';
   optimizeTransforms?: boolean; // round floating numbers to save payload
   stripUnusedImages?: boolean; // remove orphan images from images map
   preserveAudio?: boolean; // Preserve embedded audio tracks completely (default: true)
@@ -556,6 +560,61 @@ export async function compressSvgaFile(
     frames: movie.params?.frames || 0
   };
 
+  const origW = originalParams.viewBoxWidth || 750;
+  const origH = originalParams.viewBoxHeight || 750;
+
+  // Calculate target dimensions
+  let targetW = origW;
+  let targetH = origH;
+
+  if (settings.targetWidth && settings.targetHeight) {
+    targetW = Math.max(10, Math.round(settings.targetWidth));
+    targetH = Math.max(10, Math.round(settings.targetHeight));
+  } else if (settings.targetWidth) {
+    targetW = Math.max(10, Math.round(settings.targetWidth));
+    targetH = Math.max(10, Math.round(origH * (targetW / origW)));
+  } else if (settings.targetHeight) {
+    targetH = Math.max(10, Math.round(settings.targetHeight));
+    targetW = Math.max(10, Math.round(origW * (targetH / origH)));
+  } else if (effectiveScale && effectiveScale !== 1.0) {
+    targetW = Math.max(10, Math.round(origW * effectiveScale));
+    targetH = Math.max(10, Math.round(origH * effectiveScale));
+  }
+
+  const scaleX = targetW / origW;
+  const scaleY = targetH / origH;
+  const imgScale = Math.min(scaleX, scaleY);
+
+  // Update movie params viewBox
+  if (movie.params) {
+    movie.params.viewBoxWidth = targetW;
+    movie.params.viewBoxHeight = targetH;
+  }
+
+  // Scale sprite layouts and frame transforms if target dimensions differ from original
+  if ((Math.abs(scaleX - 1.0) > 0.0001 || Math.abs(scaleY - 1.0) > 0.0001) && movie.sprites) {
+    for (const sprite of movie.sprites) {
+      if (sprite.frames && Array.isArray(sprite.frames)) {
+        for (const frame of sprite.frames) {
+          if (frame.layout) {
+            if (frame.layout.x !== undefined) frame.layout.x = Math.round(frame.layout.x * scaleX * 1000) / 1000;
+            if (frame.layout.y !== undefined) frame.layout.y = Math.round(frame.layout.y * scaleY * 1000) / 1000;
+            if (frame.layout.width !== undefined) frame.layout.width = Math.round(frame.layout.width * scaleX * 1000) / 1000;
+            if (frame.layout.height !== undefined) frame.layout.height = Math.round(frame.layout.height * scaleY * 1000) / 1000;
+          }
+          if (frame.transform) {
+            if (frame.transform.tx !== undefined) frame.transform.tx = Math.round(frame.transform.tx * scaleX * 100) / 100;
+            if (frame.transform.ty !== undefined) frame.transform.ty = Math.round(frame.transform.ty * scaleY * 100) / 100;
+            if (frame.transform.a !== undefined) frame.transform.a = Math.round((frame.transform.a !== undefined ? frame.transform.a : 1) * scaleX * 10000) / 10000;
+            if (frame.transform.b !== undefined) frame.transform.b = Math.round((frame.transform.b || 0) * scaleY * 10000) / 10000;
+            if (frame.transform.c !== undefined) frame.transform.c = Math.round((frame.transform.c || 0) * scaleX * 10000) / 10000;
+            if (frame.transform.d !== undefined) frame.transform.d = Math.round((frame.transform.d !== undefined ? frame.transform.d : 1) * scaleY * 10000) / 10000;
+          }
+        }
+      }
+    }
+  }
+
   const spriteCount = movie.sprites ? movie.sprites.length : 0;
   const audioCount = movie.audios ? movie.audios.length : 0;
 
@@ -601,9 +660,9 @@ export async function compressSvgaFile(
       }
 
       try {
-        const compressedBytes = await compressImageBuffer(rawData, effectiveQuality, effectiveScale);
-        // Only replace if smaller
-        if (compressedBytes.length < rawData.length) {
+        const compressedBytes = await compressImageBuffer(rawData, effectiveQuality, imgScale);
+        // Replace if smaller or if scaled
+        if (compressedBytes.length < rawData.length || imgScale < 0.99) {
           movie.images[key] = compressedBytes;
         }
       } catch (err) {
@@ -647,8 +706,8 @@ export async function compressSvgaFile(
   const savingPercent = originalSizeBytes > 0 ? Math.round((savedBytes / originalSizeBytes) * 100) : 0;
 
   const stats: SvgaFileStats = {
-    viewBoxWidth: originalParams.viewBoxWidth,
-    viewBoxHeight: originalParams.viewBoxHeight,
+    viewBoxWidth: targetW,
+    viewBoxHeight: targetH,
     fps: originalParams.fps,
     frames: originalParams.frames,
     imageCount: totalImages,

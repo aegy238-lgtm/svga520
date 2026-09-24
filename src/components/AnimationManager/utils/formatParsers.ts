@@ -263,7 +263,11 @@ export async function parseAnimationFile(file: File): Promise<AnimationItem> {
         const frameCount = Math.max(1, Math.round(durationSec * fps));
         const duration = Number(durationSec.toFixed(2));
         
-        pagFile.destroy();
+        try {
+          if (pagFile && typeof pagFile.destroy === 'function') {
+            pagFile.destroy();
+          }
+        } catch {}
 
         return {
           ...baseItem,

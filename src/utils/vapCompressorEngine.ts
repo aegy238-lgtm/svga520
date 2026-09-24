@@ -6,6 +6,9 @@ export interface VapCompressionSettings {
   crf?: number; // 16 - 38
   preset?: 'smart' | 'max_quality' | 'high_quality' | 'balanced' | 'high_compression' | 'max_compression' | 'custom';
   scale?: number; // 0.3 - 1.0 (default 1.0)
+  targetWidth?: number;
+  targetHeight?: number;
+  lockAspectRatio?: boolean;
   preserveAudio?: boolean; // Keep audio tracks 100% intact (default true)
   filenameSuffix?: string; // e.g. '_compressed'
   format?: 'vap' | 'mp4';
@@ -194,9 +197,25 @@ async function compressVapClientSideFallback(
   const inWidth = video.videoWidth || (originalProbe.format === 'vap' ? originalProbe.width * 2 : originalProbe.width) || 750;
   const inHeight = video.videoHeight || originalProbe.height || 1334;
 
-  const scale = settings.scale || 1.0;
-  const targetWidth = Math.floor((inWidth * scale) / 2) * 2;
-  const targetHeight = Math.floor((inHeight * scale) / 2) * 2;
+  let targetWidth = inWidth;
+  let targetHeight = inHeight;
+
+  if (settings.targetWidth && settings.targetHeight) {
+    targetWidth = Math.floor(settings.targetWidth / 2) * 2;
+    targetHeight = Math.floor(settings.targetHeight / 2) * 2;
+  } else if (settings.targetWidth) {
+    targetWidth = Math.floor(settings.targetWidth / 2) * 2;
+    targetHeight = Math.floor((inHeight * (targetWidth / inWidth)) / 2) * 2;
+  } else if (settings.targetHeight) {
+    targetHeight = Math.floor(settings.targetHeight / 2) * 2;
+    targetWidth = Math.floor((inWidth * (targetHeight / inHeight)) / 2) * 2;
+  } else {
+    const scale = settings.scale || 1.0;
+    targetWidth = Math.floor((inWidth * scale) / 2) * 2;
+    targetHeight = Math.floor((inHeight * scale) / 2) * 2;
+  }
+  targetWidth = Math.max(2, targetWidth);
+  targetHeight = Math.max(2, targetHeight);
 
   const canvas = document.createElement('canvas');
   canvas.width = targetWidth;

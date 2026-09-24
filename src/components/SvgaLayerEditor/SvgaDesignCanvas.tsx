@@ -859,6 +859,10 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     if (canvas.width !== width) canvas.width = width;
     if (canvas.height !== height) canvas.height = height;
 
+    // Ensure maximum crispness and high-quality filtering for downscaled/resized layers
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
     ctx.clearRect(0, 0, width, height);
 
     // 1. Draw Background:
@@ -926,6 +930,8 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     }
     const layersCtx = layersCanvas.getContext('2d');
     if (!layersCtx) return;
+    layersCtx.imageSmoothingEnabled = true;
+    layersCtx.imageSmoothingQuality = 'high';
     layersCtx.clearRect(0, 0, width, height);
 
     // 3. Leaf sprite drawing helper
@@ -1165,6 +1171,8 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
           }
           const offCtx = offCanvas.getContext('2d');
           if (offCtx) {
+            offCtx.imageSmoothingEnabled = true;
+            offCtx.imageSmoothingQuality = 'high';
             offCtx.clearRect(0, 0, width, height);
 
             // 1. Draw source layer (the effect / light streak / shine)
@@ -2363,6 +2371,9 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
           width={project.width}
           height={project.height}
           className="block pointer-events-none"
+          style={{
+            imageRendering: 'auto'
+          }}
         />
 
         {/* Interactive Shine Vector Path Overlay on Canvas */}

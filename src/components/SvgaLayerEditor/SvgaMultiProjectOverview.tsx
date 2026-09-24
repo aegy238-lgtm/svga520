@@ -14,7 +14,7 @@ interface SvgaMultiProjectOverviewProps {
   onCloseProject: (id: string) => void;
   onDuplicateProject: (id: string) => void;
   onOpenFiles: () => void;
-  onBatchExport: () => void;
+  onBatchExport?: () => void;
   onSingleProjectExport: (project: ProjectSession) => void;
 }
 
@@ -128,16 +128,6 @@ export const SvgaMultiProjectOverview: React.FC<SvgaMultiProjectOverviewProps> =
           >
             <Plus size={14} className="text-indigo-400" />
             <span>فتح ملفات إضافية</span>
-          </button>
-
-          {/* Batch Export */}
-          <button
-            type="button"
-            onClick={onBatchExport}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-black shadow-lg shadow-emerald-900/40 transition-all cursor-pointer hover:scale-105 border border-emerald-400/30"
-          >
-            <Download size={14} />
-            <span>تصدير جماعي لكافة المشاريع ({projects.length})</span>
           </button>
         </div>
       </div>

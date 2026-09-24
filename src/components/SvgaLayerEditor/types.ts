@@ -118,6 +118,10 @@ export interface EditableLayer {
   originalKeyframes?: LayerKeyframe[];
   isDuplicate?: boolean;
   sourceLayerId?: string;
+  linkedMirroredLayerId?: string;
+  isMirroredLayer?: boolean;
+  autoSyncMirroredAsset?: boolean;
+  autoFlipMirroredAsset?: boolean;
 }
 
 export interface SVGAAudioTrack {

@@ -1,6 +1,7 @@
 import { SVGAProjectData, EditableLayer, SVGAAudioTrack } from './types';
 import { extractAndScaleVideoAudio } from '../../utils/videoDurationEngine';
 import { ensureMp3WithId3 } from '../../utils/mp3Encoder';
+import { extractVapConfigFromBlob } from '../../utils/vapEngine';
 
 export interface Mp4ProbeResult {
   duration: number; // in seconds
@@ -115,9 +116,48 @@ export async function convertMp4ToSvgaProject(
   }
   totalFrames = Math.min(2400, totalFrames);
 
+  // Extract embedded VAP / YYEVA config if present in the MP4 atoms
+  const vapConfig = await extractVapConfigFromBlob(file).catch(() => null);
+
+  // Detect VAP / YYEVA / Dual-Channel Alpha Video (Side-by-side or Top-bottom)
+  const fileNameLower = file.name.toLowerCase();
+  const isVapExt = fileNameLower.endsWith('.vap');
+  const isVapName = fileNameLower.includes('vap') || fileNameLower.includes('yyeva') || fileNameLower.includes('alpha') || fileNameLower.includes('trans') || fileNameLower.includes('透明') || fileNameLower.includes('gift');
+  const isHorizontalSplit = (probe.width >= 1.05 * probe.height && probe.width % 2 === 0) || (probe.width >= 1.7 * probe.height && probe.width <= 2.3 * probe.height);
+  const isVerticalSplit = (probe.height >= 1.5 * probe.width && probe.height % 2 === 0) || (probe.height >= 1.7 * probe.width && probe.height <= 2.3 * probe.width);
+  const isDualChannelAlpha = isVapExt || isVapName || !!vapConfig || isHorizontalSplit || isVerticalSplit;
+  
+  let alphaOrientation: 'horizontal' | 'vertical' = (isVerticalSplit && !isHorizontalSplit) ? 'vertical' : 'horizontal';
+
+  // Determine base single-frame dimensions & explicit frame coordinates
+  let baseWidth = probe.width;
+  let baseHeight = probe.height;
+
+  let rgbRect: [number, number, number, number] = [0, 0, baseWidth, baseHeight];
+  let alphaRect: [number, number, number, number] = [baseWidth, 0, baseWidth, baseHeight];
+
+  if (vapConfig?.info?.rgbFrame && vapConfig?.info?.aFrame) {
+    rgbRect = vapConfig.info.rgbFrame as [number, number, number, number];
+    alphaRect = vapConfig.info.aFrame as [number, number, number, number];
+    baseWidth = vapConfig.info.w || rgbRect[2] || Math.round(probe.width / 2);
+    baseHeight = vapConfig.info.h || rgbRect[3] || probe.height;
+    if (alphaRect[1] > rgbRect[1]) {
+      alphaOrientation = 'vertical';
+    } else {
+      alphaOrientation = 'horizontal';
+    }
+  } else if (isDualChannelAlpha) {
+    baseWidth = alphaOrientation === 'horizontal' ? Math.round(probe.width / 2) : probe.width;
+    baseHeight = alphaOrientation === 'horizontal' ? probe.height : Math.round(probe.height / 2);
+    rgbRect = [0, 0, baseWidth, baseHeight];
+    alphaRect = alphaOrientation === 'horizontal' 
+      ? [baseWidth, 0, baseWidth, baseHeight] 
+      : [0, baseHeight, baseWidth, baseHeight];
+  }
+
   // Determine output dimensions (ensure even numbers for encoder compatibility)
-  let outWidth = options.targetWidth || probe.width;
-  let outHeight = options.targetHeight || probe.height;
+  let outWidth = options.targetWidth || baseWidth;
+  let outHeight = options.targetHeight || baseHeight;
 
   if (options.scale && options.scale > 0 && options.scale < 1.0) {
     outWidth = Math.round(outWidth * options.scale);
@@ -135,7 +175,7 @@ export async function convertMp4ToSvgaProject(
   outWidth = outWidth - (outWidth % 2);
   outHeight = outHeight - (outHeight % 2);
 
-  onProgress('جاري تحضير بيئة استخراج إطارات الفيديو...', 10);
+  onProgress?.(isDualChannelAlpha ? 'جاري استخراج وتفريغ شفافية فيديو VAP / YYEVA بدقة 100%...' : 'جاري تحضير بيئة استخراج إطارات الفيديو...', 10);
 
   // Load video element for frame-by-frame extraction
   // Note: Appending off-screen to DOM with standard dimensions ensures hardware decoding stays active without browser throttling
@@ -173,6 +213,7 @@ export async function convertMp4ToSvgaProject(
     }, 2500);
   });
 
+  // Main output canvas
   const canvas = document.createElement('canvas');
   canvas.width = outWidth;
   canvas.height = outHeight;
@@ -183,12 +224,18 @@ export async function convertMp4ToSvgaProject(
     throw new Error('تعذر إنشاء بيئة الرسم Canvas');
   }
 
+  // Offscreen buffer canvas for dual-channel alpha extraction
+  const rawCanvas = document.createElement('canvas');
+  rawCanvas.width = probe.width;
+  rawCanvas.height = probe.height;
+  const rawCtx = rawCanvas.getContext('2d', { willReadFrequently: true });
+
   const imagesMap: Record<string, string> = {};
   const rawImages: Record<string, Uint8Array> = {};
   const baseFileName = file.name.replace(/\.[^/.]+$/, "");
 
-  // Speed optimization: JPEG 0.88 is ~15x faster than PNG and encodes each frame in <2ms
-  const isHighPng = options.quality === 'high';
+  // Speed & Alpha optimization: VAP dual-channel ALWAYS uses PNG to maintain 100% alpha transparency
+  const isHighPng = isDualChannelAlpha || options.quality === 'high';
   const mimeType = isHighPng ? 'image/png' : 'image/jpeg';
   const fileExt = isHighPng ? 'png' : 'jpg';
   const qualityParam = isHighPng ? undefined : 0.88;
@@ -215,7 +262,6 @@ export async function convertMp4ToSvgaProject(
         };
         video.addEventListener('seeked', onSeeked, { once: true });
         video.currentTime = clampedTime;
-        // Adequate timeout so high-resolution (2K/4K) video frames finish decoding
         setTimeout(onSeeked, 350);
       });
     }
@@ -229,7 +275,64 @@ export async function convertMp4ToSvgaProject(
       await new Promise(r => setTimeout(r, 10));
     }
 
-    ctx.drawImage(video, 0, 0, outWidth, outHeight);
+    if (isDualChannelAlpha && rawCtx) {
+      rawCtx.drawImage(video, 0, 0, probe.width, probe.height);
+      const rawData = rawCtx.getImageData(0, 0, probe.width, probe.height).data;
+      const outImgData = ctx.createImageData(baseWidth, baseHeight);
+      const dst = outImgData.data;
+
+      const rgbStartX = rgbRect[0];
+      const rgbStartY = rgbRect[1];
+      const aStartX = alphaRect[0];
+      const aStartY = alphaRect[1];
+
+      for (let y = 0; y < baseHeight; y++) {
+        for (let x = 0; x < baseWidth; x++) {
+          const rgbX = rgbStartX + x;
+          const rgbY = rgbStartY + y;
+          const aX = aStartX + x;
+          const aY = aStartY + y;
+
+          const rgbIdx = (rgbY * probe.width + rgbX) * 4;
+          const aIdx = (aY * probe.width + aX) * 4;
+          const dstIdx = (y * baseWidth + x) * 4;
+
+          const r = rawData[rgbIdx + 0];
+          const g = rawData[rgbIdx + 1];
+          const b = rawData[rgbIdx + 2];
+
+          // Calculate grayscale luminance from the alpha channel
+          const rawAlpha = 0.299 * rawData[aIdx + 0] + 0.587 * rawData[aIdx + 1] + 0.114 * rawData[aIdx + 2];
+
+          // Filter out H.264 compression shadow / noise for pure transparency
+          if (rawAlpha <= 8) {
+            dst[dstIdx + 0] = 0;
+            dst[dstIdx + 1] = 0;
+            dst[dstIdx + 2] = 0;
+            dst[dstIdx + 3] = 0;
+          } else {
+            const cleanAlpha = Math.min(255, Math.max(0, (rawAlpha - 8) * (255 / 247)));
+            dst[dstIdx + 0] = r;
+            dst[dstIdx + 1] = g;
+            dst[dstIdx + 2] = b;
+            dst[dstIdx + 3] = Math.round(cleanAlpha);
+          }
+        }
+      }
+
+      ctx.clearRect(0, 0, outWidth, outHeight);
+      if (outWidth === baseWidth && outHeight === baseHeight) {
+        ctx.putImageData(outImgData, 0, 0);
+      } else {
+        const tempCvs = document.createElement('canvas');
+        tempCvs.width = baseWidth;
+        tempCvs.height = baseHeight;
+        tempCvs.getContext('2d')?.putImageData(outImgData, 0, 0);
+        ctx.drawImage(tempCvs, 0, 0, outWidth, outHeight);
+      }
+    } else {
+      ctx.drawImage(video, 0, 0, outWidth, outHeight);
+    }
   };
 
   // Helper to check if frame is completely transparent (alpha === 0 indicates unpainted buffer)
@@ -778,12 +881,39 @@ export async function importMp4AsLayerIntoProject(
  * full SVGAProjectData and layers immediately with a lightweight thumbnail,
  * enabling instantaneous loading of multiple MP4s simultaneously.
  */
-export async function createFastMp4Project(file: File): Promise<{ project: SVGAProjectData; layers: EditableLayer[]; videoUrl: string }> {
+export async function createFastMp4Project(
+  file: File,
+  options: Mp4ToSvgaOptions = {}
+): Promise<{ project: SVGAProjectData; layers: EditableLayer[]; videoUrl: string }> {
+  const fileNameLower = file.name.toLowerCase();
+  const isVapExt = fileNameLower.endsWith('.vap');
+  const isVapName = fileNameLower.includes('vap') || fileNameLower.includes('yyeva') || fileNameLower.includes('alpha') || fileNameLower.includes('trans') || fileNameLower.includes('透明') || fileNameLower.includes('gift');
+  
   const probe = await probeMp4Video(file);
+  const vapConfig = await extractVapConfigFromBlob(file).catch(() => null);
+  const isHorizontalSplit = (probe.width >= 1.05 * probe.height && probe.width % 2 === 0) || (probe.width >= 1.7 * probe.height && probe.width <= 2.3 * probe.height);
+  const isVerticalSplit = (probe.height >= 1.5 * probe.width && probe.height % 2 === 0) || (probe.height >= 1.7 * probe.width && probe.height <= 2.3 * probe.width);
+  const isDualChannelAlpha = isVapExt || isVapName || !!vapConfig || isHorizontalSplit || isVerticalSplit;
+
+  const videoUrl = URL.createObjectURL(file);
+
+  // If this is a transparent VAP / YYEVA / alpha video, run full transparent frame extraction
+  if (isDualChannelAlpha) {
+    const res = await convertMp4ToSvgaProject(file, {
+      quality: 'high',
+      fps: options.fps || (vapConfig?.info?.f || vapConfig?.info?.fps || Math.min(30, Math.round(probe.fps || 30))),
+      onProgress: options.onProgress
+    });
+    return {
+      project: res.project,
+      layers: res.layers,
+      videoUrl
+    };
+  }
+
   const fps = probe.fps || 30;
   const duration = Math.max(0.1, probe.duration || 1);
   const totalFrames = Math.max(1, Math.min(2400, Math.round(duration * fps)));
-  const videoUrl = URL.createObjectURL(file);
   const baseFileName = file.name.replace(/\.[^/.]+$/, "");
 
   // Capture a representative poster frame
