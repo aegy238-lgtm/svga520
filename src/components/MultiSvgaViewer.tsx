@@ -388,7 +388,14 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const [dedupNotice, setDedupNotice] = useState<{ count: number; names: string[] } | null>(null);
   const [isDockCollapsed, setIsDockCollapsed] = useState(true);
   const [showSideDock, setShowSideDock] = useState(false);
+  const [globalPaused, setGlobalPaused] = useState(false);
   
+  // Use a ref to pass to child components to avoid unnecessary re-renders
+  const globalPausedRef = useRef(false);
+  useEffect(() => {
+    globalPausedRef.current = globalPaused;
+  }, [globalPaused]);
+
   const selectedPreset = useMemo(() => DEVICE_PRESETS.find(p => p.id === selectedPresetId), [selectedPresetId]);
 
   const [vapBatchProgress, setVapBatchProgress] = useState<{
@@ -3868,6 +3875,24 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               <Sliders className="w-3.5 h-3.5" />
               <span>لوحة جانبية</span>
             </button>
+            
+            {/* Toggle All Effects Button */}
+            <button
+              onClick={() => {
+                setGlobalPaused(prev => !prev);
+                const isMuted = (window as any).Howler?.mute();
+                (window as any).Howler?.mute(!isMuted);
+              }}
+              className={`px-3.5 py-2 border rounded-xl font-black text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer ${
+                globalPaused 
+                ? 'bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 border-emerald-500/30' 
+                : 'bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border-rose-500/30'
+              }`}
+              title="إيقاف أو تشغيل جميع تأثيرات الصوت والحركة"
+            >
+              <Pause className="w-4 h-4" />
+              <span>{globalPaused ? 'تشغيل التأثيرات' : 'إيقاف التأثيرات'}</span>
+            </button>
           </div>
         </div>
 
@@ -4636,6 +4661,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                         isSelected={selectedItemIds.has(item.id)}
                         onToggleSelect={() => handleToggleSelect(item.id)}
                         onUpdateItem={(updates) => setItems(prev => prev.map(i => i.id === item.id ? { ...i, ...updates } : i))}
+                        globalPausedRef={globalPausedRef}
                       />
                     ))}
                   </AnimatePresence>
@@ -5254,7 +5280,8 @@ const SvgaCard: React.FC<{
   isSelected?: boolean;
   onToggleSelect?: () => void;
   onUpdateItem?: (updates: Partial<MultiSvgaItem>) => void;
-}> = ({ item, customDimensions, gridCols, onRemove, onMaximize, onDownload, onDownloadSvga, onDownloadGiftBundle, onExportVideo, previewBg, watermark, wmSettings, onUpdatePreset, isSelected, onToggleSelect, onUpdateItem }) => {
+  globalPausedRef: React.MutableRefObject<boolean>;
+}> = ({ item, customDimensions, gridCols, onRemove, onMaximize, onDownload, onDownloadSvga, onDownloadGiftBundle, onExportVideo, previewBg, watermark, wmSettings, onUpdatePreset, isSelected, onToggleSelect, onUpdateItem, globalPausedRef }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
@@ -5381,8 +5408,10 @@ const SvgaCard: React.FC<{
             const srcAlphaW = Math.round(alphaRect[2] * scaleX);
             const srcAlphaH = Math.round(alphaRect[3] * scaleY);
 
-            if (isPlayingRef.current) {
+            if (isPlayingRef.current && !globalPausedRef.current) {
               video.play().catch(() => {});
+            } else {
+              video.pause();
             }
 
             const renderFrame = () => {
@@ -5469,7 +5498,7 @@ const SvgaCard: React.FC<{
             const delta = now - lastTime;
             lastTime = now;
             
-            if (isPlayingRef.current && playerRef.current) {
+            if (isPlayingRef.current && !globalPausedRef.current && playerRef.current) {
               accumulatedTime += delta;
               const progress = (accumulatedTime % durationMs) / durationMs;
               playerRef.current.setProgress(progress);
@@ -5524,7 +5553,7 @@ const SvgaCard: React.FC<{
         player.setVideoItem(videoItem);
       }
       
-      if (isPlayingRef.current) playerRef.current.startAnimation();
+      if (isPlayingRef.current && !globalPausedRef.current) playerRef.current.startAnimation();
       else playerRef.current.pauseAnimation();
     };
 
@@ -5543,6 +5572,20 @@ const SvgaCard: React.FC<{
     };
   }, [item.url, item.type, isVisible]); // Removed isLoaded and isPlaying from dependencies
 
+  // Update animation state when globalPaused changes
+  useEffect(() => {
+    if (playerRef.current) {
+      if (item.type === "pag") {
+        // PAG handling is manual in a render loop
+      } else {
+        if (!globalPausedRef.current && isPlayingRef.current) {
+          playerRef.current.startAnimation();
+        } else {
+          playerRef.current.pauseAnimation();
+        }
+      }
+    }
+  }, [globalPausedRef.current]);
 
     // Separate effect for Zoom and Preset style updates - much faster and smoother
     useEffect(() => {
