@@ -146,6 +146,19 @@ export const TOOLS_REGISTRY: ToolRegistryItem[] = [
     highlight: true
   },
   {
+    id: 'batch-svga-converter',
+    label: 'Batch SVGA Converter (MP4/VAP/YYEVA)',
+    icon: <Video className="w-4 h-4 text-pink-400" />,
+    category: 'svga',
+    categoryNameAr: 'أنيميشن و SVGA',
+    actionKey: 'onBatchSvgaConverterOpen' as any,
+    dashboardActionKey: 'batchSvgaConverter',
+    featureAccessKey: 'batchSvgaConverter',
+    descAr: 'محول دفعات SVGA الجماعي الفائق: تحويل مئات الملفات إلى فيديوهات MP4 أو VAP أو YYEVA شفافة بسرعة فائقة وبضغطة واحدة مع المحافظة على الصوت.',
+    descEn: 'High-speed batch SVGA to video converter: Convert hundreds of files to Standard MP4, Tencent VAP, or YYEVA transparent videos in one click with audio preservation.',
+    highlight: true
+  },
+  {
     id: 'svga-ex',
     label: 'SVGA Editor EX',
     icon: <Layers className="w-4 h-4 text-indigo-400" />,

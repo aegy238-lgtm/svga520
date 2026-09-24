@@ -9,7 +9,9 @@ export type ExportFormat =
   | 'png_frames' 
   | 'lottie' 
   | 'dotlottie' 
-  | 'mp4';
+  | 'mp4'
+  | 'vap'
+  | 'yyeva';
 
 export interface AnimationItem {
   id: string;

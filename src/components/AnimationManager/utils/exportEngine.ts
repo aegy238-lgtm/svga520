@@ -1729,6 +1729,43 @@ export async function exportItem(
     };
   }
 
+  if (format === 'vap') {
+    const blob = await exportAsVap(
+      canvases,
+      delays,
+      width,
+      height,
+      fps,
+      '1.0.5',
+      null,
+      undefined,
+      quality
+    );
+    return {
+      blob,
+      extension: 'vap',
+      filename: `${cleanName}.vap`
+    };
+  }
+
+  if (format === 'yyeva') {
+    const blob = await exportAsYyeva(
+      canvases,
+      delays,
+      width,
+      height,
+      fps,
+      null,
+      undefined,
+      quality
+    );
+    return {
+      blob,
+      extension: 'mp4',
+      filename: `${cleanName}_YYEVA.mp4`
+    };
+  }
+
   // Fallback original
   return {
     blob: item.file,
@@ -1765,7 +1802,7 @@ export async function batchExportToZip(
     onProgress?.({
       current: i + 1,
       total,
-      percentage: Math.round(((i + 0.2) / total) * 100),
+      percentage: Math.max(1, Math.round(((i + 0.2) / total) * 92)),
       currentName
     });
 
@@ -1798,7 +1835,7 @@ export async function batchExportToZip(
     onProgress?.({
       current: i + 1,
       total,
-      percentage: Math.round(((i + 1) / total) * 100),
+      percentage: Math.min(92, Math.round(((i + 1) / total) * 92)),
       currentName
     });
   }
@@ -1809,7 +1846,7 @@ export async function batchExportToZip(
       onProgress?.({
         current: total,
         total,
-        percentage: Math.min(100, Math.round(metadata.percent)),
+        percentage: Math.min(100, Math.round(92 + (metadata.percent / 100) * 8)),
         currentName: 'جاري إنشاء حزمة الـ ZIP النهائية...'
       });
     }

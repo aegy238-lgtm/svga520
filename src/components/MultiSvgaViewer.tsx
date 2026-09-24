@@ -25,6 +25,7 @@ import {
 } from '../utils/svgaVideoAudioExporter';
 import Vap from 'video-animation-player';
 import { extractVapConfigFromBlob, convertVapToMp4, WebGLVapRenderer, seekVideoToFrame, VapConfig } from '../utils/vapEngine';
+import { exportAsVap, exportAsYyeva } from './AnimationManager/utils/exportEngine';
 import { downloadDesignerInfoFile } from '../utils/designerInfo';
 import { extractSvgaFromPdfFile, PdfUnlockRequest } from '../utils/pdfSvgaExtractor';
 import { generateSvgaAllInOnePdf, SvgaPdfItem } from '../utils/svgaAllInOnePdfGenerator';
@@ -354,7 +355,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const [isDragging, setIsDragging] = useState(false);
   const [previewBg, setPreviewBg] = useState<string | null>(null);
   const [watermark, setWatermark] = useState<string | null>(null);
-  const [exportFormat, setExportFormat] = useState<'mp4' | 'webm'>('mp4');
+  const [exportFormat, setExportFormat] = useState<'mp4' | 'webm' | 'vap' | 'yyeva'>('mp4');
   const [presetBgs, setPresetBgs] = useState<PresetBackground[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -611,6 +612,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     });
     if (fileArray.length === 0) return;
     
+    let loadedCount = 0;
     setLoadProgress({ current: 0, total: fileArray.length });
     isCanceled.current = false;
     
@@ -640,7 +642,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             try {
               const parser = new SVGA.Parser();
               await new Promise<void>((res) => {
-                const tid = setTimeout(() => res(), 1500);
+                const tid = setTimeout(() => res(), 1000);
                 parser.load(url, (videoItem: any) => {
                   clearTimeout(tid);
                   if (videoItem) {
@@ -714,7 +716,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             }
           }
 
-          return {
+          const resultItem = {
             id: Math.random().toString(36).substr(2, 9),
             file: item.file,
             url,
@@ -730,8 +732,14 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             frames,
             duration
           } as MultiSvgaItem;
+
+          loadedCount++;
+          setLoadProgress({ current: loadedCount, total: fileArray.length });
+          return resultItem;
         } catch (err) {
           console.error("Error processing item in batch:", item.file?.name, err);
+          loadedCount++;
+          setLoadProgress({ current: loadedCount, total: fileArray.length });
           return null;
         }
       }))).filter(Boolean) as MultiSvgaItem[];
@@ -764,7 +772,6 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
         return [...prev, ...filteredNew];
       });
-      setLoadProgress({ current: Math.min(i + BATCH_SIZE, fileArray.length), total: fileArray.length });
       await new Promise(r => setTimeout(r, 10));
     }
     setLoadProgress(null);
@@ -1786,6 +1793,126 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             } catch (audioErr) {
               console.warn("[SVGA Individual Export] Audio mixing notice:", audioErr);
             }
+          }
+
+          // Check if we are exporting as VAP or YYEVA
+          if (exportFormat === 'vap' || exportFormat === 'yyeva') {
+            const collectedCanvases: HTMLCanvasElement[] = [];
+            for (let frame = 0; frame < totalFrames; frame++) {
+              const frameCanvas = document.createElement("canvas");
+              frameCanvas.width = finalWidth;
+              frameCanvas.height = finalHeight;
+              const fCtx = frameCanvas.getContext("2d", { alpha: true })!;
+              
+              const elapsedSeconds = frame / targetFps;
+              if (item.type === "pag") {
+                const pagDur = (item.pagFile?.duration() / 1000000) || 1;
+                try {
+                  player.setProgress((elapsedSeconds % pagDur) / pagDur);
+                  await player.flush();
+                } catch (e) { console.warn("PAG export frame error", e); }
+              } else {
+                const itemFrame = Math.floor(elapsedSeconds * (item.fps || 30)) % (item.frames || 1);
+                try {
+                  player.stepToFrame(itemFrame, false);
+                } catch (e) { console.warn("SVGA export frame error", e); }
+              }
+
+              if (internalCanvas) {
+                const sw = internalCanvas.width || item.dimensions?.width || 500;
+                const sh = internalCanvas.height || item.dimensions?.height || 500;
+                const scale = Math.min(finalWidth / sw, finalHeight / sh);
+                const drawW = sw * scale;
+                const drawH = sh * scale;
+                const dx = (finalWidth - drawW) / 2;
+                const dy = (finalHeight - drawH) / 2;
+
+                fCtx.drawImage(internalCanvas, dx, dy, drawW, drawH);
+              }
+
+              if (wmImg) {
+                const wmSize = Math.min(finalWidth, finalHeight) * (wmSettings.size / 100);
+                let wx = 0, wy = 0;
+                switch (wmSettings.position) {
+                  case "top-left": wx = 20; wy = 20; break;
+                  case "top-right": wx = finalWidth - wmSize - 20; wy = 20; break;
+                  case "bottom-left": wx = 20; wy = finalHeight - wmSize - 20; break;
+                  case "bottom-right": wx = finalWidth - wmSize - 20; wy = finalHeight - wmSize - 20; break;
+                  case "center": wx = (finalWidth - wmSize) / 2; wy = (finalHeight - wmSize) / 2; break;
+                }
+                fCtx.globalAlpha = wmSettings.opacity;
+                fCtx.drawImage(wmImg, wx, wy, wmSize, wmSize);
+                fCtx.globalAlpha = 1.0;
+              }
+
+              collectedCanvases.push(frameCanvas);
+
+              if (frame % 5 === 0 || frame === totalFrames - 1) {
+                await new Promise(r => setTimeout(r, 0));
+                const baseProg = (i / list.length) * 88;
+                const frameProg = (((frame / totalFrames) * 0.4) / list.length) * 88;
+                setExportProgress(Math.max(1, Math.min(88, Math.round(baseProg + frameProg))));
+              }
+            }
+
+            const delays = Array(totalFrames).fill(1000 / targetFps);
+            const exportQualityNum = exportQuality === 'high' ? 100 : (exportQuality === 'medium' ? 80 : 50);
+
+            let finalBlob: Blob;
+            if (exportFormat === 'vap') {
+              finalBlob = await exportAsVap(
+                collectedCanvases,
+                delays,
+                finalWidth,
+                finalHeight,
+                targetFps,
+                '1.0.5',
+                mixedAudioBuffer,
+                (p, msg) => {
+                  const baseProg = (i / list.length) * 88;
+                  const encodeProg = (((0.4 + p * 0.6) / list.length) * 88);
+                  setExportProgress(Math.max(1, Math.min(88, Math.round(baseProg + encodeProg))));
+                },
+                exportQualityNum
+              );
+            } else {
+              finalBlob = await exportAsYyeva(
+                collectedCanvases,
+                delays,
+                finalWidth,
+                finalHeight,
+                targetFps,
+                mixedAudioBuffer,
+                (p, msg) => {
+                  const baseProg = (i / list.length) * 88;
+                  const encodeProg = (((0.4 + p * 0.6) / list.length) * 88);
+                  setExportProgress(Math.max(1, Math.min(88, Math.round(baseProg + encodeProg))));
+                },
+                exportQualityNum
+              );
+            }
+
+            const cleanName = uniqueNames[item.id];
+            const folderPrefix = item.folderPath ? `${item.folderPath}/` : '';
+            const videoFilename = `${folderPrefix}${cleanName}.mp4`;
+
+            if (streamZip) {
+              const arrayBuffer = await finalBlob.arrayBuffer();
+              streamZip.addFile(videoFilename, new Uint8Array(arrayBuffer));
+            } else {
+              const url = URL.createObjectURL(finalBlob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `${cleanName}.mp4`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }
+
+            collectedCanvases.forEach(c => {
+              c.width = 0;
+              c.height = 0;
+            });
+            return;
           }
 
           const muxer = isWebM 
@@ -4206,12 +4333,14 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               <div className="grid grid-cols-3 gap-1.5">
                 <select 
                   value={exportFormat}
-                  onChange={(e) => setExportFormat(e.target.value as 'mp4' | 'webm')}
+                  onChange={(e) => setExportFormat(e.target.value as 'mp4' | 'webm' | 'vap' | 'yyeva')}
                   className="bg-slate-900 border border-white/15 rounded-xl text-[10px] font-black text-white px-2 py-1.5 focus:outline-none"
                   title="صيغة التصدير"
                 >
                   <option value="mp4" className="bg-slate-900 text-white">MP4</option>
                   <option value="webm" className="bg-slate-900 text-white">WebM</option>
+                  <option value="vap" className="bg-slate-900 text-white">VAP (.mp4)</option>
+                  <option value="yyeva" className="bg-slate-900 text-white">YYEVA (.mp4)</option>
                 </select>
 
                 <select 
@@ -4291,8 +4420,13 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         {loadProgress && (
           <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-2xl p-4 flex flex-col gap-2 mb-4">
             <div className="flex justify-between items-center text-xs font-black">
-              <span className="text-white flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin text-indigo-400" /> جاري التحميل...</span>
-              <span className="text-indigo-400">{loadProgress.current} / {loadProgress.total}</span>
+              <span className="text-white flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+                جاري فحص وتحميل الملفات... ({Math.round((loadProgress.current / loadProgress.total) * 100)}%)
+              </span>
+              <span className="text-indigo-400 font-mono">
+                {loadProgress.current} من أصل {loadProgress.total}
+              </span>
             </div>
             <div className="h-2 w-full bg-black/50 rounded-full overflow-hidden">
               <div 

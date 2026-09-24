@@ -105,6 +105,26 @@ const FORMAT_OPTIONS: FormatOption[] = [
     color: 'text-pink-400',
     bg: 'bg-pink-500/15',
     border: 'border-pink-500/30'
+  },
+  {
+    format: 'vap',
+    name: 'صيغة VAP (Tencent VAP)',
+    badge: 'VAP',
+    ext: '.vap',
+    desc: 'فيديو MP4 شفاف مع قناة ألفا مدمجة وصندوق بيانات vapc لتطبيقات الهدايا والبث المباشر.',
+    color: 'text-violet-400',
+    bg: 'bg-violet-500/15',
+    border: 'border-violet-500/30'
+  },
+  {
+    format: 'yyeva',
+    name: 'صيغة YYEVA (YY Transparent Video)',
+    badge: 'YYEVA',
+    ext: '.mp4',
+    desc: 'صيغة الفيديو الشفاف القياسية لـ YY/YYEVA مع مصفوفة الشفافية وصندوق yyea فائق الدقة.',
+    color: 'text-amber-400',
+    bg: 'bg-amber-500/15',
+    border: 'border-amber-500/30'
   }
 ];
 

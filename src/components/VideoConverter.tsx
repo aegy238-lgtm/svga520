@@ -2324,9 +2324,91 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     }
     muxer.finalize();
 
+    const { buffer } = muxer.target as Mp4Muxer.ArrayBufferTarget;
+
+    // Inject VAP / YYEVA compliant user data boxes
+    let finalBuffer = buffer;
+    try {
+      const videoW = safeWidth * 2;
+      const videoH = safeHeight;
+
+      const config = {
+        descript: {
+          width: safeWidth,
+          height: safeHeight,
+          isEffect: 0,
+          matchVersion: "1.0",
+          rgbFrame: isYYEVA ? [0, 0, safeWidth, safeHeight] : [safeWidth, 0, safeWidth, safeHeight],
+          alphaFrame: isYYEVA ? [safeWidth, 0, safeWidth, safeHeight] : [0, 0, safeWidth, safeHeight],
+          fps: fps,
+          totalFrame: totalFrames,
+          version: 1
+        },
+        info: {
+          v: 2,
+          f: totalFrames,
+          w: safeWidth,
+          h: safeHeight,
+          fps: fps,
+          videoW: videoW,
+          videoH: videoH,
+          aFrame: isYYEVA ? [safeWidth, 0, safeWidth, safeHeight] : [0, 0, safeWidth, safeHeight],
+          rgbFrame: isYYEVA ? [0, 0, safeWidth, safeHeight] : [safeWidth, 0, safeWidth, safeHeight],
+          isVapx: 0,
+          codeTag: isYYEVA ? ["common", "yyeva"] : ["common"],
+          orien: 0
+        }
+      };
+
+      const jsonStr = JSON.stringify(config);
+      const jsonBytes = new TextEncoder().encode(jsonStr);
+
+      const vapcSize = 8 + jsonBytes.length;
+      const vapcBuffer = new Uint8Array(vapcSize);
+      const vapcView = new DataView(vapcBuffer.buffer);
+      vapcView.setUint32(0, vapcSize);
+      vapcBuffer[4] = 0x76; // 'v'
+      vapcBuffer[5] = 0x61; // 'a'
+      vapcBuffer[6] = 0x70; // 'p'
+      vapcBuffer[7] = 0x63; // 'c'
+      vapcBuffer.set(jsonBytes, 8);
+
+      let extraSize = vapcSize;
+      let yyeaBuffer: Uint8Array | null = null;
+
+      if (isYYEVA) {
+        const yyeaSize = 8 + jsonBytes.length;
+        yyeaBuffer = new Uint8Array(yyeaSize);
+        const yyeaView = new DataView(yyeaBuffer.buffer);
+        yyeaView.setUint32(0, yyeaSize);
+        yyeaBuffer[4] = 0x79; // 'y'
+        yyeaBuffer[5] = 0x79; // 'y'
+        yyeaBuffer[6] = 0x65; // 'e'
+        yyeaBuffer[7] = 0x61; // 'a'
+        yyeaBuffer.set(jsonBytes, 8);
+        extraSize += yyeaSize;
+      }
+
+      const combined = new Uint8Array(buffer.byteLength + extraSize);
+      combined.set(new Uint8Array(buffer), 0);
+      
+      let offset = buffer.byteLength;
+      combined.set(vapcBuffer, offset);
+      offset += vapcSize;
+
+      if (yyeaBuffer) {
+        combined.set(yyeaBuffer, offset);
+      }
+
+      finalBuffer = combined.buffer;
+    } catch (boxErr) {
+      console.error("Failed to inject binary metadata boxes:", boxErr);
+    }
+
+    const cleanBaseName = (fileName || file?.name || 'project').replace(/\.[^/.]+$/, '');
     downloadBlob(
-      new Blob([muxer.target.buffer], { type: "video/mp4" }),
-      `${file?.name}_${isYYEVA ? "YYEVA" : "VAP"}.mp4`,
+      new Blob([finalBuffer], { type: "video/mp4" }),
+      `${cleanBaseName}_${isYYEVA ? "YYEVA" : "VAP"}.mp4`,
     );
   };
 

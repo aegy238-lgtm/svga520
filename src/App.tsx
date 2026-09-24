@@ -75,6 +75,7 @@ const BatchImageProcessor = lazyWithRetry(() => import('./components/BatchImageP
 const BatchImageConverter = lazyWithRetry(() => import('./components/BatchImageConverter').then(m => ({ default: m.BatchImageConverter })));
 const PagToSvgaStudio = lazyWithRetry(() => import('./components/PagToSvgaStudio').then(m => ({ default: m.PagToSvgaStudio })));
 const SvgaBatchCompressor = lazyWithRetry(() => import('./components/SvgaBatchCompressor').then(m => ({ default: m.SvgaBatchCompressor })));
+const BatchSvgaConverter = lazyWithRetry(() => import('./components/BatchSvgaConverter').then(m => ({ default: m.BatchSvgaConverter })));
 const SvgaLayerEditor = lazyWithRetry(() => import('./components/SvgaLayerEditor/SvgaLayerEditor').then(m => ({ default: m.SvgaLayerEditor })));
 const ImageEditor = lazyWithRetry(() => import('./components/ImageEditor').then(m => ({ default: m.ImageEditor })));
 const Name3DEditor = lazyWithRetry(() => import('./components/Name3DEditor/Name3DEditor'));
@@ -199,6 +200,7 @@ const App: React.FC = () => {
         () => import('./components/BatchImageConverter'),
         () => import('./components/PagToSvgaStudio'),
         () => import('./components/SvgaBatchCompressor'),
+        () => import('./components/BatchSvgaConverter'),
         () => import('./components/SvgaLayerEditor/SvgaLayerEditor'),
         () => import('./components/ImageEditor'),
         () => import('./components/Name3DEditor/Name3DEditor'),
@@ -422,6 +424,7 @@ const App: React.FC = () => {
         [AppState.MULTI_SVGA_VIEWER]: 'multiSvga',
         [AppState.BATCH_IMAGE_PROCESSOR]: 'batchImageProcessor',
         [AppState.SVGA_BATCH_COMPRESSOR]: 'svgaBatchCompressor',
+        [AppState.BATCH_SVGA_CONVERTER]: 'batchSvgaConverter',
         [AppState.SVGA_LAYER_EDITOR]: 'svgaLayerEditor',
         [AppState.BATCH_COMPRESSOR]: 'batchCompress',
         [AppState.BATCH_CROPPER]: 'batchCropper',
@@ -838,6 +841,7 @@ const App: React.FC = () => {
           setLayerEditorInitialFile(fileMetadata?.originalFile || null);
           handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
         }}
+        onBatchSvgaConverterOpen={() => handleFeatureAccess(AppState.BATCH_SVGA_CONVERTER, 'Batch SVGA Converter')}
         onBatchImageOpen={() => setShowBatchImage(true)}
         onLoginClick={() => {}}
         onProfileClick={() => {}}
@@ -846,6 +850,7 @@ const App: React.FC = () => {
           state === AppState.AI_VIDEO_MATTING ? 'ai-video-matting' :
           state === AppState.SVGA_LAYER_EDITOR ? 'svga-layer-editor' :
           state === AppState.SVGA_BATCH_COMPRESSOR ? 'svga-compressor' :
+          state === AppState.BATCH_SVGA_CONVERTER ? 'batch-svga-converter' :
           state === AppState.BATCH_COMPRESSOR ? 'batch' : 
           state === AppState.STORE ? 'store' : 
           state === AppState.VIDEO_CONVERTER ? 'converter' : 
@@ -931,6 +936,7 @@ const App: React.FC = () => {
                         case 'multiSvga': handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview'); break;
                         case 'batchImageProcessor': handleFeatureAccess(AppState.BATCH_IMAGE_PROCESSOR, 'Batch Image Processor'); break;
                         case 'svgaBatchCompressor': handleFeatureAccess(AppState.SVGA_BATCH_COMPRESSOR, 'SVGA Batch Compressor'); break;
+                         case 'batchSvgaConverter': handleFeatureAccess(AppState.BATCH_SVGA_CONVERTER, 'Batch SVGA Converter'); break;
                         case 'svgaLayerEditor': handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor'); break;
                         case 'batchCompress': handleFeatureAccess(AppState.BATCH_COMPRESSOR, 'Batch Compressor'); break;
                         case 'batchCropper': handleFeatureAccess(AppState.BATCH_CROPPER, 'Batch Cropper'); break;
@@ -991,6 +997,17 @@ const App: React.FC = () => {
                 currentUser={currentUser} 
                 onSubscriptionRequired={() => setShowSubscriptionModal(true)}
               />
+            )}
+            {state === AppState.BATCH_SVGA_CONVERTER && (
+              <Suspense fallback={<div className="text-white text-center py-20 font-black">جاري تحميل المحول الجماعي...</div>}>
+                <BatchSvgaConverter 
+                  onCancel={handleReset} 
+                  currentUser={currentUser} 
+                  settings={settings}
+                  onLoginRequired={() => {}}
+                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                />
+              </Suspense>
             )}
             {state === AppState.SVGA_LAYER_EDITOR && (
               <ErrorBoundary fallbackTitle="حدث خطأ في محرر طبقات SVGA" onReset={handleReset}>

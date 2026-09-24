@@ -1,9 +1,8 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { UserRecord, AppSettings } from '../types';
 import { useAccessControl } from '../hooks/useAccessControl';
 import { logActivity } from '../utils/logger';
-import { Download, Trash2, Upload, Play, Check, X, Layers, Settings, RefreshCw, Video, FileVideo } from 'lucide-react';
+import { Download, Trash2, Upload, Play, Check, X, Layers, Settings, RefreshCw, Video, FileVideo, Gauge } from 'lucide-react';
 import * as Mp4Muxer from 'mp4-muxer';
 
 declare var SVGA: any;
@@ -30,15 +29,126 @@ interface BatchSvgaConverterProps {
   initialFiles?: File[];
 }
 
-export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ onCancel, currentUser, settings, onLoginRequired, onSubscriptionRequired, initialFiles }) => {
+/**
+ * High-speed helper to pause the execution based on the chosen rendering speed
+ */
+const waitDelay = async (mode: 'turbo' | 'fast' | 'balanced' | 'accurate') => {
+  if (mode === 'turbo') {
+    await new Promise(r => setTimeout(r, 2));
+  } else if (mode === 'fast') {
+    await new Promise(r => setTimeout(r, 8));
+  } else if (mode === 'balanced') {
+    await new Promise(r => requestAnimationFrame(r));
+  } else {
+    await new Promise(r => setTimeout(r, 30));
+  }
+};
+
+/**
+ * Real client-side injection of 'vapc' (Tencent VAP) and 'yyea' (YYEVA) metadata box structure in standard MP4 files.
+ */
+const injectMetadataBoxes = (
+  buffer: ArrayBuffer,
+  singleWidth: number,
+  singleHeight: number,
+  totalFrames: number,
+  fps: number,
+  format: 'vap' | 'yyeva'
+): ArrayBuffer => {
+  const isYYEVA = format === 'yyeva';
+  const videoW = singleWidth * 2;
+  const videoH = singleHeight;
+
+  // Compliant user data JSON config structure
+  const config = {
+    descript: {
+      width: singleWidth,
+      height: singleHeight,
+      isEffect: 0,
+      matchVersion: "1.0",
+      rgbFrame: isYYEVA ? [0, 0, singleWidth, singleHeight] : [singleWidth, 0, singleWidth, singleHeight],
+      alphaFrame: isYYEVA ? [singleWidth, 0, singleWidth, singleHeight] : [0, 0, singleWidth, singleHeight],
+      fps: fps,
+      totalFrame: totalFrames,
+      version: 1
+    },
+    info: {
+      v: 2,
+      f: totalFrames,
+      w: singleWidth,
+      h: singleHeight,
+      fps: fps,
+      videoW: videoW,
+      videoH: videoH,
+      aFrame: isYYEVA ? [singleWidth, 0, singleWidth, singleHeight] : [0, 0, singleWidth, singleHeight],
+      rgbFrame: isYYEVA ? [0, 0, singleWidth, singleHeight] : [singleWidth, 0, singleWidth, singleHeight],
+      isVapx: 0,
+      codeTag: isYYEVA ? ["common", "yyeva"] : ["common"],
+      orien: 0
+    }
+  };
+
+  const jsonStr = JSON.stringify(config);
+  const jsonBytes = new TextEncoder().encode(jsonStr);
+
+  // Box 1: Build 'vapc' box
+  const vapcSize = 8 + jsonBytes.length;
+  const vapcBuffer = new Uint8Array(vapcSize);
+  const vapcView = new DataView(vapcBuffer.buffer);
+  vapcView.setUint32(0, vapcSize);
+  vapcBuffer[4] = 0x76; // 'v'
+  vapcBuffer[5] = 0x61; // 'a'
+  vapcBuffer[6] = 0x70; // 'p'
+  vapcBuffer[7] = 0x63; // 'c'
+  vapcBuffer.set(jsonBytes, 8);
+
+  let extraSize = vapcSize;
+  let yyeaBuffer: Uint8Array | null = null;
+
+  if (isYYEVA) {
+    // Box 2: Build 'yyea' box for YYEVA player compatibility
+    const yyeaSize = 8 + jsonBytes.length;
+    yyeaBuffer = new Uint8Array(yyeaSize);
+    const yyeaView = new DataView(yyeaBuffer.buffer);
+    yyeaView.setUint32(0, yyeaSize);
+    yyeaBuffer[4] = 0x79; // 'y'
+    yyeaBuffer[5] = 0x79; // 'y'
+    yyeaBuffer[6] = 0x65; // 'e'
+    yyeaBuffer[7] = 0x61; // 'a'
+    yyeaBuffer.set(jsonBytes, 8);
+    extraSize += yyeaSize;
+  }
+
+  const combined = new Uint8Array(buffer.byteLength + extraSize);
+  combined.set(new Uint8Array(buffer), 0);
+  
+  let offset = buffer.byteLength;
+  combined.set(vapcBuffer, offset);
+  offset += vapcSize;
+
+  if (yyeaBuffer) {
+    combined.set(yyeaBuffer, offset);
+  }
+
+  return combined.buffer;
+};
+
+export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ 
+  onCancel, 
+  currentUser, 
+  settings, 
+  onLoginRequired, 
+  onSubscriptionRequired, 
+  initialFiles 
+}) => {
   const { checkAccess } = useAccessControl();
   const [files, setFiles] = useState<SvgaFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [exportFormat, setExportFormat] = useState<'mp4' | 'vap'>('mp4');
+  const [exportFormat, setExportFormat] = useState<'mp4' | 'vap' | 'yyeva'>('yyeva');
   const [quality, setQuality] = useState<'low' | 'medium' | 'high'>('high');
   const [scale, setScale] = useState<number>(1);
+  const [renderSpeed, setRenderSpeed] = useState<'turbo' | 'fast' | 'balanced' | 'accurate'>('balanced');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const playerContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (initialFiles && initialFiles.length > 0) {
@@ -126,7 +236,8 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ onCancel
 
         const fps = videoItem.FPS || 30;
         const totalFrames = videoItem.frames;
-        // Ensure even dimensions
+        
+        // Even dimensions constraint
         const rawWidth = videoItem.videoSize?.width || 1334;
         const rawHeight = videoItem.videoSize?.height || 750;
         
@@ -136,22 +247,11 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ onCancel
         if (isNaN(width) || width <= 0) width = 1334;
         if (isNaN(height) || height <= 0) height = 750;
 
-        const exportWidth = exportFormat === 'vap' ? width * 2 : width;
+        const isVap = exportFormat === 'vap' || exportFormat === 'yyeva';
+        const exportWidth = isVap ? width * 2 : width;
         const exportHeight = height;
 
-        // Setup Canvas
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        
-        const vapCanvas = exportFormat === 'vap' ? document.createElement('canvas') : null;
-        if (vapCanvas) {
-          vapCanvas.width = exportWidth;
-          vapCanvas.height = exportHeight;
-        }
-        const vCtx = vapCanvas?.getContext('2d');
-
-        // Setup Player
+        // Setup Player container offscreen
         const playerDiv = document.createElement('div');
         playerDiv.style.width = `${width}px`;
         playerDiv.style.height = `${height}px`;
@@ -162,7 +262,19 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ onCancel
         const player = new SVGA.Player(playerDiv);
         player.setVideoItem(videoItem);
         
-        // Setup Muxer
+        // Setup Canvas rendering channels
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        
+        const vapCanvas = isVap ? document.createElement('canvas') : null;
+        if (vapCanvas) {
+          vapCanvas.width = exportWidth;
+          vapCanvas.height = exportHeight;
+        }
+        const vCtx = vapCanvas?.getContext('2d', { willReadFrequently: true });
+
+        // Setup Mp4Muxer
         const muxer = new Mp4Muxer.Muxer({
           target: new Mp4Muxer.ArrayBufferTarget(),
           video: {
@@ -174,16 +286,19 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ onCancel
           fastStart: 'in-memory'
         });
 
-        // Setup Encoder
+        // Setup Encoder Bitrate
         let bitrate = 8000000;
-        if (quality === 'low') bitrate = 4000000;
-        if (quality === 'high') bitrate = 12000000;
-        if (exportFormat === 'vap') bitrate *= 1.5;
+        if (quality === 'low') bitrate = 2000000;
+        if (quality === 'medium') bitrate = 4500000;
+        if (quality === 'high') bitrate = 10000000;
+        if (isVap) bitrate *= 1.8; // needs double visual bandwidth for dual channels
 
+        let hasEncoderError = false;
         const videoEncoder = new VideoEncoder({
           output: (chunk: any, meta: any) => muxer.addVideoChunk(chunk, meta),
           error: (e: any) => {
-            console.error("VideoEncoder error:", e);
+            console.error("VideoEncoder error in batch converter:", e);
+            hasEncoderError = true;
             reject(e);
           }
         });
@@ -200,53 +315,68 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ onCancel
 
         const support = await VideoEncoder.isConfigSupported(videoConfig);
         if (!support.supported) {
-          videoConfig.codec = 'avc1.4d0033'; // Main 5.1
+          videoConfig.codec = 'avc1.4d0033'; // Main 5.1 fallback
           const support2 = await VideoEncoder.isConfigSupported(videoConfig);
           if (!support2.supported) {
-            videoConfig.codec = 'avc1.4d002a'; // Main 4.2
+            videoConfig.codec = 'avc1.4d002a'; // Main 4.2 backup
           }
         }
         
         videoEncoder.configure(videoConfig);
 
-        // Process Frames
+        // Process Frames with specified speed
         for (let i = 0; i < totalFrames; i++) {
-          player.stepToFrame(i, true);
+          if (hasEncoderError) break;
+          player.stepToFrame(i, false); // Step frame without continuing animation
           
-          // Wait for render
-          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+          await waitDelay(renderSpeed);
           
           const sourceCanvas = playerDiv.querySelector('canvas');
           if (sourceCanvas) {
-            if (exportFormat === 'vap' && vCtx) {
-              // RGB on left, Alpha on right
+            if (isVap && vCtx) {
               vCtx.clearRect(0, 0, exportWidth, exportHeight);
-              
-              // Draw RGB
-              vCtx.globalCompositeOperation = 'source-over';
-              vCtx.fillStyle = '#000';
-              vCtx.fillRect(0, 0, width, height);
-              vCtx.drawImage(sourceCanvas, 0, 0, width, height);
-              
-              // Draw Alpha
-              vCtx.save();
-              vCtx.translate(width, 0);
-              vCtx.drawImage(sourceCanvas, 0, 0, width, height);
-              vCtx.globalCompositeOperation = 'source-in';
-              vCtx.fillStyle = '#fff';
-              vCtx.fillRect(0, 0, width, height);
-              vCtx.restore();
+              const isYYEVA = exportFormat === 'yyeva';
+
+              if (isYYEVA) {
+                // YYEVA Layout: RGB on Left (0, 0), Alpha on Right (width, 0)
+                vCtx.globalCompositeOperation = 'source-over';
+                vCtx.fillStyle = '#000000';
+                vCtx.fillRect(0, 0, width, height);
+                vCtx.drawImage(sourceCanvas, 0, 0, width, height);
+                
+                vCtx.save();
+                vCtx.translate(width, 0);
+                vCtx.drawImage(sourceCanvas, 0, 0, width, height);
+                vCtx.globalCompositeOperation = 'source-in';
+                vCtx.fillStyle = '#ffffff';
+                vCtx.fillRect(0, 0, width, height);
+                vCtx.restore();
+              } else {
+                // Tencent VAP Layout: RGB on Right (width, 0), Alpha on Left (0, 0)
+                vCtx.globalCompositeOperation = 'source-over';
+                vCtx.fillStyle = '#000000';
+                vCtx.fillRect(width, 0, width, height);
+                vCtx.drawImage(sourceCanvas, width, 0, width, height);
+                
+                vCtx.save();
+                vCtx.drawImage(sourceCanvas, 0, 0, width, height);
+                vCtx.globalCompositeOperation = 'source-in';
+                vCtx.fillStyle = '#ffffff';
+                vCtx.fillRect(0, 0, width, height);
+                vCtx.restore();
+              }
               
               const frame = new VideoFrame(vapCanvas!, { timestamp: (i * 1000000) / fps });
               videoEncoder.encode(frame);
               frame.close();
             } else {
-              // Standard MP4 (Black background for transparency)
+              // Standard MP4 (Black background)
               const ctx = canvas.getContext('2d');
               if (ctx) {
-                ctx.fillStyle = '#000';
+                ctx.fillStyle = '#000000';
                 ctx.fillRect(0, 0, width, height);
                 ctx.drawImage(sourceCanvas, 0, 0, width, height);
+                
                 const frame = new VideoFrame(canvas, { timestamp: (i * 1000000) / fps });
                 videoEncoder.encode(frame);
                 frame.close();
@@ -258,11 +388,25 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ onCancel
           setFiles(prev => prev.map(f => f.id === id ? { ...f, progress: prog } : f));
         }
 
+        if (hasEncoderError) throw new Error("VideoEncoder crashed.");
+
         await videoEncoder.flush();
+        videoEncoder.close();
         muxer.finalize();
         
         const { buffer } = muxer.target as Mp4Muxer.ArrayBufferTarget;
-        const blob = new Blob([buffer], { type: 'video/mp4' });
+        
+        // Inject VAP / YYEVA compliant user data boxes
+        let finalBuffer = buffer;
+        if (isVap) {
+          try {
+            finalBuffer = injectMetadataBoxes(buffer, width, height, totalFrames, fps, exportFormat);
+          } catch (boxErr) {
+            console.error("Failed to inject binary metadata boxes:", boxErr);
+          }
+        }
+
+        const blob = new Blob([finalBuffer], { type: 'video/mp4' });
         const url = URL.createObjectURL(blob);
 
         setFiles(prev => prev.map(f => f.id === id ? { 
@@ -273,7 +417,7 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ onCancel
           resultUrl: url 
         } : f));
 
-        // Cleanup
+        // Clean offscreen nodes
         document.body.removeChild(playerDiv);
         resolve();
       } catch (err) {
@@ -289,14 +433,14 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ onCancel
     if (doneFiles.length === 1) {
       const link = document.createElement('a');
       link.href = doneFiles[0].resultUrl!;
-      link.download = doneFiles[0].file.name.replace('.svga', '.mp4');
+      link.download = doneFiles[0].file.name.replace('.svga', `_${exportFormat.toUpperCase()}.mp4`);
       link.click();
       return;
     }
 
     const zip = new JSZip();
     doneFiles.forEach(f => {
-      zip.file(f.file.name.replace('.svga', '.mp4'), f.resultBlob!);
+      zip.file(f.file.name.replace('.svga', `_${exportFormat.toUpperCase()}.mp4`), f.resultBlob!);
     });
 
     const content = await zip.generateAsync({ type: 'blob' });
@@ -308,24 +452,24 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ onCancel
 
     const link = document.createElement('a');
     link.href = url;
-    link.download = `converted_videos_${Date.now()}.zip`;
+    link.download = `converted_videos_${exportFormat}_${Date.now()}.zip`;
     link.click();
     URL.revokeObjectURL(url);
   };
 
   return (
-    <div className="min-h-screen bg-[#020617] pt-24 pb-12 px-4 sm:px-6">
+    <div className="min-h-screen bg-[#020617] pt-24 pb-12 px-4 sm:px-6 font-arabic" dir="rtl">
       <div className="max-w-6xl mx-auto">
         {/* Header Section */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
-          <div className="space-y-2">
+          <div className="space-y-2 text-right">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-indigo-500/20 rounded-2xl flex items-center justify-center border border-indigo-500/30">
-                <Video className="w-6 h-6 text-indigo-400" />
+              <div className="w-12 h-12 bg-pink-500/20 rounded-2xl flex items-center justify-center border border-pink-500/30">
+                <Video className="w-6 h-6 text-pink-400" />
               </div>
               <h1 className="text-3xl font-black text-white tracking-tight">محول SVGA الجماعي</h1>
             </div>
-            <p className="text-slate-400 font-medium">تحويل ملفات SVGA المتعددة إلى فيديوهات MP4 بسرعة واحترافية</p>
+            <p className="text-slate-400 font-medium">تحويل ملفات SVGA المتعددة إلى فيديوهات MP4 أو VAP أو YYEVA شفافة بنقرة واحدة</p>
           </div>
 
           <div className="flex items-center gap-3">
@@ -338,7 +482,7 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ onCancel
             <button
               onClick={processAll}
               disabled={isProcessing || files.length === 0}
-              className={`px-8 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black rounded-2xl shadow-lg shadow-indigo-600/20 transition-all active:scale-95 flex items-center gap-2`}
+              className={`px-8 py-3 bg-gradient-to-r from-pink-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black rounded-2xl shadow-lg shadow-pink-600/20 transition-all active:scale-95 flex items-center gap-2`}
             >
               {isProcessing ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5" />}
               بدء التحويل الجماعي
@@ -347,55 +491,109 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ onCancel
         </div>
 
         {/* Settings Bar */}
-        <div className="bg-white/5 border border-white/10 rounded-[2.5rem] p-6 mb-8 flex flex-wrap items-center gap-8">
-          <div className="flex items-center gap-4">
-            <Settings className="w-5 h-5 text-slate-400" />
-            <span className="text-sm font-bold text-slate-300 uppercase tracking-widest">الإعدادات:</span>
-          </div>
+        <div className="bg-slate-900/60 border border-white/10 rounded-[2.5rem] p-6 mb-8 flex flex-wrap items-center gap-8 justify-between">
+          <div className="flex flex-wrap items-center gap-6">
+            <div className="flex items-center gap-3">
+              <Settings className="w-5 h-5 text-pink-400" />
+              <span className="text-sm font-bold text-slate-300">الإعدادات الذكية:</span>
+            </div>
 
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-black text-slate-500 uppercase">التنسيق:</span>
-            <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
-              <button
-                onClick={() => setExportFormat('mp4')}
-                className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${exportFormat === 'mp4' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-black text-slate-500 uppercase">صيغة التصدير المستهدفة</span>
+              <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
+                <button
+                  type="button"
+                  onClick={() => setExportFormat('mp4')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${exportFormat === 'mp4' ? 'bg-pink-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}
+                >
+                  فيديو MP4 عادي
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExportFormat('vap')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${exportFormat === 'vap' ? 'bg-pink-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}
+                  title="الRGB على اليمين والشفافية (Alpha) على اليسار"
+                >
+                  Tencent VAP (يسار)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExportFormat('yyeva')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${exportFormat === 'yyeva' ? 'bg-pink-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}
+                  title="الRGB على اليسار والشفافية (Alpha) على اليمين"
+                >
+                  YYEVA (يمين)
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-black text-slate-500 uppercase">دقة الرندر والتشفير</span>
+              <select
+                value={quality}
+                onChange={(e) => setQuality(e.target.value as any)}
+                className="bg-black/40 text-white text-xs font-black px-4 py-2 rounded-xl border border-white/5 focus:outline-none focus:ring-2 focus:ring-pink-500/50"
               >
-                Standard MP4
-              </button>
-              <button
-                onClick={() => setExportFormat('vap')}
-                className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${exportFormat === 'vap' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                <option value="low">منخفضة (توفير الحجم)</option>
+                <option value="medium">متوسطة متوازنة</option>
+                <option value="high">عالية جداً (للبث المباشر)</option>
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-black text-slate-500 uppercase">مقياس الحجم (Scale)</span>
+              <select
+                value={scale}
+                onChange={(e) => setScale(parseFloat(e.target.value))}
+                className="bg-black/40 text-white text-xs font-black px-4 py-2 rounded-xl border border-white/5 focus:outline-none focus:ring-2 focus:ring-pink-500/50"
               >
-                VAP (Alpha)
-              </button>
+                <option value="0.5">0.5x (أصغر بكثير)</option>
+                <option value="1">1.0x (الأصلي)</option>
+                <option value="1.5">1.5x (أكبر وأوضح)</option>
+                <option value="2">2.0x (دقة فائقة)</option>
+              </select>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-black text-slate-500 uppercase">الجودة:</span>
-            <select
-              value={quality}
-              onChange={(e) => setQuality(e.target.value as any)}
-              className="bg-black/40 text-white text-xs font-black px-4 py-2 rounded-xl border border-white/5 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-            >
-              <option value="low">منخفضة</option>
-              <option value="medium">متوسطة</option>
-              <option value="high">عالية</option>
-            </select>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-black text-slate-500 uppercase">المقياس:</span>
-            <select
-              value={scale}
-              onChange={(e) => setScale(parseFloat(e.target.value))}
-              className="bg-black/40 text-white text-xs font-black px-4 py-2 rounded-xl border border-white/5 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-            >
-              <option value="0.5">0.5x</option>
-              <option value="1">1.0x</option>
-              <option value="1.5">1.5x</option>
-              <option value="2">2.0x</option>
-            </select>
+          <div className="flex flex-col gap-1 border-r border-white/10 pr-6">
+            <span className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-1">
+              <Gauge className="w-3 h-3 text-amber-400" />
+              سرعة التصدير والتحويل
+            </span>
+            <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
+              <button
+                type="button"
+                onClick={() => setRenderSpeed('turbo')}
+                className={`px-3 py-1 text-[11px] font-black rounded-lg transition-all ${renderSpeed === 'turbo' ? 'bg-amber-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'}`}
+                title="تصدير خارق السرعة للملفات البسيطة"
+              >
+                برق (Turbo)
+              </button>
+              <button
+                type="button"
+                onClick={() => setRenderSpeed('fast')}
+                className={`px-3 py-1 text-[11px] font-black rounded-lg transition-all ${renderSpeed === 'fast' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}
+                title="تصدير سريع للأداء المتوازن"
+              >
+                سريع
+              </button>
+              <button
+                type="button"
+                onClick={() => setRenderSpeed('balanced')}
+                className={`px-3 py-1 text-[11px] font-black rounded-lg transition-all ${renderSpeed === 'balanced' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}
+                title="المعدل المثالي لضمان تحديث الإطارات بالكامل"
+              >
+                متوازن
+              </button>
+              <button
+                type="button"
+                onClick={() => setRenderSpeed('accurate')}
+                className={`px-3 py-1 text-[11px] font-black rounded-lg transition-all ${renderSpeed === 'accurate' ? 'bg-pink-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}
+                title="أقصى دقة للملفات الثقيلة جداً أو التي تحتوي على أصوات وفلاتر معقدة"
+              >
+                دقيق جداً
+              </button>
+            </div>
           </div>
         </div>
 
@@ -404,13 +602,13 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ onCancel
           onClick={() => fileInputRef.current?.click()}
           className="relative group cursor-pointer mb-8"
         >
-          <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-[3rem] blur opacity-20 group-hover:opacity-40 transition duration-1000 group-hover:duration-200"></div>
-          <div className="relative bg-[#0f172a] border-2 border-dashed border-white/10 rounded-[3rem] p-12 flex flex-col items-center justify-center gap-4 hover:border-indigo-500/50 transition-all">
-            <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center group-hover:scale-110 transition-transform duration-500">
-              <Upload className="w-10 h-10 text-indigo-400" />
+          <div className="absolute -inset-1 bg-gradient-to-r from-pink-500 to-indigo-600 rounded-[3rem] blur opacity-20 group-hover:opacity-40 transition duration-1000 group-hover:duration-200"></div>
+          <div className="relative bg-[#0f172a]/80 border-2 border-dashed border-white/10 rounded-[3rem] p-12 flex flex-col items-center justify-center gap-4 hover:border-pink-500/50 transition-all">
+            <div className="w-20 h-20 bg-pink-500/10 rounded-3xl flex items-center justify-center group-hover:scale-110 transition-transform duration-500">
+              <Upload className="w-10 h-10 text-pink-400" />
             </div>
             <div className="text-center">
-              <h3 className="text-xl font-black text-white mb-1">اسحب ملفات SVGA هنا</h3>
+              <h3 className="text-xl font-black text-white mb-1">اسحب ملفات SVGA هنا للتحويل الجماعي</h3>
               <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">أو اضغط لاختيار الملفات من جهازك</p>
             </div>
             <input
@@ -428,14 +626,14 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ onCancel
         {files.length > 0 && (
           <div className="space-y-4">
             <div className="flex items-center justify-between px-6">
-              <h2 className="text-white font-black uppercase tracking-widest text-sm">الملفات المختارة ({files.length})</h2>
+              <h2 className="text-white font-black uppercase tracking-widest text-sm">الملفات المحددة للتحويل ({files.length})</h2>
               <div className="flex items-center gap-4">
                 <button
                   onClick={() => setFiles([])}
                   className="text-red-400 hover:text-red-300 text-xs font-black uppercase tracking-widest flex items-center gap-2"
                 >
                   <Trash2 className="w-4 h-4" />
-                  مسح الكل
+                  مسح القائمة
                 </button>
                 <button
                   onClick={downloadAll}
@@ -443,7 +641,7 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ onCancel
                   className="text-emerald-400 hover:text-emerald-300 disabled:opacity-50 text-xs font-black uppercase tracking-widest flex items-center gap-2"
                 >
                   <Download className="w-4 h-4" />
-                  تحميل الكل (ZIP)
+                  تحميل الحزمة الكاملة (ZIP)
                 </button>
               </div>
             </div>
@@ -452,37 +650,37 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ onCancel
               {files.map((file) => (
                 <div 
                   key={file.id}
-                  className="bg-white/5 border border-white/10 rounded-3xl p-4 flex items-center gap-4 group hover:bg-white/10 transition-all"
+                  className="bg-slate-900/40 border border-white/5 rounded-3xl p-4 flex items-center gap-4 group hover:bg-slate-900/70 transition-all"
                 >
-                  <div className="w-12 h-12 bg-indigo-500/10 rounded-2xl flex items-center justify-center">
-                    <FileVideo className="w-6 h-6 text-indigo-400" />
+                  <div className="w-12 h-12 bg-pink-500/10 rounded-2xl flex items-center justify-center">
+                    <FileVideo className="w-6 h-6 text-pink-400" />
                   </div>
                   
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-0 text-right">
                     <h4 className="text-white font-bold truncate">{file.file.name}</h4>
                     <div className="flex items-center gap-3 mt-1">
                       <span className="text-[10px] text-slate-500 font-black uppercase">{(file.file.size / 1024).toFixed(1)} KB</span>
                       {file.status === 'processing' && (
                         <div className="flex-1 h-1.5 bg-black/40 rounded-full overflow-hidden max-w-[200px]">
                           <div 
-                            className="h-full bg-indigo-500 transition-all duration-300"
+                            className="h-full bg-gradient-to-r from-pink-500 to-indigo-500 transition-all duration-300"
                             style={{ width: `${file.progress}%` }}
                           />
                         </div>
                       )}
-                      {file.status === 'error' && <span className="text-[10px] text-red-500 font-black uppercase">{file.error}</span>}
+                      {file.status === 'error' && <span className="text-[10px] text-red-500 font-black">{file.error}</span>}
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2">
                     {file.status === 'done' && (
                       <div className="flex items-center gap-2">
-                        <span className="text-emerald-400 font-black text-[10px] uppercase">اكتمل</span>
+                        <span className="text-emerald-400 font-black text-[10px] uppercase">اكتمل بنجاح</span>
                         <button
                           onClick={() => {
                             const link = document.createElement('a');
                             link.href = file.resultUrl!;
-                            link.download = file.file.name.replace('.svga', '.mp4');
+                            link.download = file.file.name.replace('.svga', `_${exportFormat.toUpperCase()}.mp4`);
                             link.click();
                           }}
                           className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl hover:bg-emerald-500/30 transition-all"

@@ -283,6 +283,12 @@ export const UniversalMultiFormatPlayerModal: React.FC<UniversalMultiFormatPlaye
   const [dimensions, setDimensions] = useState<{ width: number; height: number }>({ width: 750, height: 1334 });
   const [bgMode, setBgMode] = useState<'grid_dark' | 'grid_light' | 'black' | 'white' | 'green' | 'blue'>('grid_dark');
   const [alphaMode, setAlphaMode] = useState<'composite' | 'alpha_only' | 'rgb_only'>('composite');
+  const [isAlphaReversed, setIsAlphaReversed] = useState(false);
+  const isAlphaReversedRef = useRef(false);
+
+  useEffect(() => {
+    isAlphaReversedRef.current = isAlphaReversed;
+  }, [isAlphaReversed]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [uploadingToMega, setUploadingToMega] = useState(false);
   const [megaUploadSuccess, setMegaUploadSuccess] = useState<string | null>(null);
@@ -703,10 +709,11 @@ export const UniversalMultiFormatPlayerModal: React.FC<UniversalMultiFormatPlaye
             const outImgData = ctx.createImageData(outW, outH);
             const dst = outImgData.data;
 
-            const rgbStartX = rgbRect[0];
-            const rgbStartY = rgbRect[1];
-            const aStartX = alphaRect[0];
-            const aStartY = alphaRect[1];
+            const reversed = isAlphaReversedRef.current;
+            const rgbStartX = reversed ? alphaRect[0] : rgbRect[0];
+            const rgbStartY = reversed ? alphaRect[1] : rgbRect[1];
+            const aStartX = reversed ? rgbRect[0] : alphaRect[0];
+            const aStartY = reversed ? rgbRect[1] : alphaRect[1];
 
             for (let y = 0; y < outH; y++) {
               for (let x = 0; x < outW; x++) {
@@ -1109,7 +1116,7 @@ export const UniversalMultiFormatPlayerModal: React.FC<UniversalMultiFormatPlaye
               />
 
               {['VAP', 'YYEVA', 'DUAL_CHANNEL_VIDEO'].includes(formatType) && (
-                <div className="border-r border-white/15 pr-1.5 mr-1.5 flex items-center gap-1">
+                <div className="border-r border-white/15 pr-1.5 mr-1.5 flex items-center gap-1.5">
                   <button
                     onClick={() => setAlphaMode(alphaMode === 'composite' ? 'rgb_only' : 'composite')}
                     className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border ${
@@ -1119,6 +1126,17 @@ export const UniversalMultiFormatPlayerModal: React.FC<UniversalMultiFormatPlaye
                     }`}
                   >
                     {alphaMode === 'composite' ? 'ألفا مدمجة' : 'RGB خام'}
+                  </button>
+                  <button
+                    onClick={() => setIsAlphaReversed(!isAlphaReversed)}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-all ${
+                      isAlphaReversed 
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-[0_0_8px_rgba(245,158,11,0.2)]' 
+                        : 'bg-slate-800 text-slate-400 border-white/10 hover:text-white'
+                    }`}
+                    title="عكس موضع قنوات الألوان والشفافية (يمين/يسار أو أعلى/أسفل)"
+                  >
+                    {isAlphaReversed ? 'عكس الألفا (مفعّل)' : 'عكس الألفا (يمين/يسار)'}
                   </button>
                 </div>
               )}
