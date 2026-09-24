@@ -3133,17 +3133,6 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             </button>
           )}
 
-          {projects.length > 0 && (
-            <button
-              onClick={() => setShowBatchExportModal(true)}
-              className="flex items-center gap-1.5 text-xs font-black text-white bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 px-3.5 py-1.5 rounded-xl border border-emerald-400/40 shadow-lg shadow-emerald-900/30 transition-all cursor-pointer hover:scale-105"
-              title="تصدير كافة المشاريع المفتوحة دفعة واحدة لأي صيغة تختارها"
-            >
-              <Download size={13} />
-              <span>تصدير جماعي ({projects.length})</span>
-            </button>
-          )}
-
           {project && (
             <button
               onClick={() => setShowExportModal(true)}

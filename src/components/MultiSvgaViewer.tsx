@@ -28,6 +28,7 @@ import { extractVapConfigFromBlob, convertVapToMp4, WebGLVapRenderer, seekVideoT
 import { downloadDesignerInfoFile } from '../utils/designerInfo';
 import { extractSvgaFromPdfFile, PdfUnlockRequest } from '../utils/pdfSvgaExtractor';
 import { generateSvgaAllInOnePdf, SvgaPdfItem } from '../utils/svgaAllInOnePdfGenerator';
+import { SvgaActionDock } from './SvgaActionDock';
 
 const decodeDataToBytes = (data: any): Uint8Array | null => {
   if (!data) return null;
@@ -378,6 +379,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     preventDuplicatesRef.current = preventDuplicates;
   }, [preventDuplicates]);
   const [dedupNotice, setDedupNotice] = useState<{ count: number; names: string[] } | null>(null);
+  const [isDockCollapsed, setIsDockCollapsed] = useState(false);
   
   const selectedPreset = useMemo(() => DEVICE_PRESETS.find(p => p.id === selectedPresetId), [selectedPresetId]);
 
@@ -864,6 +866,38 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     setItems([]);
     setSelectedItemIds(new Set());
   };
+
+  const handleUploadFolders = useCallback(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.webkitdirectory = true;
+    input.onchange = (e: any) => {
+      if (e.target.files) {
+        const fileObjects = Array.from(e.target.files as FileList).map(file => ({
+          file,
+          folderPath: file.webkitRelativePath.split('/').slice(0, -1).join('/'),
+          folderName: file.webkitRelativePath.split('/').slice(-2, -1)[0]
+        }));
+        handleFiles(fileObjects);
+      }
+    };
+    input.click();
+  }, [handleFiles]);
+
+  const handleExtractFromPdf = useCallback(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = '.pdf,.PDF,application/pdf,*/*';
+    input.onchange = (e: any) => {
+      if (e.target.files) {
+        const fileObjects = Array.from(e.target.files as FileList).map(file => ({ file }));
+        handleFiles(fileObjects);
+      }
+    };
+    input.click();
+  }, [handleFiles]);
 
   const getActiveItems = () => {
     const rawList = selectedItemIds.size > 0 ? items.filter(i => selectedItemIds.has(i.id)) : items;
@@ -3566,7 +3600,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const selectedItem = useMemo(() => items.find(i => i.id === selectedItemId), [items, selectedItemId]);
 
   return (
-    <div className="flex flex-col h-full animate-in fade-in duration-500">
+    <div className={`flex flex-col h-full animate-in fade-in duration-500 transition-all duration-300 ${isDockCollapsed ? 'xl:pr-16' : 'xl:pr-[335px]'}`}>
       {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-6">
         <div>
@@ -3869,229 +3903,22 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                   />
                 </div>
               )}
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={handleDownloadAllGiftBundles}
-                  disabled={isZipping || isExporting || isPdfAllInOneExporting}
-                  className="relative overflow-hidden group px-6 py-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-2xl shadow-lg shadow-red-600/30 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50 border border-red-400/30"
-                  title="تنزيل جميع ملفات الهدايا مع أفضل صورة كادر واضحة للهدية في ملف مضغوط ZIP واحد"
-                >
-                  {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Gift className="w-4 h-4 text-red-200" />}
-                  <span>{isZipping ? `جاري التحضير ${exportProgress}%` : 'تنزيل حزم الهدايا (الملف + أحلى صورة)'}</span>
-                  <span className="px-2 py-0.5 rounded-md bg-white/20 text-[10px] font-black uppercase tracking-wider">ZIP</span>
-                </button>
 
-                <div 
-                  className={`flex items-center gap-2 px-3.5 py-3 rounded-2xl border transition-all cursor-pointer select-none ${
-                    includePdfCatalog 
-                      ? 'bg-rose-500/20 border-rose-500/50 text-rose-300 shadow-lg shadow-rose-500/20' 
-                      : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
-                  }`}
-                  onClick={() => setIncludePdfCatalog(!includePdfCatalog)}
-                  title="عند التفعيل: سيتم إضافة ملف PDF واحد يجمع كل صور الهدايا مع ملفات الـ ZIP"
-                >
-                  <input 
-                    type="checkbox" 
-                    id="include-pdf-catalog-toggle"
-                    checked={includePdfCatalog}
-                    onChange={(e) => setIncludePdfCatalog(e.target.checked)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="w-4 h-4 accent-rose-500 rounded cursor-pointer"
-                  />
-                  <label htmlFor="include-pdf-catalog-toggle" className="text-xs font-bold flex items-center gap-1.5 cursor-pointer">
-                    <FileText className={`w-4 h-4 ${includePdfCatalog ? 'text-rose-400' : 'text-slate-400'}`} />
-                    <span>تضمين كتالوج PDF موحد</span>
-                  </label>
-                </div>
-              </div>
-
-              <button 
-                onClick={handleDownloadAllSvgaInOnePdf}
-                disabled={isPdfAllInOneExporting || isZipping || isExporting}
-                className="relative overflow-hidden group px-6 py-3 bg-gradient-to-r from-amber-600 via-rose-600 to-pink-600 hover:from-amber-500 hover:via-rose-500 hover:to-pink-500 text-white rounded-2xl shadow-lg shadow-rose-600/30 font-black text-sm transition-all flex items-center gap-2.5 disabled:opacity-50 border border-rose-400/40 cursor-pointer"
-                title="تنزيل جميع ملفات SVGA في ملف PDF واحد مجمع، يحتوي على كل ملف مع صورته المعاينة وبياناته وملف SVGA الأصلي مدمج داخله"
-              >
-                {isPdfAllInOneExporting ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-amber-200" />
-                ) : (
-                  <FileText className="w-4 h-4 text-amber-200" />
-                )}
-                <span className="whitespace-nowrap">
-                  {isPdfAllInOneExporting 
-                    ? `جاري التحضير ${pdfAllInOneProgress}%` 
-                    : 'تنزيل جميع ملفات SVGA في ملف PDF واحد'}
-                </span>
-                <span className="px-2 py-0.5 rounded-md bg-white/20 text-[10px] font-black uppercase tracking-wider text-amber-200 whitespace-nowrap">
-                  PDF 1 + الصور
-                </span>
-              </button>
-
-              <button 
-                onClick={handleDownloadAllCombined}
-                disabled={isZipping || isExporting || isPdfAllInOneExporting}
-                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl shadow-lg shadow-emerald-600/20 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50"
-                title="تنزيل جميع الملفات المرفوعة (SVGA و VAP) مع الصور وكتالوج PDF في ملف مضغوط واحد"
-              >
-                {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                {isZipping ? `جاري التحضير ${exportProgress}%` : 'تنزيل الكل (الملفات + صور + PDF)'}
-              </button>
-
-              {/* Distinct High-Visibility Yellow Deduplication Button */}
-              <button 
+              {/* Action Dock Quick Toggle in Top Bar */}
+              <button
                 type="button"
-                onClick={handleToggleDeduplication}
-                className={`px-6 py-3 rounded-2xl font-black text-sm transition-all flex items-center gap-2.5 shadow-xl border cursor-pointer select-none ${
-                  preventDuplicates 
-                    ? 'bg-yellow-400 hover:bg-yellow-300 text-slate-950 border-yellow-200 shadow-yellow-400/50 ring-4 ring-yellow-400/40' 
-                    : 'bg-yellow-400/20 hover:bg-yellow-400 hover:text-slate-950 text-yellow-300 border-yellow-400/60 shadow-lg shadow-yellow-500/20'
-                }`}
-                title="فحص فوري ومنع تكرار الملفات: الاحتفاظ بنسخة واحدة فقط وحذف أي ملف متكرر عند التنزيل أو الرفع"
+                onClick={() => setIsDockCollapsed(prev => !prev)}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600/25 hover:bg-indigo-600/40 text-indigo-300 hover:text-white border border-indigo-500/40 rounded-2xl text-xs font-black transition-all cursor-pointer shadow-sm hover:scale-105"
+                title="لوحة العمليات السريعة الثابتة على الجانب الأيمن"
               >
-                <div className="w-5 h-5 rounded-md flex items-center justify-center bg-black/20 border border-black/30">
-                  {preventDuplicates ? (
-                    <CheckSquare className="w-4 h-4 text-slate-950 stroke-[3]" />
-                  ) : (
-                    <Square className="w-4 h-4 text-yellow-300" />
-                  )}
-                </div>
-                <ShieldCheck className={`w-5 h-5 ${preventDuplicates ? 'text-slate-950' : 'text-yellow-400'}`} />
-                <span className="font-black text-sm whitespace-nowrap">
-                  {preventDuplicates ? 'منع التكرار: مفعّل (تنزيل نسخة واحدة فقط)' : 'منع وحذف الملفات المكررة'}
-                </span>
-              </button>
-
-              <button 
-                onClick={handleDownloadAllSvga}
-                disabled={isZipping || isExporting || isPdfAllInOneExporting}
-                className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl shadow-lg shadow-blue-600/20 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50"
-                title="تنزيل جميع الملفات المرفوعة (SVGA و VAP و PAG) مع صورها في ملف مضغوط واحد"
-              >
-                {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                {isZipping ? `جاري التحضير ${exportProgress}%` : 'تنزيل كل الملفات المرفوعة (ZIP)'}
-              </button>
-
-              <button 
-                onClick={handleExportAllVapToMp4}
-                disabled={isExporting || isZipping || vapBatchProgress?.isOpen}
-                className="relative overflow-hidden group px-6 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-2xl shadow-lg shadow-indigo-600/30 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50 border border-indigo-400/30"
-                title="تصدير سريع لجميع ملفات VAP إلى فيديو MP4 عالي الجودة مع الصوت وقناة الشفافية"
-              >
-                {vapBatchProgress?.isOpen ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4 text-indigo-200" />}
-                <span>{vapBatchProgress?.isOpen ? `VAP (${vapBatchProgress.overallPercent}%)` : 'VAP → MP4 (فائق السرعة بالصوت)'}</span>
-                <span className="px-2 py-0.5 rounded-md bg-white/20 text-[10px] font-black uppercase tracking-wider">VAP</span>
-              </button>
-
-              <button 
-                onClick={() => handleExportIndividualVideos()}
-                disabled={isExporting || isZipping}
-                className="relative overflow-hidden group px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-2xl shadow-lg shadow-purple-600/20 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50"
-              >
-                {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Film className="w-4 h-4" />}
-                {isExporting ? `جاري التصدير ${exportProgress}%` : 'تصدير كل ملف فيديو منفصل (ZIP)'}
-              </button>
-
-              <button 
-                onClick={handleExportGrid}
-                disabled={isExporting || isZipping}
-                className="relative overflow-hidden group px-6 py-3 bg-slate-900/90 hover:bg-slate-800 text-white rounded-2xl shadow-lg border border-red-500/40 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50"
-                title="تسجيل جميع العناصر المحددة في فيديو واحد كشبكة متزامنة بدقة عالية"
-              >
-                <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></span>
-                <span>{isExporting ? `جاري التسجيل ${exportProgress}%` : 'تسجيل فيديو مجمع (كل الملفات فيديو واحد)'}</span>
-              </button>
-
-              <button 
-                onClick={handleSelectAll}
-                className="px-6 py-3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-2xl border border-indigo-500/20 font-black text-sm transition-all flex items-center gap-2"
-              >
-                <SquareCheck className="w-4 h-4" />
-                {selectedItemIds.size === (items as any[]).length && (items as any[]).length > 0 ? 'إلغاء التحديد' : 'تحديد الكل'}
-              </button>
-              <button 
-                onClick={clearAll}
-                className="px-6 py-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-2xl border border-red-500/20 font-black text-sm transition-all flex items-center gap-2"
-              >
-                <Trash2 className="w-4 h-4" />
-                مسح الكل
+                <Sliders className="w-3.5 h-3.5 text-indigo-400" />
+                <span>لوحة العمليات الثابتة</span>
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               </button>
             </>
           )}
 
-          {items.length === 0 && (
-            <button 
-              type="button"
-              onClick={handleToggleDeduplication}
-              className={`px-6 py-3 rounded-2xl font-black text-sm transition-all flex items-center gap-2.5 shadow-xl border cursor-pointer select-none ${
-                preventDuplicates 
-                  ? 'bg-yellow-400 hover:bg-yellow-300 text-slate-950 border-yellow-200 shadow-yellow-400/50 ring-4 ring-yellow-400/40' 
-                  : 'bg-yellow-400/20 hover:bg-yellow-400 hover:text-slate-950 text-yellow-300 border-yellow-400/60 shadow-lg shadow-yellow-500/20'
-              }`}
-              title="تفعيل فحص ومنع تكرار الملفات تلقائياً عند الرفع والتنزيل"
-            >
-              <div className="w-5 h-5 rounded-md flex items-center justify-center bg-black/20 border border-black/30">
-                {preventDuplicates ? (
-                  <CheckSquare className="w-4 h-4 text-slate-950 stroke-[3]" />
-                ) : (
-                  <Square className="w-4 h-4 text-yellow-300" />
-                )}
-              </div>
-              <ShieldCheck className={`w-5 h-5 ${preventDuplicates ? 'text-slate-950' : 'text-yellow-400'}`} />
-              <span className="font-black text-sm whitespace-nowrap">
-                {preventDuplicates ? 'منع التكرار: مفعّل (نسخة واحدة فقط)' : 'منع تكرار الملفات'}
-              </span>
-            </button>
-          )}
-          <button 
-            onClick={() => fileInputRef.current?.click()}
-            className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl shadow-lg shadow-indigo-600/20 font-black text-sm transition-all flex items-center gap-2"
-          >
-            <Upload className="w-4 h-4" />
-            رفع ملفات
-          </button>
-          <button 
-            onClick={() => {
-              const input = document.createElement('input');
-              input.type = 'file';
-              input.multiple = true;
-              input.webkitdirectory = true;
-              input.onchange = (e: any) => {
-                if (e.target.files) {
-                  const fileObjects = Array.from(e.target.files as FileList).map(file => ({
-                    file,
-                    folderPath: file.webkitRelativePath.split('/').slice(0, -1).join('/'),
-                    folderName: file.webkitRelativePath.split('/').slice(-2, -1)[0]
-                  }));
-                  handleFiles(fileObjects);
-                }
-              };
-              input.click();
-            }}
-            className="px-6 py-3 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-2xl shadow-lg shadow-fuchsia-600/20 font-black text-sm transition-all flex items-center gap-2"
-          >
-            <Upload className="w-4 h-4" />
-            رفع مجلدات
-          </button>
-          <button 
-            onClick={() => {
-              const input = document.createElement('input');
-              input.type = 'file';
-              input.multiple = true;
-              // Accept .pdf, .PDF, application/pdf, and allow all files so OS file chooser never hides or greys out PDF files
-              input.accept = '.pdf,.PDF,application/pdf,*/*';
-              input.onchange = (e: any) => {
-                if (e.target.files) {
-                  const fileObjects = Array.from(e.target.files as FileList).map(file => ({ file }));
-                  handleFiles(fileObjects);
-                }
-              };
-              input.click();
-            }}
-            className="px-6 py-3 bg-gradient-to-r from-amber-600 via-rose-600 to-pink-600 hover:from-amber-500 hover:via-rose-500 hover:to-pink-500 text-white rounded-2xl shadow-lg shadow-rose-600/25 font-black text-sm transition-all flex items-center gap-2 cursor-pointer border border-rose-400/30"
-            title="استدعاء ملفات PDF واستخراج ملفات SVGA منها حتى لو كانت مقفولة بكلمة مرور"
-          >
-            <Lock className="w-4 h-4 text-amber-200" />
-            <span>فك واستخراج من PDF</span>
-          </button>
+          {/* Hidden File Input for SVGA/VAP/PAG/PDF/ZIP Uploads */}
           <input 
             ref={fileInputRef}
             type="file" 
@@ -4583,6 +4410,37 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           </div>
         )}
       </AnimatePresence>
+
+      {/* Right Fixed Action Dock (Ultra-Professional & Anchored during Canvas Scrolling) */}
+      <SvgaActionDock 
+        itemsCount={(items as any[]).length}
+        selectedCount={selectedItemIds.size}
+        allSelected={selectedItemIds.size === (items as any[]).length && (items as any[]).length > 0}
+        onSelectAll={handleSelectAll}
+        onClearAll={clearAll}
+        preventDuplicates={preventDuplicates}
+        onToggleDeduplication={handleToggleDeduplication}
+        includePdfCatalog={includePdfCatalog}
+        onToggleIncludePdfCatalog={() => setIncludePdfCatalog(!includePdfCatalog)}
+        isZipping={isZipping}
+        isExporting={isExporting}
+        isPdfAllInOneExporting={isPdfAllInOneExporting}
+        exportProgress={exportProgress}
+        pdfAllInOneProgress={pdfAllInOneProgress}
+        vapBatchProgress={vapBatchProgress}
+        onDownloadGiftBundles={handleDownloadAllGiftBundles}
+        onDownloadAllSvgaInOnePdf={handleDownloadAllSvgaInOnePdf}
+        onDownloadAllCombined={handleDownloadAllCombined}
+        onDownloadAllSvga={handleDownloadAllSvga}
+        onExportAllVapToMp4={handleExportAllVapToMp4}
+        onExportIndividualVideos={() => handleExportIndividualVideos()}
+        onExportGrid={handleExportGrid}
+        onUploadFiles={() => fileInputRef.current?.click()}
+        onUploadFolders={handleUploadFolders}
+        onExtractFromPdf={handleExtractFromPdf}
+        isCollapsed={isDockCollapsed}
+        onToggleCollapse={setIsDockCollapsed}
+      />
     </div>
   );
 };

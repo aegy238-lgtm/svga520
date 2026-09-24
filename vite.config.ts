@@ -59,7 +59,36 @@ export default defineConfig(({ mode }) => {
       build: {
         outDir: 'dist',
         sourcemap: false,
-        chunkSizeWarningLimit: 2500,
+        chunkSizeWarningLimit: 1800,
+        rollupOptions: {
+          output: {
+            manualChunks(id) {
+              if (id.includes('node_modules')) {
+                if (id.includes('jspdf') || id.includes('pdf-lib') || id.includes('pdfjs-dist')) {
+                  return 'vendor-pdf';
+                }
+                if (id.includes('@ffmpeg') || id.includes('fluent-ffmpeg')) {
+                  return 'vendor-ffmpeg';
+                }
+                if (id.includes('libpag')) {
+                  return 'vendor-libpag';
+                }
+                if (id.includes('firebase')) {
+                  return 'vendor-firebase';
+                }
+                if (id.includes('lucide-react')) {
+                  return 'vendor-icons';
+                }
+                if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
+                  return 'vendor-react';
+                }
+                if (id.includes('pako') || id.includes('jszip') || id.includes('fflate')) {
+                  return 'vendor-compression';
+                }
+              }
+            }
+          }
+        }
       }
     };
 });
