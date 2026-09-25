@@ -415,8 +415,36 @@ export const UniversalMultiFormatPlayerModal: React.FC<UniversalMultiFormatPlaye
   // SVGA Engine
   const initSvga = async (fileObj: File) => {
     const buffer = await fileObj.arrayBuffer();
-    const parser = new SvgaParser();
-    const svgaData = await parser.do(buffer);
+    let svgaData: any = null;
+    try {
+      const parser = new SvgaParser();
+      if (typeof parser.do === 'function') {
+        svgaData = await parser.do(buffer);
+      }
+    } catch (e) {
+      console.warn("SvgaParser.do failed:", e);
+    }
+
+    if (!svgaData && typeof window !== 'undefined' && (window as any).SVGA) {
+      const svgaLib = (window as any).SVGA;
+      const parser = new svgaLib.Parser();
+      const blobUrl = URL.createObjectURL(fileObj);
+      try {
+        svgaData = await new Promise<any>((resolve, reject) => {
+          if (typeof parser.load === 'function') {
+            parser.load(blobUrl, resolve, reject);
+          } else if (typeof parser.loadViaWorker === 'function') {
+            parser.loadViaWorker(blobUrl, resolve, reject);
+          } else {
+            reject(new Error('No SVGA load method available'));
+          }
+        });
+      } finally {
+        URL.revokeObjectURL(blobUrl);
+      }
+    }
+
+    if (!svgaData) throw new Error("Could not parse SVGA file");
 
     setDimensions({ width: svgaData.videoSize.width, height: svgaData.videoSize.height });
     setFps(svgaData.FPS || 30);

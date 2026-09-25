@@ -77,25 +77,29 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   return (
     <div className="w-full flex justify-center pb-24 pt-4 px-4 sm:px-8 font-sans" dir={dir}>
-      <div className="max-w-[1600px] w-full flex flex-col gap-10 sm:gap-16">
+      <div className="max-w-[1600px] w-full flex flex-col gap-12 sm:gap-18">
         
-        {/* Main Hero / Uploader */}
-        <section className="relative w-full rounded-[3rem] p-1 sm:p-2 bg-gradient-to-b from-[#0d1220]/70 to-[#070A12]/40 border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-3xl animate-fade-in overflow-hidden group">
-            {/* 3D Glass Orbs & Neon Lights */}
-            <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-[#4DA3FF]/20 blur-[120px] rounded-full mix-blend-screen pointer-events-none group-hover:bg-[#4DA3FF]/30 transition-all duration-1000"></div>
-            <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-[#8B5CF6]/20 blur-[120px] rounded-full mix-blend-screen pointer-events-none group-hover:bg-[#8B5CF6]/30 transition-all duration-1000"></div>
-            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 mix-blend-overlay rounded-[3rem] pointer-events-none"></div>
+        {/* Main Hero / Uploader Section */}
+        <section className="relative w-full rounded-[2rem] sm:rounded-[2.5rem] p-1.5 sm:p-3 bg-[#080d1a]/90 border border-white/[0.09] shadow-[0_24px_60px_rgba(0,0,0,0.7)] backdrop-blur-2xl animate-fade-in overflow-hidden group">
+            {/* Subtle luxury ambient glows */}
+            <div className="absolute top-[-20%] left-[25%] w-[50%] h-[50%] bg-indigo-600/15 blur-[130px] rounded-full mix-blend-screen pointer-events-none"></div>
+            <div className="absolute bottom-[-20%] right-[25%] w-[50%] h-[50%] bg-sky-500/10 blur-[130px] rounded-full mix-blend-screen pointer-events-none"></div>
             
-            <div className="text-center mt-8 mb-10 flex flex-col items-center gap-4 relative z-10 w-full overflow-visible">
-              <h1 className="text-4xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-blue-100 to-[#4DA3FF] tracking-tight drop-shadow-[0_0_15px_rgba(77,163,255,0.4)] uppercase whitespace-normal sm:whitespace-nowrap">
+            <div className="text-center mt-6 sm:mt-9 mb-7 flex flex-col items-center gap-3 relative z-10 w-full px-4">
+              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/25 text-indigo-300 text-xs font-bold shadow-sm">
+                <Sparkles className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
+                <span>منظومة متكاملة لمعالجة وتحويل الوسائط الرقمية</span>
+              </div>
+              
+              <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-white tracking-tight">
                  SVGA MOTION STUDIO
               </h1>
-              <p className="text-[#8B5CF6] font-bold tracking-[0.2em] uppercase text-sm sm:text-base mt-1 bg-white/5 px-8 py-3 rounded-full border border-white/10 shadow-[0_4px_15px_rgba(139,92,246,0.2)] backdrop-blur-md">
-                 Create • Edit • Convert
+              <p className="text-slate-400 font-medium text-xs sm:text-sm tracking-wide max-w-xl">
+                 استوديو احترافي فائق السرعة لمعاينة، تحرير، ضغط، وتحويل ملفات الأنيميشن والفيديو
               </p>
             </div>
             
-            <div className="relative z-10 px-4 sm:px-10 pb-12">
+            <div className="relative z-10 px-2 sm:px-8 pb-8 sm:pb-10">
                 <Uploader 
                     onUpload={onUpload} 
                     isUploading={false}
@@ -118,10 +122,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
             transition={{ delay: 0.2, duration: 0.6, ease: "easeOut" }}
             className="flex flex-col gap-8"
           >
-            <div className="flex items-center justify-between border-b border-white/10 pb-5 px-4 relative">
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-5 px-4 relative">
               <div className="absolute bottom-0 right-0 w-1/3 h-[2px] bg-gradient-to-l from-transparent via-cyan-500/40 to-transparent"></div>
               <div className="flex items-center gap-4">
-                <div className="p-4 rounded-3xl bg-gradient-to-br from-cyan-500/10 to-indigo-600/10 border border-cyan-500/30 shadow-xl text-cyan-400 backdrop-blur-md">
+                <div className="p-3.5 rounded-2xl bg-gradient-to-br from-cyan-500/10 to-indigo-600/10 border border-cyan-500/30 shadow-xl text-cyan-400 backdrop-blur-md">
                   <Globe className="w-5 h-5" />
                 </div>
                 <div>
@@ -151,40 +155,40 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       else handleOpenExternalUrl(storeLink.url, storeLink.openInNewTab !== false);
                     }
                   }}
-                  className="group relative text-start flex flex-col items-start gap-3 sm:gap-5 p-4 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] glass-panel transition-all duration-500 cursor-pointer overflow-hidden hover:-translate-y-2 active:translate-y-1 border-fuchsia-500/40 hover:border-fuchsia-400 shadow-[0_0_20px_rgba(217,70,239,0.15)] hover:shadow-[0_0_40px_rgba(217,70,239,0.3)] bg-gradient-to-b from-[#190c24]/90 to-[#0d1220]/70"
+                  className="group relative text-start flex flex-col items-start gap-3 sm:gap-5 p-4 sm:p-7 rounded-[1.5rem] sm:rounded-[2rem] glass-panel transition-all duration-300 cursor-pointer overflow-hidden hover:-translate-y-1.5 border-fuchsia-500/40 hover:border-fuchsia-400 shadow-[0_0_20px_rgba(217,70,239,0.15)] hover:shadow-[0_0_35px_rgba(217,70,239,0.3)] bg-gradient-to-b from-[#180a22]/90 to-[#090e1c]/80"
                 >
                   <span className="absolute top-3 sm:top-5 right-3 sm:right-5 px-2.5 py-0.5 rounded-full bg-fuchsia-500/20 border border-fuchsia-500/40 text-fuchsia-300 text-[10px] sm:text-xs font-black flex items-center gap-1 z-20">
                     <Sparkles className="w-3 h-3" />
                     <span>{storeLink.badge || 'الصفحة الأولى'}</span>
                   </span>
 
-                  <div className="absolute inset-0 bg-gradient-to-br from-fuchsia-500/20 to-purple-600/20 opacity-0 group-hover:opacity-100 transition-all duration-700 pointer-events-none"></div>
+                  <div className="absolute inset-0 bg-gradient-to-br from-fuchsia-500/15 to-purple-600/15 opacity-0 group-hover:opacity-100 transition-all duration-500 pointer-events-none"></div>
 
-                  <div className="relative z-10 p-3 sm:p-4 rounded-xl sm:rounded-2xl transition-all duration-500 group-hover:scale-110 group-hover:rotate-3 shadow-[0_8px_16px_rgba(0,0,0,0.4)] border bg-gradient-to-br from-fuchsia-500/30 to-purple-600/30 text-white border-white/20">
-                    <ShoppingBag className="w-6 h-6 sm:w-8 sm:h-8 drop-shadow-md text-fuchsia-300" />
+                  <div className="relative z-10 p-3 sm:p-4 rounded-xl sm:rounded-2xl transition-all duration-300 group-hover:scale-105 shadow-[0_8px_16px_rgba(0,0,0,0.4)] border bg-gradient-to-br from-fuchsia-500/30 to-purple-600/30 text-white border-white/20">
+                    <ShoppingBag className="w-6 h-6 sm:w-7 sm:h-7 drop-shadow-md text-fuchsia-300" />
                   </div>
 
-                  <div className="relative z-10 flex flex-col gap-2 sm:gap-4 w-full h-full flex-grow">
-                    <h3 className="text-sm sm:text-xl md:text-2xl font-black text-white group-hover:text-fuchsia-300 transition-colors drop-shadow-md">
+                  <div className="relative z-10 flex flex-col gap-2 sm:gap-3 w-full h-full flex-grow">
+                    <h3 className="text-sm sm:text-lg md:text-xl font-black text-white group-hover:text-fuchsia-300 transition-colors drop-shadow-md">
                       {storeLink.title || 'المتجر'}
                     </h3>
 
-                    <div className="hidden sm:flex flex-col gap-3 mt-auto">
-                      <div className="bg-[#070A12]/50 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/5 shadow-inner group-hover:bg-[#070A12]/30 transition-colors backdrop-blur-sm">
-                        <p className="text-[10px] sm:text-[14px] leading-relaxed font-bold text-slate-300">
+                    <div className="hidden sm:flex flex-col gap-2.5 mt-auto">
+                      <div className="bg-[#070A12]/60 p-3 rounded-xl border border-white/5 shadow-inner group-hover:bg-[#070A12]/40 transition-colors backdrop-blur-sm">
+                        <p className="text-[11px] sm:text-[13px] leading-relaxed font-bold text-slate-300">
                           {storeLink.desc || 'فتح موقع المتجر واستعراض القوالب والملفات'}
                         </p>
                       </div>
-                      <div className="bg-fuchsia-500/10 p-2.5 rounded-xl border border-fuchsia-500/20 flex items-center gap-2 text-fuchsia-300 text-xs font-bold">
+                      <div className="bg-fuchsia-500/10 p-2 rounded-xl border border-fuchsia-500/20 flex items-center gap-2 text-fuchsia-300 text-xs font-bold">
                         <Sparkles className="w-3.5 h-3.5 flex-shrink-0 text-fuchsia-400" />
                         <span>فتح مباشر داخل الصفحة</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="hidden sm:block absolute top-6 left-6 opacity-0 group-hover:opacity-100 transition-all duration-500 translate-x-4 group-hover:translate-x-0">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-fuchsia-600 to-purple-500 text-white flex items-center justify-center shadow-[0_0_15px_rgba(217,70,239,0.6)] border border-white/20">
-                      <ArrowLeft className="w-5 h-5 -rotate-45 group-hover:rotate-0 transition-transform duration-500" />
+                  <div className="hidden sm:block absolute top-6 left-6 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-3 group-hover:translate-x-0">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-fuchsia-600 to-purple-500 text-white flex items-center justify-center shadow-[0_0_15px_rgba(217,70,239,0.6)] border border-white/20">
+                      <ArrowLeft className="w-4 h-4 -rotate-45 group-hover:rotate-0 transition-transform duration-300" />
                     </div>
                   </div>
                 </div>
@@ -202,40 +206,40 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       else handleOpenExternalUrl(svgaEditorLink.url, svgaEditorLink.openInNewTab !== false);
                     }
                   }}
-                  className="group relative text-start flex flex-col items-start gap-3 sm:gap-5 p-4 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] glass-panel transition-all duration-500 cursor-pointer overflow-hidden hover:-translate-y-2 active:translate-y-1 border-cyan-500/40 hover:border-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.15)] hover:shadow-[0_0_40px_rgba(6,182,212,0.3)] bg-gradient-to-b from-[#0c1f2b]/90 to-[#0d1220]/70"
+                  className="group relative text-start flex flex-col items-start gap-3 sm:gap-5 p-4 sm:p-7 rounded-[1.5rem] sm:rounded-[2rem] glass-panel transition-all duration-300 cursor-pointer overflow-hidden hover:-translate-y-1.5 border-cyan-500/40 hover:border-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.15)] hover:shadow-[0_0_35px_rgba(6,182,212,0.3)] bg-gradient-to-b from-[#091a24]/90 to-[#090e1c]/80"
                 >
                   <span className="absolute top-3 sm:top-5 right-3 sm:right-5 px-2.5 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-[10px] sm:text-xs font-black flex items-center gap-1 z-20">
                     <Sparkles className="w-3 h-3" />
                     <span>{svgaEditorLink.badge || 'الصفحة الثانية'}</span>
                   </span>
 
-                  <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/20 to-blue-600/20 opacity-0 group-hover:opacity-100 transition-all duration-700 pointer-events-none"></div>
+                  <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/15 to-blue-600/15 opacity-0 group-hover:opacity-100 transition-all duration-500 pointer-events-none"></div>
 
-                  <div className="relative z-10 p-3 sm:p-4 rounded-xl sm:rounded-2xl transition-all duration-500 group-hover:scale-110 group-hover:rotate-3 shadow-[0_8px_16px_rgba(0,0,0,0.4)] border bg-gradient-to-br from-cyan-500/30 to-blue-600/30 text-white border-white/20">
-                    <Layers className="w-6 h-6 sm:w-8 sm:h-8 drop-shadow-md text-cyan-300" />
+                  <div className="relative z-10 p-3 sm:p-4 rounded-xl sm:rounded-2xl transition-all duration-300 group-hover:scale-105 shadow-[0_8px_16px_rgba(0,0,0,0.4)] border bg-gradient-to-br from-cyan-500/30 to-blue-600/30 text-white border-white/20">
+                    <Layers className="w-6 h-6 sm:w-7 sm:h-7 drop-shadow-md text-cyan-300" />
                   </div>
 
-                  <div className="relative z-10 flex flex-col gap-2 sm:gap-4 w-full h-full flex-grow">
-                    <h3 className="text-sm sm:text-xl md:text-2xl font-black text-white group-hover:text-cyan-300 transition-colors drop-shadow-md">
+                  <div className="relative z-10 flex flex-col gap-2 sm:gap-3 w-full h-full flex-grow">
+                    <h3 className="text-sm sm:text-lg md:text-xl font-black text-white group-hover:text-cyan-300 transition-colors drop-shadow-md">
                       {svgaEditorLink.title || 'محرر ومصمم SVGA'}
                     </h3>
 
-                    <div className="hidden sm:flex flex-col gap-3 mt-auto">
-                      <div className="bg-[#070A12]/50 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/5 shadow-inner group-hover:bg-[#070A12]/30 transition-colors backdrop-blur-sm">
-                        <p className="text-[10px] sm:text-[14px] leading-relaxed font-bold text-slate-300">
+                    <div className="hidden sm:flex flex-col gap-2.5 mt-auto">
+                      <div className="bg-[#070A12]/60 p-3 rounded-xl border border-white/5 shadow-inner group-hover:bg-[#070A12]/40 transition-colors backdrop-blur-sm">
+                        <p className="text-[11px] sm:text-[13px] leading-relaxed font-bold text-slate-300">
                           {svgaEditorLink.desc || 'فتح محرر ومصمم ملفات SVGA'}
                         </p>
                       </div>
-                      <div className="bg-cyan-500/10 p-2.5 rounded-xl border border-cyan-500/20 flex items-center gap-2 text-cyan-300 text-xs font-bold">
+                      <div className="bg-cyan-500/10 p-2 rounded-xl border border-cyan-500/20 flex items-center gap-2 text-cyan-300 text-xs font-bold">
                         <Sparkles className="w-3.5 h-3.5 flex-shrink-0 text-cyan-400" />
                         <span>فتح مباشر داخل الصفحة</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="hidden sm:block absolute top-6 left-6 opacity-0 group-hover:opacity-100 transition-all duration-500 translate-x-4 group-hover:translate-x-0">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-cyan-600 to-blue-500 text-white flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.6)] border border-white/20">
-                      <ArrowLeft className="w-5 h-5 -rotate-45 group-hover:rotate-0 transition-transform duration-500" />
+                  <div className="hidden sm:block absolute top-6 left-6 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-3 group-hover:translate-x-0">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-cyan-600 to-blue-500 text-white flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.6)] border border-white/20">
+                      <ArrowLeft className="w-4 h-4 -rotate-45 group-hover:rotate-0 transition-transform duration-300" />
                     </div>
                   </div>
                 </div>
@@ -254,40 +258,40 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       else handleOpenExternalUrl(link.url, link.openInNewTab !== false);
                     }
                   }}
-                  className="group relative text-start flex flex-col items-start gap-3 sm:gap-5 p-4 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] glass-panel transition-all duration-500 cursor-pointer overflow-hidden hover:-translate-y-2 active:translate-y-1 border-indigo-500/40 hover:border-indigo-400 shadow-[0_0_20px_rgba(99,102,241,0.15)] hover:shadow-[0_0_40px_rgba(99,102,241,0.3)] bg-gradient-to-b from-[#13102d]/90 to-[#0d1220]/70"
+                  className="group relative text-start flex flex-col items-start gap-3 sm:gap-5 p-4 sm:p-7 rounded-[1.5rem] sm:rounded-[2rem] glass-panel transition-all duration-300 cursor-pointer overflow-hidden hover:-translate-y-1.5 border-indigo-500/40 hover:border-indigo-400 shadow-[0_0_20px_rgba(99,102,241,0.15)] hover:shadow-[0_0_35px_rgba(99,102,241,0.3)] bg-gradient-to-b from-[#100d26]/90 to-[#090e1c]/80"
                 >
                   <span className="absolute top-3 sm:top-5 right-3 sm:right-5 px-2.5 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-[10px] sm:text-xs font-black flex items-center gap-1 z-20">
                     <Sparkles className="w-3 h-3" />
                     <span>{link.badge || 'رابط مخصص'}</span>
                   </span>
 
-                  <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/20 to-purple-600/20 opacity-0 group-hover:opacity-100 transition-all duration-700 pointer-events-none"></div>
+                  <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/15 to-purple-600/15 opacity-0 group-hover:opacity-100 transition-all duration-500 pointer-events-none"></div>
 
-                  <div className="relative z-10 p-3 sm:p-4 rounded-xl sm:rounded-2xl transition-all duration-500 group-hover:scale-110 group-hover:rotate-3 shadow-[0_8px_16px_rgba(0,0,0,0.4)] border bg-gradient-to-br from-indigo-500/30 to-purple-600/30 text-white border-white/20">
-                    <Globe className="w-6 h-6 sm:w-8 sm:h-8 drop-shadow-md text-indigo-300" />
+                  <div className="relative z-10 p-3 sm:p-4 rounded-xl sm:rounded-2xl transition-all duration-300 group-hover:scale-105 shadow-[0_8px_16px_rgba(0,0,0,0.4)] border bg-gradient-to-br from-indigo-500/30 to-purple-600/30 text-white border-white/20">
+                    <Globe className="w-6 h-6 sm:w-7 sm:h-7 drop-shadow-md text-indigo-300" />
                   </div>
 
-                  <div className="relative z-10 flex flex-col gap-2 sm:gap-4 w-full h-full flex-grow">
-                    <h3 className="text-sm sm:text-xl md:text-2xl font-black text-white group-hover:text-indigo-300 transition-colors drop-shadow-md">
+                  <div className="relative z-10 flex flex-col gap-2 sm:gap-3 w-full h-full flex-grow">
+                    <h3 className="text-sm sm:text-lg md:text-xl font-black text-white group-hover:text-indigo-300 transition-colors drop-shadow-md">
                       {link.title}
                     </h3>
 
-                    <div className="hidden sm:flex flex-col gap-3 mt-auto">
-                      <div className="bg-[#070A12]/50 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/5 shadow-inner group-hover:bg-[#070A12]/30 transition-colors backdrop-blur-sm">
-                        <p className="text-[10px] sm:text-[14px] leading-relaxed font-bold text-slate-300">
+                    <div className="hidden sm:flex flex-col gap-2.5 mt-auto">
+                      <div className="bg-[#070A12]/60 p-3 rounded-xl border border-white/5 shadow-inner group-hover:bg-[#070A12]/40 transition-colors backdrop-blur-sm">
+                        <p className="text-[11px] sm:text-[13px] leading-relaxed font-bold text-slate-300">
                           {link.desc || 'فتح الرابط المخصص'}
                         </p>
                       </div>
-                      <div className="bg-indigo-500/10 p-2.5 rounded-xl border border-indigo-500/20 flex items-center gap-2 text-indigo-300 text-xs font-bold">
+                      <div className="bg-indigo-500/10 p-2 rounded-xl border border-indigo-500/20 flex items-center gap-2 text-indigo-300 text-xs font-bold">
                         <Sparkles className="w-3.5 h-3.5 flex-shrink-0 text-indigo-400" />
                         <span>فتح مباشر داخل الصفحة</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="hidden sm:block absolute top-6 left-6 opacity-0 group-hover:opacity-100 transition-all duration-500 translate-x-4 group-hover:translate-x-0">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-500 text-white flex items-center justify-center shadow-[0_0_15px_rgba(99,102,241,0.6)] border border-white/20">
-                      <ArrowLeft className="w-5 h-5 -rotate-45 group-hover:rotate-0 transition-transform duration-500" />
+                  <div className="hidden sm:block absolute top-6 left-6 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-3 group-hover:translate-x-0">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-500 text-white flex items-center justify-center shadow-[0_0_15px_rgba(99,102,241,0.6)] border border-white/20">
+                      <ArrowLeft className="w-4 h-4 -rotate-45 group-hover:rotate-0 transition-transform duration-300" />
                     </div>
                   </div>
                 </div>
@@ -297,24 +301,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
         )}
 
         {/* Categories and Tools Grid */}
-        <section className="flex flex-col gap-16">
+        <section className="flex flex-col gap-14">
            {filteredCategories.map((cat, idx) => (
               <motion.div 
                  key={cat.id}
-                 initial={{ opacity: 0, y: 30 }}
+                 initial={{ opacity: 0, y: 25 }}
                  animate={{ opacity: 1, y: 0 }}
-                 transition={{ delay: idx * 0.1, duration: 0.6, ease: "easeOut" }}
-                 className="flex flex-col gap-8"
+                 transition={{ delay: idx * 0.08, duration: 0.5, ease: "easeOut" }}
+                 className="flex flex-col gap-6"
               >
-                 <div className="flex items-center gap-4 border-b border-white/10 pb-5 px-4 relative">
-                    <div className="absolute bottom-0 right-0 w-1/3 h-[2px] bg-gradient-to-l from-transparent via-white/20 to-transparent"></div>
-                    <div className={`p-4 rounded-3xl bg-gradient-to-br ${cat.color} ${cat.borderColor} border shadow-xl ${cat.textColor} backdrop-blur-md`}>
+                 <div className="flex items-center gap-3.5 border-b border-white/[0.08] pb-3.5 px-2 relative">
+                    <div className="p-2.5 rounded-xl bg-[#0b1222] border border-white/[0.1] text-indigo-400 shadow-inner">
                        {cat.icon}
                     </div>
-                    <h2 className="text-3xl font-black text-white font-arabic tracking-wide">{cat.label}</h2>
+                    <div>
+                      <h2 className="text-lg sm:text-xl font-black text-white tracking-wide">{cat.label}</h2>
+                      <span className="text-[11px] text-slate-400 font-medium">الأدوات التخصصية لمعالجة وتصدير الوسائط</span>
+                    </div>
                  </div>
 
-                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-6 px-1 sm:px-2">
+                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3.5 px-1">
                     {cat.tools.map(tool => {
                        const starred = isStarred(tool.id);
                        return (
@@ -346,21 +352,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                onAction((tool as any).dashboardActionKey || (tool as any).actionKey);
                              }
                           }}
-                          className={`group relative text-start flex flex-col items-start gap-3 sm:gap-5 p-4 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] glass-panel transition-all duration-500 cursor-pointer overflow-hidden hover:-translate-y-2 active:translate-y-1 ${
+                          className={`group relative text-start flex flex-col items-start gap-3.5 p-5 rounded-2xl transition-all duration-300 cursor-pointer overflow-hidden border ${
                              tool.isVip
-                              ? 'border-amber-400/80 hover:border-amber-300 shadow-[0_0_35px_rgba(245,158,11,0.25)] hover:shadow-[0_0_55px_rgba(245,158,11,0.45)] bg-gradient-to-br from-[#271502]/95 via-[#1b0c26]/95 to-[#0c1020]/95'
+                              ? 'border-amber-500/40 hover:border-amber-400 bg-gradient-to-b from-[#181105]/85 to-[#090f1d]/95 shadow-[0_4px_24px_rgba(245,158,11,0.12)] hover:-translate-y-1'
                               : tool.highlight 
-                                ? 'border-[#4DA3FF]/40 hover:border-[#4DA3FF] shadow-[0_0_20px_rgba(77,163,255,0.15)] hover:shadow-[0_0_40px_rgba(77,163,255,0.3)] bg-gradient-to-b from-[#0d1220]/90 to-[#0d1220]/60' 
+                                ? 'border-indigo-500/30 hover:border-indigo-400/60 bg-[#090f1e]/90 shadow-[0_4px_20px_rgba(99,102,241,0.12)] hover:-translate-y-1' 
                                 : starred
-                                  ? 'border-amber-500/40 hover:border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.15)] bg-gradient-to-b from-[#14120a]/80 to-[#0d1220]/70'
-                                  : 'border-white/10 hover:border-white/30 hover:shadow-[0_10px_30px_rgba(0,0,0,0.6)] bg-[#0d1220]/60'
+                                  ? 'border-amber-500/30 hover:border-amber-400 bg-[#101420]/90 hover:-translate-y-1 shadow-[0_4px_16px_rgba(245,158,11,0.08)]'
+                                  : 'border-white/[0.07] hover:border-indigo-500/40 bg-[#090e1c]/85 hover:bg-[#0d152a] hover:-translate-y-1 shadow-[0_4px_16px_rgba(0,0,0,0.45)]'
                           }`}
                        >
                           {/* VIP Badge on Tool Card */}
                           {tool.isVip && (
-                            <span className="absolute top-3 sm:top-5 right-3 sm:right-5 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-black text-[10px] sm:text-xs font-black shadow-[0_0_12px_rgba(245,158,11,0.6)] flex items-center gap-1 z-20 animate-pulse">
-                              <Crown className="w-3 h-3" />
-                              <span>VIP 👑</span>
+                            <span className="absolute top-3.5 right-3.5 px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-black flex items-center gap-1 z-20">
+                              <Crown className="w-3 h-3 text-amber-400" />
+                              <span>VIP</span>
                             </span>
                           )}
 
@@ -371,61 +377,37 @@ export const Dashboard: React.FC<DashboardProps> = ({
                               e.stopPropagation();
                               toggleStar(tool.id);
                             }}
-                            className={`absolute top-3 sm:top-5 left-3 sm:left-5 p-2 rounded-xl transition-all z-20 cursor-pointer ${
+                            className={`absolute top-3.5 left-3.5 p-1.5 rounded-lg transition-all z-20 cursor-pointer ${
                               starred
-                                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40 opacity-100 shadow-[0_0_12px_rgba(245,158,11,0.3)] scale-100'
-                                : 'bg-white/5 hover:bg-white/15 text-slate-400 hover:text-amber-400 border border-white/10 opacity-0 group-hover:opacity-100'
+                                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 opacity-100'
+                                : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-500 hover:text-amber-400 border border-white/[0.06] opacity-0 group-hover:opacity-100'
                             }`}
                             title={starred ? 'مثبتة بنجمة في البداية ⭐ (اضغط لإلغاء التثبيت)' : 'تثبيت الأداة بنجمة في البداية ⭐'}
                           >
-                            <Star className={`w-4 h-4 sm:w-5 sm:h-5 ${starred ? 'fill-amber-400 text-amber-400' : ''}`} />
+                            <Star className={`w-3.5 h-3.5 ${starred ? 'fill-amber-400 text-amber-400' : ''}`} />
                           </button>
-                          {/* 3D Glass Glow Hover */}
-                          <div className={`absolute inset-0 bg-gradient-to-br transition-all duration-700 opacity-0 group-hover:opacity-100 pointer-events-none ${cat.hoverColor}`}></div>
-                          <div className="absolute -inset-[100%] top-0 bg-gradient-to-b from-transparent via-white/5 to-transparent opacity-0 group-hover:opacity-100 transform -rotate-45 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000 ease-in-out pointer-events-none"></div>
                           
                           {/* Icon Container */}
-                          <div className={`relative z-10 p-3 sm:p-4 rounded-xl sm:rounded-2xl transition-all duration-500 group-hover:scale-110 group-hover:rotate-3 shadow-[0_8px_16px_rgba(0,0,0,0.4)] border ${
-                             tool.highlight ? 'bg-gradient-to-br from-[#4DA3FF]/30 to-[#8B5CF6]/30 text-white border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.4),0_0_20px_rgba(77,163,255,0.5)]' : 'bg-white/5 text-slate-300 border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]'
+                          <div className={`p-2.5 rounded-xl transition-transform duration-300 group-hover:scale-105 border ${
+                             tool.highlight ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/25' : 'bg-white/[0.05] text-slate-300 border-white/[0.08]'
                           }`}>
-                            {React.cloneElement(tool.icon as React.ReactElement<any>, { className: 'w-6 h-6 sm:w-8 sm:h-8 drop-shadow-md' })}
+                            {React.cloneElement(tool.icon as React.ReactElement<any>, { className: 'w-5 h-5' })}
                           </div>
 
-                          <div className="relative z-10 flex flex-col gap-2 sm:gap-4 w-full h-full flex-grow">
-                             <h3 className={`text-sm sm:text-xl md:text-2xl font-black transition-colors ${tool.highlight ? 'text-white group-hover:text-[#22D3EE] drop-shadow-md' : 'text-slate-100 group-hover:text-white drop-shadow-sm'}`}>
-                                {tool.label}
-                             </h3>
-                             
-                             <div className="hidden sm:flex flex-col gap-3 mt-auto">
-                                {language === 'en' ? (
-                                   <div className="bg-[#070A12]/40 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/5 shadow-inner transition-colors backdrop-blur-sm">
-                                      <p className="text-[10px] sm:text-[14px] leading-relaxed font-bold text-slate-300 font-sans tracking-wide">
-                                         {tool.descEn}
-                                      </p>
-                                   </div>
-                                ) : (
-                                   <>
-                                      <div className="bg-[#070A12]/50 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/5 shadow-inner group-hover:bg-[#070A12]/30 transition-colors backdrop-blur-sm">
-                                         <p className="text-[10px] sm:text-[14px] leading-relaxed font-bold text-slate-300">
-                                            {tool.descAr}
-                                         </p>
-                                      </div>
-                                      {language === 'ar' && (
-                                         <div className="bg-[#070A12]/30 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/5 shadow-inner transition-colors backdrop-blur-sm" dir="ltr">
-                                            <p className="text-[9px] sm:text-[12px] leading-relaxed font-bold text-slate-400 font-sans tracking-wide">
-                                               {tool.descEn}
-                                            </p>
-                                         </div>
-                                      )}
-                                   </>
-                                )}
+                          <div className="flex flex-col gap-1.5 w-full h-full flex-grow">
+                             <div className="flex items-center justify-between gap-2">
+                               <h3 className={`text-sm sm:text-base font-bold transition-colors ${tool.highlight ? 'text-white group-hover:text-indigo-300' : 'text-slate-100 group-hover:text-white'}`}>
+                                  {tool.label}
+                                </h3>
                              </div>
-                          </div>
+                             
+                             <p className="text-xs text-slate-400 font-normal leading-relaxed line-clamp-2">
+                                {language === 'en' ? tool.descEn : tool.descAr}
+                             </p>
 
-                          {/* Arrow overlay top left */}
-                          <div className="hidden sm:block absolute top-6 left-6 opacity-0 group-hover:opacity-100 transition-all duration-500 translate-x-4 group-hover:translate-x-0">
-                             <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#8B5CF6] to-[#4DA3FF] text-white flex items-center justify-center shadow-[0_0_15px_rgba(77,163,255,0.6)] border border-white/20">
-                                <ArrowLeft className="w-5 h-5 -rotate-45 group-hover:rotate-0 transition-transform duration-500" />
+                             <div className="mt-auto pt-2.5 border-t border-white/[0.06] flex items-center justify-between text-xs text-indigo-400 font-semibold group-hover:text-indigo-300">
+                                <span>فتح الأداة</span>
+                                <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-1 transition-transform" />
                              </div>
                           </div>
                        </div>

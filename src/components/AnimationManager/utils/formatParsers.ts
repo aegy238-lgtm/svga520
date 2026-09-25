@@ -285,24 +285,59 @@ export async function parseAnimationFile(file: File): Promise<AnimationItem> {
     // SVGA Animation Parser
     if (format === 'svga') {
       try {
-        const buffer = await file.arrayBuffer();
-        const { Parser: SvgaParser } = await import('svga.lite');
-        const parser = new SvgaParser();
-        const videoItem = await parser.do(buffer);
-        const width = videoItem.videoSize.width || 512;
-        const height = videoItem.videoSize.height || 512;
-        const fps = videoItem.FPS || 30;
-        const frameCount = Math.max(1, videoItem.frames || 1);
-        const duration = Number((frameCount / fps).toFixed(2));
+        let videoItem: any = null;
+        
+        // 1. Try svga.lite
+        try {
+          const svgaMod = await import('svga.lite');
+          const SvgaParser = svgaMod.Parser || (svgaMod as any).default?.Parser;
+          if (SvgaParser) {
+            const parser = new SvgaParser();
+            if (typeof parser.do === 'function') {
+              const buffer = await file.arrayBuffer();
+              videoItem = await parser.do(buffer);
+            }
+          }
+        } catch (svgaLiteErr) {
+          console.warn('svga.lite parse attempt failed, trying fallback:', svgaLiteErr);
+        }
 
-        return {
-          ...baseItem,
-          dimensions: { width, height },
-          fps,
-          frameCount,
-          duration: duration || 1,
-          status: 'ready'
-        };
+        // 2. Fallback to global window.SVGA (svgaplayerweb)
+        if (!videoItem && typeof window !== 'undefined' && (window as any).SVGA) {
+          const svgaLib = (window as any).SVGA;
+          const parser = new svgaLib.Parser();
+          const blobUrl = URL.createObjectURL(file);
+          try {
+            videoItem = await new Promise<any>((resolve, reject) => {
+              if (typeof parser.load === 'function') {
+                parser.load(blobUrl, resolve, reject);
+              } else if (typeof parser.loadViaWorker === 'function') {
+                parser.loadViaWorker(blobUrl, resolve, reject);
+              } else {
+                reject(new Error('No SVGA load method available'));
+              }
+            });
+          } finally {
+            URL.revokeObjectURL(blobUrl);
+          }
+        }
+
+        if (videoItem) {
+          const width = videoItem.videoSize?.width || 512;
+          const height = videoItem.videoSize?.height || 512;
+          const fps = videoItem.FPS || 30;
+          const frameCount = Math.max(1, videoItem.frames || 1);
+          const duration = Number((frameCount / fps).toFixed(2));
+
+          return {
+            ...baseItem,
+            dimensions: { width, height },
+            fps,
+            frameCount,
+            duration: duration || 1,
+            status: 'ready'
+          };
+        }
       } catch (e) {
         console.warn('SVGA parser error:', e);
       }

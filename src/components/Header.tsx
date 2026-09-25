@@ -581,14 +581,13 @@ export const Header: React.FC<HeaderProps> = (props) => {
           pointerEvents: isHeaderVisible ? 'auto' : 'none',
           transition: 'all 0.35s cubic-bezier(0.16, 1, 0.3, 1)'
         }}
-        className="fixed top-3 left-4 right-4 h-16 md:h-20 glass-panel rounded-2xl z-[1000] px-3 md:px-6 flex items-center justify-between shadow-[0_8px_32px_rgba(0,0,0,0.5)] border border-white/10"
+        className="fixed top-2.5 sm:top-3 left-3 sm:left-5 right-3 sm:right-5 h-16 md:h-20 bg-[#090e1c]/90 backdrop-blur-2xl rounded-2xl md:rounded-3xl z-[1000] px-3 md:px-6 flex items-center justify-between shadow-[0_16px_45px_rgba(0,0,0,0.75)] border border-white/[0.09]"
       >
         
         {/* Logo */}
         <div className="flex items-center shrink-0">
-          <button onClick={props.onLogoClick} className="flex items-center gap-2 md:gap-3 group shrink-0">
-            <div className="w-9 h-9 md:w-11 md:h-11 bg-gradient-to-br from-[#4DA3FF] via-[#8B5CF6] to-[#22D3EE] rounded-xl md:rounded-2xl flex items-center justify-center shadow-lg shadow-[#4DA3FF]/30 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 border border-white/20 relative overflow-hidden shrink-0">
-               <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-30 mix-blend-overlay"></div>
+          <button onClick={props.onLogoClick} className="flex items-center gap-2.5 md:gap-3.5 group shrink-0 text-start cursor-pointer">
+            <div className="w-9 h-9 md:w-11 md:h-11 bg-gradient-to-br from-indigo-500 via-sky-500 to-indigo-700 rounded-xl md:rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/25 group-hover:scale-105 transition-all duration-300 border border-white/20 relative overflow-hidden shrink-0">
                {props.settings?.logoUrl ? (
                  <img src={props.settings.logoUrl} alt="Logo" className="w-full h-full object-cover relative z-10" />
                ) : (
@@ -596,10 +595,10 @@ export const Header: React.FC<HeaderProps> = (props) => {
                )}
             </div>
             <div className="flex flex-col items-start hidden lg:flex shrink-0">
-              <h1 className="text-xl md:text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-[#4DA3FF] tracking-tight whitespace-nowrap drop-shadow-[0_0_10px_rgba(77,163,255,0.3)]">
+              <h1 className="text-base md:text-lg font-black text-white tracking-tight whitespace-nowrap group-hover:text-indigo-200 transition-colors">
                 {props.settings?.appName?.trim() ? props.settings.appName : 'SVGA Studio'}
               </h1>
-              <span className="text-[9px] text-[#22D3EE] font-bold tracking-[0.2em] uppercase whitespace-nowrap mt-0.5">3D Motion Lab</span>
+              <span className="text-[10px] text-sky-400 font-bold tracking-wider uppercase whitespace-nowrap">Professional Media Suite</span>
             </div>
           </button>
         </div>
@@ -608,17 +607,17 @@ export const Header: React.FC<HeaderProps> = (props) => {
         <TopLevelNavigation />
 
         {/* Right Side Controls (Search, Pin Toggle, Admin, Profile) */}
-        <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           
           {/* Mega Tools Grid Trigger Button */}
           <button
             onClick={() => setIsAllToolsOpen(true)}
-            className="hidden md:flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-indigo-500/20 to-purple-500/20 hover:from-indigo-500/30 hover:to-purple-500/30 text-indigo-200 hover:text-white border border-indigo-500/30 rounded-xl transition-all font-bold text-xs shrink-0 shadow-sm active:scale-95"
+            className="hidden md:flex items-center gap-2 px-3.5 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-200 hover:text-white border border-indigo-500/25 hover:border-indigo-500/40 rounded-xl transition-all font-bold text-xs shrink-0 shadow-sm active:scale-95 cursor-pointer"
             title="استعراض كافة الأدوات (19 أداة) في نافذة سريعة ومنظمة"
           >
             <LayoutGrid className="w-4 h-4 text-indigo-400" />
-            <span className="hidden xl:inline">جميع الأدوات</span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-500/40 text-white font-mono">
+            <span className="hidden xl:inline font-bold">جميع الأدوات</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/30 text-indigo-100 font-mono font-bold">
               {allTools.length}
             </span>
           </button>
@@ -626,11 +625,11 @@ export const Header: React.FC<HeaderProps> = (props) => {
           {/* Search Trigger */}
           <button
             onClick={() => setIsSearchOpen(true)}
-            className="hidden sm:flex items-center gap-3 px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 rounded-full transition-all text-slate-400 hover:text-white group"
+            className="hidden sm:flex items-center gap-3 px-3.5 py-2 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] hover:border-white/[0.15] rounded-xl transition-all text-slate-400 hover:text-white group cursor-pointer"
           >
-            <Search className="w-4 h-4 group-hover:scale-110 transition-transform" />
-            <span className="text-sm font-medium mr-2">البحث عن أداة...</span>
-            <div className="flex items-center gap-1 font-sans text-[10px] bg-slate-900 px-2 py-0.5 rounded-md border border-slate-700 opacity-70">
+            <Search className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform" />
+            <span className="text-xs font-semibold mr-1">البحث عن أداة...</span>
+            <div className="flex items-center gap-1 font-sans text-[10px] bg-slate-900/80 px-2 py-0.5 rounded-md border border-slate-700/60 text-slate-400">
               <Command className="w-3 h-3" />
               <span>K</span>
             </div>
@@ -638,32 +637,33 @@ export const Header: React.FC<HeaderProps> = (props) => {
           
           <button
             onClick={() => setIsSearchOpen(true)}
-            className="sm:hidden p-2.5 rounded-xl bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+            className="sm:hidden p-2 rounded-xl bg-white/[0.05] text-slate-300 hover:text-white hover:bg-white/[0.1] transition-colors border border-white/[0.08]"
+            title="بحث"
           >
-            <Search className="w-5 h-5" />
+            <Search className="w-4 h-4" />
           </button>
 
           {/* Pin / Auto-hide Toggle Button */}
           <button
             onClick={togglePin}
-            className={`p-2.5 rounded-xl transition-all duration-300 border ${
+            className={`p-2 rounded-xl transition-all duration-300 border cursor-pointer ${
               isPinned 
-                ? 'bg-indigo-600/20 text-indigo-400 border-indigo-500/30 shadow-[0_0_12px_rgba(99,102,241,0.25)]' 
-                : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent hover:border-white/10'
+                ? 'bg-indigo-600/20 text-indigo-300 border-indigo-500/35 shadow-[0_0_12px_rgba(99,102,241,0.2)]' 
+                : 'text-slate-400 hover:text-white hover:bg-white/[0.06] border-transparent hover:border-white/[0.1]'
             }`}
             title={isPinned ? 'الشريط مثبت دائماً (انقر للتبديل إلى الإخفاء التلقائي)' : 'الشريط في وضع الإخفاء التلقائي (انقر لتثبيته دائماً)'}
           >
-            {isPinned ? <Pin className="w-5 h-5 text-indigo-400" /> : <PinOff className="w-5 h-5 opacity-70" />}
+            {isPinned ? <Pin className="w-4 h-4 text-indigo-400" /> : <PinOff className="w-4 h-4 opacity-70" />}
           </button>
 
           {/* Version & Build Indicator Badge */}
           <button
             onClick={() => setIsVersionModalOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-950/60 hover:bg-indigo-900/80 border border-indigo-500/30 hover:border-indigo-400/50 rounded-xl transition-all group shrink-0"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#0e1629] hover:bg-[#131d36] border border-white/[0.08] hover:border-indigo-500/30 rounded-xl transition-all group shrink-0 cursor-pointer"
             title="معلومات الإصدار وتحديثات النظام"
           >
             <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_6px_#34d399]" />
-            <span className="text-[11px] font-mono font-black text-indigo-200 group-hover:text-white dir-ltr">
+            <span className="text-[11px] font-mono font-bold text-slate-300 group-hover:text-white dir-ltr">
               {CURRENT_APP_VERSION}
             </span>
           </button>
@@ -672,10 +672,10 @@ export const Header: React.FC<HeaderProps> = (props) => {
           <div className="relative" ref={langMenuRef}>
             <button
               onClick={() => setIsLangMenuOpen(prev => !prev)}
-              className={`px-2 py-1.5 sm:px-2.5 rounded-xl transition-all duration-300 border flex items-center gap-1.5 ${
+              className={`px-2.5 py-1.5 rounded-xl transition-all duration-300 border flex items-center gap-1.5 cursor-pointer ${
                 isLangMenuOpen 
-                  ? 'bg-indigo-600/30 text-white border-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.3)]' 
-                  : 'text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 border-white/10'
+                  ? 'bg-indigo-600/25 text-white border-indigo-400/50 shadow-[0_0_15px_rgba(99,102,241,0.25)]' 
+                  : 'text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.08]'
               }`}
               title="تغيير لغة الموقع / Change Language"
             >
@@ -689,11 +689,11 @@ export const Header: React.FC<HeaderProps> = (props) => {
             <AnimatePresence>
               {isLangMenuOpen && (
                 <motion.div
-                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                  initial={{ opacity: 0, y: 8, scale: 0.96 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.96 }}
                   transition={{ duration: 0.15 }}
-                  className="absolute top-full mt-2 end-0 w-52 bg-[#0d1220]/95 backdrop-blur-2xl border border-white/15 rounded-2xl shadow-2xl p-2 z-[1100] flex flex-col gap-1 text-start"
+                  className="absolute top-full mt-2 end-0 w-52 bg-[#0c1222]/95 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl p-2 z-[1100] flex flex-col gap-1 text-start"
                 >
                   <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 border-b border-white/10 flex items-center justify-between">
                     <span>لغة الموقع / Language</span>
@@ -708,7 +708,7 @@ export const Header: React.FC<HeaderProps> = (props) => {
                           setLanguage(item.code as any);
                           setIsLangMenuOpen(false);
                         }}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                           isSelected 
                             ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/40' 
                             : 'text-slate-300 hover:text-white hover:bg-white/10'
@@ -730,7 +730,7 @@ export const Header: React.FC<HeaderProps> = (props) => {
           {/* VIP Member Badge */}
           {(props.currentUser?.isVIP || props.currentUser?.role === 'admin' || props.currentUser?.isSuperAdmin) && (
             <div 
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 via-yellow-500/25 to-amber-500/20 border border-amber-400/50 shadow-[0_0_15px_rgba(245,158,11,0.3)] text-amber-300 text-xs font-black select-none shrink-0"
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 via-yellow-500/25 to-amber-500/20 border border-amber-400/40 shadow-[0_0_15px_rgba(245,158,11,0.2)] text-amber-300 text-xs font-black select-none shrink-0"
               title="عضوية VIP مفعلة - كافة الميزات الملكية متاحة 👑"
             >
               <Crown className="w-4 h-4 text-amber-400 animate-pulse" />
@@ -738,35 +738,36 @@ export const Header: React.FC<HeaderProps> = (props) => {
             </div>
           )}
 
-          <div className="w-px h-8 bg-white/10 hidden sm:block mx-0.5"></div>
+          <div className="w-px h-7 bg-white/[0.08] hidden sm:block mx-0.5"></div>
 
           {props.isAdmin && (
             <button
               onClick={props.onAdminToggle}
-              className={`p-2.5 rounded-xl transition-all duration-300 border ${
+              className={`p-2 rounded-xl transition-all duration-300 border cursor-pointer ${
                 props.isAdminOpen 
-                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.15)]' 
-                  : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent hover:border-white/10'
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-[0_0_15px_rgba(245,158,11,0.2)]' 
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.06] border-transparent hover:border-white/[0.1]'
               }`}
-              title="Admin Panel"
+              title="لوحة الإدارة / Admin Panel"
             >
-              <Settings className="w-5 h-5" />
+              <Settings className="w-4 h-4" />
             </button>
           )}
           <button
             onClick={props.onLogout}
-            className="p-2.5 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all duration-300"
+            className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/25 transition-all duration-300 cursor-pointer"
             title="تسجيل الخروج"
           >
-            <LogOut className="w-5 h-5" />
+            <LogOut className="w-4 h-4" />
           </button>
 
           {/* Mobile Menu Trigger */}
           <button 
             onClick={() => setIsMobileMenuOpen(true)}
-            className="lg:hidden p-2.5 bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 border border-indigo-500/30 rounded-xl transition-all"
+            className="lg:hidden p-2 bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 border border-indigo-500/30 rounded-xl transition-all cursor-pointer"
+            title="القائمة"
           >
-            <Menu className="w-5 h-5" />
+            <Menu className="w-4 h-4" />
           </button>
         </div>
       </header>

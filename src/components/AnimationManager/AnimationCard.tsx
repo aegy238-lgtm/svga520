@@ -88,19 +88,23 @@ export const AnimationCard: React.FC<AnimationCardProps> = ({
 
       if (item.format === 'svga') {
         try {
-          const { Player, Parser } = await import('svga.lite');
-          const parser = new Parser();
-          const buffer = await item.file.arrayBuffer();
-          const svgaData = await parser.do(buffer);
-          
-          if (isCancelled) return;
-          
-          const player = new Player(canvasRef.current);
-          await player.mount(svgaData);
-          player.set({ loop: 0, fillMode: 'forwards' } as any);
-          
-          svgaPlayerRef.current = player;
-          if (isPlaying) player.start();
+          const svgaMod = await import('svga.lite');
+          const Player = svgaMod.Player || (svgaMod as any).default?.Player;
+          const Parser = svgaMod.Parser || (svgaMod as any).default?.Parser;
+          if (Player && Parser) {
+            const parser = new Parser();
+            const buffer = await item.file.arrayBuffer();
+            const svgaData = await parser.do(buffer);
+            
+            if (isCancelled) return;
+            
+            const player = new Player(canvasRef.current);
+            await player.mount(svgaData);
+            player.set({ loop: 0, fillMode: 'forwards' } as any);
+            
+            svgaPlayerRef.current = player;
+            if (isPlaying) player.start();
+          }
         } catch (err) {
           console.warn('SVGA render error on card:', err);
         }

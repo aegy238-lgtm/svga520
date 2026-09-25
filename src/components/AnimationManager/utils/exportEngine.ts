@@ -156,8 +156,39 @@ export async function extractSvgaFrames(
   bgColor: string = 'transparent'
 ): Promise<{ canvases: HTMLCanvasElement[]; delays: number[]; fps: number }> {
   const buffer = await file.arrayBuffer();
-  const parser = new SvgaParser();
-  const videoItem = await parser.do(buffer);
+  let videoItem: any = null;
+
+  try {
+    const parser = new SvgaParser();
+    if (typeof parser.do === 'function') {
+      videoItem = await parser.do(buffer);
+    }
+  } catch (e) {
+    console.warn('exportEngine svga.lite parse failed, trying fallback:', e);
+  }
+
+  if (!videoItem && typeof window !== 'undefined' && (window as any).SVGA) {
+    const svgaLib = (window as any).SVGA;
+    const parser = new svgaLib.Parser();
+    const blobUrl = URL.createObjectURL(file);
+    try {
+      videoItem = await new Promise<any>((resolve, reject) => {
+        if (typeof parser.load === 'function') {
+          parser.load(blobUrl, resolve, reject);
+        } else if (typeof parser.loadViaWorker === 'function') {
+          parser.loadViaWorker(blobUrl, resolve, reject);
+        } else {
+          reject(new Error('No SVGA load method available'));
+        }
+      });
+    } finally {
+      URL.revokeObjectURL(blobUrl);
+    }
+  }
+
+  if (!videoItem) {
+    throw new Error('Could not parse SVGA animation frames');
+  }
 
   const width = videoItem.videoSize?.width || 512;
   const height = videoItem.videoSize?.height || 512;

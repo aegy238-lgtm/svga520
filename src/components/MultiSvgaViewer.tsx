@@ -3763,30 +3763,24 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       {/* TOP HEADER SECTION */}
       <div className="flex flex-col gap-4 mb-6">
         {/* Row 1: Header Title + Primary Quick Actions */}
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 bg-slate-900/90 border border-white/10 p-4 sm:p-5 rounded-3xl backdrop-blur-xl shadow-2xl">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 bg-[#0c1324]/90 border border-white/10 p-4 sm:p-5 rounded-2xl backdrop-blur-xl shadow-xl">
           {/* Right side: Title & Stats */}
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30 shrink-0">
-              <Layers className="w-7 h-7" />
+            <div className="w-11 h-11 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shadow-md shrink-0">
+              <Layers className="w-6 h-6" />
             </div>
             <div>
               <div className="flex items-center gap-3">
                 <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">نظام العرض الذكي لملفات SVGA</h2>
                 {(items as any[]).length > 0 && (
-                  <motion.div 
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="flex items-center gap-2 px-3 py-1 bg-indigo-500/15 border border-indigo-500/30 rounded-full"
-                  >
-                    <div className="w-2 h-2 bg-indigo-400 rounded-full animate-pulse" />
-                    <span className="text-xs font-black text-indigo-300">
-                      {(items as any[]).length} {(items as any[]).length === 1 ? 'ملف مرفوع' : 'ملفات مرفوعة'}
-                    </span>
-                  </motion.div>
+                  <div className="flex items-center gap-2 px-2.5 py-0.5 bg-indigo-500/10 border border-indigo-500/25 rounded-md text-xs font-semibold text-indigo-300">
+                    <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full" />
+                    <span>{(items as any[]).length} {(items as any[]).length === 1 ? 'ملف مرفوع' : 'ملفات'}</span>
+                  </div>
                 )}
               </div>
-              <p className="text-slate-400 font-bold text-xs mt-0.5">
-                دعم كامل لجميع المقاسات (500×500, 750×1334, 2000×2000) مع الحفاظ على الجودة وتثبيت الأبعاد
+              <p className="text-slate-400 font-normal text-xs mt-0.5">
+                دعم كامل لجميع المقاسات (500×500, 750×1334, 2000×2000) مع تثبيت الدقة والأبعاد
               </p>
             </div>
           </div>
@@ -3796,7 +3790,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             {/* Upload Files */}
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl font-black text-xs shadow-lg shadow-indigo-600/25 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-xs shadow-md shadow-indigo-600/20 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
             >
               <Upload className="w-4 h-4" />
               <span>رفع ملفات</span>
@@ -3805,7 +3799,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             {/* Upload Folders */}
             <button
               onClick={handleUploadFolders}
-              className="px-3.5 py-2.5 bg-white/10 hover:bg-white/15 text-slate-200 hover:text-white rounded-xl font-black text-xs border border-white/15 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+              className="px-3.5 py-2 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl font-bold text-xs border border-white/10 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
               title="رفع مجلد كامل بالملفات الفرعية"
             >
               <FolderUp className="w-4 h-4 text-sky-400" />
@@ -3815,19 +3809,19 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             {/* Extract from PDF */}
             <button
               onClick={handleExtractFromPdf}
-              className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-400 hover:to-rose-500 text-white rounded-xl font-black text-xs shadow-lg shadow-amber-500/25 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer border border-amber-400/40"
+              className="px-3.5 py-2 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
               title="فك واستخراج هدايا SVGA من ملفات PDF المحمية والعادية بنقرة واحدة"
             >
-              <Lock className="w-4 h-4 text-amber-200" />
+              <Lock className="w-4 h-4 text-amber-400" />
               <span>فك من PDF</span>
             </button>
 
             {/* Deduplication Toggle */}
             <button
               onClick={handleToggleDeduplication}
-              className={`px-3.5 py-2.5 rounded-xl font-black text-xs border flex items-center gap-2 transition-all cursor-pointer ${
+              className={`px-3 py-2 rounded-xl font-bold text-xs border flex items-center gap-2 transition-all cursor-pointer ${
                 preventDuplicates 
-                  ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 shadow-md shadow-amber-500/10' 
+                  ? 'bg-amber-500/15 border-amber-500/35 text-amber-300' 
                   : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'
               }`}
               title={preventDuplicates ? 'منع التكرار مفعل: يتم حذف وتصفية الملفات المكررة تلقائياً' : 'منع التكرار معطل: يسمح بتكرار الملفات'}
@@ -3841,7 +3835,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               <div className="flex items-center gap-1 bg-white/5 border border-white/10 p-1 rounded-xl">
                 <button
                   onClick={handleSelectAll}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-300 hover:text-white hover:bg-white/10 transition-all flex items-center gap-1.5"
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/10 transition-all flex items-center gap-1.5"
                   title="تحديد كل الملفات"
                 >
                   <SquareCheck className="w-3.5 h-3.5 text-indigo-400" />
@@ -3850,7 +3844,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 <div className="w-px h-4 bg-white/10" />
                 <button
                   onClick={clearAll}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-all flex items-center gap-1.5"
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-all flex items-center gap-1.5"
                   title="مسح وحذف جميع الملفات المعروضة"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -3865,9 +3859,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 setShowSideDock(prev => !prev);
                 if (!showSideDock) setIsDockCollapsed(false);
               }}
-              className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 cursor-pointer ${
+              className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 cursor-pointer ${
                 showSideDock 
-                  ? 'bg-indigo-600 border-indigo-500 text-white shadow-md shadow-indigo-600/20' 
+                  ? 'bg-indigo-600/30 border-indigo-500 text-indigo-200' 
                   : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'
               }`}
               title="إظهار أو إخفاء لوحة العمليات الجانبية"
@@ -3883,14 +3877,14 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 const isMuted = (window as any).Howler?.mute();
                 (window as any).Howler?.mute(!isMuted);
               }}
-              className={`px-3.5 py-2 border rounded-xl font-black text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer ${
+              className={`px-3 py-2 border rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer ${
                 globalPaused 
-                ? 'bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 border-emerald-500/30' 
-                : 'bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border-rose-500/30'
+                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' 
+                : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
               }`}
-              title="إيقاف أو تشغيل جميع تأثيرات الصوت والحركة"
+              title="إيقاف أو تشغيل جميع تأثيرات الصوت والحركة لتقليل الحمل على المتصفح والمعالج"
             >
-              <Pause className="w-4 h-4" />
+              <Pause className="w-3.5 h-3.5" />
               <span>{globalPaused ? 'تشغيل التأثيرات' : 'إيقاف التأثيرات'}</span>
             </button>
           </div>
@@ -3930,12 +3924,12 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           </div>
         )}
 
-        {/* Row 2: All Action & Export Buttons in Top Bar (إرجاع جميع الزرار بالأعلى كما طلب المستخدم) */}
+        {/* Row 2: All Action & Export Buttons in Top Bar */}
         {(items as any[]).length > 0 && (
-          <div className="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-indigo-500/30 p-3 sm:p-4 rounded-3xl shadow-xl backdrop-blur-md flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-4">
+          <div className="bg-[#0b1120]/80 border border-white/10 p-3 sm:p-4 rounded-2xl shadow-lg backdrop-blur-md flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
             {/* Section 1: Packages, PDF & Bundles */}
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[11px] font-black text-indigo-300 uppercase tracking-wider pl-2 border-l border-white/10 hidden sm:inline">
+              <span className="text-xs font-semibold text-slate-400 pl-2 border-l border-white/10 hidden sm:inline">
                 حزم وتصدير:
               </span>
 
@@ -3943,7 +3937,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               <button
                 onClick={handleDownloadAllGiftBundles}
                 disabled={isZipping || (items as any[]).length === 0}
-                className="px-4 py-2 bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 disabled:opacity-50 text-white rounded-xl font-black text-xs shadow-md shadow-rose-600/20 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                className="px-3.5 py-2 bg-pink-600/20 hover:bg-pink-600/30 text-pink-300 border border-pink-500/30 disabled:opacity-50 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
                 title="تنزيل حزم الهدايا كاملة (ملف الهدية + أحلى صورة كادر داخل ZIP)"
               >
                 {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Gift className="w-4 h-4" />}
@@ -3951,17 +3945,17 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               </button>
 
               {/* All-in-One PDF */}
-              <div className="flex items-center bg-gradient-to-r from-amber-600 to-orange-600 rounded-xl shadow-md shadow-orange-600/20 overflow-hidden">
+              <div className="flex items-center bg-amber-500/15 border border-amber-500/30 rounded-xl overflow-hidden">
                 <button
                   onClick={handleDownloadAllSvgaInOnePdf}
                   disabled={isPdfAllInOneExporting || (items as any[]).length === 0}
-                  className="px-4 py-2 hover:bg-white/10 disabled:opacity-50 text-white font-black text-xs flex items-center gap-2 transition-all cursor-pointer"
+                  className="px-3.5 py-2 hover:bg-amber-500/20 disabled:opacity-50 text-amber-200 font-bold text-xs flex items-center gap-2 transition-all cursor-pointer"
                   title="تصدير جميع الملفات في ملف PDF واحد ذكي مدمج"
                 >
                   {isPdfAllInOneExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
                   <span>{isPdfAllInOneExporting ? `جاري التصدير (${pdfAllInOneProgress}%)` : 'ملف PDF واحد موحد'}</span>
                 </button>
-                <label className="flex items-center gap-1.5 px-2.5 py-2 bg-black/20 hover:bg-black/30 text-amber-100 text-[10px] font-bold cursor-pointer border-r border-white/15" title="تضمين كتالوج PDF موحد داخل الحزمة">
+                <label className="flex items-center gap-1.5 px-2.5 py-2 bg-black/30 hover:bg-black/40 text-amber-200 text-[10px] font-semibold cursor-pointer border-r border-amber-500/20" title="تضمين كتالوج PDF موحد داخل الحزمة">
                   <input
                     type="checkbox"
                     checked={includePdfCatalog}
@@ -3976,7 +3970,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               <button
                 onClick={handleDownloadAllSvga}
                 disabled={isZipping || (items as any[]).length === 0}
-                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl font-black text-xs shadow-md shadow-blue-600/20 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                className="px-3.5 py-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 disabled:opacity-50 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
                 title="تنزيل جميع ملفات SVGA / VAP الأصلية فقط في ملف ZIP"
               >
                 <Download className="w-4 h-4" />
@@ -3987,17 +3981,17 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               <button
                 onClick={handleDownloadAllCombined}
                 disabled={isZipping || (items as any[]).length === 0}
-                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl font-black text-xs shadow-md shadow-emerald-600/20 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                className="px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 disabled:opacity-50 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
                 title="تنزيل شامل لجميع الملفات والصور والكتالوج"
               >
-                <Sparkles className="w-4 h-4 text-emerald-200" />
+                <Sparkles className="w-4 h-4 text-emerald-300" />
                 <span>تنزيل الكل الشامل</span>
               </button>
             </div>
 
             {/* Section 2: Video Studio */}
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[11px] font-black text-purple-300 uppercase tracking-wider pl-2 border-l border-white/10 hidden sm:inline">
+              <span className="text-xs font-semibold text-slate-400 pl-2 border-l border-white/10 hidden sm:inline">
                 استوديو الفيديو:
               </span>
 
@@ -4005,21 +3999,21 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               <button
                 onClick={handleExportAllVapToMp4}
                 disabled={vapBatchProgress?.isOpen}
-                className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white rounded-xl font-black text-xs shadow-md shadow-purple-600/20 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                className="px-3.5 py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 disabled:opacity-50 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
                 title="تحويل جميع ملفات VAP إلى MP4 بالصوت المدمج والشفافية"
               >
-                {vapBatchProgress?.isOpen ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4 text-purple-200" />}
-                <span>{vapBatchProgress?.isOpen ? `تحويل (${vapBatchProgress.overallPercent}%)` : 'تحويل VAP ➔ MP4 بالصوت'}</span>
+                {vapBatchProgress?.isOpen ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4 text-purple-300" />}
+                <span>{vapBatchProgress?.isOpen ? `تحويل (${vapBatchProgress.overallPercent}%)` : 'تحويل VAP ➔ MP4'}</span>
               </button>
 
               {/* Export Individual Videos ZIP */}
               <button
                 onClick={() => handleExportIndividualVideos()}
                 disabled={isExporting}
-                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-purple-300 hover:text-white border border-purple-500/30 rounded-xl font-black text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                className="px-3.5 py-2 bg-[#0e172a] hover:bg-[#1e293b] disabled:opacity-50 text-slate-200 border border-white/10 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
                 title="تصدير فيديو منفصل لكل ملف على حدة وتنزيلها مضغوطة في ملف ZIP"
               >
-                <Film className="w-4 h-4 text-purple-400" />
+                <Film className="w-4 h-4 text-indigo-400" />
                 <span>فيديو منفصل لكل ملف (ZIP)</span>
               </button>
 
@@ -4027,11 +4021,11 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               <button
                 onClick={handleExportGrid}
                 disabled={isExporting}
-                className="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl font-black text-xs shadow-md shadow-rose-600/20 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                className="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-md shadow-rose-600/20 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
                 title="تسجيل وتصدير فيديو مجمع للشاشة بالكامل"
               >
                 <span className="w-2 h-2 rounded-full bg-white animate-ping" />
-                <span>{isExporting ? `تسجيل (${exportProgress}%)` : 'تسجيل فيديو مجمع (شاشة)'}</span>
+                <span>{isExporting ? `تسجيل (${exportProgress}%)` : 'تسجيل فيديو مجمع'}</span>
               </button>
             </div>
           </div>

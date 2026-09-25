@@ -461,7 +461,7 @@ export const convertVapToYYEVA = async (
     bitrate: bitrate,
     framerate: fps,
     latencyMode: 'quality',
-    avc: { format: 'annexb' }
+    avc: { format: 'avc' }
   });
 
   // 6. Audio Encoder setup

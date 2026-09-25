@@ -4,93 +4,248 @@
 
 :root {
   --app-height: 100%;
+  --color-bg-base: #050811;
+  --color-bg-surface: #0a0f1d;
+  --color-bg-card: #0e1526;
+  --color-bg-card-hover: #141c33;
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-hover: rgba(99, 102, 241, 0.4);
+  --color-accent: #6366f1;
+  --color-accent-sky: #38bdf8;
+  --color-accent-amber: #f59e0b;
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
 }
 
 html, body {
   padding: 0;
   margin: 0;
-  height: 100dvh;
-  width: 100vw;
-  overflow: hidden;
-  background-color: #030816;
+  min-height: 100%;
+  width: 100%;
+  background-color: #050811;
+  color: #f8fafc;
+  font-family: 'Tajawal', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overscroll-behavior-y: contain;
 }
 
 #root {
-  height: 100dvh;
+  min-height: 100vh;
   width: 100%;
   display: flex;
   flex-direction: column;
   padding-bottom: env(safe-area-inset-bottom);
   padding-top: env(safe-area-inset-top);
+  background: 
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, 0.15), transparent 70%),
+    radial-gradient(ellipse 60% 40% at 90% 10%, rgba(56, 189, 248, 0.08), transparent 60%),
+    radial-gradient(ellipse 60% 40% at 10% 20%, rgba(139, 92, 246, 0.08), transparent 60%),
+    radial-gradient(circle at 50% 100%, rgba(15, 23, 42, 0.8), #050811 80%);
+  background-attachment: fixed;
 }
 
-/* منع أي تفاعل لمسي غير ضروري */
+/* Touch & tap highlight handling */
 * {
   -webkit-tap-highlight-color: transparent;
-  user-select: none;
-  -webkit-touch-callout: none;
+  box-sizing: border-box;
 }
 
-input, textarea {
+input, textarea, [contenteditable="true"] {
   user-select: text;
   -webkit-user-select: text;
 }
 
-/* إخفاء شريط التمرير بشكل نهائي وعدواني لجميع المتصفحات (Webkit, Firefox, IE) */
-.scrollbar-hide::-webkit-scrollbar {
-  display: none !important;
-  width: 0 !important;
-  height: 0 !important;
-  background: transparent !important;
-  -webkit-appearance: none !important;
+/* Modern Card Design & Surface Glass */
+.glass-panel {
+  background: rgba(11, 16, 30, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.6);
 }
 
-.scrollbar-hide::-webkit-scrollbar-thumb {
-  background: transparent !important;
-  display: none !important;
+.glass-panel-elevated {
+  background: rgba(14, 21, 38, 0.88);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 20px 45px -15px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
 
-.scrollbar-hide::-webkit-scrollbar-track {
-  background: transparent !important;
-  display: none !important;
+.glass-card-interactive {
+  background: rgba(12, 18, 33, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.scrollbar-hide::-webkit-scrollbar-button {
-  display: none !important;
-  width: 0 !important;
-  height: 0 !important;
+.glass-card-interactive:hover {
+  background: rgba(16, 25, 46, 0.85);
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow: 0 12px 35px -5px rgba(0, 0, 0, 0.5), 0 0 20px -5px rgba(99, 102, 241, 0.2);
+  transform: translateY(-2px);
 }
 
-.scrollbar-hide {
-  -ms-overflow-style: none !important; /* Internet Explorer and Edge */
-  scrollbar-width: none !important;  /* Firefox */
-  overflow: -moz-scrollbars-none !important;
-  -webkit-overflow-scrolling: touch;
+/* Soft Accent Glows */
+.shadow-glow-indigo {
+  box-shadow: 0 0 25px -5px rgba(99, 102, 241, 0.35);
 }
 
-/* ضمان تطبيق الإخفاء حتى في حالة وجود Scrollbar Gutter */
-.scrollbar-hide {
-  scrollbar-gutter: stable both-edges; /* Prevents layout shift but we hide it anyway */
-  scrollbar-gutter: unset !important;
+.shadow-glow-sky {
+  box-shadow: 0 0 25px -5px rgba(56, 189, 248, 0.35);
 }
 
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.shadow-glow-amber {
+  box-shadow: 0 0 25px -5px rgba(245, 158, 11, 0.35);
 }
 
-.custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
+.shadow-glow-emerald {
+  box-shadow: 0 0 25px -5px rgba(16, 185, 129, 0.35);
 }
 
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.02);
+/* Modern Button Styles */
+.btn-primary {
+  background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
+  color: #ffffff;
+  font-weight: 700;
+  border-radius: 0.875rem;
+  padding: 0.625rem 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4px 15px rgba(79, 70, 229, 0.35);
+  transition: all 0.25s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  cursor: pointer;
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb {
+.btn-primary:hover {
+  background: linear-gradient(135deg, #4338ca 0%, #2563eb 100%);
+  box-shadow: 0 6px 22px rgba(79, 70, 229, 0.5);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
+  font-weight: 600;
+  border-radius: 0.875rem;
+  padding: 0.625rem 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  transition: all 0.25s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.btn-secondary:hover {
   background: rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
+}
+
+.btn-secondary:active {
+  transform: translateY(0);
+}
+
+.btn-danger {
+  background: linear-gradient(135deg, rgba(225, 29, 72, 0.2) 0%, rgba(244, 63, 94, 0.15) 100%);
+  color: #fca5a5;
+  font-weight: 600;
+  border-radius: 0.875rem;
+  padding: 0.625rem 1.25rem;
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  transition: all 0.25s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.btn-danger:hover {
+  background: linear-gradient(135deg, rgba(225, 29, 72, 0.35) 0%, rgba(244, 63, 94, 0.25) 100%);
+  color: #fee2e2;
+  border-color: rgba(244, 63, 94, 0.5);
+  transform: translateY(-1px);
+}
+
+.btn-vip {
+  background: linear-gradient(135deg, #d97706 0%, #f59e0b 50%, #fbbf24 100%);
+  color: #000000;
+  font-weight: 800;
+  border-radius: 0.875rem;
+  padding: 0.625rem 1.25rem;
+  border: 1px solid rgba(254, 240, 138, 0.6);
+  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.4);
+  transition: all 0.25s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.btn-vip:hover {
+  box-shadow: 0 6px 26px rgba(245, 158, 11, 0.6);
+  transform: translateY(-1px) scale(1.02);
+}
+
+/* Modern custom scrollbar */
+.custom-scrollbar::-webkit-scrollbar,
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track,
+::-webkit-scrollbar-track {
+  background: rgba(6, 9, 19, 0.8);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb,
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 9999px;
+  transition: background 0.2s ease;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover,
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+
+/* Scrollbar hide utility */
+.scrollbar-hide::-webkit-scrollbar,
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.scrollbar-hide,
+.no-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 0.65; transform: scale(1.04); }
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 6s ease-in-out infinite;
 }
