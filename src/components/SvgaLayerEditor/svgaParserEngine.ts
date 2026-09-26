@@ -694,15 +694,37 @@ export async function parseSvgaToProject(file: File): Promise<{
                          (name1.includes('wing') && name2.includes('wing')) ||
                          (name2.includes('copy') || name2.includes('mirror') || name2.includes('معكوس'));
 
-      if ((sameImageKey && (isSymmetricX || isOppositeA)) ||
-          (sameDims && (isSymmetricX || isOppositeA || isNamePair))) {
+      const l1HasNeg = Boolean(
+        (fr1?.transform?.a !== undefined && fr1.transform.a < -0.01) ||
+        (l1.spriteRef?.frames?.some((fr: any) => fr?.transform && fr.transform.a !== undefined && fr.transform.a < -0.01))
+      );
+      const l2HasNeg = Boolean(
+        (fr2?.transform?.a !== undefined && fr2.transform.a < -0.01) ||
+        (l2.spriteRef?.frames?.some((fr: any) => fr?.transform && fr.transform.a !== undefined && fr.transform.a < -0.01))
+      );
+
+      const hasMirrorWord = name1.includes('mirror') || name1.includes('معكوس') || name2.includes('mirror') || name2.includes('معكوس');
+
+      if ((sameImageKey) ||
+          (sameDims && (isSymmetricX || isOppositeA || isNamePair || hasMirrorWord))) {
         l1.linkedMirroredLayerId = l2.id;
         l2.linkedMirroredLayerId = l1.id;
-        l1.isMirroredLayer = false;
-        l2.isMirroredLayer = true;
+        
+        if (l2HasNeg || (!l1HasNeg && isSymmetricX)) {
+          l1.isMirroredLayer = false;
+          l2.isMirroredLayer = true;
+          l2.autoFlipMirroredAsset = true;
+        } else if (l1HasNeg) {
+          l1.isMirroredLayer = true;
+          l2.isMirroredLayer = false;
+          l1.autoFlipMirroredAsset = true;
+        } else if (name2.includes('mirror') || name2.includes('معكوس') || name2.includes('right') || name2.includes('يمين') || name2.includes('copy')) {
+          l2.isMirroredLayer = true;
+          l2.autoFlipMirroredAsset = true;
+        }
+
         l1.autoSyncMirroredAsset = true;
         l2.autoSyncMirroredAsset = true;
-        l2.autoFlipMirroredAsset = true;
         break;
       }
     }

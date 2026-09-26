@@ -13,6 +13,7 @@ import { AnimationItem, BatchExportOptions, ExportFormat, UnifiedVideoOptions } 
 import { deduplicateItems } from './hashUtils';
 import { convertFramesToLottieSequence } from '../../../utils/svgaToLottie';
 import { encodeAudioBufferToMuxer } from '../../../utils/svgaVideoAudioExporter';
+import { extractVapConfigFromBlob, detectVapChannelLayout, seekVideoToFrame, parseMp4DurationFromBlob } from '../../../utils/vapEngine';
 
 /**
  * Trigger browser file download for a Blob
@@ -516,7 +517,181 @@ export async function extractGenericImageFrames(
 }
 
 /**
- * Get all frames and delays for ANY animation item (SVGA, GIF, WebP, APNG, Lottie, DotLottie)
+ * Extract transparent animation frames from any VAP, YYEVA, or dual-channel transparent MP4/WebM video
+ */
+export async function extractDualChannelVideoFrames(
+  file: File | Blob,
+  bgColor: string = 'transparent',
+  forceAlphaLeft?: boolean
+): Promise<{ canvases: HTMLCanvasElement[]; delays: number[]; fps: number }> {
+  const url = URL.createObjectURL(file);
+  const video = document.createElement('video');
+  video.src = url;
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'auto';
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (video.videoWidth > 0) resolve();
+        else reject(new Error('انتهت مهلة تحميل الفيديو'));
+      }, 8000);
+      video.onloadedmetadata = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      video.onerror = () => {
+        clearTimeout(timer);
+        reject(new Error('فشل قراءة ملف الفيديو'));
+      };
+    });
+  } catch (err) {
+    URL.revokeObjectURL(url);
+    throw err;
+  }
+
+  const mp4Duration = await parseMp4DurationFromBlob(file).catch(() => null);
+  const config = await extractVapConfigFromBlob(file).catch(() => null);
+  const detection = detectVapChannelLayout(video, config);
+
+  // Correctly extract FPS (distinguish from total frame count 'f')
+  const fps = (config?.info?.fps && config.info.fps > 0 && config.info.fps <= 120)
+    ? config.info.fps
+    : (detection?.fps && detection.fps > 0 && detection.fps <= 120 ? detection.fps : 30);
+
+  // Read ground-truth frame count if present in VAP/YYEVA metadata
+  let totalFrames = (config?.info?.f && config.info.f > 0 && config.info.f !== fps)
+    ? config.info.f
+    : (config?.descript?.totalFrame || 0);
+
+  // Read true video duration (prioritize exact MP4 container mvhd duration)
+  let videoDur = (mp4Duration && mp4Duration > 0.1)
+    ? mp4Duration
+    : (isFinite(video.duration) && video.duration > 0.1 ? video.duration : 0);
+
+  // If video duration is known, compute expected frames
+  if (videoDur > 0.1) {
+    const framesFromDur = Math.round(videoDur * fps);
+    // If metadata was missing or corrupted with tiny frame count (like f: 30 on a 5s video),
+    // always use the true duration-derived frames!
+    if (totalFrames <= 0 || framesFromDur > totalFrames) {
+      totalFrames = framesFromDur;
+    }
+  } else if (totalFrames > 0) {
+    videoDur = totalFrames / fps;
+  } else {
+    videoDur = 3;
+    totalFrames = Math.round(videoDur * fps);
+  }
+
+  totalFrames = Math.max(1, Math.min(2400, totalFrames));
+  const duration = totalFrames / fps;
+  const delayMs = Math.max(10, Math.round(1000 / fps));
+
+  const rawW = video.videoWidth || 750;
+  const rawH = video.videoHeight || 750;
+
+  const isLeftAlpha = forceAlphaLeft ?? (
+    detection.layout === 'right_rgb_left_alpha' ||
+    (config?.info?.aFrame && config.info.rgbFrame && config.info.aFrame[0] < config.info.rgbFrame[0])
+  );
+
+  const isVertical = detection.layout.startsWith('top_') || detection.layout.startsWith('bottom_');
+  const isDualChannel = detection.isVap || rawW > rawH * 1.5 || rawH > rawW * 1.5 || Boolean(config);
+
+  const targetW = isDualChannel ? (isVertical ? rawW : Math.round(rawW / 2)) : rawW;
+  const targetH = isDualChannel ? (isVertical ? Math.round(rawH / 2) : rawH) : rawH;
+
+  const offCanvas = document.createElement('canvas');
+  offCanvas.width = rawW;
+  offCanvas.height = rawH;
+  const offCtx = offCanvas.getContext('2d', { willReadFrequently: true });
+
+  const canvases: HTMLCanvasElement[] = [];
+  const delays: number[] = [];
+
+  const rgbX = isDualChannel ? (isLeftAlpha ? targetW : 0) : 0;
+  const rgbY = isDualChannel && isVertical && detection.layout === 'bottom_rgb_top_alpha' ? targetH : 0;
+  const aX = isDualChannel ? (isLeftAlpha ? 0 : targetW) : 0;
+  const aY = isDualChannel && isVertical && detection.layout === 'top_rgb_bottom_alpha' ? targetH : 0;
+
+  for (let f = 0; f < totalFrames; f++) {
+    const targetTime = Math.min(duration, f / fps);
+    await seekVideoToFrame(video, targetTime);
+    if (!offCtx) continue;
+
+    offCtx.drawImage(video, 0, 0, rawW, rawH);
+    const srcData = offCtx.getImageData(0, 0, rawW, rawH).data;
+
+    const frameCanvas = document.createElement('canvas');
+    frameCanvas.width = targetW;
+    frameCanvas.height = targetH;
+    const fCtx = frameCanvas.getContext('2d');
+    if (!fCtx) continue;
+
+    const outImgData = fCtx.createImageData(targetW, targetH);
+    const dst = outImgData.data;
+
+    for (let y = 0; y < targetH; y++) {
+      for (let x = 0; x < targetW; x++) {
+        const rgbIdx = ((y + rgbY) * rawW + (x + rgbX)) * 4;
+        const dstIdx = (y * targetW + x) * 4;
+
+        const r = srcData[rgbIdx];
+        const g = srcData[rgbIdx + 1];
+        const b = srcData[rgbIdx + 2];
+
+        if (isDualChannel) {
+          const aIdx = ((y + aY) * rawW + (x + aX)) * 4;
+          const rawAlpha = 0.299 * srcData[aIdx] + 0.587 * srcData[aIdx + 1] + 0.114 * srcData[aIdx + 2];
+          if (rawAlpha <= 6) {
+            dst[dstIdx] = 0;
+            dst[dstIdx + 1] = 0;
+            dst[dstIdx + 2] = 0;
+            dst[dstIdx + 3] = 0;
+          } else {
+            dst[dstIdx] = r;
+            dst[dstIdx + 1] = g;
+            dst[dstIdx + 2] = b;
+            dst[dstIdx + 3] = Math.min(255, Math.max(0, Math.round(rawAlpha)));
+          }
+        } else {
+          dst[dstIdx] = r;
+          dst[dstIdx + 1] = g;
+          dst[dstIdx + 2] = b;
+          dst[dstIdx + 3] = 255;
+        }
+      }
+    }
+
+    fCtx.putImageData(outImgData, 0, 0);
+
+    if (bgColor && bgColor !== 'transparent') {
+      const compositeCanvas = document.createElement('canvas');
+      compositeCanvas.width = targetW;
+      compositeCanvas.height = targetH;
+      const cCtx = compositeCanvas.getContext('2d');
+      if (cCtx) {
+        cCtx.fillStyle = bgColor;
+        cCtx.fillRect(0, 0, targetW, targetH);
+        cCtx.drawImage(frameCanvas, 0, 0);
+        canvases.push(compositeCanvas);
+      } else {
+        canvases.push(frameCanvas);
+      }
+    } else {
+      canvases.push(frameCanvas);
+    }
+    delays.push(delayMs);
+  }
+
+  URL.revokeObjectURL(url);
+  return { canvases, delays, fps };
+}
+
+/**
+ * Get all frames and delays for ANY animation item (SVGA, GIF, WebP, APNG, Lottie, DotLottie, VAP, YYEVA, MP4)
  */
 export async function getItemFrames(
   item: AnimationItem,
@@ -558,6 +733,10 @@ export async function getItemFrames(
     const totalDur = res.delays.reduce((a, b) => a + b, 0);
     const fps = totalDur > 0 ? Math.max(1, Math.round((res.canvases.length * 1000) / totalDur)) : 30;
     return { ...res, fps };
+  }
+
+  if (item.format === 'vap' || item.format === 'yyeva' || item.format === 'mp4' || item.format === 'webm') {
+    return extractDualChannelVideoFrames(item.file, bgColor);
   }
 
   const res = await extractGenericImageFrames(item, bgColor);
@@ -1327,26 +1506,24 @@ export async function exportAsVap(
   const scaledW = Math.max(32, Math.round(width * scale));
   const scaledH = Math.max(32, Math.round(height * scale));
 
-  const gap = 4;
-  const alphaWidth = Math.floor(scaledW / 2);
-  const alphaHeight = Math.floor(scaledH / 2);
-
-  const videoW = Math.ceil((scaledW + gap + alphaWidth) / 16) * 16;
-  const videoH = Math.ceil(scaledH / 16) * 16;
+  const safeW = Math.ceil(scaledW / 2) * 2;
+  const safeH = Math.ceil(scaledH / 2) * 2;
+  const videoW = safeW * 2;
+  const videoH = safeH;
   const totalFrames = canvases.length;
 
   const compCanvases: HTMLCanvasElement[] = [];
 
   // Pre-allocate scratch canvases for high-speed scaled alpha extraction
   const scratchAlphaCanvas = document.createElement('canvas');
-  scratchAlphaCanvas.width = scaledW;
-  scratchAlphaCanvas.height = scaledH;
+  scratchAlphaCanvas.width = safeW;
+  scratchAlphaCanvas.height = safeH;
   const scratchAlphaCtx = scratchAlphaCanvas.getContext('2d');
-  const scratchAlphaImg = scratchAlphaCtx?.createImageData(scaledW, scaledH) || null;
+  const scratchAlphaImg = scratchAlphaCtx?.createImageData(safeW, safeH) || null;
 
   const scratchSrcCanvas = document.createElement('canvas');
-  scratchSrcCanvas.width = scaledW;
-  scratchSrcCanvas.height = scaledH;
+  scratchSrcCanvas.width = safeW;
+  scratchSrcCanvas.height = safeH;
   const scratchSrcCtx = scratchSrcCanvas.getContext('2d');
 
   for (let i = 0; i < totalFrames; i++) {
@@ -1359,14 +1536,14 @@ export async function exportAsVap(
       cCtx.fillStyle = '#000000';
       cCtx.fillRect(0, 0, videoW, videoH);
 
-      // Left: RGB (scaled)
-      cCtx.drawImage(src, 0, 0, scaledW, scaledH);
+      // Left: RGB (scaled to safeW x safeH)
+      cCtx.drawImage(src, 0, 0, safeW, safeH);
 
       // Right: Grayscale Alpha mask via high-speed 32-bit register operations
       if (scratchSrcCtx && scratchAlphaCtx && scratchAlphaImg) {
-        scratchSrcCtx.clearRect(0, 0, scaledW, scaledH);
-        scratchSrcCtx.drawImage(src, 0, 0, scaledW, scaledH);
-        const frameData = scratchSrcCtx.getImageData(0, 0, scaledW, scaledH);
+        scratchSrcCtx.clearRect(0, 0, safeW, safeH);
+        scratchSrcCtx.drawImage(src, 0, 0, safeW, safeH);
+        const frameData = scratchSrcCtx.getImageData(0, 0, safeW, safeH);
         const srcU32 = new Uint32Array(frameData.data.buffer);
         const dstU32 = new Uint32Array(scratchAlphaImg.data.buffer);
         const len = srcU32.length;
@@ -1378,13 +1555,13 @@ export async function exportAsVap(
         }
 
         scratchAlphaCtx.putImageData(scratchAlphaImg, 0, 0);
-        cCtx.drawImage(scratchAlphaCanvas, scaledW + gap, 0, alphaWidth, alphaHeight);
+        cCtx.drawImage(scratchAlphaCanvas, safeW, 0, safeW, safeH);
       }
     }
     compCanvases.push(comp);
 
     if (i % 6 === 0 || i === totalFrames - 1) {
-      onProgress?.(((i + 1) / totalFrames) * 0.4, `تجهيز قناع شفافية VAP عالي السرعة: إطار ${i + 1} من ${totalFrames}...`);
+      onProgress?.(((i + 1) / totalFrames) * 0.4, `تجهيز قناع شفافية VAP عالي الدقة: إطار ${i + 1} من ${totalFrames}...`);
       await new Promise(r => setTimeout(r, 0));
     }
   }
@@ -1405,20 +1582,20 @@ export async function exportAsVap(
   );
   const mp4ArrayBuffer = await baseMp4.arrayBuffer();
 
-  onProgress?.(0.97, 'بناء صندوق VAPc وبيانات التوافق...');
+  onProgress?.(0.97, 'بناء صندوق VAPc وبيانات التوافق القياسية...');
 
-  // Build vapc box with exact frame parameters
+  // Build standard vapc box with exact frame parameters
   const vapConfig = {
     info: {
       v: version === '2.0' ? 2 : 1,
       f: totalFrames,
-      w: width,
-      h: height,
+      w: safeW,
+      h: safeH,
       fps: fps,
       videoW: videoW,
       videoH: videoH,
-      aFrame: [scaledW + gap, 0, alphaWidth, alphaHeight],
-      rgbFrame: [0, 0, scaledW, scaledH],
+      aFrame: [safeW, 0, safeW, safeH],
+      rgbFrame: [0, 0, safeW, safeH],
       isVapx: 0,
       codeTag: ["common"],
       orien: 0
@@ -1686,9 +1863,10 @@ export async function exportItem(
   }
 
   // Needs frame extraction
-  const { canvases, delays } = await getItemFrames(item, backgroundColor);
+  const { canvases, delays, fps: extractedFps } = await getItemFrames(item, backgroundColor);
   const width = item.dimensions.width;
   const height = item.dimensions.height;
+  const activeFps = (extractedFps && extractedFps > 0 && extractedFps <= 120) ? extractedFps : (fps || 30);
 
   if (format === 'png_frames') {
     const blob = await exportAsPngFramesZip(canvases, cleanName, delays);
@@ -1760,13 +1938,29 @@ export async function exportItem(
     };
   }
 
+  if (format === 'webm') {
+    const blob = await exportAsWebm(
+      canvases,
+      delays,
+      width,
+      height,
+      fps,
+      quality
+    );
+    return {
+      blob,
+      extension: 'webm',
+      filename: `${cleanName}.webm`
+    };
+  }
+
   if (format === 'vap') {
     const blob = await exportAsVap(
       canvases,
       delays,
       width,
       height,
-      fps,
+      activeFps,
       '1.0.5',
       null,
       undefined,
@@ -1785,7 +1979,7 @@ export async function exportItem(
       delays,
       width,
       height,
-      fps,
+      activeFps,
       null,
       undefined,
       quality

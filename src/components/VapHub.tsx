@@ -12,6 +12,8 @@ import { extractAudioFromVap, fastReplaceAudioInVap } from '../utils/vapFFmpeg';
 import { convertVapToSvga } from '../utils/svgaExporter';
 import { convertVapToMp4 } from '../utils/vapEngine';
 import { downloadDesignerInfoFile } from '../utils/designerInfo';
+import { exportItem } from './AnimationManager/utils/exportEngine';
+import { AnimationItem } from './AnimationManager/types';
 
 export const VapHub: React.FC = () => {
     const [files, setFiles] = useState<{file: File, url: string, metadata: any, status: string}[]>([]);
@@ -117,6 +119,14 @@ export const VapHub: React.FC = () => {
         for (const file of newFiles) {
             try {
                 const metadata = await parseVapMetadata(file);
+                const isLeft = Boolean(
+                    (metadata?.info?.aFrame && metadata?.info?.rgbFrame && metadata.info.aFrame[0] < metadata.info.rgbFrame[0]) || 
+                    file.name.toLowerCase().endsWith('.yyeva') || 
+                    (metadata as any)?.descript
+                );
+                if (isLeft) {
+                    setAlphaMode('left');
+                }
                 setFiles(prev => [...prev, {
                     file,
                     url: URL.createObjectURL(file),
@@ -129,18 +139,64 @@ export const VapHub: React.FC = () => {
         }
     };
 
-    const handleExport = async () => {
+    const handleExport = async (targetTypeOverride?: 'VAP' | 'YYEVA') => {
         if (!activeFile) return;
         setIsExporting(true);
         setExportProgress(10);
         setExportSuccess(false);
-        setExportPhase("جاري فحص ملف VAP ومسارات الصوت...");
+        setExportPhase("جاري فحص ملف الأنيميشن ومسارات الصوت...");
 
         try {
             const baseName = activeFile.file.name.replace(/\.[^/.]+$/, "");
-            const isVapFormat = selectedFormat.includes('VAP') || selectedFormat === 'VAP (Original)';
+            const fmtType = targetTypeOverride || (selectedFormat.includes('YYEVA') ? 'YYEVA' : 'VAP');
 
-            if (isVapFormat) {
+            if (fmtType === 'YYEVA') {
+                setExportPhase("جاري فك تشفير وتصدير إطارات الفيديو إلى صيغة YYEVA (.mp4) الشفافة...");
+                setExportProgress(30);
+
+                const fps = (activeFile.metadata?.info?.fps && activeFile.metadata.info.fps > 0 && activeFile.metadata.info.fps <= 120) 
+                    ? activeFile.metadata.info.fps 
+                    : 30;
+                const totalF = (activeFile.metadata?.info?.f && activeFile.metadata.info.f > 0 && activeFile.metadata.info.f !== fps)
+                    ? activeFile.metadata.info.f
+                    : 90;
+                const dur = totalF / fps;
+
+                const animItem: AnimationItem = {
+                    id: 'vap_to_yyeva_' + Date.now(),
+                    name: baseName,
+                    originalName: activeFile.file.name,
+                    format: 'vap',
+                    size: activeFile.file.size,
+                    dimensions: {
+                        width: activeFile.metadata?.info?.w || 750,
+                        height: activeFile.metadata?.info?.h || 750
+                    },
+                    duration: dur,
+                    fps: fps,
+                    frameCount: totalF,
+                    contentHash: 'hash_' + Date.now(),
+                    file: activeFile.file,
+                    previewUrl: activeFile.url,
+                    createdAt: Date.now(),
+                    status: 'ready'
+                };
+                const result = await exportItem(animItem, 'yyeva', {
+                    fps: fps,
+                    quality: 95
+                });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(result.blob);
+                const dlYyeva = `${baseName}_YYEVA.mp4`;
+                a.download = dlYyeva;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                downloadDesignerInfoFile(dlYyeva, { format: 'YYEVA Transparent Video', fps, frames: totalF });
+                setExportSuccess(true);
+                setIsExporting(false);
+            } else {
+                // VAP export
                 setExportPhase("جاري دمج مسار الصوت مع الحفاظ الكامل على إطارات وبيانات VAP...");
                 setExportProgress(30);
 
@@ -150,9 +206,6 @@ export const VapHub: React.FC = () => {
                     activeFile.file,
                     audioToMerge,
                     {
-                        duration: activeFile.metadata?.info?.f && activeFile.metadata?.info?.fps 
-                            ? (activeFile.metadata.info.f / activeFile.metadata.info.fps) 
-                            : undefined,
                         vapConfig: activeFile.metadata,
                         volume: audioVolume,
                         mute: isAudioMuted,
@@ -163,14 +216,10 @@ export const VapHub: React.FC = () => {
                 );
 
                 setExportProgress(100);
-                setExportPhase("تم دمج وتجهيز ملف VAP بنجاح!");
+                setExportPhase("تم دمج وتجهيز ملف VAP بنجاح بالمدة الكاملة!");
                 setExportSuccess(true);
 
-                // Auto download with appropriate extension
-                const extension = selectedFormat.includes('.vap') ? '.vap' : '.vap';
-                const audioSuffix = isAudioMuted ? '_silent' : (customAudioFile ? '_with_audio' : '_vap');
-                const downloadName = `${baseName}${audioSuffix}${extension.startsWith('.') ? extension : '.' + extension}`;
-
+                const downloadName = `${baseName}${isAudioMuted ? '_silent' : (customAudioFile ? '_with_audio' : '_vap')}.vap`;
                 const a = document.createElement('a');
                 a.href = URL.createObjectURL(finalVapBlob);
                 a.download = downloadName;
@@ -179,89 +228,10 @@ export const VapHub: React.FC = () => {
                 document.body.removeChild(a);
                 downloadDesignerInfoFile(downloadName, { format: 'VAP 1.0.5' });
                 setIsExporting(false);
-            } else if (selectedFormat.includes('MP4')) {
-                setExportPhase("جاري تصدير فيديو MP4 عالي الجودة مع دمج الصوت...");
-                setExportProgress(25);
-
-                const { mp4Blob } = await convertVapToMp4({
-                    file: activeFile.file,
-                    url: activeFile.url,
-                    vapConfig: activeFile.metadata,
-                    onProgress: (prog, status) => {
-                        setExportProgress(prog);
-                        setExportPhase(status);
-                    }
-                });
-
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(mp4Blob);
-                const dlMp4 = `${baseName}_converted.mp4`;
-                a.download = dlMp4;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                downloadDesignerInfoFile(dlMp4, { format: 'MP4 Video' });
-                setExportSuccess(true);
-                setIsExporting(false);
-            } else if (selectedFormat === 'SVGA 2.0') {
-                const video = document.querySelector('video[src="' + activeFile.url + '"]') as HTMLVideoElement;
-                if (!video) {
-                    alert('تعذر العثور على الفيديو');
-                    setIsExporting(false);
-                    return;
-                }
-                
-                const vw = video.videoWidth || activeFile.metadata?.info?.videoW || 1000;
-                const vh = video.videoHeight || activeFile.metadata?.info?.videoH || 1000;
-                const fps = activeFile.metadata?.info?.fps || 30;
-                const totalFrames = activeFile.metadata?.info?.f || Math.floor(video.duration * fps) || 100;
-
-                const svgaBlob = await convertVapToSvga(video, vw, vh, totalFrames, fps, (prog, ph) => {
-                    setExportProgress(prog);
-                    setExportPhase(ph);
-                });
-                
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(svgaBlob);
-                const dlSvga = baseName + '.svga';
-                a.download = dlSvga;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                downloadDesignerInfoFile(dlSvga, { format: 'SVGA 2.0', fps, frames: totalFrames, dimensions: `${vw}x${vh}` });
-                setExportSuccess(true);
-                setIsExporting(false);
-            } else {
-                // Fallback for WebM / other formats: Remux via fastReplaceAudioInVap
-                setExportPhase("جاري معالجة وتصدير الملف...");
-                const finalBlob = await fastReplaceAudioInVap(
-                    activeFile.file,
-                    isAudioMuted ? null : customAudioFile,
-                    {
-                        duration: activeFile.metadata?.info?.f && activeFile.metadata?.info?.fps 
-                            ? (activeFile.metadata.info.f / activeFile.metadata.info.fps) 
-                            : undefined,
-                        vapConfig: activeFile.metadata,
-                        volume: audioVolume,
-                        mute: isAudioMuted,
-                        onProgress: (p) => setExportProgress(p),
-                        onStatus: (s) => setExportPhase(s)
-                    }
-                );
-
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(finalBlob);
-                const dlFallback = `${baseName}_export.mp4`;
-                a.download = dlFallback;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                downloadDesignerInfoFile(dlFallback, { format: 'MP4 / VAP' });
-                setExportSuccess(true);
-                setIsExporting(false);
             }
         } catch (error: any) {
             console.error("Export Error:", error);
+            setExportPhase(`فشل التصدير: ${error.message || 'خطأ غير معروف'}`);
             alert("حدث خطأ أثناء التصدير: " + (error.message || error));
             setIsExporting(false);
         }
@@ -517,11 +487,8 @@ export const VapHub: React.FC = () => {
                                             onChange={(e) => setSelectedFormat(e.target.value)} 
                                             className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 font-bold text-sm text-slate-200 outline-none focus:border-indigo-500 transition-colors"
                                         >
-                                            <option value="VAP (ملف VAP شفاف مع الصوت)">VAP (ملف VAP شفاف مع الصوت المدمج) - افتراضي</option>
-                                            <option value="VAP (.vap) - مخصص لـ flutter_vap">VAP (.vap) - مخصص لحزم Flutter VAP</option>
-                                            <option value="MP4 (فيديو مدمج مع الصوت)">MP4 (فيديو مدمج عالي الدقة مع الصوت)</option>
-                                            <option value="SVGA 2.0">SVGA 2.0 (متحرك تفاعلي)</option>
-                                            <option value="WebM (Transparent)">WebM (فيديو شفاف VP9 مع الصوت)</option>
+                                            <option value="VAP (ملف VAP شفاف مع الصوت)">صيغة VAP (.vap - ملف VAP شفاف بالمدة الكاملة)</option>
+                                            <option value="YYEVA (.mp4 شفاف)">صيغة YYEVA (.mp4 - فيديو شفاف مع كود yyea)</option>
                                         </select>
                                     </div>
 
@@ -558,20 +525,46 @@ export const VapHub: React.FC = () => {
                                     {exportSuccess && !isExporting && (
                                         <div className="flex items-center gap-2 p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs font-bold animate-in fade-in duration-200">
                                             <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-                                            <span>تم إنشاء وتنزيل ملف {selectedFormat.includes('VAP') ? 'VAP' : 'الفيديو'} بنجاح!</span>
+                                            <span>تم إنشاء وتنزيل ملف التصدير بنجاح بالمدة السليمة!</span>
                                         </div>
                                     )}
                                 </div>
                             </div>
 
-                            <button 
-                                onClick={handleExport} 
-                                disabled={isExporting} 
-                                className="w-full py-4 bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 rounded-2xl font-black text-base shadow-xl shadow-indigo-500/20 transform hover:-translate-y-0.5 transition-all mt-6 flex items-center justify-center gap-2 text-white"
-                            >
-                                {isExporting ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />} 
-                                {isExporting ? (exportPhase || 'جاري التصدير...') : 'تصدير وتحميل ملف VAP الآن'}
-                            </button>
+                            {/* Three Dedicated Export Buttons: VAP, YYEVA, and Cross-Convert */}
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6">
+                                <button 
+                                    onClick={() => handleExport('VAP')} 
+                                    disabled={isExporting} 
+                                    className="py-3.5 px-3 bg-gradient-to-r from-indigo-600 via-purple-600 to-violet-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 rounded-2xl font-black text-xs sm:text-sm text-white shadow-xl shadow-indigo-500/20 transform hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                                    title="تصدير بصيغة VAP بالمدة الكاملة"
+                                >
+                                    <Download className="w-4 h-4 stroke-[2.5]" />
+                                    <span>تصدير VAP (.vap)</span>
+                                </button>
+
+                                <button 
+                                    onClick={() => handleExport('YYEVA')} 
+                                    disabled={isExporting} 
+                                    className="py-3.5 px-3 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-400 disabled:opacity-50 rounded-2xl font-black text-xs sm:text-sm text-slate-950 shadow-xl shadow-amber-500/20 transform hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                                    title="تصدير بصيغة YYEVA بالمدة الكاملة"
+                                >
+                                    <Sparkles className="w-4 h-4 stroke-[2.5]" />
+                                    <span>تصدير YYEVA (.mp4)</span>
+                                </button>
+
+                                <button 
+                                    onClick={() => handleExport(activeFile?.file.name.toLowerCase().endsWith('.vap') ? 'YYEVA' : 'VAP')} 
+                                    disabled={isExporting} 
+                                    className="py-3.5 px-3 bg-gradient-to-r from-cyan-600 via-teal-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 disabled:opacity-50 rounded-2xl font-black text-xs sm:text-sm text-white shadow-xl shadow-cyan-600/20 transform hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                                    title={activeFile?.file.name.toLowerCase().endsWith('.vap') ? 'تحويل مباشر من VAP إلى YYEVA' : 'تحويل مباشر من YYEVA إلى VAP'}
+                                >
+                                    <RefreshCw className="w-4 h-4 stroke-[2.5]" />
+                                    <span>
+                                        {activeFile?.file.name.toLowerCase().endsWith('.vap') ? 'تحويل VAP ➔ YYEVA' : 'تحويل YYEVA ➔ VAP'}
+                                    </span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

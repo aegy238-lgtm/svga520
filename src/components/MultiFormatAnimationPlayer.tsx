@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { Parser as SvgaParser, Player as SvgaPlayer } from 'svga.lite';
-import { extractVapConfigFromBlob } from '../utils/vapEngine';
+import { extractVapConfigFromBlob, detectVapChannelLayout, VapDetectionResult } from '../utils/vapEngine';
 import { WatermarkConfig, drawAnimatedWatermark } from '../utils/watermarkAndBackground';
 import { convertItemToStandardMp4, UniversalConvertResult } from '../utils/universalMp4Converter';
 
@@ -21,6 +21,7 @@ export interface ViewerItem {
   url: string;
   format: ViewerFormatType;
   size?: number;
+  vapConfig?: any;
 }
 
 export interface ConvertJob {
@@ -49,6 +50,7 @@ export const detectViewerFormat = async (file: File): Promise<ViewerFormatType> 
   if (ext === 'gif') return 'gif';
   if (ext === 'webm') return 'webm';
   if (ext === 'zip') return 'png_seq';
+  if (ext === 'vap') return 'vap';
   
   if (name.includes('yyeva') || name.includes('right_alpha')) return 'yyeva';
   if (name.includes('vap') || name.includes('left_alpha')) return 'vap';
@@ -59,16 +61,18 @@ export const detectViewerFormat = async (file: File): Promise<ViewerFormatType> 
       if (config?.info) {
         const rgbFrame = config.info.rgbFrame || [];
         const aFrame = config.info.aFrame || [];
+        // If alpha starts at 0 and rgb starts at w (or aFrame is before rgbFrame) -> VAP
+        if (aFrame[0] < rgbFrame[0]) return 'vap';
         // If rgb starts at 0 and alpha starts at w -> YYEVA
-        if (rgbFrame[0] === 0 && aFrame[0] > 0) return 'yyeva';
-        // If alpha starts at 0 and rgb starts at w -> VAP
-        if (aFrame[0] === 0 && rgbFrame[0] > 0) return 'vap';
+        if (rgbFrame[0] < aFrame[0]) return 'yyeva';
+        if (aFrame[1] < rgbFrame[1]) return 'vap';
       }
     } catch (e) {
       // ignore
     }
-    // Default MP4 with split or regular
-    return 'yyeva'; // Default to YYEVA as it's the standard for live stream alpha videos
+    // Check if filename suggests VAP
+    if (name.includes('vap') || name.includes('alpha_left')) return 'vap';
+    return 'yyeva';
   }
 
   return 'mp4';
@@ -140,6 +144,24 @@ export const MultiFormatAnimationPlayer: React.FC<MultiFormatAnimationPlayerProp
   const [formatOverride, setFormatOverride] = useState<ViewerFormatType | null>(null);
   const currentFormat: ViewerFormatType = formatOverride || (activeItem ? activeItem.format : 'yyeva');
 
+  // Channel layout configuration (supports auto detection, left alpha VAP, right alpha YYEVA, top, bottom, full)
+  const [vapChannelLayout, setVapChannelLayout] = useState<'auto' | 'left_alpha' | 'right_alpha' | 'top_alpha' | 'bottom_alpha' | 'full'>('auto');
+  const [detectedLayout, setDetectedLayout] = useState<VapDetectionResult | null>(null);
+
+  // Quick swap Alpha/RGB channels helper
+  const toggleSwapChannels = () => {
+    if (currentFormat === 'vap') {
+      setFormatOverride('yyeva');
+      setVapChannelLayout('right_alpha');
+    } else if (currentFormat === 'yyeva') {
+      setFormatOverride('vap');
+      setVapChannelLayout('left_alpha');
+    } else {
+      setFormatOverride('vap');
+      setVapChannelLayout('left_alpha');
+    }
+  };
+
   // DOM and Engine references
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -182,7 +204,7 @@ export const MultiFormatAnimationPlayer: React.FC<MultiFormatAnimationPlayerProp
   const openExportModal = (itemsToExport: ViewerItem[]) => {
     if (itemsToExport.length === 0) return;
     const initialJobs: ConvertJob[] = itemsToExport.map(item => ({
-      item,
+      item: (activeItem && item.id === activeItem.id) ? { ...item, format: currentFormat } : item,
       status: 'pending',
       progress: 0,
       statusText: 'في الانتظار ⏳'
@@ -327,26 +349,15 @@ export const MultiFormatAnimationPlayer: React.FC<MultiFormatAnimationPlayerProp
     const fsSource = `
       precision mediump float;
       uniform sampler2D u_image;
-      uniform int u_format; // 0: YYEVA (RGB left, Alpha right), 1: VAP (Alpha left, RGB right), 2: Normal MP4
+      uniform vec4 u_rgbRect;
+      uniform vec4 u_alphaRect;
+      uniform int u_mode; // 0: Alpha Blending Split, 1: Full Normal Video
       varying vec2 v_texCoord;
 
       void main() {
-        if (u_format == 0) {
-          // YYEVA: Left half is RGB, Right half is Alpha
-          vec2 rgbUV = vec2(v_texCoord.x * 0.5, v_texCoord.y);
-          vec2 alphaUV = vec2(v_texCoord.x * 0.5 + 0.5, v_texCoord.y);
-          vec4 color = texture2D(u_image, rgbUV);
-          vec4 alphaColor = texture2D(u_image, alphaUV);
-          float alpha = dot(alphaColor.rgb, vec3(0.299, 0.587, 0.114));
-          if (alpha <= 0.03) {
-            gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
-          } else {
-            gl_FragColor = vec4(color.rgb, alpha);
-          }
-        } else if (u_format == 1) {
-          // Tencent VAP: Left half is Alpha, Right half is RGB
-          vec2 alphaUV = vec2(v_texCoord.x * 0.5, v_texCoord.y);
-          vec2 rgbUV = vec2(v_texCoord.x * 0.5 + 0.5, v_texCoord.y);
+        if (u_mode == 0) {
+          vec2 rgbUV = vec2(u_rgbRect.x + v_texCoord.x * u_rgbRect.z, u_rgbRect.y + v_texCoord.y * u_rgbRect.w);
+          vec2 alphaUV = vec2(u_alphaRect.x + v_texCoord.x * u_alphaRect.z, u_alphaRect.y + v_texCoord.y * u_alphaRect.w);
           vec4 color = texture2D(u_image, rgbUV);
           vec4 alphaColor = texture2D(u_image, alphaUV);
           float alpha = dot(alphaColor.rgb, vec3(0.299, 0.587, 0.114));
@@ -356,7 +367,6 @@ export const MultiFormatAnimationPlayer: React.FC<MultiFormatAnimationPlayerProp
             gl_FragColor = vec4(color.rgb, alpha);
           }
         } else {
-          // Normal Full Video
           gl_FragColor = texture2D(u_image, v_texCoord);
         }
       }
@@ -606,14 +616,32 @@ export const MultiFormatAnimationPlayer: React.FC<MultiFormatAnimationPlayerProp
 
     const rawW = vid.videoWidth || 750;
     const rawH = vid.videoHeight || 750;
-    const isDual = currentFormat === 'yyeva' || currentFormat === 'vap';
-    const renderW = isDual ? Math.round(rawW / 2) : rawW;
-    const renderH = rawH;
+
+    // Run smart optical & metadata channel detection
+    const detection = detectVapChannelLayout(vid, activeItem?.vapConfig);
+    setDetectedLayout(detection);
+
+    let effectiveFormat = currentFormat;
+    if (!formatOverride) {
+      if (detection.layout === 'right_rgb_left_alpha') {
+        effectiveFormat = 'vap';
+        setFormatOverride('vap');
+      } else if (detection.layout === 'left_rgb_right_alpha') {
+        effectiveFormat = 'yyeva';
+        setFormatOverride('yyeva');
+      }
+    }
+
+    const isDual = effectiveFormat === 'yyeva' || effectiveFormat === 'vap';
+    const isVerticalSplit = detection.layout.includes('top_') || detection.layout.includes('bottom_');
+    const renderW = isDual ? (isVerticalSplit ? rawW : Math.round(rawW / 2)) : rawW;
+    const renderH = isDual ? (isVerticalSplit ? Math.round(rawH / 2) : rawH) : rawH;
 
     setVideoDimensions({ width: renderW, height: renderH });
     setDuration(vid.duration || 1);
-    setFps(30);
-    setTotalFrames(Math.round((vid.duration || 1) * 30));
+    const fpsVal = detection.fps || 30;
+    setFps(fpsVal);
+    setTotalFrames(Math.round((vid.duration || 1) * fpsVal));
     setIsLoading(false);
 
     if (canvasRef.current) {
@@ -643,10 +671,34 @@ export const MultiFormatAnimationPlayer: React.FC<MultiFormatAnimationPlayerProp
 
     const renderLoop = () => {
       if (vid && cvs && vid.readyState >= 2 && !vid.paused && !vid.ended) {
-        const rawW = vid.videoWidth;
-        const rawH = vid.videoHeight;
-        const renderW = isDual ? Math.round(rawW / 2) : rawW;
-        const renderH = rawH;
+        const rawW = vid.videoWidth || 1;
+        const rawH = vid.videoHeight || 1;
+
+        // Resolve exact RGB and Alpha frames based on active settings & detection
+        let rgbFrame: [number, number, number, number] = [0, 0, Math.round(rawW / 2), rawH];
+        let aFrame: [number, number, number, number] = [Math.round(rawW / 2), 0, Math.round(rawW / 2), rawH];
+
+        if (vapChannelLayout === 'left_alpha' || currentFormat === 'vap') {
+          // Tencent VAP: Alpha Left, RGB Right
+          rgbFrame = [Math.round(rawW / 2), 0, Math.round(rawW / 2), rawH];
+          aFrame = [0, 0, Math.round(rawW / 2), rawH];
+        } else if (vapChannelLayout === 'right_alpha' || currentFormat === 'yyeva') {
+          // YYEVA: RGB Left, Alpha Right
+          rgbFrame = [0, 0, Math.round(rawW / 2), rawH];
+          aFrame = [Math.round(rawW / 2), 0, Math.round(rawW / 2), rawH];
+        } else if (vapChannelLayout === 'top_alpha') {
+          rgbFrame = [0, Math.round(rawH / 2), rawW, Math.round(rawH / 2)];
+          aFrame = [0, 0, rawW, Math.round(rawH / 2)];
+        } else if (vapChannelLayout === 'bottom_alpha') {
+          rgbFrame = [0, 0, rawW, Math.round(rawH / 2)];
+          aFrame = [0, Math.round(rawH / 2), rawW, Math.round(rawH / 2)];
+        } else if (detectedLayout && vapChannelLayout === 'auto') {
+          rgbFrame = detectedLayout.rgbFrame;
+          aFrame = detectedLayout.aFrame;
+        }
+
+        const renderW = isDual ? rgbFrame[2] : rawW;
+        const renderH = isDual ? rgbFrame[3] : rawH;
 
         if (cvs.width !== renderW) cvs.width = renderW;
         if (cvs.height !== renderH) cvs.height = renderH;
@@ -662,9 +714,13 @@ export const MultiFormatAnimationPlayer: React.FC<MultiFormatAnimationPlayerProp
           gl.bindTexture(gl.TEXTURE_2D, glTexRef.current);
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, vid);
 
-          const uFormatLoc = gl.getUniformLocation(glProgramRef.current, 'u_format');
-          // 0: YYEVA (RGB left, Alpha right), 1: VAP (Alpha left, RGB right)
-          gl.uniform1i(uFormatLoc, currentFormat === 'yyeva' ? 0 : 1);
+          const uRgbRectLoc = gl.getUniformLocation(glProgramRef.current, 'u_rgbRect');
+          const uAlphaRectLoc = gl.getUniformLocation(glProgramRef.current, 'u_alphaRect');
+          const uModeLoc = gl.getUniformLocation(glProgramRef.current, 'u_mode');
+
+          gl.uniform4f(uRgbRectLoc, rgbFrame[0] / rawW, rgbFrame[1] / rawH, rgbFrame[2] / rawW, rgbFrame[3] / rawH);
+          gl.uniform4f(uAlphaRectLoc, aFrame[0] / rawW, aFrame[1] / rawH, aFrame[2] / rawW, aFrame[3] / rawH);
+          gl.uniform1i(uModeLoc, isDual ? 0 : 1);
 
           gl.drawArrays(gl.TRIANGLES, 0, 6);
         } else {
@@ -680,20 +736,17 @@ export const MultiFormatAnimationPlayer: React.FC<MultiFormatAnimationPlayerProp
               const tCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
               if (tCtx) {
                 tCtx.drawImage(vid, 0, 0, rawW, rawH);
-                const rgbStartX = currentFormat === 'yyeva' ? 0 : renderW;
-                const alphaStartX = currentFormat === 'yyeva' ? renderW : 0;
-
-                const rgbData = tCtx.getImageData(rgbStartX, 0, renderW, renderH).data;
-                const alphaData = tCtx.getImageData(alphaStartX, 0, renderW, renderH).data;
+                const rgbData = tCtx.getImageData(rgbFrame[0], rgbFrame[1], rgbFrame[2], rgbFrame[3]).data;
+                const alphaData = tCtx.getImageData(aFrame[0], aFrame[1], aFrame[2], aFrame[3]).data;
                 const output = ctx.createImageData(renderW, renderH);
                 const outPx = output.data;
 
                 for (let i = 0; i < outPx.length; i += 4) {
-                  const a = alphaData[i];
+                  const a = alphaData[i] * 0.299 + alphaData[i + 1] * 0.587 + alphaData[i + 2] * 0.114;
                   outPx[i] = rgbData[i];
                   outPx[i + 1] = rgbData[i + 1];
                   outPx[i + 2] = rgbData[i + 2];
-                  outPx[i + 3] = a > 8 ? a : 0;
+                  outPx[i + 3] = a > 8 ? Math.round(a) : 0;
                 }
                 ctx.putImageData(output, 0, 0);
               }
@@ -704,7 +757,7 @@ export const MultiFormatAnimationPlayer: React.FC<MultiFormatAnimationPlayerProp
         }
 
         setCurrentTime(vid.currentTime);
-        setCurrentFrame(Math.round(vid.currentTime * 30));
+        setCurrentFrame(Math.round(vid.currentTime * (fps || 30)));
       }
 
       animationFrameRef.current = requestAnimationFrame(renderLoop);
@@ -715,7 +768,7 @@ export const MultiFormatAnimationPlayer: React.FC<MultiFormatAnimationPlayerProp
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
-  }, [currentFormat, activeItem?.format]);
+  }, [currentFormat, vapChannelLayout, detectedLayout, activeItem?.format]);
 
   // PNG Sequence Render Loop
   useEffect(() => {
@@ -939,6 +992,19 @@ export const MultiFormatAnimationPlayer: React.FC<MultiFormatAnimationPlayerProp
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Quick Alpha/RGB Channel Swap Button */}
+          {(currentFormat === 'yyeva' || currentFormat === 'vap' || activeItem?.format === 'yyeva' || activeItem?.format === 'vap' || activeItem?.name.toLowerCase().endsWith('.mp4')) && (
+            <button
+              type="button"
+              onClick={toggleSwapChannels}
+              className="px-3 py-2 bg-gradient-to-r from-amber-500/20 to-pink-500/20 hover:from-amber-500/30 hover:to-pink-500/30 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shadow-md"
+              title="عكس موضع قناع الشفافية Alpha ومسار الألوان RGB (تبديل فوري بين VAP و YYEVA)"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+              <span>عكس قنوات الألفا ({currentFormat === 'vap' ? 'ألفا يسار ⬅️' : 'ألفا يمين ➡️'})</span>
+            </button>
+          )}
+
           {/* Watermark toggle */}
           <button
             type="button"
@@ -1253,41 +1319,70 @@ export const MultiFormatAnimationPlayer: React.FC<MultiFormatAnimationPlayerProp
         <div className="p-4 bg-slate-900/60 flex flex-col gap-4 overflow-y-auto max-h-[580px]">
           {/* Format Switcher Widget (Manual channel placement override) */}
           <div className="space-y-2">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
-              تفسير صيغة العرض والألفا:
-            </span>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                تفسير صيغة العرض والألفا:
+              </span>
+              {detectedLayout && (
+                <span className="text-[9px] px-2 py-0.5 bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 rounded-lg font-bold">
+                  كشف ذكي: {detectedLayout.layout === 'right_rgb_left_alpha' ? 'VAP' : detectedLayout.layout === 'left_rgb_right_alpha' ? 'YYEVA' : 'مخصص'}
+                </span>
+              )}
+            </div>
+
+            {/* Quick Swap Channels Button inside Widget */}
+            {(currentFormat === 'yyeva' || currentFormat === 'vap') && (
+              <button
+                type="button"
+                onClick={toggleSwapChannels}
+                className="w-full py-2 px-3 bg-gradient-to-r from-amber-500/20 to-pink-500/20 hover:from-amber-500/30 hover:to-pink-500/30 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-sm"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+                <span>عكس قنوات الألفا فوراً ({currentFormat === 'vap' ? 'VAP ⬅️ ألفا يسار' : 'YYEVA ➡️ ألفا يمين'})</span>
+              </button>
+            )}
+
             <div className="grid grid-cols-1 gap-1.5">
               <button
                 type="button"
-                onClick={() => setFormatOverride('yyeva')}
-                className={`px-3 py-2 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between ${currentFormat === 'yyeva' ? 'bg-pink-600 text-white shadow-md' : 'bg-black/40 text-slate-300 hover:bg-black/60 border border-white/5'}`}
+                onClick={() => { setFormatOverride('vap'); setVapChannelLayout('left_alpha'); }}
+                className={`px-3 py-2 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between ${currentFormat === 'vap' ? 'bg-indigo-600 text-white shadow-md' : 'bg-black/40 text-slate-300 hover:bg-black/60 border border-white/5'}`}
               >
-                <span>YYEVA (ألفا يمين)</span>
-                {currentFormat === 'yyeva' && <Check className="w-3.5 h-3.5" />}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setFormatOverride('vap')}
-                className={`px-3 py-2 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between ${currentFormat === 'vap' ? 'bg-pink-600 text-white shadow-md' : 'bg-black/40 text-slate-300 hover:bg-black/60 border border-white/5'}`}
-              >
-                <span>Tencent VAP (ألفا يسار)</span>
+                <div className="flex flex-col">
+                  <span>Tencent VAP (ألفا يسار ⬅️)</span>
+                  <span className="text-[9px] opacity-75 font-normal">الشفافية باليسار، الألوان باليمين</span>
+                </div>
                 {currentFormat === 'vap' && <Check className="w-3.5 h-3.5" />}
               </button>
 
               <button
                 type="button"
-                onClick={() => setFormatOverride('mp4')}
-                className={`px-3 py-2 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between ${currentFormat === 'mp4' ? 'bg-pink-600 text-white shadow-md' : 'bg-black/40 text-slate-300 hover:bg-black/60 border border-white/5'}`}
+                onClick={() => { setFormatOverride('yyeva'); setVapChannelLayout('right_alpha'); }}
+                className={`px-3 py-2 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between ${currentFormat === 'yyeva' ? 'bg-pink-600 text-white shadow-md' : 'bg-black/40 text-slate-300 hover:bg-black/60 border border-white/5'}`}
               >
-                <span>MP4 عادي</span>
+                <div className="flex flex-col">
+                  <span>YYEVA (ألفا يمين ➡️)</span>
+                  <span className="text-[9px] opacity-75 font-normal">الألوان باليسار، الشفافية باليمين</span>
+                </div>
+                {currentFormat === 'yyeva' && <Check className="w-3.5 h-3.5" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setFormatOverride('mp4'); setVapChannelLayout('full'); }}
+                className={`px-3 py-2 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between ${currentFormat === 'mp4' ? 'bg-blue-600 text-white shadow-md' : 'bg-black/40 text-slate-300 hover:bg-black/60 border border-white/5'}`}
+              >
+                <div className="flex flex-col">
+                  <span>MP4 عادي (بدون فصل)</span>
+                  <span className="text-[9px] opacity-75 font-normal">عرض الإطار بالكامل كما هو</span>
+                </div>
                 {currentFormat === 'mp4' && <Check className="w-3.5 h-3.5" />}
               </button>
 
               <button
                 type="button"
                 onClick={() => setFormatOverride('webm')}
-                className={`px-3 py-2 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between ${currentFormat === 'webm' ? 'bg-pink-600 text-white shadow-md' : 'bg-black/40 text-slate-300 hover:bg-black/60 border border-white/5'}`}
+                className={`px-3 py-2 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between ${currentFormat === 'webm' ? 'bg-emerald-600 text-white shadow-md' : 'bg-black/40 text-slate-300 hover:bg-black/60 border border-white/5'}`}
               >
                 <span>WebM شفاف</span>
                 {currentFormat === 'webm' && <Check className="w-3.5 h-3.5" />}
@@ -1296,7 +1391,7 @@ export const MultiFormatAnimationPlayer: React.FC<MultiFormatAnimationPlayerProp
               <button
                 type="button"
                 onClick={() => setFormatOverride('gif')}
-                className={`px-3 py-2 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between ${currentFormat === 'gif' ? 'bg-pink-600 text-white shadow-md' : 'bg-black/40 text-slate-300 hover:bg-black/60 border border-white/5'}`}
+                className={`px-3 py-2 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between ${currentFormat === 'gif' ? 'bg-amber-600 text-white shadow-md' : 'bg-black/40 text-slate-300 hover:bg-black/60 border border-white/5'}`}
               >
                 <span>GIF متحرك</span>
                 {currentFormat === 'gif' && <Check className="w-3.5 h-3.5" />}
@@ -1305,7 +1400,7 @@ export const MultiFormatAnimationPlayer: React.FC<MultiFormatAnimationPlayerProp
               <button
                 type="button"
                 onClick={() => setFormatOverride('png_seq')}
-                className={`px-3 py-2 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between ${currentFormat === 'png_seq' ? 'bg-pink-600 text-white shadow-md' : 'bg-black/40 text-slate-300 hover:bg-black/60 border border-white/5'}`}
+                className={`px-3 py-2 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between ${currentFormat === 'png_seq' ? 'bg-cyan-600 text-white shadow-md' : 'bg-black/40 text-slate-300 hover:bg-black/60 border border-white/5'}`}
               >
                 <span>سلسلة PNG (ZIP)</span>
                 {currentFormat === 'png_seq' && <Check className="w-3.5 h-3.5" />}

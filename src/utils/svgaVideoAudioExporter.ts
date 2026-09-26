@@ -213,7 +213,7 @@ export async function mixAudioTracksToBuffer(
 export async function encodeAudioBufferToMuxer(
   audioBuffer: AudioBuffer,
   muxer: any,
-  isWebM: boolean
+  isWebM: boolean = false
 ): Promise<boolean> {
   // @ts-ignore
   if (typeof AudioEncoder === 'undefined' || typeof AudioData === 'undefined') {

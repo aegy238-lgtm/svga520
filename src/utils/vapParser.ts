@@ -9,7 +9,8 @@ export const parseVapMetadata = async (file: File): Promise<any> => {
     return {
         info: {
             v: 2,
-            f: 30,
+            f: 90,
+            fps: 30,
             w: 750,
             h: 750,
             rgbFrame: [0, 0, 750, 750],

@@ -109,6 +109,7 @@ import { MaintenanceScreen } from './components/MaintenanceScreen';
 import { VersionBlockedModal } from './components/Auth/VersionBlockedModal';
 import { checkVersionCompatibility, verifyAccountVersionWithServer, getActiveClientVersion } from './utils/versionControl';
 import { AppUpdateToast } from './components/AppUpdateToast';
+import { GlobalExportWidget } from './components/GlobalExportWidget';
 import { extractSvgaFromPdfFile } from './utils/pdfSvgaExtractor';
 
 declare var SVGA: any;
@@ -1320,6 +1321,9 @@ const App: React.FC = () => {
           }}
         />
       )}
+
+      {/* Persistent Background Continuous Export Center */}
+      <GlobalExportWidget />
     </div>
   );
 };

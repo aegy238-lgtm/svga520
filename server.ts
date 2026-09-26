@@ -3,6 +3,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import audioRouter from "./src/server/audioRouter";
+import exportJobsRouter from "./src/server/exportJobsRouter";
 
 // In-memory maintenance cache for instant fast response
 let serverMaintenanceState = {
@@ -68,6 +69,9 @@ async function startServer() {
 
   // Audio & media processing API routes (always active for creator tools)
   app.use('/api/audio', audioRouter);
+
+  // Background export & media tasks router (runs heavy exports without freezing client)
+  app.use('/api/export-jobs', exportJobsRouter);
 
   // Serve FFmpeg Core locally from node_modules for zero-latency in-browser fallback
   const ffmpegCoreUmdPath = path.join(process.cwd(), 'node_modules', '@ffmpeg', 'core', 'dist', 'umd');

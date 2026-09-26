@@ -1,7 +1,7 @@
 import { fastReplaceAudioInVap, extractAudioFromVap, getFFmpeg } from "../utils/vapFFmpeg";
 import { extractAudioInBrowser, getAudioChunksForMuxer } from "../utils/clientAudio";
-import { extractVapConfigFromBlob, detectVapChannelLayout, VapChannelLayout, VapDetectionResult } from "../utils/vapEngine";
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { extractVapConfigFromBlob, detectVapChannelLayout, VapChannelLayout, VapDetectionResult, parseMp4DurationFromBlob } from "../utils/vapEngine";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { 
   Upload, X, Info, BoxSelect, FileVideo, RefreshCw, Box, Download, 
   Sliders, Palette, CheckCircle2, Play, Pause, Sparkles, 
@@ -19,7 +19,25 @@ import UPNG from 'upng-js';
 import * as Mp4Muxer from 'mp4-muxer';
 import JSZip from 'jszip';
 import { encodeSVGA } from '../utils/svgaEncoder';
-import { AudioEditorModal } from './AudioEditorModal';
+import { SvgaAudioEditorModal } from './SvgaLayerEditor/SvgaAudioEditorModal';
+import { AeExportModal } from './AeExportModal';
+import { SVGAProjectData, SVGAAudioTrack } from './SvgaLayerEditor/types';
+import { 
+  exportAsWebm, 
+  exportAsVap, 
+  exportAsYyeva, 
+  exportAsMp4, 
+  exportAsGif, 
+  exportAsWebp, 
+  exportAsApng, 
+  exportAsPngFramesZip, 
+  exportAsLottie,
+  getItemFrames 
+} from './AnimationManager/utils/exportEngine';
+import { backgroundExportManager } from '../services/backgroundExportManager';
+import { yieldToMainThread } from '../utils/hardwareProfiler';
+import { releaseCanvas } from '../utils/memoryManager';
+import { generateAEProject } from '../services/aeExportService';
 import { downloadDesignerInfoFile } from '../utils/designerInfo';
 
 // Helper for calculating animated square watermark position
@@ -446,10 +464,39 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
   const [isProcessingAudio, setIsProcessingAudio] = useState(false);
   const [audioProcessProgress, setAudioProcessProgress] = useState(0);
-  const [isAudioEditorModalOpen, setIsAudioEditorModalOpen] = useState(false);
+  const [showAudioStudioModal, setShowAudioStudioModal] = useState(false);
+  const [audioStudioToast, setAudioStudioToast] = useState<string | null>(null);
+  const [isAeExportModalOpen, setIsAeExportModalOpen] = useState(false);
+  const [aeJsonData, setAeJsonData] = useState<any>(null);
+  const aeJsonInputRef = useRef<HTMLInputElement>(null);
+  const [globalQuality, setGlobalQuality] = useState<'low' | 'medium' | 'high'>('high');
+  const [compressionRatio, setCompressionRatio] = useState<number>(0);
+  const [selectedFormat, setSelectedFormat] = useState<string>('SVGA 2.0');
   const [preProcessedVapBlob, setPreProcessedVapBlob] = useState<Blob | null>(null);
   // Export Target Format: 'svga' or 'vap' or 'mp4' or 'frames'
   const [exportTargetFormat, setExportTargetFormat] = useState<'svga' | 'vap' | 'mp4' | 'frames'>('svga');
+
+  const availableExportFormats = [
+    'SVGA 2.0',
+    'SVGA 1.0',
+    'VAP (MP4)',
+    'WebM (Video)',
+    'SVGA → YYEVA',
+    'MP4 (فيديو نقي)',
+    'GIF (Animation)',
+    'WebP (Animated)',
+    'APNG (Animation)',
+    'Lottie (Sequence)',
+    'Image Sequence'
+  ];
+
+  // Auto clear audio studio toast
+  useEffect(() => {
+    if (audioStudioToast) {
+      const t = setTimeout(() => setAudioStudioToast(null), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [audioStudioToast]);
 
   // Player & Container Refs
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1044,6 +1091,13 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       setTimeout(resolve, 800);
     });
 
+    // Exact duration detection from MP4 mvhd box
+    const mp4Dur = await parseMp4DurationFromBlob(f).catch(() => null);
+    let realDur = (mp4Dur && mp4Dur > 0.1) 
+      ? mp4Dur 
+      : ((tempVideo.duration && isFinite(tempVideo.duration) && tempVideo.duration > 0.1) ? tempVideo.duration : 3);
+    setVideoDuration(realDur);
+
     if (vapInstanceRef.current) {
       try { vapInstanceRef.current.destroy(); } catch (e) {}
       vapInstanceRef.current = null;
@@ -1058,10 +1112,16 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     const detected = detectVapChannelLayout(tempVideo, rawExtracted);
     setDetectedLayoutInfo(detected);
 
-    let fps = rawExtracted?.info?.f || detected.fps || 24;
-    if (fps > 60) {
-      const calculatedFps = Math.round(fps / (tempVideo.duration || 1));
-      fps = (calculatedFps >= 10 && calculatedFps <= 60) ? calculatedFps : 24;
+    let fps = (rawExtracted?.info?.fps && rawExtracted.info.fps > 0 && rawExtracted.info.fps <= 120)
+      ? rawExtracted.info.fps
+      : (detected.fps || 24);
+
+    let totalFrames = (rawExtracted?.info?.f && rawExtracted.info.f > 0 && rawExtracted.info.f !== fps)
+      ? rawExtracted.info.f
+      : Math.max(1, Math.round(realDur * fps));
+
+    if (realDur > 0.1 && Math.round(realDur * fps) > totalFrames) {
+      totalFrames = Math.round(realDur * fps);
     }
 
     const targetW = detected.outputWidth;
@@ -1070,7 +1130,8 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     const completeConfig: VapConfig = {
       info: {
         v: 2,
-        f: fps,
+        f: totalFrames,
+        fps: fps,
         w: targetW,
         h: targetH,
         videoW: vw,
@@ -1158,46 +1219,9 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       setIsAudioPlaying(true);
     }
 
-    // Auto-process for VAP immediately (The "Video-like" feature)
-    if (sourceFile) {
-       setIsProcessingAudio(true);
-       setAudioProcessProgress(0);
-       try {
-           const finalVapBlob = await fastReplaceAudioInVap(
-              sourceFile,
-              file,
-              {
-                duration: (vapConfig?.info?.f && ((vapConfig?.info as any)?.fps || 24)) ? (vapConfig.info.f / ((vapConfig?.info as any)?.fps || 24)) : (videoDuration > 0 ? videoDuration : undefined),
-                vapConfig: vapConfig,
-                vapCompression: vapCompressionEnabled,
-                onProgress: (p) => setAudioProcessProgress(p)
-              }
-            );
-            if (finalVapBlob && finalVapBlob.size > 10000) {
-              setPreProcessedVapBlob(finalVapBlob);
-              setExportedBlob(finalVapBlob);
-              setExportedFileSize((finalVapBlob.size / (1024 * 1024)).toFixed(2) + ' MB');
-              setExportTargetFormat('vap');
-              setExportSuccess(true);
-              setExportProgress(100);
-              setExportStatusText('تم دمج وتجهيز ملف VAP بالصوت الجديد بنجاح!');
-
-              // Auto show success toast briefly
-              const toast = document.createElement('div');
-              toast.className = 'fixed top-10 left-1/2 transform -translate-x-1/2 bg-emerald-500 text-white px-5 py-2.5 rounded-2xl shadow-xl shadow-emerald-500/25 z-[9999] text-xs font-black flex items-center gap-2.5 animate-in fade-in slide-in-from-top-4 duration-300';
-              toast.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> <span>تم دمج الصوت في VAP بنجاح وجاهز للتنزيل المباشر!</span>';
-              document.body.appendChild(toast);
-              setTimeout(() => {
-                  toast.classList.add('opacity-0', 'transition-opacity', 'duration-300');
-                  setTimeout(() => toast.remove(), 300);
-              }, 2500);
-            }
-       } catch (error) {
-           console.error("Audio pre-processing failed:", error);
-       } finally {
-           setIsProcessingAudio(false);
-       }
-    }
+    // Update audio preview state instantly with zero lag or freezing
+    setPreProcessedVapBlob(null);
+    setAudioStudioToast('تم تعيين ملف الصوت بنجاح!');
   };
 
   
@@ -1628,7 +1652,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
         sourceFile,
         isMuted ? null : targetAudioFile,
         {
-          duration: (vapConfig?.info?.f && ((vapConfig?.info as any)?.fps || 24)) ? (vapConfig.info.f / ((vapConfig?.info as any)?.fps || 24)) : (videoDuration > 0 ? videoDuration : undefined),
+          duration: videoDuration > 0 ? videoDuration : undefined,
           vapConfig: vapConfig,
           volume: newVolume,
           startTime: start,
@@ -1648,7 +1672,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
         setExportSuccess(true);
         setExportProgress(100);
       }
-      setIsAudioEditorModalOpen(false);
+      setShowAudioStudioModal(false);
 
       // Trigger synchronized playback
       if (audioElementRef.current && audioUrl && !isMuted) {
@@ -1673,6 +1697,157 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     } finally {
       setIsProcessingAudio(false);
     }
+  };
+
+  // SVGA Project Data for Professional Audio Studio Modal (matches SvgaAudioEditorModal)
+  const audioStudioProjectData: SVGAProjectData = useMemo(() => {
+    const fps = (vapConfig?.info as any)?.fps || targetFps || 24;
+    const totalFrames = vapConfig?.info?.f || (videoDuration > 0 ? Math.round(videoDuration * fps) : 60);
+    const durSec = videoDuration > 0 ? videoDuration : (totalFrames / fps);
+    const w = customWidth || (vapConfig?.info?.w) || videoDimensions.width || 512;
+    const h = customHeight || (vapConfig?.info?.h) || videoDimensions.height || 512;
+
+    const audios: SVGAAudioTrack[] = [];
+    if (audioUrl && !isAudioMuted) {
+      audios.push({
+        audioKey: 'vap_audio_track',
+        startFrame: 0,
+        endFrame: totalFrames,
+        startTime: 0,
+        totalTime: Math.floor(durSec * 1000),
+        name: audioName || 'مسار صوتي مخصص',
+        dataUrl: audioUrl,
+        durationSec: durSec
+      });
+    }
+
+    return {
+      fileName: fileName || 'video_vap.mp4',
+      fileSize: sourceFile?.size || 0,
+      width: w,
+      height: h,
+      fps,
+      totalFrames,
+      durationSec: durSec,
+      imagesMap: audioUrl ? { 'vap_audio_track': audioUrl } : {},
+      rawImages: {},
+      audios,
+      rawMovie: {}
+    };
+  }, [fileName, sourceFile, vapConfig, targetFps, videoDuration, customWidth, customHeight, videoDimensions, audioUrl, audioName, isAudioMuted]);
+
+  // Handle Updates from Professional Audio Studio Modal
+  const handleUpdateProjectFromAudioStudio = async (updatedProject: SVGAProjectData) => {
+    if (updatedProject.audios && updatedProject.audios.length > 0) {
+      const track = updatedProject.audios[0];
+      let newUrl = track.dataUrl || updatedProject.imagesMap[track.audioKey];
+      if (!newUrl && updatedProject.rawImages && updatedProject.rawImages[track.audioKey]) {
+        const b = new Blob([updatedProject.rawImages[track.audioKey]], { type: 'audio/mp3' });
+        newUrl = URL.createObjectURL(b);
+      }
+
+      if (newUrl) {
+        try {
+          const resp = await fetch(newUrl);
+          const audioBlob = await resp.blob();
+          const f = new File([audioBlob], track.name || 'audio_track.mp3', { type: audioBlob.type || 'audio/mp3' });
+
+          if (audioUrl && audioUrl.startsWith('blob:') && audioUrl !== newUrl) {
+            URL.revokeObjectURL(audioUrl);
+          }
+
+          setAudioFile(f);
+          setAudioName(f.name);
+          setAudioSize((f.size / 1024).toFixed(0) + ' KB');
+          setAudioDuration(track.durationSec || (track.totalTime ? track.totalTime / 1000 : 0));
+          setAudioUrl(newUrl);
+          setIsAudioMuted(false);
+          setMuteOriginalAudio(false);
+          setIsPlaybackMuted(false);
+          setPreProcessedVapBlob(null);
+        } catch (err) {
+          console.error("Error applying audio track from studio:", err);
+        }
+      }
+      setAudioStudioToast('تم تحديث ومزامنة الصوت الاحترافي بنجاح!');
+    } else {
+      handleRemoveAudio();
+      setAudioStudioToast('تمت إزالة مسار الصوت بنجاح');
+    }
+  };
+
+  // Dedicated Adobe After Effects Project Export
+  const handleExportAEProject = async () => {
+    if (!fileUrl) return;
+    setIsAeExportModalOpen(true);
+  };
+
+  // Direct Download JSX script for After Effects
+  const handleDirectDownloadJsx = async () => {
+    if (!fileUrl) return;
+    try {
+      setAudioStudioToast('جاري تجهيز وتوليد سكريبت After Effects (.jsx)...');
+      const outW = customWidth || (vapConfig?.info?.w) || videoDimensions.width || 512;
+      const outH = customHeight || (vapConfig?.info?.h) || videoDimensions.height || 512;
+      const fps = targetFps || (vapConfig?.info as any)?.fps || 24;
+      const totalFrames = vapConfig?.info?.f || Math.max(1, Math.round((videoDuration || 3) * fps));
+
+      const result = await generateAEProject({
+        metadata: {
+          name: fileName || 'project.svga',
+          videoItem: {
+            width: outW,
+            height: outH,
+            fps: fps,
+            frames: totalFrames
+          }
+        },
+        originalWidth: outW,
+        originalHeight: outH,
+        sprites: [],
+        imagesData: {},
+        previewBg: (bgMode === 'color' && bgColor !== 'transparent') ? bgColor : null,
+        audioFile: audioFile || null,
+        audioUrl: audioUrl || null
+      });
+
+      if (result && result.jsxContent) {
+        const blob = new Blob([result.jsxContent], { type: 'application/javascript;charset=utf-8' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        const baseName = fileName.replace(/\.[^/.]+$/, '');
+        link.download = `${baseName}_import_to_ae.jsx`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setAudioStudioToast('تم تحميل ملف سكريبت After Effects بنجاح!');
+      }
+    } catch (e: any) {
+      console.error("Direct JSX generation failed:", e);
+      setAudioStudioToast('حدث خطأ أثناء إنشاء السكريبت');
+    }
+  };
+
+  // Import modified AE JSON data
+  const handleImportAEJson = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const parsed = JSON.parse(ev.target?.result as string);
+        setAeJsonData(parsed);
+        setAudioStudioToast('تم استيراد تعديلات After Effects بنجاح!');
+      } catch (err) {
+        console.error("Invalid AE JSON", err);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // Special VAP 1.0.5 Fast Export
+  const handleVAP105Export = async () => {
+    await handleExportVAP(false);
   };
 
   const handleDownloadVapZipPackage = async () => {
@@ -1886,536 +2061,8 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
         setIsExporting(false);
     }
   };
-  const handleExportVAP = async (isStandardMP4: boolean = false) => {
-      let webglRenderer: WebGLVapRenderer | null = null;
-      try {
-        webglRenderer = new WebGLVapRenderer(500, 500);
-      } catch (e) {}
-
-    if (!fileUrl) return;
-
-    setIsExporting(true);
-    setExportProgress(0);
-    setExportSuccess(false);
-    setExportedBlob(null);
-    setExportStats(null);
-    cancelExportRef.current = false;
-
-    try {
-      const checkOrigW = vapConfig?.info?.w || videoDimensions.width;
-      const checkOrigH = vapConfig?.info?.h || videoDimensions.height;
-      const isResized = customWidth > 0 && (customWidth !== checkOrigW || customHeight !== checkOrigH);
-      const isUntouchedVideo = !isResized && !enableWatermark;
-
-      // Ultra-Fast Direct Audio Path: Direct Stream Copy when exporting VAP without video-frame alterations
-      if (!isStandardMP4 && sourceFile && isUntouchedVideo) {
-        if (preProcessedVapBlob && preProcessedVapBlob.size > 10000) {
-            setExportStatusText('جاري تجهيز ملف الـ VAP المحدث فوراً...');
-            setExportedBlob(preProcessedVapBlob);
-            setExportedFileSize((preProcessedVapBlob.size / (1024 * 1024)).toFixed(2) + ' MB');
-            setExportSuccess(true);
-            setExportProgress(100);
-            setExportStatusText('تم تصدير ملف VAP بنجاح مع الصوت الجديد بأعلى جودة وسرعة فائقة!');
-            setIsExporting(false);
-
-            // Auto download
-            const baseName = fileName.replace(/\.[^/.]+$/, '');
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(preProcessedVapBlob);
-            link.download = `${baseName}_with_audio.mp4`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-
-            // Auto companion info file
-            downloadDesignerInfoFile(`${baseName}_with_audio.mp4`, {
-              format: 'VAP 1.0.5 (MP4)',
-              duration: videoDuration
-            });
-            return;
-        }
-
-        setExportStatusText('جاري استبدال مسار الصوت فقط ودمج VAP بدون المساس بالإطارات أو الصور...');
-        let actualAudioFile = audioFile;
-        if (!actualAudioFile && audioUrl && !isAudioMuted && !muteOriginalAudio) {
-          try {
-            const res = await fetch(audioUrl);
-            const blob = await res.blob();
-            if (blob && blob.size > 200) {
-              actualAudioFile = new File([blob], audioName || 'audio.mp3', { type: blob.type || 'audio/mp3' });
-            }
-          } catch (e) {}
-        }
-        const hasCustomAudio = !!actualAudioFile && !isAudioMuted;
-        const audioToUse = hasCustomAudio ? actualAudioFile : null;
-        
-        try {
-          const finalVapBlob = await fastReplaceAudioInVap(
-            sourceFile,
-            audioToUse,
-            {
-              duration: (vapConfig?.info?.f && ((vapConfig?.info as any)?.fps || 24)) ? (vapConfig.info.f / ((vapConfig?.info as any)?.fps || 24)) : (videoDuration > 0 ? videoDuration : undefined),
-              vapConfig: vapConfig,
-              volume: audioVolume,
-              mute: muteOriginalAudio && !hasCustomAudio,
-              vapCompression: vapCompressionEnabled,
-              onProgress: (p) => setExportProgress(p),
-              onStatus: (s) => setExportStatusText(s),
-            }
-          );
-
-          if (finalVapBlob && finalVapBlob.size > 10000) {
-            setExportedBlob(finalVapBlob);
-            setPreProcessedVapBlob(finalVapBlob);
-            setExportedFileSize((finalVapBlob.size / (1024 * 1024)).toFixed(2) + ' MB');
-            setExportSuccess(true);
-            setExportProgress(100);
-            setExportStatusText('تم تصدير ملف VAP بنجاح مع الصوت الجديد بأعلى سرعة وجودة!');
-            setIsExporting(false);
-
-            // Auto download
-            const baseName = fileName.replace(/\.[^/.]+$/, '');
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(finalVapBlob);
-            link.download = `${baseName}_with_audio.mp4`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-
-            // Auto companion info file
-            downloadDesignerInfoFile(`${baseName}_with_audio.mp4`, {
-              format: 'VAP 1.0.5 (MP4)',
-              duration: videoDuration
-            });
-            return;
-          }
-        } catch (fastErr) {
-          console.warn("[VAP Export] Fast path failed, falling back to full client encoding pipeline:", fastErr);
-        }
-      }
-
-      setExportStatusText('جاري تحضير محرك الفيديو وتجهيز مسار الصوت...');
-      const video = await loadVideoForExport(fileUrl, sourceFile);
-
-      const vw = video.videoWidth;
-      const vh = video.videoHeight;
-      const duration = video.duration || videoDuration || 3;
-      const fps = targetFps || 24;
-      const totalFrames = Math.max(1, Math.floor(duration * fps));
-      const frameDuration = 1000000 / fps; // Microseconds
-      
-      let cfgW = vapConfig?.info?.w || Math.round(vw / 2);
-      let cfgH = vapConfig?.info?.h || vh;
-      let rawVideoW = vapConfig?.info?.videoW || vw;
-      let rawVideoH = vapConfig?.info?.videoH || vh;
-
-      let rgbRect = vapConfig?.info?.rgbFrame || [0, 0, Math.round(vw / 2), vh];
-      let alphaRect = vapConfig?.info?.aFrame || [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
-
-      if (!vapConfig?.info?.rgbFrame && vh > vw && vw > 0) {
-        rgbRect = [0, 0, vw, Math.round(vh / 2)];
-        alphaRect = [0, Math.round(vh / 2), vw, Math.round(vh / 2)];
-        cfgW = vw;
-        cfgH = Math.round(vh / 2);
-      }
-
-      const scaleX = vw / (rawVideoW || vw);
-      const scaleY = vh / (rawVideoH || vh);
-
-      const srcRgbX = Math.round(rgbRect[0] * scaleX);
-      const srcRgbY = Math.round(rgbRect[1] * scaleY);
-      const srcRgbW = Math.round(rgbRect[2] * scaleX);
-      const srcRgbH = Math.round(rgbRect[3] * scaleY);
-
-      const srcAlphaX = Math.round(alphaRect[0] * scaleX);
-      const srcAlphaY = Math.round(alphaRect[1] * scaleY);
-      const srcAlphaW = Math.round(alphaRect[2] * scaleX);
-      const srcAlphaH = Math.round(alphaRect[3] * scaleY);
-
-      const makeEven = (n: number) => Math.max(2, n % 2 === 0 ? n : n + 1);
-
-      const origW = cfgW;
-      const origH = cfgH;
-      const desiredGiftW = customWidth || origW;
-      const desiredGiftH = customHeight || origH;
-
-      const scaleRatioW = desiredGiftW / (origW || 1);
-      const scaleRatioH = desiredGiftH / (origH || 1);
-
-      const outW = isStandardMP4 ? makeEven(desiredGiftW) : makeEven(Math.round(vw * scaleRatioW));
-      const outH = isStandardMP4 ? makeEven(desiredGiftH) : makeEven(Math.round(vh * scaleRatioH));
-
-      let audioDataChunks: any[] = [];
-      const hasCustomAudio = !!((audioFile || audioUrl) && !isAudioMuted);
-      const shouldIncludeAudio = hasCustomAudio || !muteOriginalAudio;
-
-      if (shouldIncludeAudio) {
-        setExportStatusText('جاري استخراج وتشفير المسار الصوتي للفيديو (AAC)...');
-        const audioSource = hasCustomAudio ? (audioFile || audioUrl) : (sourceFile || fileUrl);
-        if (audioSource) {
-          audioDataChunks = await prepareAudioDataChunks(audioSource, duration);
-        }
-      }
-
-      // Initialize MP4 Muxer
-      const muxer = new Mp4Muxer.Muxer({
-        target: new Mp4Muxer.ArrayBufferTarget(),
-        video: {
-          codec: 'avc',
-          width: outW,
-          height: outH,
-        },
-        audio: shouldIncludeAudio && audioDataChunks.length > 0 ? {
-          codec: 'aac',
-          numberOfChannels: 2,
-          sampleRate: 48000,
-        } : undefined,
-        fastStart: 'in-memory',
-      });
-
-      const totalPixels = outW * outH;
-      const codec = totalPixels > 2228224 ? 'avc1.4d0033' : 'avc1.4d002a';
-      
-      // Smart, jitter-free Bitrate Calculation scaling with custom dimensions and compression
-      let originalBitrate = 4500000;
-      if (sourceFile && duration > 0 && sourceFile.size > 0) {
-        originalBitrate = Math.round((sourceFile.size * 8) / duration);
-      }
-      
-      const pixelScaleFactor = (outW * outH) / (vw * vh || 1);
-      const cLevel = compressionLevel / 100;
-      
-      // Calculate target bitrate based on pixel surface and target compression level
-      const pixelBaselineBitrate = Math.round(totalPixels * 3.0);
-      const baseBitrate = Math.max(pixelBaselineBitrate, originalBitrate * pixelScaleFactor);
-      
-      // Smooth non-destructive compression factor (1.2x at 0% down to 0.45x at 100%)
-      const compressionFactor = Math.max(0.45, 1.2 - (cLevel * 0.75));
-      let bitrate = Math.round(baseBitrate * compressionFactor);
-      
-      // Safe minimum bitrate floor based on resolution to prevent decoder lag and stuttering
-      const minSafeBitrate = Math.max(1200000, Math.round(totalPixels * 1.5));
-      bitrate = Math.max(minSafeBitrate, Math.min(25000000, bitrate));
-
-      // @ts-ignore
-      const videoEncoder = new VideoEncoder({
-        output: (chunk: any, meta: any) => muxer.addVideoChunk(chunk, meta),
-        error: (e: any) => console.error('VideoEncoder error:', e),
-      });
-
-      videoEncoder.configure({
-        codec: codec,
-        width: outW,
-        height: outH,
-        bitrate: bitrate,
-        framerate: fps,
-        bitrateMode: 'variable',
-        latencyMode: 'quality',
-        avc: { format: 'avc' }
-      });
-
-      let audioEncoder: any = null;
-      if (shouldIncludeAudio && audioDataChunks.length > 0) {
-        // @ts-ignore
-        audioEncoder = new AudioEncoder({
-          output: (chunk: any, meta: any) => muxer.addAudioChunk(chunk, meta),
-          error: (e: any) => console.error('AudioEncoder error:', e),
-        });
-
-        audioEncoder.configure({
-          codec: 'mp4a.40.2',
-          numberOfChannels: 2,
-          sampleRate: 48000,
-          bitrate: 128000,
-        });
-
-        for (const chunk of audioDataChunks) {
-          audioEncoder.encode(chunk);
-          chunk.close();
-        }
-        await audioEncoder.flush();
-      }
-
-      // Preload custom background image if needed for standard MP4
-      let bgImgEl: HTMLImageElement | null = null;
-      if (isStandardMP4 && bgMode === 'image' && bgImageUrl) {
-        bgImgEl = new Image();
-        bgImgEl.crossOrigin = 'anonymous';
-        bgImgEl.src = bgImageUrl;
-        await new Promise((res) => {
-          if (!bgImgEl) return res(null);
-          bgImgEl.onload = () => res(null);
-          bgImgEl.onerror = () => res(null);
-        });
-      }
-
-      // Preload watermark image if enabled
-      let wmImgEl: HTMLImageElement | null = null;
-      if (enableWatermark && watermarkUrl) {
-        wmImgEl = new Image();
-        wmImgEl.crossOrigin = 'anonymous';
-        wmImgEl.src = watermarkUrl;
-        await new Promise((res) => {
-          if (!wmImgEl) return res(null);
-          wmImgEl.onload = () => res(null);
-          wmImgEl.onerror = () => res(null);
-        });
-      }
-
-      // Main Canvas for Frame Rendering
-      const canvas = document.createElement('canvas');
-      canvas.width = outW;
-      canvas.height = outH;
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      if (!ctx) throw new Error('فشل إنشاء سياق رسم الفيديو');
-
-      // Helper canvases for precise VAP RGB & Alpha extraction if standard MP4
-      let rgbCanvas: HTMLCanvasElement | null = null;
-      let rgbCtx: CanvasRenderingContext2D | null = null;
-      let alphaCanvas: HTMLCanvasElement | null = null;
-      let alphaCtx: CanvasRenderingContext2D | null = null;
-
-      if (isStandardMP4) {
-        rgbCanvas = document.createElement('canvas');
-        rgbCanvas.width = origW;
-        rgbCanvas.height = origH;
-        rgbCtx = rgbCanvas.getContext('2d', { willReadFrequently: true });
-
-        alphaCanvas = document.createElement('canvas');
-        alphaCanvas.width = origW;
-        alphaCanvas.height = origH;
-        alphaCtx = alphaCanvas.getContext('2d', { willReadFrequently: true });
-      }
-
-      for (let i = 0; i < totalFrames; i++) {
-        if (cancelExportRef.current) {
-          setIsExporting(false);
-          setExportStatusText('تم إلغاء التصدير');
-          return;
-        }
-
-        const currentTime = Math.min(i / fps, Math.max(0, duration - 0.01));
-        await seekVideoToFrame(video, currentTime);
-
-        if (!isStandardMP4) {
-          // Regular VAP: Draw full side-by-side / stacked VAP frame directly onto canvas
-          ctx.drawImage(video, 0, 0, outW, outH);
-        } else {
-          // Standard MP4: Draw Background first for EVERY frame throughout the duration
-          ctx.clearRect(0, 0, outW, outH);
-          if (bgMode === 'image' && bgImgEl && bgImgEl.complete && bgImgEl.naturalWidth > 0) {
-            ctx.drawImage(bgImgEl, 0, 0, outW, outH);
-          } else if (bgMode === 'color') {
-            ctx.fillStyle = bgColor;
-            ctx.fillRect(0, 0, outW, outH);
-          } else {
-            ctx.fillStyle = bgColor || '#0B0C10';
-            ctx.fillRect(0, 0, outW, outH);
-          }
-
-          // Render Alpha Blended Animation with De-black Matte Removal
-          if (rgbCtx && alphaCtx && rgbCanvas && alphaCanvas) {
-            rgbCtx.clearRect(0, 0, origW, origH);
-            rgbCtx.drawImage(video, srcRgbX, srcRgbY, srcRgbW, srcRgbH, 0, 0, origW, origH);
-
-            alphaCtx.clearRect(0, 0, origW, origH);
-            alphaCtx.drawImage(video, srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH, 0, 0, origW, origH);
-
-            if (webglRenderer) {
-              if (webglRenderer.canvas.width !== origW) {
-                webglRenderer = new WebGLVapRenderer(origW, origH);
-              }
-              const glCanvas = webglRenderer.render(video, [srcRgbX, srcRgbY, srcRgbW, srcRgbH], [srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH], alphaThreshold, unmultiplyAlpha);
-              rgbCtx.clearRect(0, 0, origW, origH);
-              rgbCtx.drawImage(glCanvas, 0, 0);
-            } else {
-              const rgbData = rgbCtx.getImageData(0, 0, origW, origH);
-              const alphaData = alphaCtx.getImageData(0, 0, origW, origH);
-
-              const compData = rgbCtx.createImageData(origW, origH);
-              const dest = compData.data;
-              const rgbPixels = rgbData.data;
-              const alphaPixels = alphaData.data;
-              const pixelCount = origW * origH;
-              const threshold = alphaThreshold;
-
-              for (let p = 0; p < pixelCount; p++) {
-                const idx = p * 4;
-                const aR = alphaPixels[idx];
-                const aG = alphaPixels[idx + 1];
-                const aB = alphaPixels[idx + 2];
-                const rawAlpha = Math.round(0.299 * aR + 0.587 * aG + 0.114 * aB);
-
-                if (rawAlpha <= threshold) {
-                  dest[idx] = 0;
-                  dest[idx + 1] = 0;
-                  dest[idx + 2] = 0;
-                  dest[idx + 3] = 0;
-                } else {
-                  let aVal = rawAlpha;
-                  if (aVal < 255) {
-                    aVal = Math.min(255, Math.round(((rawAlpha - threshold) / (255 - threshold)) * 255));
-                  }
-                  const alphaRatio = aVal / 255;
-
-                  let r = rgbPixels[idx];
-                  let g = rgbPixels[idx + 1];
-                  let b = rgbPixels[idx + 2];
-
-                  if (unmultiplyAlpha && alphaRatio > 0.02) {
-                    r = Math.min(255, Math.max(0, Math.round(r / alphaRatio)));
-                    g = Math.min(255, Math.max(0, Math.round(g / alphaRatio)));
-                    b = Math.min(255, Math.max(0, Math.round(b / alphaRatio)));
-                  }
-
-                  dest[idx] = r;
-                  dest[idx + 1] = g;
-                  dest[idx + 2] = b;
-                  dest[idx + 3] = aVal;
-                }
-              }
-
-              rgbCtx.putImageData(compData, 0, 0);
-            }
-
-            // Draw blended animation on top of background
-            ctx.drawImage(rgbCanvas, 0, 0, outW, outH);
-          }
-        }
-
-        // Draw Animated Square Watermark onto frame if enabled
-        if (enableWatermark && wmImgEl && wmImgEl.complete && wmImgEl.naturalWidth > 0) {
-          const wmProgress = totalFrames > 1 ? i / (totalFrames - 1) : 0;
-          const { x, y, side } = computeWatermarkPosition(
-            wmProgress,
-            outW,
-            outH,
-            watermarkSize,
-            watermarkMotionType,
-            watermarkMotionAmount,
-            watermarkSpeed,
-            watermarkPosition
-          );
-          drawSquareWatermarkToContext(
-            ctx,
-            wmImgEl,
-            x,
-            y,
-            side,
-            watermarkOpacity / 100,
-            watermarkBorderRadius,
-            watermarkBorder
-          );
-        }
-
-        const frameTimestamp = Math.round((i * 1000000) / fps);
-        const nextTimestamp = Math.round(((i + 1) * 1000000) / fps);
-        const actualFrameDuration = Math.max(1, nextTimestamp - frameTimestamp);
-
-        // @ts-ignore
-        const frame = new VideoFrame(canvas, {
-          timestamp: frameTimestamp,
-          duration: actualFrameDuration,
-        });
-
-        // Keyframe every ~12-24 frames (or at frame 0) to ensure smooth seek, buffer stability and no stutter
-        const isKeyFrame = i === 0 || i % Math.max(10, Math.min(30, Math.round(fps))) === 0;
-        videoEncoder.encode(frame, { keyFrame: isKeyFrame });
-        frame.close();
-
-        const pct = Math.round(((i + 1) / totalFrames) * 85);
-        setExportProgress(pct);
-        setExportStatusText(`تشفير إطار ${isStandardMP4 ? 'MP4' : 'VAP'} ${i + 1} من ${totalFrames} (${pct}%)`);
-      }
-
-      await videoEncoder.flush();
-      videoEncoder.close();
-
-      if (audioEncoder) {
-        await audioEncoder.flush();
-        audioEncoder.close();
-      }
-
-      muxer.finalize();
-
-      const muxerBuffer = (muxer.target as Mp4Muxer.ArrayBufferTarget).buffer;
-      let finalBlob: Blob;
-
-      if (isStandardMP4) {
-        setExportStatusText('تم إعداد فيديو MP4 بنجاح!');
-        setExportProgress(100);
-        finalBlob = new Blob([muxerBuffer], { type: 'video/mp4' });
-      } else {
-        setExportStatusText('جاري حقن كود وصندوق VAPC داخل ملف MP4...');
-        setExportProgress(95);
-
-        const jsonConfig = {
-          info: {
-            v: 2,
-            f: totalFrames,
-            w: desiredGiftW,
-            h: desiredGiftH,
-            fps: fps,
-            videoW: outW,
-            videoH: outH,
-            aFrame: [Math.round(alphaRect[0] * scaleRatioW), Math.round(alphaRect[1] * scaleRatioH), Math.round(alphaRect[2] * scaleRatioW), Math.round(alphaRect[3] * scaleRatioH)],
-            rgbFrame: [Math.round(rgbRect[0] * scaleRatioW), Math.round(rgbRect[1] * scaleRatioH), Math.round(rgbRect[2] * scaleRatioW), Math.round(rgbRect[3] * scaleRatioH)],
-            isVapx: 0,
-            codeTag: ["common"],
-            orien: 0
-          }
-        };
-
-        const jsonStr = JSON.stringify(jsonConfig);
-        const jsonBytes = new TextEncoder().encode(jsonStr);
-        const boxSize = 8 + jsonBytes.length;
-        const boxBuffer = new Uint8Array(boxSize);
-        const view = new DataView(boxBuffer.buffer);
-
-        view.setUint32(0, boxSize);
-        view.setUint8(4, 0x76); // 'v'
-        view.setUint8(5, 0x61); // 'a'
-        view.setUint8(6, 0x70); // 'p'
-        view.setUint8(7, 0x63); // 'c'
-
-        boxBuffer.set(jsonBytes, 8);
-
-        const finalBuffer = new Uint8Array(muxerBuffer.byteLength + boxSize);
-        finalBuffer.set(new Uint8Array(muxerBuffer), 0);
-        finalBuffer.set(boxBuffer, muxerBuffer.byteLength);
-
-        finalBlob = new Blob([finalBuffer], { type: 'video/mp4' });
-      }
-
-      setExportProgress(100);
-      setExportStatusText(`تم تصدير ملف ${isStandardMP4 ? 'MP4' : 'VAP'} بنجاح!`);
-      setExportedBlob(finalBlob);
-      setExportedFileSize((finalBlob.size / (1024 * 1024)).toFixed(2) + ' MB');
-      setExportSuccess(true);
-      setIsExporting(false);
-
-      // Auto-download file
-      const baseName = fileName.replace(/\.[^/.]+$/, '');
-      const audioTag = shouldIncludeAudio ? '_with_audio' : '_silent';
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(finalBlob);
-      link.download = `${baseName}${audioTag}.mp4`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      // Auto companion info file
-      downloadDesignerInfoFile(`${baseName}${audioTag}.mp4`, {
-        format: exportTargetFormat === 'vap' ? 'VAP 1.0.5 (MP4)' : 'MP4 Video',
-        duration: videoDuration
-      });
-
-    } catch (err: any) {
-      console.error('Export Error:', err);
-      setErrorMessage(`حدث خطأ أثناء تصدير الملف: ${err.message || err}`);
-      setIsExporting(false);
-      setExportStatusText('فشل التصدير');
-    }
+  const handleExportVAP = async () => {
+    return handleExportViaFrames('vap');
   };
 
   // 2. Export as High-Quality, Clean SVGA 2.0 with Embedded Audio
@@ -3211,17 +2858,397 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     }
   };
 
+  // Decode audio buffer for muxing into WebM, MP4, YYEVA, etc.
+  const getAudioBufferForExport = async (): Promise<AudioBuffer | null> => {
+    if (isAudioMuted || (!audioUrl && !audioFile)) return null;
+    try {
+      const url = audioUrl || (audioFile ? URL.createObjectURL(audioFile) : null);
+      if (!url) return null;
+      const resp = await fetch(url);
+      const arrayBuffer = await resp.arrayBuffer();
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const buffer = await audioCtx.decodeAudioData(arrayBuffer);
+      return buffer;
+    } catch (e) {
+      console.warn("Could not decode audio buffer for export:", e);
+      return null;
+    }
+  };
+
+  // Helper to extract transparent composited canvases from VAP video
+  const extractVapCanvases = async (onProgress?: (progress0to1: number) => void): Promise<{
+    canvases: HTMLCanvasElement[];
+    delays: number[];
+    width: number;
+    height: number;
+    fps: number;
+    duration: number;
+  }> => {
+    if (!fileUrl) throw new Error('لا يوجد ملف محمل');
+    const video = await loadVideoForExport(fileUrl, sourceFile);
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    let cfgW = vapConfig?.info?.w || Math.round(vw / 2);
+    let cfgH = vapConfig?.info?.h || vh;
+    let rawVideoW = vapConfig?.info?.videoW || vw;
+    let rawVideoH = vapConfig?.info?.videoH || vh;
+    let rgbRect = vapConfig?.info?.rgbFrame || [0, 0, Math.round(vw / 2), vh];
+    let alphaRect = vapConfig?.info?.aFrame || [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
+
+    if (!vapConfig?.info?.rgbFrame && vh > vw && vw > 0) {
+      rgbRect = [0, 0, vw, Math.round(vh / 2)];
+      alphaRect = [0, Math.round(vh / 2), vw, Math.round(vh / 2)];
+      cfgW = vw;
+      cfgH = Math.round(vh / 2);
+    }
+
+    const scaleX = vw / (rawVideoW || vw);
+    const scaleY = vh / (rawVideoH || vh);
+    const srcRgbX = Math.round(rgbRect[0] * scaleX);
+    const srcRgbY = Math.round(rgbRect[1] * scaleY);
+    const srcRgbW = Math.round(rgbRect[2] * scaleX);
+    const srcRgbH = Math.round(rgbRect[3] * scaleY);
+    const srcAlphaX = Math.round(alphaRect[0] * scaleX);
+    const srcAlphaY = Math.round(alphaRect[1] * scaleY);
+    const srcAlphaW = Math.round(alphaRect[2] * scaleX);
+    const srcAlphaH = Math.round(alphaRect[3] * scaleY);
+
+    const origW = cfgW;
+    const origH = cfgH;
+    const outW = customWidth || Math.max(1, Math.round(origW * resolutionScale));
+    const outH = customHeight || Math.max(1, Math.round(origH * resolutionScale));
+    const duration = (videoDuration && videoDuration > 0.1) 
+      ? videoDuration 
+      : ((video.duration && isFinite(video.duration) && video.duration > 0.1) ? video.duration : 3);
+    const fps = (vapConfig?.info?.fps && vapConfig.info.fps > 0 && vapConfig.info.fps <= 120)
+      ? vapConfig.info.fps
+      : (targetFps || 30);
+    const totalFrames = Math.max(1, Math.round(duration * fps));
+    const frameInterval = 1 / fps;
+
+    let webglRenderer: WebGLVapRenderer | null = null;
+    try {
+      webglRenderer = new WebGLVapRenderer(origW, origH);
+    } catch (glErr) {
+      console.warn('WebGL init failed:', glErr);
+    }
+
+    let rgbCanvas: HTMLCanvasElement | null = null;
+    let rgbCtx: CanvasRenderingContext2D | null = null;
+    let alphaCanvas: HTMLCanvasElement | null = null;
+    let alphaCtx: CanvasRenderingContext2D | null = null;
+    let compositeImageData: ImageData | null = null;
+
+    if (!webglRenderer) {
+      rgbCanvas = document.createElement('canvas');
+      rgbCanvas.width = origW;
+      rgbCanvas.height = origH;
+      rgbCtx = rgbCanvas.getContext('2d', { willReadFrequently: true });
+      alphaCanvas = document.createElement('canvas');
+      alphaCanvas.width = origW;
+      alphaCanvas.height = origH;
+      alphaCtx = alphaCanvas.getContext('2d', { willReadFrequently: true });
+      if (rgbCtx) compositeImageData = rgbCtx.createImageData(origW, origH);
+    }
+
+    let wmImgEl: HTMLImageElement | null = null;
+    if (enableWatermark && watermarkUrl) {
+      wmImgEl = new Image();
+      wmImgEl.crossOrigin = 'anonymous';
+      wmImgEl.src = watermarkUrl;
+      await new Promise((res) => {
+        if (!wmImgEl) return res(null);
+        wmImgEl.onload = () => res(null);
+        wmImgEl.onerror = () => res(null);
+      });
+    }
+
+    const canvases: HTMLCanvasElement[] = [];
+    const delays: number[] = [];
+
+    for (let i = 0; i < totalFrames; i++) {
+      if (cancelExportRef.current) break;
+      const currentTime = Math.min(i * frameInterval, Math.max(0, duration - 0.01));
+      await seekVideoToFrame(video, currentTime);
+
+      const frameCanvas = document.createElement('canvas');
+      frameCanvas.width = outW;
+      frameCanvas.height = outH;
+      const frameCtx = frameCanvas.getContext('2d', { willReadFrequently: true });
+      if (!frameCtx) continue;
+
+      if (bgMode === 'color' && bgColor && bgColor !== 'transparent') {
+        frameCtx.fillStyle = bgColor;
+        frameCtx.fillRect(0, 0, outW, outH);
+      }
+
+      if (webglRenderer) {
+        const glCanvas = webglRenderer.render(
+          video,
+          [srcRgbX, srcRgbY, srcRgbW, srcRgbH],
+          [srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH],
+          alphaThreshold,
+          unmultiplyAlpha
+        );
+        frameCtx.drawImage(glCanvas, 0, 0, origW, origH, 0, 0, outW, outH);
+      } else if (rgbCtx && alphaCtx && rgbCanvas && alphaCanvas && compositeImageData) {
+        rgbCtx.clearRect(0, 0, origW, origH);
+        rgbCtx.drawImage(video, srcRgbX, srcRgbY, srcRgbW, srcRgbH, 0, 0, origW, origH);
+        const rgbPixels = rgbCtx.getImageData(0, 0, origW, origH).data;
+        alphaCtx.clearRect(0, 0, origW, origH);
+        alphaCtx.drawImage(video, srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH, 0, 0, origW, origH);
+        const alphaPixels = alphaCtx.getImageData(0, 0, origW, origH).data;
+        const compData = compositeImageData.data;
+        const pixelCount = origW * origH;
+        const threshold = alphaThreshold;
+        for (let p = 0; p < pixelCount; p++) {
+          const idx = p << 2;
+          const aR = alphaPixels[idx];
+          const aG = alphaPixels[idx + 1];
+          const aB = alphaPixels[idx + 2];
+          const rawAlpha = (77 * aR + 150 * aG + 29 * aB) >> 8;
+          if (rawAlpha <= threshold) {
+            compData[idx] = 0;
+            compData[idx + 1] = 0;
+            compData[idx + 2] = 0;
+            compData[idx + 3] = 0;
+          } else {
+            let aVal = rawAlpha;
+            if (aVal < 255) {
+              aVal = Math.min(255, Math.floor(((rawAlpha - threshold) * 255) / (255 - threshold)));
+            }
+            const alphaRatio = aVal / 255;
+            let r = rgbPixels[idx];
+            let g = rgbPixels[idx + 1];
+            let b = rgbPixels[idx + 2];
+            if (unmultiplyAlpha && alphaRatio > 0.02) {
+              r = Math.min(255, Math.max(0, Math.floor(r / alphaRatio)));
+              g = Math.min(255, Math.max(0, Math.floor(g / alphaRatio)));
+              b = Math.min(255, Math.max(0, Math.floor(b / alphaRatio)));
+            }
+            compData[idx] = r;
+            compData[idx + 1] = g;
+            compData[idx + 2] = b;
+            compData[idx + 3] = aVal;
+          }
+        }
+        rgbCtx.putImageData(compositeImageData, 0, 0);
+        frameCtx.drawImage(rgbCanvas, 0, 0, origW, origH, 0, 0, outW, outH);
+      }
+
+      // Draw Animated Square Watermark onto frame if enabled
+      if (enableWatermark && wmImgEl && wmImgEl.complete && wmImgEl.naturalWidth > 0) {
+        const wmProgress = totalFrames > 1 ? i / (totalFrames - 1) : 0;
+        const { x, y, side } = computeWatermarkPosition(
+          wmProgress,
+          outW,
+          outH,
+          watermarkSize,
+          watermarkMotionType,
+          watermarkMotionAmount,
+          watermarkSpeed,
+          watermarkPosition
+        );
+        drawSquareWatermarkToContext(
+          frameCtx,
+          wmImgEl,
+          x,
+          y,
+          side,
+          watermarkOpacity / 100,
+          watermarkBorderRadius,
+          watermarkBorder
+        );
+      }
+
+      canvases.push(frameCanvas);
+      delays.push(Math.round(1000 / fps));
+      if (onProgress) onProgress((i + 1) / totalFrames);
+    }
+
+    return { canvases, delays, width: outW, height: outH, fps, duration };
+  };
+
+  // Export frames to WebM, YYEVA, GIF, WebP, APNG, Lottie
+  const handleExportViaFrames = async (format: string) => {
+    if (!fileUrl) return;
+    setIsExporting(true);
+    setExportProgress(0);
+    setExportSuccess(false);
+    setExportedBlob(null);
+    setExportStats(null);
+    cancelExportRef.current = false;
+
+    try {
+      setExportStatusText(`جاري استخراج إطارات الحركة ومعالجة الشفافية...`);
+      const { canvases, delays, width, height, fps } = await extractVapCanvases((p) => {
+        setExportProgress(Math.round(p * 50));
+      });
+
+      if (cancelExportRef.current) {
+        setIsExporting(false);
+        setExportStatusText('تم إلغاء التصدير');
+        return;
+      }
+
+      setExportStatusText(`جاري التشفير إلى صيغة ${format}...`);
+      const effectiveRatio = compressionRatio > 0 ? compressionRatio : (globalQuality === 'low' ? 70 : globalQuality === 'medium' ? 40 : 10);
+      const cLevel = effectiveRatio / 100;
+      const qualityRatio = Math.max(0.1, 1.0 - (cLevel * 0.9));
+      const audioBuf = await getAudioBufferForExport();
+      const baseName = fileName.replace(/\.[^/.]+$/, '');
+
+      let finalBlob: Blob | null = null;
+      let ext = 'bin';
+
+      if (format === 'WebM (Video)' || format === 'webm') {
+        ext = 'webm';
+        finalBlob = await exportAsWebm(canvases, delays, width, height, fps, qualityRatio, audioBuf);
+      } else if (
+        format === 'vap' || 
+        format === 'VAP' || 
+        format === 'VAP (Tencent)' || 
+        format === 'VAP 1.0.5' || 
+        format === 'VAP 2.0' || 
+        format === 'VAP (MP4)' || 
+        format === 'SVGA → VAP' || 
+        format.toLowerCase().includes('vap')
+      ) {
+        ext = 'vap';
+        finalBlob = await exportAsVap(
+          canvases,
+          delays,
+          width,
+          height,
+          fps,
+          format === 'VAP 2.0' ? '2.0' : '1.0.5',
+          audioBuf,
+          (p, msg) => {
+            setExportProgress(Math.round(50 + p * 50));
+            if (msg) setExportStatusText(msg);
+          },
+          qualityRatio * 100
+        );
+      } else if (
+        format === 'SVGA → YYEVA' || 
+        format === 'yyeva' || 
+        format === 'YYEVA' || 
+        format.toLowerCase().includes('yyeva')
+      ) {
+        ext = 'mp4';
+        finalBlob = await exportAsYyeva(
+          canvases,
+          delays,
+          width,
+          height,
+          fps,
+          audioBuf,
+          (p, msg) => {
+            setExportProgress(Math.round(50 + p * 50));
+            if (msg) setExportStatusText(msg);
+          },
+          qualityRatio * 100
+        );
+      } else if (format === 'GIF (Animation)' || format === 'gif') {
+        ext = 'gif';
+        finalBlob = await exportAsGif(canvases, delays, width, height);
+      } else if (format === 'WebP (Animated)' || format === 'webp') {
+        ext = 'webp';
+        finalBlob = await exportAsWebp(canvases, delays, width, height, qualityRatio);
+      } else if (format === 'APNG (Animation)' || format === 'apng') {
+        ext = 'png';
+        finalBlob = await exportAsApng(canvases, delays, width, height);
+      } else if (format === 'Lottie (Sequence)' || format === 'lottie') {
+        ext = 'json';
+        finalBlob = await exportAsLottie(canvases, fps);
+      } else {
+        // Fallback default export to VAP
+        ext = 'vap';
+        finalBlob = await exportAsVap(
+          canvases,
+          delays,
+          width,
+          height,
+          fps,
+          '1.0.5',
+          audioBuf,
+          (p, msg) => {
+            setExportProgress(Math.round(50 + p * 50));
+            if (msg) setExportStatusText(msg);
+          },
+          qualityRatio * 100
+        );
+      }
+
+      if (!finalBlob) throw new Error(`فشل تصدير الصيغة ${format}`);
+
+      setExportProgress(100);
+      setExportStatusText(`تم تصدير ${format} بنجاح!`);
+      setExportedBlob(finalBlob);
+      setExportedFileSize((finalBlob.size / (1024 * 1024)).toFixed(2) + ' MB');
+      setExportSuccess(true);
+      setIsExporting(false);
+
+      // Auto download
+      const audioTag = !isAudioMuted && (audioFile || audioUrl) ? '_with_audio' : '';
+      const dlName = `${baseName}${audioTag}.${ext}`;
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(finalBlob);
+      link.download = dlName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      downloadDesignerInfoFile(dlName, {
+        format: format,
+        duration: videoDuration
+      });
+
+    } catch (err: any) {
+      console.error(`Export ${format} error:`, err);
+      setErrorMessage(`حدث خطأ أثناء تصدير ${format}: ${err.message || err}`);
+      setIsExporting(false);
+      setExportStatusText('فشل التصدير');
+    }
+  };
+
+  // Main Comprehensive Export Handler
+  const handleMainExport = async (formatOverride?: string) => {
+    const format = formatOverride || selectedFormat;
+    if (!fileUrl) return;
+
+    if (format === 'VAP 1.0.5') {
+      await handleVAP105Export();
+      return;
+    }
+    if (format === 'AE Project') {
+      await handleExportAEProject();
+      return;
+    }
+    if (format === 'SVGA 2.0' || format === 'SVGA 1.0' || format === 'SVGA 2.0 EX') {
+      await handleExportSVGA();
+      return;
+    }
+    if (format === 'VAP (MP4)') {
+      await handleExportVAP(false);
+      return;
+    }
+    if (format === 'MP4 (فيديو نقي)' || format === 'MP4 بخلفية') {
+      await handleExportVAP(true);
+      return;
+    }
+    if (format === 'Image Sequence' || format === 'frames') {
+      await handleConvertVapToFramesSequenceAndTransfer(false);
+      return;
+    }
+
+    // Frames-based formats: WebM, YYEVA, GIF, WebP, APNG, Lottie
+    await handleExportViaFrames(format);
+  };
+
   // Trigger Selected Export Mode
   const handleStartExport = () => {
-    if (exportTargetFormat === 'vap') {
-      handleExportVAP(false);
-    } else if (exportTargetFormat === 'mp4') {
-      handleExportVAP(true); // true = export standard mp4
-    } else if (exportTargetFormat === 'frames') {
-      handleConvertVapToFramesSequenceAndTransfer(false);
-    } else {
-      handleExportSVGA();
-    }
+    handleMainExport();
   };
 
   // Load and play Exported SVGA in the preview area
@@ -3469,12 +3496,21 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                 onChange={handleAudioUpload} 
               />
 
+              {/* Primary Audio Studio Button (Image 10 system) */}
+              <button
+                onClick={() => setShowAudioStudioModal(true)}
+                className="w-full py-3.5 px-4 mb-3 bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 text-white rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-lg shadow-pink-500/20 active:scale-95 cursor-pointer border border-pink-400/30 group"
+              >
+                <SlidersHorizontal className="w-4 h-4 text-pink-200 group-hover:rotate-12 transition-transform" />
+                <span>استوديو هندسة ومزامنة الصوت الاحترافي (Waveform & Trimmer)</span>
+              </button>
+
               {audioUrl ? (
                 <div className="bg-[#161922] border border-pink-500/20 rounded-2xl p-4 space-y-3 shadow-lg shadow-pink-500/5">
                   <div 
-                    onClick={() => setIsAudioEditorModalOpen(true)}
+                    onClick={() => setShowAudioStudioModal(true)}
                     className="flex items-center justify-between cursor-pointer hover:bg-white/[0.02] -m-1 p-1 rounded-xl transition-all"
-                    title="انقر لفتح نافذة تعديل الصوت المتقدمة"
+                    title="انقر لفتح استوديو هندسة الصوت الاحترافي"
                   >
                     <div className="flex items-center gap-2.5 overflow-hidden">
                       <div className="w-8 h-8 rounded-xl bg-pink-500/15 border border-pink-500/30 flex items-center justify-center text-pink-400 shrink-0">
@@ -3492,8 +3528,8 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
                     <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                       <button
-                        onClick={() => setIsAudioEditorModalOpen(true)}
-                        title="فتح أداة تعديل الصوت الاحترافية"
+                        onClick={() => setShowAudioStudioModal(true)}
+                        title="فتح استوديو هندسة الصوت الاحترافي"
                         className="w-8 h-8 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 flex items-center justify-center transition-all border border-indigo-500/30 cursor-pointer"
                       >
                         <SlidersHorizontal className="w-3.5 h-3.5" />
@@ -3531,11 +3567,11 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
                   {/* VAP Audio Edit Modal Trigger Button */}
                   <button
-                    onClick={() => setIsAudioEditorModalOpen(true)}
+                    onClick={() => setShowAudioStudioModal(true)}
                     className="w-full py-2.5 px-3 bg-gradient-to-r from-pink-500/20 via-indigo-500/20 to-purple-500/20 hover:from-pink-500/30 hover:via-indigo-500/30 hover:to-purple-500/30 text-pink-200 border border-pink-500/30 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-lg shadow-pink-500/5 cursor-pointer"
                   >
                     <SlidersHorizontal className="w-3.5 h-3.5 text-pink-400" />
-                    <span>تعديل الصوت (VAP Audio Edit Tool)</span>
+                    <span>تعديل وهندسة الصوت (Waveform & Trimmer Studio)</span>
                   </button>
 
                   {/* Volume Slider */}
@@ -3767,18 +3803,41 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                   
                 </div>
               ) : (
-                <div 
-                  onClick={() => audioInputRef.current?.click()}
-                  className="w-full py-4 px-4 rounded-2xl border border-dashed border-pink-500/30 bg-pink-500/5 hover:bg-pink-500/10 cursor-pointer transition-all flex items-center justify-center gap-3 group"
-                >
-                  <div className="w-8 h-8 rounded-xl bg-pink-500/20 text-pink-400 flex items-center justify-center group-hover:scale-105 transition-all">
-                    <Plus className="w-4 h-4" />
+                <div className="space-y-2">
+                  <div 
+                    onClick={() => setShowAudioStudioModal(true)}
+                    className="w-full py-4 px-4 rounded-2xl border border-dashed border-pink-500/30 bg-pink-500/5 hover:bg-pink-500/10 cursor-pointer transition-all flex items-center justify-center gap-3 group"
+                    title="انقر لفتح استوديو هندسة الصوت الاحترافي"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-pink-500/20 text-pink-400 flex items-center justify-center group-hover:scale-105 transition-all shadow-md shadow-pink-500/10">
+                      <SlidersHorizontal className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-white group-hover:text-pink-300 transition-colors">
+                        فتح استوديو هندسة ومزامنة الصوت الاحترافي
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        رفع صوت، استخراج من فيديو، قص وتحديد ويف فورم، مكتبة أصوات
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs font-bold text-white group-hover:text-pink-300 transition-colors">
-                      إضافة مسار صوتي للهدية (MP3 / WAV)
-                    </p>
-                    <p className="text-[10px] text-slate-400">سيتم دمج الصوت تلقائياً داخل ملف الـ VAP أو SVGA</p>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowAudioStudioModal(true)}
+                      className="flex-1 py-2 px-3 bg-gradient-to-r from-pink-500/20 to-purple-500/20 hover:from-pink-500/30 hover:to-purple-500/30 text-pink-300 border border-pink-500/30 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Music className="w-3.5 h-3.5" />
+                      <span>استوديو الصوت الاحترافي</span>
+                    </button>
+                    <button
+                      onClick={() => audioInputRef.current?.click()}
+                      className="py-2 px-3 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      title="رفع ملف صوتي سريع ومباشر من الجهاز"
+                    >
+                      <Plus className="w-3.5 h-3.5 text-pink-400" />
+                      <span>رفع ملف سريع</span>
+                    </button>
                   </div>
                 </div>
               )}
@@ -5070,65 +5129,124 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
               })()}
             </div>
 
-            {/* 5. Export Target Format Selector & Download Actions */}
+            {/* 5. Export Target Format Selector & Download Actions (Identical to Workspace Suite) */}
             <div className="p-5 mt-auto bg-[#0C0E14] border-t border-white/5 space-y-4">
-              {/* Format Switcher Tabs */}
-              <div>
-                <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider block mb-2">
-                  اختر صيغة التصدير المستهدفة:
-                </span>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  <button
-                    onClick={() => setExportTargetFormat('svga')}
-                    className={`py-2.5 px-2 rounded-xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 border ${
-                      exportTargetFormat === 'svga'
-                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-500/20 scale-[1.02]'
-                        : 'bg-white/2 hover:bg-white/5 text-slate-400 border-white/5'
+              
+              {/* Quality & Compression Ratio Control */}
+              <div className="bg-slate-900/60 p-4 rounded-2xl border border-white/5 space-y-3">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-bold text-slate-300">نسبة ضغط وتخفيض حجم الملف (Compression)</span>
+                  <div className="flex items-center gap-1 bg-black/40 px-2 py-0.5 rounded border border-white/10">
+                    <input 
+                      type="text"
+                      value={compressionRatio}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0;
+                        setCompressionRatio(Math.min(100, Math.max(0, val)));
+                      }}
+                      className="w-12 bg-transparent text-emerald-400 text-xs font-black text-center focus:outline-none"
+                    />
+                    <span className="text-[10px] text-emerald-500/50 font-black">%</span>
+                  </div>
+                </div>
+                <div className="px-1 mb-2">
+                  <input 
+                    type="range" 
+                    min="0" 
+                    max="100" 
+                    step="1" 
+                    value={compressionRatio}
+                    onChange={(e) => setCompressionRatio(parseInt(e.target.value))}
+                    className="w-full h-1.5 bg-white/5 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                  />
+                </div>
+                <div className="flex gap-1">
+                  <button 
+                    onClick={() => { setGlobalQuality('low'); setCompressionRatio(70); }} 
+                    className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase border transition-all ${
+                      globalQuality === 'low' 
+                        ? 'bg-emerald-500 text-white border-emerald-500 shadow-glow-emerald' 
+                        : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10'
                     }`}
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>SVGA 2.0</span>
+                    منخفضة
+                    <span className="block text-[8px] opacity-70 font-normal mt-1">حجم صغير</span>
                   </button>
-
-                  <button
-                    onClick={() => setExportTargetFormat('vap')}
-                    className={`py-2.5 px-2 rounded-xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 border ${
-                      exportTargetFormat === 'vap'
-                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-500/20 scale-[1.02]'
-                        : 'bg-white/2 hover:bg-white/5 text-slate-400 border-white/5'
+                  <button 
+                    onClick={() => { setGlobalQuality('medium'); setCompressionRatio(40); }} 
+                    className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase border transition-all ${
+                      globalQuality === 'medium' 
+                        ? 'bg-emerald-500 text-white border-emerald-500 shadow-glow-emerald' 
+                        : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10'
                     }`}
                   >
-                    <Film className="w-3.5 h-3.5" />
-                    <span>VAP (MP4)</span>
+                    متوسطة
+                    <span className="block text-[8px] opacity-70 font-normal mt-1">متوازن</span>
                   </button>
-
-                  <button
-                    onClick={() => setExportTargetFormat('mp4')}
-                    className={`py-2.5 px-2 rounded-xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 border ${
-                      exportTargetFormat === 'mp4'
-                        ? 'bg-purple-600 text-white border-purple-500 shadow-md shadow-purple-500/20 scale-[1.02]'
-                        : 'bg-white/2 hover:bg-white/5 text-slate-400 border-white/5'
+                  <button 
+                    onClick={() => { setGlobalQuality('high'); setCompressionRatio(10); }} 
+                    className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase border transition-all ${
+                      globalQuality === 'high' 
+                        ? 'bg-emerald-500 text-white border-emerald-500 shadow-glow-emerald' 
+                        : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10'
                     }`}
                   >
-                    <Video className="w-3.5 h-3.5" />
-                    <span>MP4 بخلفية</span>
-                  </button>
-
-                  <button
-                    onClick={() => setExportTargetFormat('frames')}
-                    className={`py-2.5 px-2 rounded-xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 border ${
-                      exportTargetFormat === 'frames'
-                        ? 'bg-gradient-to-r from-cyan-600 to-sky-600 text-white border-cyan-400 shadow-md shadow-cyan-500/30 scale-[1.02]'
-                        : 'bg-white/2 hover:bg-white/5 text-slate-400 border-white/5'
-                    }`}
-                  >
-                    <Layers className="w-3.5 h-3.5" />
-                    <span>تتابع صور (Frames)</span>
+                    عالية
+                    <span className="block text-[8px] opacity-70 font-normal mt-1">أفضل دقة</span>
                   </button>
                 </div>
               </div>
 
-              {exportTargetFormat === 'frames' && !isExporting && (
+              {/* Dedicated Export & Conversion Buttons: Exactly 3 buttons (VAP, YYEVA, Cross-Convert) */}
+              <div className="space-y-3 pt-2">
+                {/* Button 1: Export VAP */}
+                <button 
+                  onClick={() => handleExportVAP()}
+                  disabled={isExporting || (!fileUrl && !sourceFile)}
+                  className="w-full py-4 px-4 bg-gradient-to-r from-indigo-600 via-purple-600 to-violet-600 hover:from-indigo-500 hover:to-purple-500 text-white font-black text-sm rounded-2xl shadow-xl shadow-indigo-600/30 transition-all flex items-center justify-center gap-2.5 cursor-pointer hover:scale-[1.02] active:scale-95 disabled:opacity-50"
+                  title="تصدير بصيغة VAP (.vap شفاف مع الحفاظ الكامل على المدة وجودة العرض)"
+                >
+                  <Download className="w-4 h-4 stroke-[2.5]" />
+                  <span>تصدير VAP (بالمدة الكاملة والصيغة الصحيحة)</span>
+                </button>
+
+                {/* Button 2: Export YYEVA */}
+                <button 
+                  onClick={() => handleExportViaFrames('yyeva')}
+                  disabled={isExporting || (!fileUrl && !sourceFile)}
+                  className="w-full py-4 px-4 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-sm rounded-2xl shadow-xl shadow-amber-500/25 transition-all flex items-center justify-center gap-2.5 cursor-pointer hover:scale-[1.02] active:scale-95 disabled:opacity-50"
+                  title="تصدير بصيغة YYEVA (.mp4 شفاف مع الحفاظ الكامل على المدة وجودة العرض)"
+                >
+                  <Sparkles className="w-4 h-4 text-slate-950 stroke-[2.5]" />
+                  <span>تصدير YYEVA (بالمدة الكاملة والصيغة الصحيحة)</span>
+                </button>
+
+                {/* Button 3: Cross Convert YYEVA <-> VAP */}
+                <button 
+                  onClick={() => {
+                    const isVap = fileName.toLowerCase().endsWith('.vap') || (selectedFormat && selectedFormat.includes('VAP'));
+                    if (isVap) {
+                      handleExportViaFrames('yyeva');
+                    } else {
+                      handleExportVAP();
+                    }
+                  }}
+                  disabled={isExporting || (!fileUrl && !sourceFile)}
+                  className="w-full py-4 px-4 bg-gradient-to-r from-cyan-600 via-teal-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white font-black text-sm rounded-2xl shadow-xl shadow-cyan-600/25 transition-all flex items-center justify-center gap-2.5 cursor-pointer hover:scale-[1.02] active:scale-95 disabled:opacity-50"
+                  title="تحويل متبادل بين صيغتي YYEVA و VAP بالمدة الكاملة"
+                >
+                  <RefreshCw className="w-4 h-4 stroke-[2.5]" />
+                  <span>
+                    {fileName.toLowerCase().endsWith('.vap')
+                      ? 'تصدير وتحويل من VAP إلى YYEVA'
+                      : (fileName.toLowerCase().includes('yyeva')
+                      ? 'تصدير وتحويل من YYEVA إلى VAP'
+                      : 'تحويل تبادلي YYEVA ⇄ VAP')}
+                  </span>
+                </button>
+              </div>
+
+              {selectedFormat === 'Image Sequence' && !isExporting && (
                 <div className="p-3 bg-cyan-500/10 border border-cyan-500/20 rounded-xl space-y-2 text-xs">
                   <div className="flex items-center gap-2 text-cyan-300 font-bold">
                     <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
@@ -5171,7 +5289,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
                   <button
                     onClick={() => { cancelExportRef.current = true; }}
-                    className="w-full py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl text-xs font-bold transition-all border border-red-500/20"
+                    className="w-full py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl text-xs font-bold transition-all border border-red-500/20 cursor-pointer"
                   >
                     إلغاء العملية
                   </button>
@@ -5181,30 +5299,29 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                   <div className="flex items-center justify-between text-xs">
                     <div className="flex items-center gap-2 text-emerald-400 font-bold">
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>تم تصدير {exportTargetFormat.toUpperCase()} بنجاح!</span>
+                      <span>تم تصدير {selectedFormat.toUpperCase()} بنجاح!</span>
                     </div>
                     <span className="text-emerald-300 font-mono font-bold bg-black/40 px-2 py-0.5 rounded border border-white/5">
                       {exportedFileSize}
                     </span>
                   </div>
 
-                  
-            {exportStats && (
-              <div className="mt-4 p-4 bg-[#0a0d14] rounded-xl border border-white/5 flex gap-4 text-center divide-x divide-white/10 flex-row-reverse">
-                 <div className="flex-1 flex flex-col items-center justify-center">
-                    <span className="text-[10px] text-slate-500 font-bold mb-1">الحجم الأصلي</span>
-                    <span className="text-xs text-white font-mono font-bold">{(exportStats.original / 1024 / 1024).toFixed(2)} MB</span>
-                 </div>
-                 <div className="flex-1 flex flex-col items-center justify-center">
-                    <span className="text-[10px] text-slate-500 font-bold mb-1">الحجم النهائي</span>
-                    <span className="text-xs text-emerald-400 font-mono font-bold">{(exportStats.compressed / 1024 / 1024).toFixed(2)} MB</span>
-                 </div>
-                 <div className="flex-1 flex flex-col items-center justify-center">
-                    <span className="text-[10px] text-slate-500 font-bold mb-1">نسبة التوفير</span>
-                    <span className="text-xs text-indigo-400 font-mono font-bold bg-indigo-500/20 px-2 py-0.5 rounded border border-indigo-500/30">{exportStats.savedPct}%</span>
-                 </div>
-              </div>
-            )}
+                  {exportStats && (
+                    <div className="mt-4 p-4 bg-[#0a0d14] rounded-xl border border-white/5 flex gap-4 text-center divide-x divide-white/10 flex-row-reverse">
+                      <div className="flex-1 flex flex-col items-center justify-center">
+                        <span className="text-[10px] text-slate-500 font-bold mb-1">الحجم الأصلي</span>
+                        <span className="text-xs text-white font-mono font-bold">{(exportStats.original / 1024 / 1024).toFixed(2)} MB</span>
+                      </div>
+                      <div className="flex-1 flex flex-col items-center justify-center">
+                        <span className="text-[10px] text-slate-500 font-bold mb-1">الحجم النهائي</span>
+                        <span className="text-xs text-emerald-400 font-mono font-bold">{(exportStats.compressed / 1024 / 1024).toFixed(2)} MB</span>
+                      </div>
+                      <div className="flex-1 flex flex-col items-center justify-center">
+                        <span className="text-[10px] text-slate-500 font-bold mb-1">نسبة التوفير</span>
+                        <span className="text-xs text-indigo-400 font-mono font-bold bg-indigo-500/20 px-2 py-0.5 rounded border border-indigo-500/30">{exportStats.savedPct}%</span>
+                      </div>
+                    </div>
+                  )}
 
                   {!muteOriginalAudio && (
                     <div className="flex items-center gap-1.5 text-[11px] font-bold text-pink-300 bg-pink-500/10 px-3 py-1.5 rounded-xl border border-pink-500/20">
@@ -5213,7 +5330,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                     </div>
                   )}
 
-                  {exportTargetFormat === 'svga' ? (
+                  {selectedFormat.includes('SVGA') ? (
                     <button
                       onClick={handleDownloadSVGA}
                       className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-xl text-xs font-black shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
@@ -5227,8 +5344,14 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                         const blobToDownload = exportedBlob || preProcessedVapBlob;
                         if (!blobToDownload) return;
                         const baseName = fileName.replace(/\.[^/.]+$/, '');
-                        const isVap = exportTargetFormat === 'vap';
-                        const dlName = isVap ? `${baseName}_with_audio.mp4` : `${baseName}.mp4`;
+                        const isVap = selectedFormat.includes('VAP');
+                        const isWebm = selectedFormat.includes('WebM');
+                        const isGif = selectedFormat.includes('GIF');
+                        const isWebp = selectedFormat.includes('WebP');
+                        const isApng = selectedFormat.includes('APNG');
+                        const isLottie = selectedFormat.includes('Lottie');
+                        const ext = isVap || selectedFormat.includes('MP4') ? 'mp4' : isWebm ? 'webm' : isGif ? 'gif' : isWebp ? 'webp' : isApng ? 'png' : isLottie ? 'json' : 'mp4';
+                        const dlName = `${baseName}${!muteOriginalAudio && (audioFile || audioUrl) ? '_with_audio' : ''}.${ext}`;
                         const link = document.createElement('a');
                         link.href = URL.createObjectURL(blobToDownload);
                         link.download = dlName;
@@ -5237,18 +5360,18 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                         document.body.removeChild(link);
 
                         downloadDesignerInfoFile(dlName, {
-                          format: isVap ? 'VAP 1.0.5 (MP4)' : 'MP4 Video',
+                          format: selectedFormat,
                           duration: videoDuration
                         });
                       }}
                       className="w-full py-3 bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600 hover:from-indigo-400 hover:to-purple-400 text-white rounded-xl text-xs font-black shadow-lg shadow-indigo-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
                     >
                       <Download className="w-4 h-4" />
-                      تحميل ملف {exportTargetFormat.toUpperCase()} النهائي {!muteOriginalAudio ? 'مع الصوت المدمج' : ''}
+                      تحميل ملف {selectedFormat} النهائي {!muteOriginalAudio ? 'مع الصوت المدمج' : ''}
                     </button>
                   )}
 
-                  {exportTargetFormat === 'vap' && (
+                  {selectedFormat.includes('VAP') && (
                     <button
                       onClick={handleDownloadVapZipPackage}
                       className="w-full py-2.5 bg-[#161924] hover:bg-[#1f2433] text-indigo-300 border border-indigo-500/30 hover:border-indigo-500/50 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
@@ -5260,7 +5383,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
                   <button
                     onClick={handleStartExport}
-                    className="w-full py-2 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2"
+                    className="w-full py-2 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <RefreshCcw className="w-3.5 h-3.5" />
                     إعادة التصدير بإعدادات أخرى
@@ -5278,42 +5401,39 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                     <button
                       disabled={!fileUrl}
                       onClick={() => setShowLivePreview(true)}
-                      className="flex-1 py-3.5 bg-[#141824] hover:bg-[#1a1f2e] text-white rounded-2xl font-black text-xs transition-all border border-white/10 flex items-center justify-center gap-2 shadow-lg"
+                      className="flex-1 py-3.5 bg-[#141824] hover:bg-[#1a1f2e] text-white rounded-2xl font-black text-xs transition-all border border-white/10 flex items-center justify-center gap-2 shadow-lg cursor-pointer"
                     >
                       <Eye className="w-4 h-4 text-indigo-400" />
                       معاينة الإخراج
                     </button>
                     <button
                       disabled={!fileUrl}
-                      onClick={handleStartExport}
-                      className={`flex-[2] py-3.5 rounded-2xl font-black text-xs transition-all flex items-center justify-center gap-2 shadow-lg ${
+                      onClick={() => handleExportVAP()}
+                      className={`flex-1 py-3.5 rounded-2xl font-black text-xs transition-all flex items-center justify-center gap-1.5 shadow-lg ${
                         fileUrl
-                          ? exportTargetFormat === 'svga'
-                            ? 'bg-gradient-to-r from-emerald-600 via-teal-500 to-emerald-600 hover:from-emerald-500 hover:to-teal-400 text-white shadow-emerald-600/25 cursor-pointer hover:scale-[1.01]'
-                            : exportTargetFormat === 'vap'
-                            ? 'bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-indigo-600/25 cursor-pointer hover:scale-[1.01]'
-                            : exportTargetFormat === 'frames'
-                            ? 'bg-gradient-to-r from-cyan-600 via-sky-500 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white shadow-cyan-600/30 cursor-pointer hover:scale-[1.01]'
-                            : 'bg-gradient-to-r from-purple-600 via-pink-600 to-indigo-600 hover:from-purple-500 hover:to-pink-500 text-white shadow-purple-600/25 cursor-pointer hover:scale-[1.01]'
+                          ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-violet-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-indigo-600/25 cursor-pointer hover:scale-[1.01]'
                           : 'bg-white/5 text-slate-600 cursor-not-allowed border border-white/5'
                       }`}
+                      title="تصدير بصيغة VAP بالمدة الكاملة"
                     >
-                      {exportTargetFormat === 'frames' ? (
-                        <Layers className="w-4 h-4 text-cyan-200" />
-                      ) : (
-                        <ArrowDownCircle className="w-4 h-4" />
-                      )}
-                      {exportTargetFormat === 'svga' 
-                        ? 'تصدير 2.0 SVGA نقي' 
-                        : exportTargetFormat === 'vap' 
-                        ? 'تصدير VAP مُعالج' 
-                        : exportTargetFormat === 'frames'
-                        ? 'تحويل ونقل للرئيسية'
-                        : 'تصدير MP4 نقي'}
+                      <Download className="w-4 h-4" />
+                      <span>تصدير VAP</span>
+                    </button>
+                    <button
+                      disabled={!fileUrl}
+                      onClick={() => handleExportViaFrames('yyeva')}
+                      className={`flex-1 py-3.5 rounded-2xl font-black text-xs transition-all flex items-center justify-center gap-1.5 shadow-lg ${
+                        fileUrl
+                          ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-amber-500/25 cursor-pointer hover:scale-[1.01]'
+                          : 'bg-white/5 text-slate-600 cursor-not-allowed border border-white/5'
+                      }`}
+                      title="تصدير بصيغة YYEVA بالمدة الكاملة"
+                    >
+                      <Sparkles className="w-4 h-4 stroke-[2.5]" />
+                      <span>تصدير YYEVA</span>
                     </button>
                   </div>
                 </div>
-
               )}
             </div>
           </div>
@@ -5740,27 +5860,52 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
         </div>
       )}
 
-      {/* VAP Professional Audio Editor Modal (مطابق للفيديو) */}
-      <AudioEditorModal
-        isOpen={isAudioEditorModalOpen}
-        onClose={() => setIsAudioEditorModalOpen(false)}
-        audioUrl={audioUrl}
-        audioFile={audioFile}
-        volume={audioVolume}
-        onVolumeChange={handleVolumeChange}
-        onReplace={(newF) => {
-          setAudioFile(newF);
-          setAudioName(newF.name);
-          setAudioSize((newF.size / 1024).toFixed(0) + ' KB');
-          if (audioUrl) URL.revokeObjectURL(audioUrl);
-          const freshU = URL.createObjectURL(newF);
-          setAudioUrl(freshU);
-        }}
-        onRemove={handleRemoveAudio}
-        onKeep={() => setIsAudioEditorModalOpen(false)}
-        onExecute={handleExecuteAudioModal}
-        isProcessing={isProcessingAudio}
-      />
+      {/* Professional Audio Studio Modal (Image 10 System) */}
+      {showAudioStudioModal && (
+        <SvgaAudioEditorModal
+          isOpen={showAudioStudioModal}
+          project={audioStudioProjectData}
+          onClose={() => setShowAudioStudioModal(false)}
+          onUpdateProject={handleUpdateProjectFromAudioStudio}
+          onShowToast={(msg) => setAudioStudioToast(msg)}
+        />
+      )}
+
+      {/* Adobe After Effects Export Modal */}
+      {isAeExportModalOpen && (
+        <AeExportModal
+          isOpen={isAeExportModalOpen}
+          onClose={() => setIsAeExportModalOpen(false)}
+          metadata={{
+            name: fileName || 'animation.svga',
+            videoItem: {
+              width: customWidth || (vapConfig?.info?.w) || videoDimensions.width || 512,
+              height: customHeight || (vapConfig?.info?.h) || videoDimensions.height || 512,
+              fps: targetFps || (vapConfig?.info as any)?.fps || 24,
+              frames: vapConfig?.info?.f || Math.max(1, Math.round((videoDuration || 3) * (targetFps || 24)))
+            }
+          }}
+          sprites={[]}
+          imagesData={{}}
+          previewBg={(bgMode === 'color' && bgColor !== 'transparent') ? bgColor : null}
+          audioFile={audioFile || null}
+          audioUrl={audioUrl || null}
+          onSuccessToast={(msg) => setAudioStudioToast(msg)}
+        />
+      )}
+
+      {/* Audio Studio Success Toast Notification */}
+      {audioStudioToast && (
+        <div
+          className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[9999] bg-slate-900/95 border border-emerald-500/40 text-white px-6 py-3.5 rounded-2xl shadow-2xl backdrop-blur-xl flex items-center gap-3 text-sm font-bold pointer-events-none animate-in fade-in slide-in-from-bottom-4 duration-300"
+          dir="rtl"
+        >
+          <div className="w-7 h-7 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+            <CheckCircle2 className="w-4 h-4" />
+          </div>
+          <span>{audioStudioToast}</span>
+        </div>
+      )}
     </div>
   );
 };

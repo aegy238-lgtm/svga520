@@ -244,3 +244,139 @@ export enum PlayerStatus {
   ERROR = 'ERROR'
 }
 
+export type Language = 'ar' | 'en';
+
+export type CacheCategory = 'svga' | 'vap' | 'lottie' | 'pag' | 'mp4' | 'gif' | 'image' | 'audio' | 'video' | 'json' | 'other';
+
+export interface CacheFileRecord {
+  id: string;
+  name?: string;
+  fileName?: string;
+  category: CacheCategory;
+  size: number;
+  url: string;
+  type?: string;
+  uploadedAt?: any;
+  createdAt?: any;
+  userId?: string;
+  userName?: string;
+  userEmail?: string;
+  tags?: string[];
+  thumbnailUrl?: string;
+  duration?: number;
+  width?: number;
+  height?: number;
+  dimensions?: { width: number; height: number };
+  sourceFeature?: string;
+  storagePath?: string;
+  downloadCount?: number;
+}
+
+export interface CacheActivityLog {
+  id: string;
+  action: string;
+  details: string;
+  timestamp: any;
+  userId?: string;
+  userName?: string;
+  userEmail?: string;
+  fileName?: string;
+}
+
+export interface CacheStats {
+  totalFiles: number;
+  totalSize: number;
+  totalSizeBytes?: number;
+  categoriesCount: Record<string, number>;
+}
+
+export interface CachePermissions {
+  canUpload?: boolean;
+  canDelete?: boolean;
+  canDownload?: boolean;
+  view?: boolean;
+  upload?: boolean;
+  delete?: boolean;
+  download?: boolean;
+}
+
+export type MegaFileCategory = 'svga' | 'vap' | 'yyeva' | 'lottie' | 'pag' | 'mp4' | 'images' | 'audio' | 'backup' | 'other';
+
+export interface MegaStorageRecord {
+  id: string;
+  fileId?: string;
+  name?: string;
+  fileName?: string;
+  originalName?: string;
+  size?: number;
+  fileSize?: number;
+  mimeType?: string;
+  category?: MegaFileCategory;
+  url?: string;
+  megaUrl?: string;
+  downloadUrl?: string;
+  type?: string;
+  uploadedAt?: any;
+  userId?: string;
+  userName?: string;
+  handle?: string;
+  path?: string;
+  hash?: string;
+  isDuplicate?: boolean;
+}
+
+export interface MegaStorageStats {
+  totalFiles: number;
+  totalSize: number;
+  totalSizeBytes?: number;
+  usedStorageBytes: number;
+  totalStorageBytes: number;
+  lastSuccessfulUpload?: any;
+}
+
+export interface MegaSettings {
+  email?: string;
+  password?: string;
+  folderName?: string;
+  enabled?: boolean;
+  provider?: string;
+}
+
+export interface MegaConnectionTestResult {
+  success: boolean;
+  message: string;
+  provider?: string;
+  quota?: {
+    used: number;
+    total: number;
+  };
+}
+
+export interface MegaUploadProgress {
+  percentage: number;
+  loaded: number;
+  total: number;
+  statusText?: string;
+  stage?: string;
+}
+
+export interface EmployeeUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  permissions: string[];
+  status: 'active' | 'inactive';
+  createdAt: any;
+}
+
+export interface GiftItem {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+  imageUrl: string;
+  fileUrl?: string;
+  type?: string;
+}
+

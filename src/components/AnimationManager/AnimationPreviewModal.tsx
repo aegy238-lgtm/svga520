@@ -390,7 +390,11 @@ export const AnimationPreviewModal: React.FC<AnimationPreviewModalProps> = ({
                 >
                   <option value="original">الصيغة الأصلية ({item.format.toUpperCase()})</option>
                   <option value="svga">صيغة SVGA 2.0 (.svga - متوافق مع التأثيرات والجوال)</option>
+                  <option value="webm">WebM شفاف (VP9 Alpha - فيديو شفاف فائق الدقة)</option>
+                  <option value="vap">Tencent VAP (.vap - فيديو شفاف مدمج)</option>
+                  <option value="yyeva">YYEVA MP4 (.mp4 - فيديو شفاف YY)</option>
                   <option value="webp">WebP متحرك</option>
+                  <option value="gif">GIF متحرك</option>
                   <option value="apng">APNG (عالي الجودة مع شفافية ألفا)</option>
                   <option value="png_frames">حزمة إطارات PNG (ZIP)</option>
                   {item.lottieData && (

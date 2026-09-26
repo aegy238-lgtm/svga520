@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import lottie, { AnimationItem as LottieInstance } from 'lottie-web';
 import { 
   Play, Pause, Trash2, Edit2, Download, Eye, 
-  RotateCw, Check, Grid, Hash, Clock, Layers, Sparkles 
+  RotateCw, Check, Grid, Hash, Clock, Layers, Sparkles, RefreshCw 
 } from 'lucide-react';
 import { AnimationItem, ExportFormat, PreviewBackground, SupportedFormat } from './types';
 
@@ -341,137 +341,40 @@ export const AnimationCard: React.FC<AnimationCardProps> = ({
             </button>
           </div>
 
-          {/* Direct SVGA Convert Button */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onQuickExport(item, 'svga');
-            }}
-            className="px-2 py-1 rounded-lg bg-gradient-to-r from-indigo-500/30 to-purple-500/30 hover:from-indigo-500/50 hover:to-purple-500/50 text-indigo-200 text-xs font-bold flex items-center gap-1 border border-indigo-400/40 transition-all shadow-sm"
-            title="تحويل فوري مباشر إلى صيغة SVGA"
-          >
-            <Sparkles className="w-3 h-3 text-indigo-300" />
-            <span>تحويل SVGA</span>
-          </button>
-
-          {/* Quick Export Trigger */}
-          <div className="relative">
+          {/* Three Dedicated Export/Convert Buttons */}
+          <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+            {/* Button 1: Export VAP */}
             <button
               type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowExportMenu(!showExportMenu);
-              }}
-              className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 text-xs font-bold flex items-center gap-1 border border-cyan-500/30 transition-all"
+              onClick={() => onQuickExport(item, 'vap')}
+              className="px-2 py-1 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/60 text-indigo-200 text-xs font-bold flex items-center gap-1 border border-indigo-400/30 transition-all cursor-pointer"
+              title="تصدير بصيغة VAP بالمدة الكاملة"
             >
-              <Download className="w-3 h-3" />
-              <span>تصدير</span>
+              <Download className="w-3 h-3 text-indigo-300" />
+              <span>VAP</span>
             </button>
 
-            {/* Export Menu Popover */}
-            {showExportMenu && (
-              <div
-                onClick={(e) => e.stopPropagation()}
-                className="absolute bottom-8 left-0 w-40 rounded-xl bg-[#0e1628] border border-white/15 shadow-2xl p-1.5 flex flex-col gap-1 z-30"
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    onQuickExport(item, 'svga');
-                    setShowExportMenu(false);
-                  }}
-                  className="w-full text-right px-2.5 py-1.5 rounded-lg text-xs font-bold text-indigo-300 bg-indigo-500/15 hover:bg-indigo-500/30 hover:text-indigo-200 transition-colors font-arabic flex items-center justify-between border border-indigo-500/20"
-                >
-                  <span>تحويل إلى SVGA</span>
-                  <span className="text-[9px] px-1 py-0.5 rounded bg-indigo-500/40 text-indigo-100 font-mono">.svga</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onQuickExport(item, 'original');
-                    setShowExportMenu(false);
-                  }}
-                  className="w-full text-right px-2.5 py-1.5 rounded-lg text-xs text-gray-200 hover:bg-white/10 hover:text-cyan-400 transition-colors font-arabic"
-                >
-                  الصيغة الأصلية
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onQuickExport(item, 'gif');
-                    setShowExportMenu(false);
-                  }}
-                  className="w-full text-right px-2.5 py-1.5 rounded-lg text-xs text-gray-200 hover:bg-white/10 hover:text-amber-400 transition-colors font-arabic"
-                >
-                  صيغة GIF متحرك
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onQuickExport(item, 'webp');
-                    setShowExportMenu(false);
-                  }}
-                  className="w-full text-right px-2.5 py-1.5 rounded-lg text-xs text-gray-200 hover:bg-white/10 hover:text-emerald-400 transition-colors font-arabic"
-                >
-                  صيغة WebP
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onQuickExport(item, 'apng');
-                    setShowExportMenu(false);
-                  }}
-                  className="w-full text-right px-2.5 py-1.5 rounded-lg text-xs text-gray-200 hover:bg-white/10 hover:text-purple-400 transition-colors font-arabic"
-                >
-                  صيغة APNG
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onQuickExport(item, 'png_frames');
-                    setShowExportMenu(false);
-                  }}
-                  className="w-full text-right px-2.5 py-1.5 rounded-lg text-xs text-gray-200 hover:bg-white/10 hover:text-sky-400 transition-colors font-arabic"
-                >
-                  حزمة إطارات PNG (ZIP)
-                </button>
-                {item.lottieData && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onQuickExport(item, 'lottie');
-                        setShowExportMenu(false);
-                      }}
-                      className="w-full text-right px-2.5 py-1.5 rounded-lg text-xs text-gray-200 hover:bg-white/10 hover:text-cyan-400 transition-colors font-arabic"
-                    >
-                      Lottie JSON
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onQuickExport(item, 'dotlottie');
-                        setShowExportMenu(false);
-                      }}
-                      className="w-full text-right px-2.5 py-1.5 rounded-lg text-xs text-gray-200 hover:bg-white/10 hover:text-pink-400 transition-colors font-arabic"
-                    >
-                      DotLottie (.lottie)
-                    </button>
-                  </>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    onQuickExport(item, 'mp4');
-                    setShowExportMenu(false);
-                  }}
-                  className="w-full text-right px-2.5 py-1.5 rounded-lg text-xs text-gray-200 hover:bg-white/10 hover:text-red-400 transition-colors font-arabic"
-                >
-                  فيديو MP4
-                </button>
-              </div>
-            )}
+            {/* Button 2: Export YYEVA */}
+            <button
+              type="button"
+              onClick={() => onQuickExport(item, 'yyeva')}
+              className="px-2 py-1 rounded-lg bg-amber-500/25 hover:bg-amber-500/50 text-amber-200 text-xs font-bold flex items-center gap-1 border border-amber-400/30 transition-all cursor-pointer"
+              title="تصدير بصيغة YYEVA بالمدة الكاملة"
+            >
+              <Sparkles className="w-3 h-3 text-amber-300" />
+              <span>YYEVA</span>
+            </button>
+
+            {/* Button 3: Cross Convert */}
+            <button
+              type="button"
+              onClick={() => onQuickExport(item, item.format === 'vap' ? 'yyeva' : 'vap')}
+              className="px-2 py-1 rounded-lg bg-cyan-600/30 hover:bg-cyan-600/60 text-cyan-200 text-xs font-bold flex items-center gap-1 border border-cyan-400/30 transition-all cursor-pointer"
+              title={item.format === 'vap' ? 'تحويل مباشر من VAP إلى YYEVA' : 'تحويل مباشر من YYEVA إلى VAP'}
+            >
+              <RefreshCw className="w-3 h-3 text-cyan-300" />
+              <span>{item.format === 'vap' ? '➔ YYEVA' : '➔ VAP'}</span>
+            </button>
           </div>
         </div>
       </div>

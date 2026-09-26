@@ -11,8 +11,10 @@ import lottie from 'lottie-web';
 import JSZip from 'jszip';
 import UPNG from 'upng-js';
 import { getPAG } from '../utils/pagEngine';
-import { extractVapConfigFromBlob, detectVapChannelLayout, VapChannelLayout } from '../utils/vapEngine';
+import { extractVapConfigFromBlob, detectVapChannelLayout, VapChannelLayout, parseMp4DurationFromBlob } from '../utils/vapEngine';
 import { uploadToMegaStorage } from '../services/megaStorageService';
+import { getItemFrames, exportItem, downloadBlob } from './AnimationManager/utils/exportEngine';
+import { ExportFormat, AnimationItem } from './AnimationManager/types';
 
 export type SupportedFormatType = 
   | 'SVGA'
@@ -283,12 +285,20 @@ export const UniversalMultiFormatPlayerModal: React.FC<UniversalMultiFormatPlaye
   const [dimensions, setDimensions] = useState<{ width: number; height: number }>({ width: 750, height: 1334 });
   const [bgMode, setBgMode] = useState<'grid_dark' | 'grid_light' | 'black' | 'white' | 'green' | 'blue'>('grid_dark');
   const [alphaMode, setAlphaMode] = useState<'composite' | 'alpha_only' | 'rgb_only'>('composite');
-  const [isAlphaReversed, setIsAlphaReversed] = useState(false);
-  const isAlphaReversedRef = useRef(false);
+  const [alphaLayout, setAlphaLayout] = useState<'left_alpha' | 'right_alpha' | 'top_alpha' | 'bottom_alpha'>('right_alpha');
+  const alphaLayoutRef = useRef<'left_alpha' | 'right_alpha' | 'top_alpha' | 'bottom_alpha'>('right_alpha');
 
   useEffect(() => {
-    isAlphaReversedRef.current = isAlphaReversed;
-  }, [isAlphaReversed]);
+    alphaLayoutRef.current = alphaLayout;
+  }, [alphaLayout]);
+
+  // Direct Format Conversion Modal state
+  const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
+  const [targetConvertFormat, setTargetConvertFormat] = useState<ExportFormat>('yyeva');
+  const [convertQuality, setConvertQuality] = useState<number>(90);
+  const [isConverting, setIsConverting] = useState(false);
+  const [convertProgress, setConvertProgress] = useState(0);
+  const [convertStatus, setConvertStatus] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [uploadingToMega, setUploadingToMega] = useState(false);
   const [megaUploadSuccess, setMegaUploadSuccess] = useState<string | null>(null);
@@ -670,44 +680,88 @@ export const UniversalMultiFormatPlayerModal: React.FC<UniversalMultiFormatPlaye
     let targetW = 750;
     let targetH = 750;
 
-    const handleLoadedMetadata = () => {
+    const handleLoadedMetadata = async () => {
       const vidW = vid.videoWidth || 750;
       const vidH = vid.videoHeight || 750;
       const isHorizontal = (vidW >= vidH) || (vidW % 2 === 0 && vidW > 1.05 * vidH);
+      const isYyeva = formatType === 'YYEVA' || fileObj.name.toLowerCase().endsWith('.yyeva') || Boolean((vapConfig as any)?.descript);
+      let initialLayout: 'left_alpha' | 'right_alpha' | 'top_alpha' | 'bottom_alpha' = isYyeva ? 'left_alpha' : 'right_alpha';
       
       if (vapConfig?.info?.rgbFrame && vapConfig?.info?.aFrame) {
         rgbRect = vapConfig.info.rgbFrame as [number, number, number, number];
         alphaRect = vapConfig.info.aFrame as [number, number, number, number];
         targetW = vapConfig.info.w || rgbRect[2] || (isHorizontal ? Math.round(vidW / 2) : vidW);
         targetH = vapConfig.info.h || rgbRect[3] || (isHorizontal ? vidH : Math.round(vidH / 2));
+
+        if (alphaRect[0] < rgbRect[0]) {
+          initialLayout = 'left_alpha'; // White alpha mask is on the LEFT
+        } else if (alphaRect[0] > rgbRect[0]) {
+          initialLayout = 'right_alpha';
+        } else if (alphaRect[1] < rgbRect[1]) {
+          initialLayout = 'top_alpha';
+        } else if (alphaRect[1] > rgbRect[1]) {
+          initialLayout = 'bottom_alpha';
+        } else if (isYyeva) {
+          initialLayout = 'left_alpha';
+        } else {
+          initialLayout = 'right_alpha';
+        }
       } else {
         targetW = isHorizontal ? Math.round(vidW / 2) : vidW;
         targetH = isHorizontal ? vidH : Math.round(vidH / 2);
         rgbRect = [0, 0, targetW, targetH];
         alphaRect = isHorizontal ? [targetW, 0, targetW, targetH] : [0, targetH, targetW, targetH];
+
+        try {
+          const detection = detectVapChannelLayout(vid, null);
+          if (detection && detection.isVap) {
+            if (detection.layout === 'right_rgb_left_alpha' || (isYyeva && detection.confidence < 0.9)) {
+              initialLayout = 'left_alpha';
+            } else if (detection.layout === 'top_rgb_bottom_alpha') {
+              initialLayout = 'bottom_alpha';
+            } else if (detection.layout === 'bottom_rgb_top_alpha') {
+              initialLayout = 'top_alpha';
+            } else {
+              initialLayout = isYyeva ? 'left_alpha' : 'right_alpha';
+            }
+          } else if (isYyeva) {
+            initialLayout = 'left_alpha';
+          }
+        } catch (e) {
+          console.warn("Auto-detect channel layout failed:", e);
+        }
       }
+
+      setAlphaLayout(initialLayout);
+      alphaLayoutRef.current = initialLayout;
+
+      const videoFps = (vapConfig?.info?.fps && vapConfig.info.fps > 0 && vapConfig.info.fps <= 120)
+        ? vapConfig.info.fps
+        : 30;
+      
+      const configFrames = (vapConfig?.info?.f && vapConfig.info.f > 0 && vapConfig.info.f !== videoFps)
+        ? vapConfig.info.f
+        : (vapConfig?.descript?.totalFrame || 0);
+
+      let videoDur = (isFinite(vid.duration) && vid.duration > 0.1) ? vid.duration : 0;
+      if (file && (!videoDur || videoDur <= 0.1)) {
+        const mp4Dur = await parseMp4DurationFromBlob(file).catch(() => null);
+        if (mp4Dur && mp4Dur > 0.1) videoDur = mp4Dur;
+      }
+
+      if (!videoDur || videoDur <= 0.1) {
+        videoDur = configFrames > 0 ? (configFrames / videoFps) : 3;
+      }
+
+      const framesFromDur = Math.round(videoDur * videoFps);
+      const calculatedFrames = framesFromDur > configFrames 
+        ? framesFromDur 
+        : (configFrames > 0 ? configFrames : Math.max(1, framesFromDur));
 
       setDimensions({ width: targetW, height: targetH });
-      setDuration(vid.duration || 1);
-      const videoFps = vapConfig?.info?.f || vapConfig?.info?.fps || 30;
+      setDuration(videoDur);
       setFps(videoFps);
-      setTotalFrames(Math.max(1, Math.round((vid.duration || 1) * videoFps)));
-
-      // Auto-detect reversed channel layout (RGB vs Alpha placement)
-      try {
-        const detection = detectVapChannelLayout(vid, null);
-        if (detection) {
-          const currentCoordsRgbLeft = rgbRect[0] < alphaRect[0] || rgbRect[1] < alphaRect[1];
-          const actualPixelsAlphaLeft = detection.layout === 'right_rgb_left_alpha' || detection.layout === 'bottom_rgb_top_alpha';
-          if (currentCoordsRgbLeft && actualPixelsAlphaLeft) {
-            setIsAlphaReversed(true);
-          } else {
-            setIsAlphaReversed(false);
-          }
-        }
-      } catch (e) {
-        console.warn("Auto-detect channel layout failed:", e);
-      }
+      setTotalFrames(calculatedFrames);
     };
 
     vid.onloadedmetadata = handleLoadedMetadata;
@@ -755,13 +809,11 @@ export const UniversalMultiFormatPlayerModal: React.FC<UniversalMultiFormatPlaye
                 const detection = detectVapChannelLayout(v, vapConfig);
                 if (detection && detection.isVap) {
                   if (detection.layout === 'right_rgb_left_alpha') {
-                    setIsAlphaReversed(true);
-                    // Swap rect coordinates in closure for immediate frame render
-                    const temp = rgbRect;
-                    rgbRect = alphaRect;
-                    alphaRect = temp;
-                  } else {
-                    setIsAlphaReversed(false);
+                    setAlphaLayout('left_alpha');
+                    alphaLayoutRef.current = 'left_alpha';
+                  } else if (detection.layout === 'left_rgb_right_alpha') {
+                    setAlphaLayout('right_alpha');
+                    alphaLayoutRef.current = 'right_alpha';
                   }
                   autoDetected = true;
                 }
@@ -776,11 +828,35 @@ export const UniversalMultiFormatPlayerModal: React.FC<UniversalMultiFormatPlaye
             const outImgData = ctx.createImageData(outW, outH);
             const dst = outImgData.data;
 
-            const reversed = isAlphaReversedRef.current;
-            const rgbStartX = reversed ? alphaRect[0] : rgbRect[0];
-            const rgbStartY = reversed ? alphaRect[1] : rgbRect[1];
-            const aStartX = reversed ? rgbRect[0] : alphaRect[0];
-            const aStartY = reversed ? rgbRect[1] : alphaRect[1];
+            const currentLayout = alphaLayoutRef.current;
+            let rgbStartX = 0;
+            let rgbStartY = 0;
+            let aStartX = targetW;
+            let aStartY = 0;
+
+            if (currentLayout === 'left_alpha') {
+              // White alpha mask on LEFT, RGB on RIGHT
+              rgbStartX = targetW;
+              rgbStartY = 0;
+              aStartX = 0;
+              aStartY = 0;
+            } else if (currentLayout === 'right_alpha') {
+              // RGB on LEFT, White alpha mask on RIGHT
+              rgbStartX = 0;
+              rgbStartY = 0;
+              aStartX = targetW;
+              aStartY = 0;
+            } else if (currentLayout === 'top_alpha') {
+              rgbStartX = 0;
+              rgbStartY = targetH;
+              aStartX = 0;
+              aStartY = 0;
+            } else if (currentLayout === 'bottom_alpha') {
+              rgbStartX = 0;
+              rgbStartY = 0;
+              aStartX = 0;
+              aStartY = targetH;
+            }
 
             for (let y = 0; y < outH; y++) {
               for (let x = 0; x < outW; x++) {
@@ -982,9 +1058,176 @@ export const UniversalMultiFormatPlayerModal: React.FC<UniversalMultiFormatPlaye
     return 'bg-[#0b1020]';
   };
 
+  // Start format conversion
+  const handleStartConversion = async (formatOverride?: ExportFormat) => {
+    if (!file) return;
+    const formatToUse = formatOverride || targetConvertFormat;
+    setTargetConvertFormat(formatToUse);
+    setIsConvertModalOpen(true);
+    setIsConverting(true);
+    setConvertProgress(15);
+    setConvertStatus('جاري استخراج وتحليل إطارات الأنيميشن وقنوات الشفافية بالمدة الكاملة...');
+
+    try {
+      const realDur = duration > 0 ? duration : (totalFrames > 0 && fps > 0 ? totalFrames / fps : 3);
+      const realFrames = totalFrames > 0 ? totalFrames : Math.max(1, Math.round(realDur * (fps || 30)));
+      
+      const animItem: AnimationItem = {
+        id: 'convert_' + Date.now(),
+        name: file.name.replace(/\.[^/.]+$/, ''),
+        originalName: file.name,
+        format: formatType === 'VAP' ? 'vap' : formatType === 'YYEVA' ? 'yyeva' : formatType === 'SVGA' ? 'svga' : formatType === 'PAG' ? 'pag' : formatType === 'GIF' ? 'gif' : formatType === 'WEBP' ? 'webp' : formatType === 'APNG' ? 'apng' : formatType === 'LOTTIE' ? 'lottie' : formatType === 'DOTLOTTIE' ? 'dotlottie' : formatType === 'WEBM' ? 'webm' : 'mp4',
+        size: file.size,
+        dimensions: dimensions,
+        duration: realDur,
+        fps: fps || 30,
+        frameCount: realFrames,
+        contentHash: 'hash_' + Date.now(),
+        file: file,
+        previewUrl: URL.createObjectURL(file),
+        createdAt: Date.now(),
+        status: 'ready'
+      };
+
+      setConvertProgress(45);
+      setConvertStatus(`جاري الترميز والتصدير بالصيغة الصحيحة (${formatToUse.toUpperCase()}) مع حفظ كامل المدة...`);
+
+      const result = await exportItem(animItem, formatToUse, {
+        fps: fps || 30,
+        quality: convertQuality,
+        compressionLevel: 80
+      });
+
+      setConvertProgress(100);
+      setConvertStatus(`اكتمل تصدير ${formatToUse.toUpperCase()} بنجاح! يتم تنزيل الملف الآن...`);
+      downloadBlob(result.blob, result.filename);
+      setTimeout(() => {
+        setIsConverting(false);
+        setIsConvertModalOpen(false);
+      }, 1400);
+    } catch (err: any) {
+      console.error('Conversion error:', err);
+      setConvertStatus(`فشل التحويل: ${err.message || 'خطأ غير معروف'}`);
+      setIsConverting(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-xl animate-in fade-in" dir="rtl">
-      <div className="bg-[#0b1020] border border-white/15 rounded-3xl w-full max-w-6xl h-[92vh] max-h-[920px] flex flex-col shadow-2xl overflow-hidden">
+      <div className="bg-[#0b1020] border border-white/15 rounded-3xl w-full max-w-6xl h-[92vh] max-h-[920px] flex flex-col shadow-2xl overflow-hidden relative">
+        
+        {/* Format Conversion Dialog Modal */}
+        {isConvertModalOpen && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in">
+            <div className="bg-[#0e1628] border border-indigo-500/40 rounded-3xl w-full max-w-lg p-6 shadow-2xl flex flex-col gap-5 text-right">
+              <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white">
+                    <RefreshCw className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white">تصدير الفيديو الشفاف (YYEVA / VAP)</h3>
+                    <p className="text-xs text-slate-400">تصدير مباشر بالصيغة الصحيحة مع الحفاظ على مدة الفيديو والشفافية التامة</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => !isConverting && setIsConvertModalOpen(false)}
+                  disabled={isConverting}
+                  className="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Format Selection Cards (Only YYEVA and VAP as requested) */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-300">اختر صيغة التصدير المستهدفة:</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { id: 'yyeva', label: 'صيغة YYEVA (.mp4)', desc: 'فيديو شفاف متوافق مع YYEVA مع صندوق yyea', badge: 'YYEVA' },
+                    { id: 'vap', label: 'صيغة VAP (.vap)', desc: 'فيديو شفاف متوافق مع Tencent VAP مع صندوق vapc', badge: 'VAP' },
+                  ].map((fmt) => (
+                    <button
+                      key={fmt.id}
+                      type="button"
+                      onClick={() => setTargetConvertFormat(fmt.id as ExportFormat)}
+                      className={`p-3.5 rounded-2xl border text-right transition-all flex flex-col justify-between ${
+                        targetConvertFormat === fmt.id
+                          ? 'border-indigo-500 bg-indigo-500/20 shadow-lg shadow-indigo-500/20 ring-1 ring-indigo-400'
+                          : 'border-white/10 bg-slate-900/60 hover:border-white/20'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between w-full mb-1.5">
+                        <span className="text-sm font-black text-white">{fmt.label}</span>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold ${
+                          fmt.id === 'yyeva' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-violet-500/20 text-violet-300 border border-violet-500/40'
+                        }`}>
+                          {fmt.badge}
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-slate-400 leading-relaxed">{fmt.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Quality Slider for Videos */}
+              {['yyeva', 'vap', 'webm', 'webp', 'mp4'].includes(targetConvertFormat) && (
+                <div className="space-y-1.5 bg-slate-900/40 p-3 rounded-xl border border-white/5">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-400 font-bold">جودة التحويل والضغط:</span>
+                    <span className="text-indigo-400 font-black">{convertQuality}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={40}
+                    max={100}
+                    value={convertQuality}
+                    onChange={(e) => setConvertQuality(Number(e.target.value))}
+                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                  />
+                </div>
+              )}
+
+              {/* Progress Bar during conversion */}
+              {isConverting && (
+                <div className="space-y-2 p-3 bg-slate-900/90 rounded-2xl border border-indigo-500/30 animate-in fade-in">
+                  <div className="flex justify-between text-xs font-bold text-slate-300">
+                    <span className="truncate max-w-[280px]">{convertStatus}</span>
+                    <span className="text-indigo-400 font-black">{convertProgress}%</span>
+                  </div>
+                  <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                    <div
+                      className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 h-full rounded-full transition-all duration-300"
+                      style={{ width: `${convertProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2 pt-2 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => handleStartConversion()}
+                  disabled={isConverting}
+                  className="flex-1 py-2.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/30 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isConverting ? 'animate-spin' : ''}`} />
+                  <span>{isConverting ? 'جاري التحويل...' : 'بدء التحويل وتنزيل الملف الآن'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsConvertModalOpen(false)}
+                  disabled={isConverting}
+                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl border border-white/10 transition-colors cursor-pointer"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         
         {/* Header Bar */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-slate-900/60">
@@ -1010,65 +1253,65 @@ export const UniversalMultiFormatPlayerModal: React.FC<UniversalMultiFormatPlaye
             </div>
           </div>
 
-          {/* Action Header Buttons */}
+          {/* Action Header Buttons: Exactly 3 dedicated buttons (VAP, YYEVA, Cross-Convert) */}
           <div className="flex items-center gap-2">
-            {onOpenInEditor && file && (
-              <button
-                onClick={() => {
-                  onClose();
-                  onOpenInEditor(file);
-                }}
-                className="px-3.5 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold rounded-xl shadow-md shadow-indigo-600/20 transition-all flex items-center gap-1.5"
-              >
-                <Layers className="w-4 h-4" />
-                <span>فتح في محرر الطبقات</span>
-              </button>
-            )}
+            {file && (
+              <>
+                {/* Button 1: Export VAP */}
+                <button
+                  onClick={() => handleStartConversion('vap')}
+                  className="px-3.5 py-2 bg-gradient-to-r from-indigo-600 via-purple-600 to-violet-600 hover:from-indigo-500 hover:to-purple-500 text-white font-black text-xs rounded-xl shadow-lg shadow-indigo-600/30 transition-all flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95"
+                  title="تصدير بصيغة VAP (.vap شفاف مع الحفاظ الكامل على المدة وجودة العرض)"
+                >
+                  <Download className="w-4 h-4 text-white stroke-[2.5]" />
+                  <span>تصدير VAP</span>
+                </button>
 
-            {onConvertToSvga && file && formatType !== 'SVGA' && (
-              <button
-                onClick={() => {
-                  onClose();
-                  onConvertToSvga(file);
-                }}
-                className="px-3.5 py-2 bg-pink-600 hover:bg-pink-500 text-white text-xs font-bold rounded-xl shadow-md shadow-pink-600/20 transition-all flex items-center gap-1.5"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>تحويل إلى SVGA</span>
-              </button>
-            )}
+                {/* Button 2: Export YYEVA */}
+                <button
+                  onClick={() => handleStartConversion('yyeva')}
+                  className="px-3.5 py-2 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/25 transition-all flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95"
+                  title="تصدير بصيغة YYEVA (.mp4 شفاف مع الحفاظ الكامل على المدة وجودة العرض)"
+                >
+                  <Sparkles className="w-4 h-4 text-slate-950 stroke-[2.5]" />
+                  <span>تصدير YYEVA</span>
+                </button>
 
-            <button
-              onClick={handleUploadToMega}
-              disabled={uploadingToMega}
-              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-indigo-300 hover:text-white rounded-xl text-xs font-medium border border-white/10 transition-colors flex items-center gap-1.5 disabled:opacity-50"
-              title="حفظ الملف في مجلد MEGA المخصص"
-            >
-              <HardDrive className={`w-4 h-4 ${uploadingToMega ? 'animate-spin text-indigo-400' : ''}`} />
-              <span>{uploadingToMega ? 'جاري الرفع لـ MEGA...' : 'حفظ في MEGA'}</span>
-            </button>
+                {/* Button 3: Cross-convert YYEVA <-> VAP */}
+                <button
+                  onClick={() => handleStartConversion(formatType === 'VAP' ? 'yyeva' : 'vap')}
+                  className="px-3.5 py-2 bg-gradient-to-r from-cyan-600 via-teal-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white font-black text-xs rounded-xl shadow-lg shadow-cyan-600/25 transition-all flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95"
+                  title={
+                    formatType === 'VAP'
+                      ? 'تحويل مباشر من VAP إلى YYEVA بالمدة الكاملة'
+                      : formatType === 'YYEVA'
+                      ? 'تحويل مباشر من YYEVA إلى VAP بالمدة الكاملة'
+                      : 'تحويل تبادلي مباشر بين صيغتي YYEVA و VAP'
+                  }
+                >
+                  <RefreshCw className="w-4 h-4 text-white stroke-[2.5]" />
+                  <span>
+                    {formatType === 'VAP'
+                      ? 'تحويل من VAP إلى YYEVA'
+                      : formatType === 'YYEVA'
+                      ? 'تحويل من YYEVA إلى VAP'
+                      : 'تحويل YYEVA ⇄ VAP'}
+                  </span>
+                </button>
+              </>
+            )}
 
             <button
               onClick={onClose}
               className="p-2 hover:bg-white/10 text-slate-400 hover:text-white rounded-xl transition-colors cursor-pointer"
+              title="إغلاق"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Notice Bar for Mega Upload or Errors */}
-        {megaUploadSuccess && (
-          <div className="px-6 py-2 bg-emerald-500/15 border-b border-emerald-500/30 text-emerald-300 text-xs flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Check className="w-4 h-4 text-emerald-400" />
-              <span>تم حفظ الملف بنجاح في مجلد كاش MEGA!</span>
-            </div>
-            <a href={megaUploadSuccess} target="_blank" rel="noreferrer" className="underline font-mono text-[11px] text-emerald-200">
-              فتح الرابط ↗
-            </a>
-          </div>
-        )}
+        {/* Notice Bar for Errors */}
 
         {errorMessage && (
           <div className="px-6 py-2 bg-rose-500/15 border-b border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
@@ -1195,15 +1438,20 @@ export const UniversalMultiFormatPlayerModal: React.FC<UniversalMultiFormatPlaye
                     {alphaMode === 'composite' ? 'ألفا مدمجة' : 'RGB خام'}
                   </button>
                   <button
-                    onClick={() => setIsAlphaReversed(!isAlphaReversed)}
-                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-all ${
-                      isAlphaReversed 
+                    onClick={() => {
+                      const nextLayout = alphaLayout === 'left_alpha' ? 'right_alpha' : 'left_alpha';
+                      setAlphaLayout(nextLayout);
+                      alphaLayoutRef.current = nextLayout;
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all flex items-center gap-1.5 ${
+                      alphaLayout === 'left_alpha' 
                         ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-[0_0_8px_rgba(245,158,11,0.2)]' 
-                        : 'bg-slate-800 text-slate-400 border-white/10 hover:text-white'
+                        : 'bg-slate-800 text-slate-300 border-white/10 hover:text-white'
                     }`}
-                    title="عكس موضع قنوات الألوان والشفافية (يمين/يسار أو أعلى/أسفل)"
+                    title="عكس موضع قنوات الألوان والشفافية (يمين/يسار)"
                   >
-                    {isAlphaReversed ? 'عكس الألفا (مفعّل)' : 'عكس الألفا (يمين/يسار)'}
+                    <RefreshCw className="w-3 h-3" />
+                    <span>{alphaLayout === 'left_alpha' ? 'الشفافية: يسار (YYEVA)' : 'الشفافية: يمين (VAP)'}</span>
                   </button>
                 </div>
               )}

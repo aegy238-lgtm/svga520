@@ -116,16 +116,11 @@ export const BatchExportModal: React.FC<BatchExportModalProps> = ({
               <select
                 value={format}
                 onChange={(e) => setFormat(e.target.value as ExportFormat)}
-                className="w-full bg-[#070b14] border border-white/15 text-white text-xs rounded-xl p-3 focus:outline-none focus:border-cyan-400"
+                className="w-full bg-[#070b14] border border-white/15 text-white text-xs rounded-xl p-3 focus:outline-none focus:border-cyan-400 font-bold"
               >
+                <option value="yyeva">صيغة YYEVA MP4 (.mp4 - فيديو شفاف بالمدة الكاملة)</option>
+                <option value="vap">صيغة Tencent VAP (.vap - فيديو شفاف بالمدة الكاملة)</option>
                 <option value="original">الصيغة الأصلية لكل ملف (Original)</option>
-                <option value="svga">صيغة SVGA 2.0 (.svga - تحويل ذكي للتأثيرات والتطبيقات)</option>
-                <option value="webp">WebP متحرك</option>
-                <option value="apng">APNG (عالي الجودة مع شفافية ألفا)</option>
-                <option value="png_frames">حزم إطارات PNG (PNG Frames ZIP)</option>
-                <option value="lottie">Lottie JSON (لملفات Lottie و DotLottie)</option>
-                <option value="dotlottie">DotLottie (.lottie)</option>
-                <option value="mp4">فيديو MP4</option>
               </select>
             </div>
 

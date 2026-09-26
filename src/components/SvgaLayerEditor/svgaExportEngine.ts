@@ -694,23 +694,44 @@ export async function exportEditedSvga(
     let activeImageKey = layer.imageKey || spriteClone.imageKey;
 
     const baseAnimTransform = getLayerAnimatedTransform(layer, 0);
-    const isFlipH = baseAnimTransform.scaleX < 0;
+    const hasOriginalHFlip = Boolean(
+      layer.isMirroredLayer ||
+      (layer.originalSpriteFrames?.some((fr: any) => fr?.transform && fr.transform.a !== undefined && fr.transform.a < -0.01)) ||
+      (layer.spriteRef?.frames?.some((fr: any) => fr?.transform && fr.transform.a !== undefined && fr.transform.a < -0.01))
+    );
+    const isFlipH = baseAnimTransform.scaleX < 0 || (hasOriginalHFlip && !(activeImageKey && activeImageKey.includes('_mirrored_')));
     const isFlipV = baseAnimTransform.scaleY < 0;
     const isAlreadyFlipped = Boolean(
       activeImageKey && (activeImageKey.includes('_mirrored_') || activeImageKey.startsWith('flipped_'))
     );
 
-    if (!isAlreadyFlipped && (isFlipH || isFlipV) && activeImageKey && exportImages[activeImageKey]) {
-      const flippedKey = `flipped_${isFlipH ? 'h' : ''}${isFlipV ? 'v' : ''}_${activeImageKey}`;
-      if (!exportImages[flippedKey]) {
-        try {
-          exportImages[flippedKey] = await getFlippedImageBytes(exportImages[activeImageKey], isFlipH, isFlipV);
-        } catch (e) {
-          console.warn('Could not generate flipped image bytes for layer:', layer.name, e);
+    if (!isAlreadyFlipped && (isFlipH || isFlipV) && activeImageKey) {
+      if (!exportImages[activeImageKey]) {
+        const raw = project.rawImages && project.rawImages[activeImageKey];
+        if (raw instanceof Uint8Array) {
+          exportImages[activeImageKey] = raw;
+        } else if ((raw as any)?.buffer instanceof ArrayBuffer) {
+          exportImages[activeImageKey] = new Uint8Array((raw as any).buffer);
+        } else {
+          const src = layer.thumbnailUrl || (project.imagesMap && project.imagesMap[activeImageKey]);
+          if (src && src.startsWith('data:')) {
+            try { exportImages[activeImageKey] = base64ToUint8ArrayFast(src); } catch {}
+          }
         }
       }
-      if (exportImages[flippedKey]) {
-        activeImageKey = flippedKey;
+
+      if (exportImages[activeImageKey]) {
+        const flippedKey = `flipped_${isFlipH ? 'h' : ''}${isFlipV ? 'v' : ''}_${activeImageKey}`;
+        if (!exportImages[flippedKey]) {
+          try {
+            exportImages[flippedKey] = await getFlippedImageBytes(exportImages[activeImageKey], isFlipH, isFlipV);
+          } catch (e) {
+            console.warn('Could not generate flipped image bytes for layer:', layer.name, e);
+          }
+        }
+        if (exportImages[flippedKey]) {
+          activeImageKey = flippedKey;
+        }
       }
     }
 

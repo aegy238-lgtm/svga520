@@ -1,7 +1,7 @@
 import * as Mp4Muxer from 'mp4-muxer';
 import JSZip from 'jszip';
 import { drawCustomBackground, drawAnimatedWatermark, WatermarkConfig } from './watermarkAndBackground';
-import { extractVapConfigFromBlob, seekVideoToFrame, WebGLVapRenderer, prepareAudioDataChunks } from './vapEngine';
+import { extractVapConfigFromBlob, detectVapChannelLayout, seekVideoToFrame, WebGLVapRenderer, prepareAudioDataChunks } from './vapEngine';
 import { extractAllSvgaAudioTracks, mixAudioTracksToBuffer, encodeAudioBufferToMuxer } from './svgaVideoAudioExporter';
 import { extractGifFrames } from '../components/AnimationManager/utils/exportEngine';
 
@@ -321,14 +321,24 @@ async function convertYyevaVapToMp4(
     const vh = video.videoHeight || 1000;
     const duration = video.duration || 3;
 
-    let nativeSingleW = Math.round(vw / 2);
-    let nativeSingleH = vh;
+    // Detect channel layout (handles Left/Right, Right/Left, Top/Bottom, etc.)
+    const detected = detectVapChannelLayout(video, config);
+    let rgbFrame: [number, number, number, number] = detected.rgbFrame;
+    let aFrame: [number, number, number, number] = detected.aFrame;
 
-    // Check if configuration provides exact frame specs
-    if (config?.info?.w && config?.info?.h) {
-      nativeSingleW = config.info.w;
-      nativeSingleH = config.info.h;
+    // Explicit format override if detection had low confidence
+    if (item.format === 'vap' && detected.confidence <= 0.85) {
+      // Tencent VAP: Alpha Left, RGB Right
+      rgbFrame = [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
+      aFrame = [0, 0, Math.round(vw / 2), vh];
+    } else if (item.format === 'yyeva' && detected.confidence <= 0.85) {
+      // YYEVA: RGB Left, Alpha Right
+      rgbFrame = [0, 0, Math.round(vw / 2), vh];
+      aFrame = [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
     }
+
+    const nativeSingleW = rgbFrame[2] || Math.round(vw / 2);
+    const nativeSingleH = rgbFrame[3] || vh;
 
     let outW = nativeSingleW;
     let outH = nativeSingleH;
@@ -344,7 +354,7 @@ async function convertYyevaVapToMp4(
     outW = makeEven(outW);
     outH = makeEven(outH);
 
-    let fps = config?.info?.fps || 30;
+    let fps = config?.info?.fps || config?.info?.f || detected.fps || 30;
     if (fps <= 0 || fps > 60) fps = 30;
     const totalFrames = Math.max(1, Math.round(duration * fps));
 
@@ -431,9 +441,6 @@ async function convertYyevaVapToMp4(
     scratchCanvas.height = nativeSingleH;
     const scratchCtx = scratchCanvas.getContext('2d', { willReadFrequently: true });
 
-    const rgbX = isYYEVA ? 0 : nativeSingleW;
-    const alphaX = isYYEVA ? nativeSingleW : 0;
-
     for (let i = 0; i < totalFrames; i++) {
       if (cancelSignal?.cancelled) throw new Error('CANCELLED');
       if (encoderError) throw encoderError;
@@ -450,23 +457,32 @@ async function convertYyevaVapToMp4(
       if (webglRenderer) {
         const glCanvas = webglRenderer.render(
           video,
-          [rgbX, 0, nativeSingleW, nativeSingleH],
-          [alphaX, 0, nativeSingleW, nativeSingleH],
+          rgbFrame,
+          aFrame,
           10,
-          true
+          true,
+          false
         );
         outCtx.drawImage(glCanvas, 0, 0, outW, outH);
       } else if (scratchCtx) {
         // Fallback 2D Alpha compositing
         scratchCtx.clearRect(0, 0, nativeSingleW, nativeSingleH);
-        scratchCtx.drawImage(video, rgbX, 0, nativeSingleW, nativeSingleH, 0, 0, nativeSingleW, nativeSingleH);
+        scratchCtx.drawImage(
+          video, 
+          rgbFrame[0], rgbFrame[1], rgbFrame[2], rgbFrame[3], 
+          0, 0, nativeSingleW, nativeSingleH
+        );
         
         const tempAlpha = document.createElement('canvas');
         tempAlpha.width = nativeSingleW;
         tempAlpha.height = nativeSingleH;
         const taCtx = tempAlpha.getContext('2d');
         if (taCtx) {
-          taCtx.drawImage(video, alphaX, 0, nativeSingleW, nativeSingleH, 0, 0, nativeSingleW, nativeSingleH);
+          taCtx.drawImage(
+            video, 
+            aFrame[0], aFrame[1], aFrame[2], aFrame[3], 
+            0, 0, nativeSingleW, nativeSingleH
+          );
           const rgbData = scratchCtx.getImageData(0, 0, nativeSingleW, nativeSingleH);
           const alphaData = taCtx.getImageData(0, 0, nativeSingleW, nativeSingleH);
           const rP = rgbData.data;
@@ -642,7 +658,7 @@ async function convertSvgaToMp4(
     });
 
     if (audioBuffer) {
-      await encodeAudioBufferToMuxer(audioBuffer, muxer);
+      await encodeAudioBufferToMuxer(audioBuffer, muxer, false);
     }
 
     const frameCanvas = document.createElement('canvas');

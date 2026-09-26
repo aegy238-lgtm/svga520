@@ -2060,14 +2060,29 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       const targetW = layer.transform.width;
       const targetH = layer.transform.height;
 
-      // Find twin / mirrored layers linked to this layer
+      // Find twin / mirrored / duplicate layers linked to this layer or sharing the same image
+      const checkIsLayerMirrored = (l: EditableLayer) => {
+        if (l.isMirroredLayer) return true;
+        if (l.transform.scaleX < 0) return true;
+        if (Boolean(l.autoFlipMirroredAsset)) return true;
+        if (l.spriteRef?.frames?.some((fr: any) => fr?.transform && ((fr.transform.a !== undefined && fr.transform.a < -0.01) || (fr.transform.a * fr.transform.d - fr.transform.b * fr.transform.c < -0.01)))) {
+          return true;
+        }
+        if (l.originalSpriteFrames?.some((fr: any) => fr?.transform && ((fr.transform.a !== undefined && fr.transform.a < -0.01) || (fr.transform.a * fr.transform.d - fr.transform.b * fr.transform.c < -0.01)))) {
+          return true;
+        }
+        const nameLower = (l.name || '').toLowerCase();
+        return nameLower.includes('mirror') || nameLower.includes('معكوس') || nameLower.includes('twin') || nameLower.includes('عكس');
+      };
+
       const twinLayers = layers.filter(other => 
         other.id !== layer.id && (
           other.id === layer.linkedMirroredLayerId ||
           other.linkedMirroredLayerId === layer.id ||
           other.sourceLayerId === layer.id ||
           layer.sourceLayerId === other.id ||
-          (other.imageKey === imgKey && other.isMirroredLayer)
+          other.imageKey === imgKey ||
+          (other.spriteRef?.imageKey && other.spriteRef.imageKey === imgKey)
         )
       );
 
@@ -2075,7 +2090,13 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       let flippedBuffer: { dataUrl: string; bytes: Uint8Array; width: number; height: number } | null = null;
 
       if (shouldSyncTwin && twinLayers.length > 0) {
-        const needsFlip = twinLayers.some(t => t.autoFlipMirroredAsset !== false);
+        const needsFlip = twinLayers.some(t => {
+          const hasNegativeMatrix = t.spriteRef?.frames?.some((fr: any) => fr?.transform && fr.transform.a !== undefined && fr.transform.a < -0.01);
+          // If the SVGA sprite frame itself already has negative scale matrix a < 0, it flips natively.
+          // Otherwise, if it's marked as mirrored or scaleX < 0, it needs pixel flipping.
+          return checkIsLayerMirrored(t) && !hasNegativeMatrix;
+        });
+
         if (needsFlip) {
           try {
             flippedBuffer = await getFlippedImageBuffer(bytes, true, false);
@@ -2091,19 +2112,20 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       const twinKeyMap = new Map<string, string>();
       const twinUrlMap = new Map<string, string>();
 
-      if (shouldSyncTwin) {
+      if (shouldSyncTwin && twinLayers.length > 0) {
         for (const twin of twinLayers) {
-          const isMirrored = twin.isMirroredLayer || 
-                             twin.transform.scaleX < 0 || 
-                             Boolean(twin.autoFlipMirroredAsset);
+          const isMirrored = checkIsLayerMirrored(twin);
+          const hasNegativeMatrix = twin.spriteRef?.frames?.some((fr: any) => fr?.transform && fr.transform.a !== undefined && fr.transform.a < -0.01);
           
-          const willFlip = isMirrored && twin.autoFlipMirroredAsset !== false && flippedBuffer;
+          // If frame matrix already flips (a < 0), use un-flipped bytes so SVGA matrix flips it once;
+          // if it doesn't have matrix flip, use flippedBuffer.
+          const willFlip = isMirrored && !hasNegativeMatrix && flippedBuffer !== null;
           const assignedDataUrl = willFlip ? flippedBuffer!.dataUrl : dataUrl;
           const assignedBytes = willFlip ? flippedBuffer!.bytes : bytes;
 
           let targetTwinKey = twin.imageKey;
           if (willFlip && targetTwinKey === imgKey) {
-            targetTwinKey = `${imgKey}_mirrored_${Date.now()}`;
+            targetTwinKey = `${imgKey}_mirrored_${Date.now()}_${twin.id.slice(-4)}`;
           }
 
           twinKeyMap.set(twin.id, targetTwinKey);
@@ -2130,10 +2152,10 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         };
       });
 
-      // Update layer thumbnail, dimensions, and sprite frames
+      // Update layer thumbnail, dimensions, and sprite frames for target layer AND all linked/copied layers
       setLayers(prev => {
         const updated = prev.map(l => {
-          if (l.id === selectedLayerId || (!shouldSyncTwin && l.imageKey === imgKey)) {
+          if (l.id === selectedLayerId) {
             let updatedSpriteRef = l.spriteRef;
             if (l.spriteRef && l.spriteRef.frames) {
               const updatedFrames = l.spriteRef.frames.map((fr: any) => {
@@ -2182,7 +2204,8 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             return updatedLayer;
           }
 
-          if (shouldSyncTwin && twinLayers.some(t => t.id === l.id)) {
+          // If layer is in twinLayers or shares imgKey
+          if (twinLayers.some(t => t.id === l.id) || l.imageKey === imgKey) {
             const twinKey = twinKeyMap.get(l.id) || l.imageKey;
             const twinUrl = twinUrlMap.get(l.id) || dataUrl;
 
@@ -2248,9 +2271,9 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       });
 
       const syncedMsg = (shouldSyncTwin && twinLayers.length > 0)
-        ? ` وتمت مزامنة وعكس الصورة للطبقة المقترنة (${twinLayers.map(t => t.name).join(', ')}) بنجاح`
+        ? ` وتمت مزامنة الطبقات المنسوخة والمعكوسة المقترنة (${twinLayers.map(t => t.name).join(', ')}) وحفظها تلقائياً للتصدير بنجاح ✓`
         : '';
-      setSuccessToast(`تم استبدال صورة الطبقة ومطابقة مقاسها تلقائياً مع الطبقة الأصلية (${targetW}×${targetH}): ${layer.name}${syncedMsg}`);
+      setSuccessToast(`تم استبدال صورة الطبقة وتحديث الطبقات المنسوخة والمعكوسة بنجاح (${targetW}×${targetH}): ${layer.name}${syncedMsg}`);
     } catch (err: any) {
       console.error('Failed to replace image asset:', err);
     }
@@ -2419,7 +2442,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         };
       });
 
-      // Update layer thumbnailUrl, sprite frames, initialBounds, and transform
+      // Update layer thumbnailUrl, sprite frames, initialBounds, and transform for target and twin layers
       setLayers(prev => {
         const updated = prev.map(l => {
           if (l.id === layerId) {
@@ -2448,7 +2471,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               };
             }
 
-            return {
+            const updatedMain: EditableLayer = {
               ...l,
               thumbnailUrl: dataUrl,
               spriteRef: updatedSpriteRef,
@@ -2465,7 +2488,62 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                 scaleY: 1
               } : l.transform
             };
+            masterLayersMapRef.current.set(l.id, updatedMain);
+            return updatedMain;
           }
+
+          // Also synchronize any layer that shares the same imageKey or is a mirrored twin
+          if (l.imageKey === imgKey || l.linkedMirroredLayerId === layerId || targetLayer.linkedMirroredLayerId === l.id) {
+            const isMirrored = l.isMirroredLayer || l.transform.scaleX < 0 || Boolean(l.autoFlipMirroredAsset);
+            let updatedTwinSprite = l.spriteRef;
+            if (forceResizeToLayer && l.spriteRef && l.spriteRef.frames) {
+              const updatedFrames = l.spriteRef.frames.map((fr: any) => {
+                if (!fr) return fr;
+                const t = fr.transform || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+                // Preserve negative sign if mirrored via matrix
+                const keepSignX = (t.a !== undefined && t.a < -0.01) ? -1 : 1;
+                const keepSignY = (t.d !== undefined && t.d < -0.01) ? -1 : 1;
+                return {
+                  ...fr,
+                  layout: {
+                    ...(fr.layout || {}),
+                    width: newW,
+                    height: newH
+                  },
+                  transform: {
+                    ...t,
+                    a: keepSignX,
+                    d: keepSignY
+                  }
+                };
+              });
+              updatedTwinSprite = {
+                ...l.spriteRef,
+                frames: updatedFrames
+              };
+            }
+
+            const updatedTwin: EditableLayer = {
+              ...l,
+              thumbnailUrl: dataUrl,
+              spriteRef: updatedTwinSprite,
+              initialBounds: forceResizeToLayer ? {
+                ...l.initialBounds,
+                width: newW,
+                height: newH
+              } : l.initialBounds,
+              transform: forceResizeToLayer ? {
+                ...l.transform,
+                width: newW,
+                height: newH,
+                scaleX: isMirrored ? -1 : 1,
+                scaleY: l.transform.scaleY < 0 ? -1 : 1
+              } : l.transform
+            };
+            masterLayersMapRef.current.set(l.id, updatedTwin);
+            return updatedTwin;
+          }
+
           return l;
         });
         pushHistory(updated);

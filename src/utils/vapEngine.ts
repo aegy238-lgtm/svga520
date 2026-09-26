@@ -57,7 +57,16 @@ export const extractVapConfigFromBlob = async (blob: Blob): Promise<VapConfig | 
         const aFrame = desc.alphaFrame || desc.aFrame || [rgbFrame[2], 0, rgbFrame[2], rgbFrame[3]];
         const w = desc.width || desc.w || rgbFrame[2] || 750;
         const h = desc.height || desc.h || rgbFrame[3] || 1334;
-        const f = desc.fps || desc.f || 24;
+        
+        // Correctly distinguish framerate (fps, usually 20-60) from total frame count (f/totalFrame, usually 60-300)
+        const fps = (desc.fps && desc.fps > 0 && desc.fps <= 120) 
+          ? desc.fps 
+          : (desc.rate && desc.rate > 0 && desc.rate <= 120 ? desc.rate : 30);
+        
+        const f = (desc.f && desc.f > 0 && desc.f !== fps) 
+          ? desc.f 
+          : (desc.totalFrame || desc.totalFrames || desc.frames || Math.round(fps * 3));
+
         const videoW = desc.videoWidth || desc.videoW || (rgbFrame[0] + rgbFrame[2] > aFrame[0] + aFrame[2] ? rgbFrame[0] + rgbFrame[2] : aFrame[0] + aFrame[2]);
         const videoH = desc.videoHeight || desc.videoH || (rgbFrame[1] + rgbFrame[3] > aFrame[1] + aFrame[3] ? rgbFrame[1] + rgbFrame[3] : aFrame[1] + aFrame[3]);
 
@@ -67,7 +76,7 @@ export const extractVapConfigFromBlob = async (blob: Blob): Promise<VapConfig | 
             w,
             h,
             f,
-            fps: f,
+            fps,
             videoW: videoW || w * 2,
             videoH: videoH || h,
             rgbFrame,
@@ -147,6 +156,62 @@ export const extractVapConfigFromBlob = async (blob: Blob): Promise<VapConfig | 
 };
 
 /**
+ * Extract exact mathematical duration from MP4 ISO-BMFF mvhd box
+ * Prevents truncated exports and ensures 100% full duration reproduction
+ */
+export const parseMp4DurationFromBlob = async (blob: Blob): Promise<number | null> => {
+  try {
+    const slicesToScan: Blob[] = [];
+    if (blob.size <= 8 * 1024 * 1024) {
+      slicesToScan.push(blob);
+    } else {
+      slicesToScan.push(blob.slice(0, 5 * 1024 * 1024));
+      slicesToScan.push(blob.slice(blob.size - 5 * 1024 * 1024, blob.size));
+    }
+
+    for (const slice of slicesToScan) {
+      const buffer = await slice.arrayBuffer();
+      const data = new DataView(buffer);
+      const len = buffer.byteLength;
+
+      for (let i = 0; i <= len - 36; i++) {
+        // Look for 'mvhd' (0x6d, 0x76, 0x68, 0x64)
+        if (
+          data.getUint8(i) === 0x6d &&
+          data.getUint8(i + 1) === 0x76 &&
+          data.getUint8(i + 2) === 0x68 &&
+          data.getUint8(i + 3) === 0x64
+        ) {
+          const version = data.getUint8(i + 4);
+          if (version === 0) {
+            // version 0: timescale at offset 16 from 'm', duration at offset 20
+            const timescale = data.getUint32(i + 16);
+            const duration = data.getUint32(i + 20);
+            if (timescale > 0 && duration > 0) {
+              const sec = duration / timescale;
+              if (sec >= 0.05 && sec <= 7200) return sec;
+            }
+          } else if (version === 1) {
+            // version 1: timescale at offset 24, duration (64-bit) at offset 28
+            const timescale = data.getUint32(i + 24);
+            const durHigh = data.getUint32(i + 28);
+            const durLow = data.getUint32(i + 32);
+            const duration = durHigh * 0x100000000 + durLow;
+            if (timescale > 0 && duration > 0) {
+              const sec = duration / timescale;
+              if (sec >= 0.05 && sec <= 7200) return sec;
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Could not parse MP4 mvhd duration:', e);
+  }
+  return null;
+};
+
+/**
  * Ultra-Smart VAP Channel Layout Detector:
  * Mathematically detects where RGB color and Alpha transparency masks are placed
  * by sampling pixel color saturation vs monochrome grayscale characteristics.
@@ -164,7 +229,9 @@ export const detectVapChannelLayout = (
     const af = existingConfig.info.aFrame;
     const outW = rf[2] || Math.round(vw / 2);
     const outH = rf[3] || vh;
-    const fps = existingConfig.info.f || existingConfig.info.fps || 24;
+    const fps = (existingConfig.info.fps && existingConfig.info.fps > 0 && existingConfig.info.fps <= 120)
+      ? existingConfig.info.fps 
+      : 30;
 
     let layout: VapChannelLayout = 'left_rgb_right_alpha';
     let label = 'أفقي: يسار RGB / يمين شفافية';
@@ -281,19 +348,12 @@ export const detectVapChannelLayout = (
         }
       } else {
         // Horizontal video (e.g. 1500x750)
-        if (rightHalf.grayscaleRatio > 0.65 && leftHalf.grayscaleRatio < 0.45) {
-          return {
-            layout: 'left_rgb_right_alpha',
-            rgbFrame: [0, 0, Math.round(vw / 2), vh],
-            aFrame: [Math.round(vw / 2), 0, Math.round(vw / 2), vh],
-            outputWidth: Math.round(vw / 2),
-            outputHeight: vh,
-            fps: 24,
-            confidence: 0.95,
-            isVap: true,
-            label: 'أفقي: يسار RGB / يمين قناع شفافية'
-          };
-        } else if (leftHalf.grayscaleRatio > 0.65 && rightHalf.grayscaleRatio < 0.45) {
+        const leftIsAlpha = (leftHalf.grayscaleRatio > 0.55 && (leftHalf.grayscaleRatio > rightHalf.grayscaleRatio + 0.08 || rightHalf.avgSaturation > leftHalf.avgSaturation + 4)) ||
+                            (leftHalf.grayscaleRatio > 0.75 && rightHalf.grayscaleRatio <= 0.75);
+        const rightIsAlpha = (rightHalf.grayscaleRatio > 0.55 && (rightHalf.grayscaleRatio > leftHalf.grayscaleRatio + 0.08 || leftHalf.avgSaturation > rightHalf.avgSaturation + 4)) ||
+                             (rightHalf.grayscaleRatio > 0.75 && leftHalf.grayscaleRatio <= 0.75);
+
+        if (leftIsAlpha && !rightIsAlpha) {
           return {
             layout: 'right_rgb_left_alpha',
             rgbFrame: [Math.round(vw / 2), 0, Math.round(vw / 2), vh],
@@ -303,7 +363,19 @@ export const detectVapChannelLayout = (
             fps: 24,
             confidence: 0.95,
             isVap: true,
-            label: 'أفقي: يمين RGB / يسار قناع شفافية'
+            label: 'أفقي: يمين RGB / يسار قناع شفافية (YYEVA)'
+          };
+        } else if (rightIsAlpha) {
+          return {
+            layout: 'left_rgb_right_alpha',
+            rgbFrame: [0, 0, Math.round(vw / 2), vh],
+            aFrame: [Math.round(vw / 2), 0, Math.round(vw / 2), vh],
+            outputWidth: Math.round(vw / 2),
+            outputHeight: vh,
+            fps: 24,
+            confidence: 0.95,
+            isVap: true,
+            label: 'أفقي: يسار RGB / يمين قناع شفافية (VAP)'
           };
         }
       }

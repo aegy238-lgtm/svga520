@@ -1,4 +1,16 @@
-export type SupportedFormat = 'gif' | 'webp' | 'apng' | 'png' | 'lottie' | 'dotlottie' | 'svga' | 'pag';
+export type SupportedFormat = 
+  | 'gif' 
+  | 'webp' 
+  | 'apng' 
+  | 'png' 
+  | 'lottie' 
+  | 'dotlottie' 
+  | 'svga' 
+  | 'pag'
+  | 'vap'
+  | 'yyeva'
+  | 'mp4'
+  | 'webm';
 
 export type ExportFormat = 
   | 'original'
@@ -10,6 +22,7 @@ export type ExportFormat =
   | 'lottie' 
   | 'dotlottie' 
   | 'mp4'
+  | 'webm'
   | 'vap'
   | 'yyeva';
 

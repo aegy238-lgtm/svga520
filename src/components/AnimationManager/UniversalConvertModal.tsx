@@ -27,104 +27,24 @@ interface FormatOption {
 
 const FORMAT_OPTIONS: FormatOption[] = [
   {
-    format: 'svga',
-    name: 'صيغة SVGA 2.0',
-    badge: 'SVGA',
-    ext: '.svga',
-    desc: 'صيغة الأنيميشن الفائقة للألعاب وتطبيقات البث المباشر مع دعم كامل للشفافية وتوفير المساحة.',
-    color: 'text-indigo-400',
-    bg: 'bg-indigo-500/15',
-    border: 'border-indigo-500/30'
-  },
-  {
-    format: 'mp4',
-    name: 'فيديو MP4 عالي الدقة',
-    badge: 'MP4',
+    format: 'yyeva',
+    name: 'صيغة YYEVA (YY Transparent Video)',
+    badge: 'YYEVA',
     ext: '.mp4',
-    desc: 'فيديو H.264 متوافق مع كافة المشغلات ومواقع التواصل ومناسب للعرض التوضيحي.',
-    color: 'text-red-400',
-    bg: 'bg-red-500/15',
-    border: 'border-red-500/30'
-  },
-  {
-    format: 'webp',
-    name: 'صيغة WebP متحرك',
-    badge: 'WEBP',
-    ext: '.webp',
-    desc: 'صيغة ويب حديثة وفائقة الضغط مع دعم الشفافية وألوان 24 بت حقيقية.',
-    color: 'text-emerald-400',
-    bg: 'bg-emerald-500/15',
-    border: 'border-emerald-500/30'
-  },
-  {
-    format: 'gif',
-    name: 'صيغة GIF متحرك',
-    badge: 'GIF',
-    ext: '.gif',
-    desc: 'الصيغة التقليدية الشائعة للصور المتحركة مع شفافية وتوافق عالمي.',
+    desc: 'صيغة الفيديو الشفاف القياسية لـ YYEVA مع قناة ألفا وصندوق بيانات yyea بالمدة الكاملة الصحيحة.',
     color: 'text-amber-400',
     bg: 'bg-amber-500/15',
     border: 'border-amber-500/30'
-  },
-  {
-    format: 'apng',
-    name: 'صيغة APNG (Animated PNG)',
-    badge: 'APNG',
-    ext: '.png',
-    desc: 'أعلى دقة نقاء وشفافية ألفا متدرجة 24-bit بدون أي تشوه أو خسارة لونية.',
-    color: 'text-purple-400',
-    bg: 'bg-purple-500/15',
-    border: 'border-purple-500/30'
-  },
-  {
-    format: 'png_frames',
-    name: 'حزمة إطارات PNG منفصلة',
-    badge: 'PNG ZIP',
-    ext: '.zip',
-    desc: 'أرشيف ZIP يحتوي على كل إطار كصورة PNG مستقلة عالية النقاء مع ملف البيانات.',
-    color: 'text-sky-400',
-    bg: 'bg-sky-500/15',
-    border: 'border-sky-500/30'
-  },
-  {
-    format: 'lottie',
-    name: 'Lottie JSON',
-    badge: 'JSON',
-    ext: '.json',
-    desc: 'تنسيق متجهي خفيف الوزن للملفات المدعومة من Lottie أو DotLottie.',
-    color: 'text-cyan-400',
-    bg: 'bg-cyan-500/15',
-    border: 'border-cyan-500/30'
-  },
-  {
-    format: 'dotlottie',
-    name: 'DotLottie Archive',
-    badge: '.lottie',
-    ext: '.lottie',
-    desc: 'حاوية DotLottie فائقة الضغط لمكتبات وأجهزة الجوال.',
-    color: 'text-pink-400',
-    bg: 'bg-pink-500/15',
-    border: 'border-pink-500/30'
   },
   {
     format: 'vap',
     name: 'صيغة VAP (Tencent VAP)',
     badge: 'VAP',
     ext: '.vap',
-    desc: 'فيديو MP4 شفاف مع قناة ألفا مدمجة وصندوق بيانات vapc لتطبيقات الهدايا والبث المباشر.',
+    desc: 'فيديو شفاف مع قناة ألفا مدمجة وصندوق بيانات vapc لتطبيقات الهدايا والبث المباشر بالمدة الكاملة الصحيحة.',
     color: 'text-violet-400',
     bg: 'bg-violet-500/15',
     border: 'border-violet-500/30'
-  },
-  {
-    format: 'yyeva',
-    name: 'صيغة YYEVA (YY Transparent Video)',
-    badge: 'YYEVA',
-    ext: '.mp4',
-    desc: 'صيغة الفيديو الشفاف القياسية لـ YY/YYEVA مع مصفوفة الشفافية وصندوق yyea فائق الدقة.',
-    color: 'text-amber-400',
-    bg: 'bg-amber-500/15',
-    border: 'border-amber-500/30'
   }
 ];
 
@@ -133,7 +53,7 @@ export const UniversalConvertModal: React.FC<UniversalConvertModalProps> = ({
   allItems,
   onClose
 }) => {
-  const [targetFormat, setTargetFormat] = useState<ExportFormat>('svga');
+  const [targetFormat, setTargetFormat] = useState<ExportFormat>('vap');
   const [scope, setScope] = useState<'selected' | 'all'>(selectedItems.length > 0 ? 'selected' : 'all');
   const [backgroundColor, setBackgroundColor] = useState<string>('#000000');
   const [fps, setFps] = useState<number>(30);
