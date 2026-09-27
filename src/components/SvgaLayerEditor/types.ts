@@ -135,11 +135,14 @@ export interface SVGAAudioTrack {
   durationSec?: number;
 }
 
+import type { TransparencyTimelineConfig } from './transparencyEngine';
+
 export interface FadeConfig {
   top: number;
   bottom: number;
   left: number;
   right: number;
+  timeline?: TransparencyTimelineConfig;
 }
 
 export type CropShape = 
@@ -158,6 +161,7 @@ export interface CropConfig {
   right: number;
   shape?: CropShape;
   cornerRadius?: number;
+  timeline?: TransparencyTimelineConfig;
 }
 
 export interface CropFeather {

@@ -995,7 +995,7 @@ export function renderSingleProjectFrameDirect(
   }
 
   if (options?.fadeConfig && options?.cropConfig && options?.cropFeather) {
-    applyTransparencyEffects(ctx, width, height, options.fadeConfig, options.cropConfig, options.cropFeather);
+    applyTransparencyEffects(ctx, width, height, options.fadeConfig, options.cropConfig, options.cropFeather, f, totalFrames);
   }
 
   ctx.restore();

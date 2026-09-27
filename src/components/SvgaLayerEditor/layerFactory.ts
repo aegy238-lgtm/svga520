@@ -1,7 +1,10 @@
 import { EditableLayer, SVGAProjectData } from './types';
 
 // Helper to convert an image File or Blob to DataURL and Uint8Array
-export async function fileToImageBuffer(file: File | Blob): Promise<{
+export async function fileToImageBuffer(
+  file: File | Blob,
+  maxDim?: number
+): Promise<{
   dataUrl: string;
   bytes: Uint8Array;
   width: number;
@@ -15,16 +18,44 @@ export async function fileToImageBuffer(file: File | Blob): Promise<{
   });
 
   const arrayBuffer = await file.arrayBuffer();
-  const bytes = new Uint8Array(arrayBuffer);
+  let bytes = new Uint8Array(arrayBuffer);
 
-  const { width, height } = await new Promise<{ width: number; height: number }>((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve({ width: img.naturalWidth || 200, height: img.naturalHeight || 200 });
-    img.onerror = () => resolve({ width: 200, height: 200 });
-    img.src = dataUrl;
+  const { width: rawW, height: rawH, img } = await new Promise<{ width: number; height: number; img: HTMLImageElement }>((resolve) => {
+    const imageEl = new Image();
+    imageEl.onload = () => resolve({ width: imageEl.naturalWidth || 200, height: imageEl.naturalHeight || 200, img: imageEl });
+    imageEl.onerror = () => resolve({ width: 200, height: 200, img: imageEl });
+    imageEl.src = dataUrl;
   });
 
-  return { dataUrl, bytes, width, height };
+  let width = rawW;
+  let height = rawH;
+  let finalDataUrl = dataUrl;
+
+  // If maxDim is provided and image exceeds it, downscale proportionally to prevent file size explosion
+  if (maxDim && maxDim > 100 && (width > maxDim || height > maxDim)) {
+    const ratio = Math.min(maxDim / width, maxDim / height);
+    const targetW = Math.max(1, Math.round(width * ratio));
+    const targetH = Math.max(1, Math.round(height * ratio));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, targetW, targetH);
+      finalDataUrl = canvas.toDataURL('image/png');
+      const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
+      if (blob) {
+        bytes = new Uint8Array(await blob.arrayBuffer());
+        width = targetW;
+        height = targetH;
+      }
+    }
+  }
+
+  return { dataUrl: finalDataUrl, bytes, width, height };
 }
 
 // Helper to flip an image horizontally and/or vertically and return its buffer

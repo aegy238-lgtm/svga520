@@ -119,15 +119,16 @@ export async function convertMp4ToSvgaProject(
   // Extract embedded VAP / YYEVA config if present in the MP4 atoms
   const vapConfig = await extractVapConfigFromBlob(file).catch(() => null);
 
-  // Detect VAP / YYEVA / Dual-Channel Alpha Video (Side-by-side or Top-bottom)
+  // ONLY detect as VAP / Dual-Channel Alpha if:
+  // 1. File extension is explicitly .vap
+  // 2. OR file has verified embedded VAP metadata atom boxes with both rgbFrame & aFrame
+  // Never guess based on generic filenames like 'gift' or normal landscape video aspect ratios
   const fileNameLower = file.name.toLowerCase();
   const isVapExt = fileNameLower.endsWith('.vap');
-  const isVapName = fileNameLower.includes('vap') || fileNameLower.includes('yyeva') || fileNameLower.includes('alpha') || fileNameLower.includes('trans') || fileNameLower.includes('透明') || fileNameLower.includes('gift');
-  const isHorizontalSplit = (probe.width >= 1.05 * probe.height && probe.width % 2 === 0) || (probe.width >= 1.7 * probe.height && probe.width <= 2.3 * probe.height);
-  const isVerticalSplit = (probe.height >= 1.5 * probe.width && probe.height % 2 === 0) || (probe.height >= 1.7 * probe.width && probe.height <= 2.3 * probe.width);
-  const isDualChannelAlpha = isVapExt || isVapName || !!vapConfig || isHorizontalSplit || isVerticalSplit;
+  const hasExplicitVapAtoms = !!(vapConfig?.info?.rgbFrame && vapConfig?.info?.aFrame);
+  const isDualChannelAlpha = isVapExt || hasExplicitVapAtoms;
   
-  let alphaOrientation: 'horizontal' | 'vertical' = (isVerticalSplit && !isHorizontalSplit) ? 'vertical' : 'horizontal';
+  let alphaOrientation: 'horizontal' | 'vertical' = 'horizontal';
 
   // Determine base single-frame dimensions & explicit frame coordinates
   let baseWidth = probe.width;
@@ -147,6 +148,8 @@ export async function convertMp4ToSvgaProject(
       alphaOrientation = 'horizontal';
     }
   } else if (isDualChannelAlpha) {
+    const isVerticalSplit = probe.height >= 1.5 * probe.width && probe.height % 2 === 0;
+    alphaOrientation = isVerticalSplit ? 'vertical' : 'horizontal';
     baseWidth = alphaOrientation === 'horizontal' ? Math.round(probe.width / 2) : probe.width;
     baseHeight = alphaOrientation === 'horizontal' ? probe.height : Math.round(probe.height / 2);
     rgbRect = [0, 0, baseWidth, baseHeight];
@@ -887,13 +890,10 @@ export async function createFastMp4Project(
 ): Promise<{ project: SVGAProjectData; layers: EditableLayer[]; videoUrl: string }> {
   const fileNameLower = file.name.toLowerCase();
   const isVapExt = fileNameLower.endsWith('.vap');
-  const isVapName = fileNameLower.includes('vap') || fileNameLower.includes('yyeva') || fileNameLower.includes('alpha') || fileNameLower.includes('trans') || fileNameLower.includes('透明') || fileNameLower.includes('gift');
-  
   const probe = await probeMp4Video(file);
   const vapConfig = await extractVapConfigFromBlob(file).catch(() => null);
-  const isHorizontalSplit = (probe.width >= 1.05 * probe.height && probe.width % 2 === 0) || (probe.width >= 1.7 * probe.height && probe.width <= 2.3 * probe.height);
-  const isVerticalSplit = (probe.height >= 1.5 * probe.width && probe.height % 2 === 0) || (probe.height >= 1.7 * probe.width && probe.height <= 2.3 * probe.width);
-  const isDualChannelAlpha = isVapExt || isVapName || !!vapConfig || isHorizontalSplit || isVerticalSplit;
+  const hasExplicitVapAtoms = !!(vapConfig?.info?.rgbFrame && vapConfig?.info?.aFrame);
+  const isDualChannelAlpha = isVapExt || hasExplicitVapAtoms;
 
   const videoUrl = URL.createObjectURL(file);
 

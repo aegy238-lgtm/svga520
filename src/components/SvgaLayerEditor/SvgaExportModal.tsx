@@ -147,11 +147,11 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
     setExportPhase('جاري معالجة طبقات الهدية والشفافية...');
 
     try {
-      // Calculate active compression options
+      // Calculate active compression options - default to level 9 maximum lossless compression
       const activeOptions: SvgaCompressionOptions = {
         mode: compressionMode,
         quality: compressionMode === 'custom' ? customQuality : compressionMode === 'low' ? 60 : compressionMode === 'medium' ? 80 : 100,
-        zlibLevel: compressionMode === 'custom' ? zlibLevel : compressionMode === 'low' ? 9 : 6,
+        zlibLevel: compressionMode === 'custom' ? zlibLevel : 9,
         compressImages: compressionMode === 'custom' ? compressImages : compressionMode === 'low'
       };
 
@@ -194,6 +194,43 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
           }
         }
 
+        // Ensure newly added layer images are included in AE assets
+        for (const l of layers) {
+          if (l.imageKey && !rawImagesData[l.imageKey] && l.thumbnailUrl) {
+            if (l.thumbnailUrl.startsWith('data:')) {
+              try {
+                const b64 = l.thumbnailUrl.includes(',') ? l.thumbnailUrl.split(',')[1] : l.thumbnailUrl;
+                const binaryStr = atob(b64);
+                const bytes = new Uint8Array(binaryStr.length);
+                for (let bi = 0; bi < binaryStr.length; bi++) bytes[bi] = binaryStr.charCodeAt(bi);
+                rawImagesData[l.imageKey] = bytes;
+              } catch (e) {}
+            }
+          }
+        }
+
+        // Build sprites representing the current layer stack (including all added layers and order)
+        // In SVGA 2.0 / AE, sprites[0] is bottom (background), sprites[N-1] is top (foreground).
+        const currentSprites = [...layers].filter(l => l.visible).reverse().map((l, sIdx) => {
+          if (l.spriteRef && l.spriteRef.frames) {
+            const spr = JSON.parse(JSON.stringify(l.spriteRef));
+            spr.imageKey = l.imageKey || spr.imageKey || `layer_${sIdx}`;
+            if (l.matteKey) spr.matteKey = l.matteKey;
+            if (l.blendMode) spr.blendMode = l.blendMode;
+            return spr;
+          }
+          return {
+            imageKey: l.imageKey || `layer_${sIdx}`,
+            matteKey: l.matteKey,
+            blendMode: l.blendMode,
+            frames: Array.from({ length: project.totalFrames }, () => ({
+              alpha: (l.transform.opacity ?? 100) / 100,
+              transform: { a: l.transform.scaleX ?? 1, b: 0, c: 0, d: l.transform.scaleY ?? 1, tx: l.transform.x ?? 0, ty: l.transform.y ?? 0 },
+              layout: { x: 0, y: 0, width: l.transform.width, height: l.transform.height }
+            }))
+          };
+        });
+
         await generateAEProject({
           metadata: {
             name: project.fileName,
@@ -203,7 +240,7 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
           },
           originalWidth: project.width,
           originalHeight: project.height,
-          sprites: project.rawMovie?.sprites || [],
+          sprites: currentSprites.length > 0 ? currentSprites : (project.rawMovie?.sprites || []),
           imagesData: rawImagesData,
           previewBg: null,
           audioFile: null,

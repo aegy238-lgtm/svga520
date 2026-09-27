@@ -457,6 +457,50 @@ async function bakeShineIntoLayerFrames(
 }
 
 /**
+ * Checks whether an SVGA layer has been modified by the user.
+ * If untouched, the layer's original sprite and frame entities are preserved 100% byte-for-byte.
+ */
+function isLayerModified(layer: EditableLayer, project: SVGAProjectData, parents: EditableLayer[]): boolean {
+  if (!layer.visible) return true;
+  if (parents && parents.some(p => !p.visible)) return true;
+  if (!layer.spriteRef) return true;
+  if (layer.isMerged || layer.isVideoSequence) return true;
+  if (layer.shineConfig && layer.shineConfig.enabled) return true;
+  if (layer.imageKey && layer.spriteRef.imageKey && layer.imageKey !== layer.spriteRef.imageKey) return true;
+  if (layer.matteKey !== layer.spriteRef.matteKey) return true;
+  if (layer.blendMode && layer.blendMode !== (layer.spriteRef.blendMode || layer.originalSpriteFrames?.find((f: any) => f?.blendMode)?.blendMode)) return true;
+  if (layer.keyframes && layer.keyframes.length > 0) return true;
+  if (parents && parents.length > 0) return true;
+
+  const origStart = layer.keyframeSummary?.startFrame ?? 0;
+  const origEnd = layer.keyframeSummary?.endFrame ?? (project.totalFrames - 1);
+  if (layer.inFrame !== undefined && layer.inFrame !== origStart && layer.inFrame > 0) return true;
+  if (layer.outFrame !== undefined && layer.outFrame !== origEnd && layer.outFrame < project.totalFrames - 1) return true;
+
+  const origT = layer.originalTransform || {
+    x: layer.initialBounds?.x ?? 0,
+    y: layer.initialBounds?.y ?? 0,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+    opacity: 100
+  };
+  const curT = layer.transform;
+  if (
+    Math.abs(curT.x - origT.x) > 0.01 ||
+    Math.abs(curT.y - origT.y) > 0.01 ||
+    Math.abs(curT.scaleX - (origT.scaleX ?? 1)) > 0.001 ||
+    Math.abs(curT.scaleY - (origT.scaleY ?? 1)) > 0.001 ||
+    Math.abs(curT.rotation - (origT.rotation ?? 0)) > 0.01 ||
+    Math.abs(curT.opacity - (origT.opacity ?? 100)) > 0.1
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Exports the edited SVGA project with all animations, audios, and layer modifications preserved.
  * Optimized for high performance and large file support (no memory exhaustion).
  */
@@ -681,61 +725,65 @@ export async function exportEditedSvga(
 
   for (const ctx of spritesToExport) {
     const layer = ctx.layer;
-    if (!layer.visible) {
-      continue;
-    }
-    
-    // If any parent is hidden, hide this layer too
-    if (ctx.parents.some(p => !p.visible)) {
+    if (!layer.visible || ctx.parents.some(p => !p.visible)) {
       continue;
     }
 
+    // 1. FAST-PATH: If this layer was NOT modified by the user, preserve its original sprite & frames 100% untouched
+    if (!isLayerModified(layer, project, ctx.parents)) {
+      const pristineSprite = JSON.parse(JSON.stringify(layer.spriteRef));
+      pristineSprite.imageKey = layer.imageKey || layer.spriteRef.imageKey;
+      if (layer.matteKey) {
+        pristineSprite.matteKey = layer.matteKey;
+      } else if (!layer.spriteRef.matteKey) {
+        delete pristineSprite.matteKey;
+      }
+      if (layer.blendMode) {
+        pristineSprite.blendMode = layer.blendMode;
+      }
+      newSprites.push(pristineSprite);
+      continue;
+    }
+
+    // 2. Video sequence animation layers (MP4 frames)
+    if (layer.isVideoSequence) {
+      const pfx = layer.sequencePrefix || 'frame_';
+      const spriteClone = layer.spriteRef ? JSON.parse(JSON.stringify(layer.spriteRef)) : {};
+      for (let fIdx = 0; fIdx < project.totalFrames; fIdx++) {
+        const candidateKeys = [
+          `${pfx}${fIdx}.png`,
+          `${pfx}${fIdx}.jpg`,
+          `${pfx}${fIdx}.jpeg`,
+          `${pfx}${fIdx}.webp`,
+          `${pfx}${fIdx}`
+        ];
+        const matchedKey = candidateKeys.find(ck => 
+          (project.rawImages && project.rawImages[ck]) || 
+          (project.imagesMap && project.imagesMap[ck]) ||
+          exportImages[ck]
+        ) || `${pfx}${fIdx}.png`;
+
+        const frameSprite = JSON.parse(JSON.stringify(spriteClone));
+        frameSprite.imageKey = matchedKey;
+        if (layer.matteKey) frameSprite.matteKey = layer.matteKey;
+        if (layer.blendMode) frameSprite.blendMode = layer.blendMode;
+        frameSprite.frames = (spriteClone.frames || []).map((fr: any, k: number) => {
+          const cloneFr = { ...fr };
+          if (k !== fIdx) {
+            cloneFr.alpha = 0;
+          }
+          return cloneFr;
+        });
+        newSprites.push(frameSprite);
+      }
+      continue;
+    }
+
+    // 3. User-Modified or Newly Added Layer Processing
     const spriteClone = layer.spriteRef ? JSON.parse(JSON.stringify(layer.spriteRef)) : {};
-    let activeImageKey = layer.imageKey || spriteClone.imageKey;
-
-    const baseAnimTransform = getLayerAnimatedTransform(layer, 0);
-    const hasOriginalHFlip = Boolean(
-      layer.isMirroredLayer ||
-      (layer.originalSpriteFrames?.some((fr: any) => fr?.transform && fr.transform.a !== undefined && fr.transform.a < -0.01)) ||
-      (layer.spriteRef?.frames?.some((fr: any) => fr?.transform && fr.transform.a !== undefined && fr.transform.a < -0.01))
-    );
-    const isFlipH = baseAnimTransform.scaleX < 0 || (hasOriginalHFlip && !(activeImageKey && activeImageKey.includes('_mirrored_')));
-    const isFlipV = baseAnimTransform.scaleY < 0;
-    const isAlreadyFlipped = Boolean(
-      activeImageKey && (activeImageKey.includes('_mirrored_') || activeImageKey.startsWith('flipped_'))
-    );
-
-    if (!isAlreadyFlipped && (isFlipH || isFlipV) && activeImageKey) {
-      if (!exportImages[activeImageKey]) {
-        const raw = project.rawImages && project.rawImages[activeImageKey];
-        if (raw instanceof Uint8Array) {
-          exportImages[activeImageKey] = raw;
-        } else if ((raw as any)?.buffer instanceof ArrayBuffer) {
-          exportImages[activeImageKey] = new Uint8Array((raw as any).buffer);
-        } else {
-          const src = layer.thumbnailUrl || (project.imagesMap && project.imagesMap[activeImageKey]);
-          if (src && src.startsWith('data:')) {
-            try { exportImages[activeImageKey] = base64ToUint8ArrayFast(src); } catch {}
-          }
-        }
-      }
-
-      if (exportImages[activeImageKey]) {
-        const flippedKey = `flipped_${isFlipH ? 'h' : ''}${isFlipV ? 'v' : ''}_${activeImageKey}`;
-        if (!exportImages[flippedKey]) {
-          try {
-            exportImages[flippedKey] = await getFlippedImageBytes(exportImages[activeImageKey], isFlipH, isFlipV);
-          } catch (e) {
-            console.warn('Could not generate flipped image bytes for layer:', layer.name, e);
-          }
-        }
-        if (exportImages[flippedKey]) {
-          activeImageKey = flippedKey;
-        }
-      }
-    }
-
+    const activeImageKey = layer.imageKey || spriteClone.imageKey;
     spriteClone.imageKey = activeImageKey;
+
     if (layer.matteKey) {
       spriteClone.matteKey = layer.matteKey;
     } else {
@@ -761,7 +809,6 @@ export async function exportEditedSvga(
         }
       }));
     } else if (spriteClone.frames.length < project.totalFrames) {
-      // Loop or extend frames to ensure complete playback for repeated layers across full duration
       const origLen = spriteClone.frames.length;
       const expanded: any[] = [];
       for (let f = 0; f < project.totalFrames; f++) {
@@ -776,161 +823,115 @@ export async function exportEditedSvga(
       spriteClone.frames = expanded;
     }
 
-    if (spriteClone.frames && Array.isArray(spriteClone.frames)) {
-      spriteClone.frames = spriteClone.frames.map((frame: any, frameIdx: number) => {
-        if (!frame) return frame;
-        const newFrame = { ...frame };
+    const inFrame = layer.inFrame !== undefined ? layer.inFrame : 0;
+    const outFrame = layer.outFrame !== undefined ? layer.outFrame : (project.totalFrames - 1);
 
-        let totalA = 1, totalB = 0, totalC = 0, totalD = 1, totalTx = 0, totalTy = 0;
-        let globalAlphaMul = 1;
+    spriteClone.frames = spriteClone.frames.map((frame: any, frameIdx: number) => {
+      if (!frame) return frame;
+      const newFrame = { ...frame };
 
-        // Start with the layer's own animated transform
-        const inFrame = layer.inFrame !== undefined ? layer.inFrame : (layer.keyframeSummary?.startFrame ?? 0);
-        const outFrame = layer.outFrame !== undefined ? layer.outFrame : (layer.keyframeSummary?.endFrame ?? (project.totalFrames - 1));
-        if (frameIdx < inFrame || frameIdx > outFrame) {
-          globalAlphaMul = 0;
-        }
+      const animTransform = getLayerAnimatedTransform(layer, frameIdx);
+      const { x, y, scaleX, scaleY, rotation, opacity } = animTransform;
 
-        const animTransform = getLayerAnimatedTransform(layer, frameIdx);
-        const { x, y, scaleX, scaleY, rotation, opacity } = animTransform;
-        
-        const deltaX = x - initialBounds.x;
-        const deltaY = y - initialBounds.y;
-        const rad = (rotation * Math.PI) / 180;
-        const cos = Math.cos(rad);
-        const sin = Math.sin(rad);
-        
-        globalAlphaMul *= Math.max(0, Math.min(1, opacity / 100));
+      let globalAlphaMul = Math.max(0, Math.min(1, opacity / 100));
 
-        const absScaleX = Math.abs(scaleX);
-        const absScaleY = Math.abs(scaleY);
+      const deltaX = x - initialBounds.x;
+      const deltaY = y - initialBounds.y;
+      const rad = (rotation * Math.PI) / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
 
-        let uA = absScaleX * cos;
-        let uB = absScaleX * sin;
-        let uC = -absScaleY * sin;
-        let uD = absScaleY * cos;
-        let uTx = (pivotX + deltaX) - (uA * pivotX + uC * pivotY);
-        let uTy = (pivotY + deltaY) - (uB * pivotX + uD * pivotY);
+      // Exact 2D affine matrix preserving scaleX and scaleY signs (no Math.abs, no bitmap flipping!)
+      const uA = scaleX * cos;
+      const uB = scaleX * sin;
+      const uC = -scaleY * sin;
+      const uD = scaleY * cos;
+      const uTx = (pivotX + deltaX) - (uA * pivotX + uC * pivotY);
+      const uTy = (pivotY + deltaY) - (uB * pivotX + uD * pivotY);
 
-        totalA = uA;
-        totalB = uB;
-        totalC = uC;
-        totalD = uD;
-        totalTx = uTx;
-        totalTy = uTy;
+      let totalA = uA;
+      let totalB = uB;
+      let totalC = uC;
+      let totalD = uD;
+      let totalTx = uTx;
+      let totalTy = uTy;
 
-        // Apply parent transforms from bottom up (closest parent to highest ancestor)
-        // ctx.parents is ordered from root to immediate parent. So we iterate backwards.
-        for (let i = ctx.parents.length - 1; i >= 0; i--) {
-          const pLayer = ctx.parents[i];
-          const pBounds = pLayer.initialBounds || { x: 0, y: 0, width: 100, height: 100 };
-          const pPivotX = pBounds.x + pBounds.width / 2;
-          const pPivotY = pBounds.y + pBounds.height / 2;
+      for (let i = ctx.parents.length - 1; i >= 0; i--) {
+        const pLayer = ctx.parents[i];
+        const pBounds = pLayer.initialBounds || { x: 0, y: 0, width: 100, height: 100 };
+        const pPivotX = pBounds.x + pBounds.width / 2;
+        const pPivotY = pBounds.y + pBounds.height / 2;
 
-          const pAnim = getLayerAnimatedTransform(pLayer, frameIdx);
-          const pDeltaX = pAnim.x - pBounds.x;
-          const pDeltaY = pAnim.y - pBounds.y;
-          const pRad = (pAnim.rotation * Math.PI) / 180;
-          const pCos = Math.cos(pRad);
-          const pSin = Math.sin(pRad);
+        const pAnim = getLayerAnimatedTransform(pLayer, frameIdx);
+        const pDeltaX = pAnim.x - pBounds.x;
+        const pDeltaY = pAnim.y - pBounds.y;
+        const pRad = (pAnim.rotation * Math.PI) / 180;
+        const pCos = Math.cos(pRad);
+        const pSin = Math.sin(pRad);
 
-          globalAlphaMul *= Math.max(0, Math.min(1, pAnim.opacity / 100));
+        globalAlphaMul *= Math.max(0, Math.min(1, pAnim.opacity / 100));
 
-          const pA = pAnim.scaleX * pCos;
-          const pB = pAnim.scaleX * pSin;
-          const pC = -pAnim.scaleY * pSin;
-          const pD = pAnim.scaleY * pCos;
-          const pTx = (pPivotX + pDeltaX) - (pA * pPivotX + pC * pPivotY);
-          const pTy = (pPivotY + pDeltaY) - (pB * pPivotX + pD * pPivotY);
+        const pA = pAnim.scaleX * pCos;
+        const pB = pAnim.scaleX * pSin;
+        const pC = -pAnim.scaleY * pSin;
+        const pD = pAnim.scaleY * pCos;
+        const pTx = (pPivotX + pDeltaX) - (pA * pPivotX + pC * pPivotY);
+        const pTy = (pPivotY + pDeltaY) - (pB * pPivotX + pD * pPivotY);
 
-          // Multiply Parent Matrix * Current Total Matrix
-          const nA = pA * totalA + pC * totalB;
-          const nB = pB * totalA + pD * totalB;
-          const nC = pA * totalC + pC * totalD;
-          const nD = pB * totalC + pD * totalD;
-          const nTx = pA * totalTx + pC * totalTy + pTx;
-          const nTy = pB * totalTx + pD * totalTy + pTy;
+        const nA = pA * totalA + pC * totalB;
+        const nB = pB * totalA + pD * totalB;
+        const nC = pA * totalC + pC * totalD;
+        const nD = pB * totalC + pD * totalD;
+        const nTx = pA * totalTx + pC * totalTy + pTx;
+        const nTy = pB * totalTx + pD * totalTy + pTy;
 
-          totalA = nA;
-          totalB = nB;
-          totalC = nC;
-          totalD = nD;
-          totalTx = nTx;
-          totalTy = nTy;
-        }
-
-        const hasUserTransform = totalA !== 1 || totalB !== 0 || totalC !== 0 || totalD !== 1 || totalTx !== 0 || totalTy !== 0;
-
-        if (newFrame.alpha !== undefined) {
-          newFrame.alpha = parseFloat((newFrame.alpha * globalAlphaMul).toFixed(3));
-        } else if (globalAlphaMul < 1) {
-          newFrame.alpha = globalAlphaMul;
-        }
-
-        if (hasUserTransform) {
-          const currTransform = newFrame.transform || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
-          const fA = currTransform.a !== undefined ? currTransform.a : 1;
-          const fB = currTransform.b !== undefined ? currTransform.b : 0;
-          const fC = currTransform.c !== undefined ? currTransform.c : 0;
-          const fD = currTransform.d !== undefined ? currTransform.d : 1;
-          const fTx = currTransform.tx !== undefined ? currTransform.tx : 0;
-          const fTy = currTransform.ty !== undefined ? currTransform.ty : 0;
-
-          // Combined matrix T_final = T_total_user * T_frame
-          const newA = totalA * fA + totalC * fB;
-          const newB = totalB * fA + totalD * fB;
-          const newC = totalA * fC + totalC * fD;
-          const newD = totalB * fC + totalD * fD;
-          const newTx = totalA * fTx + totalC * fTy + totalTx;
-          const newTy = totalB * fTx + totalD * fTy + totalTy;
-
-          newFrame.transform = {
-            a: parseFloat(newA.toFixed(5)),
-            b: parseFloat(newB.toFixed(5)),
-            c: parseFloat(newC.toFixed(5)),
-            d: parseFloat(newD.toFixed(5)),
-            tx: parseFloat(newTx.toFixed(2)),
-            ty: parseFloat(newTy.toFixed(2))
-          };
-        }
-
-        if (layer.blendMode && !newFrame.blendMode) {
-          newFrame.blendMode = layer.blendMode;
-        }
-
-        return newFrame;
-      });
-    }
-
-    if (layer.isVideoSequence) {
-      const pfx = layer.sequencePrefix || 'frame_';
-      for (let fIdx = 0; fIdx < project.totalFrames; fIdx++) {
-        const candidateKeys = [
-          `${pfx}${fIdx}.png`,
-          `${pfx}${fIdx}.jpg`,
-          `${pfx}${fIdx}.jpeg`,
-          `${pfx}${fIdx}.webp`,
-          `${pfx}${fIdx}`
-        ];
-        const matchedKey = candidateKeys.find(ck => 
-          (project.rawImages && project.rawImages[ck]) || 
-          (project.imagesMap && project.imagesMap[ck]) ||
-          exportImages[ck]
-        ) || `${pfx}${fIdx}.png`;
-
-        const frameSprite = JSON.parse(JSON.stringify(spriteClone));
-        frameSprite.imageKey = matchedKey;
-        frameSprite.frames = spriteClone.frames.map((fr: any, k: number) => {
-          const cloneFr = { ...fr };
-          if (k !== fIdx) {
-            cloneFr.alpha = 0;
-          }
-          return cloneFr;
-        });
-        newSprites.push(frameSprite);
+        totalA = nA; totalB = nB; totalC = nC; totalD = nD; totalTx = nTx; totalTy = nTy;
       }
-    } else if (layer.shineConfig && layer.shineConfig.enabled && (layer.shineConfig.exportMode === 'merge' || layer.shineExportMode === 'merge') && !layer.isShineLayer) {
-      // MODE 1: Merge Shine with Base Layer Frames (Bake into layer frame sequence)
+
+      const hasUserTransform = totalA !== 1 || totalB !== 0 || totalC !== 0 || totalD !== 1 || totalTx !== 0 || totalTy !== 0;
+
+      if (hasUserTransform) {
+        const currTransform = newFrame.transform || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+        const fA = currTransform.a ?? 1;
+        const fB = currTransform.b ?? 0;
+        const fC = currTransform.c ?? 0;
+        const fD = currTransform.d ?? 1;
+        const fTx = currTransform.tx ?? 0;
+        const fTy = currTransform.ty ?? 0;
+
+        const newA = totalA * fA + totalC * fB;
+        const newB = totalB * fA + totalD * fB;
+        const newC = totalA * fC + totalC * fD;
+        const newD = totalB * fC + totalD * fD;
+        const newTx = totalA * fTx + totalC * fTy + totalTx;
+        const newTy = totalB * fTx + totalD * fTy + totalTy;
+
+        newFrame.transform = {
+          a: parseFloat(newA.toFixed(5)),
+          b: parseFloat(newB.toFixed(5)),
+          c: parseFloat(newC.toFixed(5)),
+          d: parseFloat(newD.toFixed(5)),
+          tx: parseFloat(newTx.toFixed(2)),
+          ty: parseFloat(newTy.toFixed(2))
+        };
+      }
+
+      if (frameIdx < inFrame || frameIdx > outFrame) {
+        newFrame.alpha = 0;
+      } else if (newFrame.alpha !== undefined) {
+        newFrame.alpha = parseFloat((newFrame.alpha * globalAlphaMul).toFixed(3));
+      } else if (globalAlphaMul < 1) {
+        newFrame.alpha = globalAlphaMul;
+      }
+
+      if (layer.blendMode && !newFrame.blendMode) {
+        newFrame.blendMode = layer.blendMode;
+      }
+
+      return newFrame;
+    });
+
+    if (layer.shineConfig && layer.shineConfig.enabled && (layer.shineConfig.exportMode === 'merge' || layer.shineExportMode === 'merge') && !layer.isShineLayer) {
       try {
         const bakedSprites = await bakeShineIntoLayerFrames(layer, project, exportImages, spriteClone);
         newSprites.push(...bakedSprites);
@@ -939,13 +940,11 @@ export async function exportEditedSvga(
         newSprites.push(spriteClone);
       }
     } else {
-      // Standard layer export
       if (!layer.isShineLayer) {
         newSprites.push(spriteClone);
       }
     }
 
-    // MODE 2: Separate Shine Layer Sprite (hardware accelerated beam with matteKey or standalone)
     if (layer.shineConfig && layer.shineConfig.enabled) {
       const isSeparate = layer.shineConfig.exportMode === 'separate' || layer.shineExportMode === 'separate' || layer.isShineLayer;
       if (isSeparate) {
@@ -961,30 +960,14 @@ export async function exportEditedSvga(
     }
   }
 
-  // Embed comprehensive project metadata into the SVGA binary so shine and layer configs never disappear
-  try {
-    const metaObj = {
-      version: 2,
-      savedAt: Date.now(),
-      layers: layers.map(l => ({
-        id: l.id,
-        imageKey: l.imageKey,
-        name: l.name,
-        isShineLayer: l.isShineLayer,
-        shineExportMode: l.shineExportMode || l.shineConfig?.exportMode,
-        shineConfig: l.shineConfig,
-        linkedMirroredLayerId: l.linkedMirroredLayerId,
-        isMirroredLayer: l.isMirroredLayer,
-        autoSyncMirroredAsset: l.autoSyncMirroredAsset,
-        autoFlipMirroredAsset: l.autoFlipMirroredAsset
-      })),
-      fadeConfig: transparencyOptions?.fadeConfig,
-      cropConfig: transparencyOptions?.cropConfig,
-      cropFeather: transparencyOptions?.cropFeather
-    };
-    exportImages['__svga_editor_meta__.json'] = new TextEncoder().encode(JSON.stringify(metaObj));
-  } catch (e) {
-    console.warn('Failed to embed editor metadata:', e);
+  // Prune unreferenced images so deleted or replaced layers never inflate the file size
+  const referencedKeys = new Set<string>();
+  for (const s of newSprites) {
+    if (s.imageKey) referencedKeys.add(s.imageKey);
+    if (s.matteKey) referencedKeys.add(s.matteKey);
+  }
+  for (const a of project.audios || []) {
+    if (a.audioKey) referencedKeys.add(a.audioKey);
   }
 
   // Ensure every sprite has its imageKey in exportImages if available
@@ -998,12 +981,22 @@ export async function exportEditedSvga(
                     exportImages[`img_${cleanK}`];
       if (found) {
         exportImages[k] = found;
+        referencedKeys.add(k);
       }
     }
   }
 
+  const cleanedExportImages: Record<string, Uint8Array> = {};
+  for (const [key, bytes] of Object.entries(exportImages)) {
+    // Never include editor internal metadata in standard SVGA 2.0 export unless it's an explicit audio or layer asset
+    if (key === '__svga_editor_meta__.json') continue;
+    if (referencedKeys.has(key)) {
+      cleanedExportImages[key] = bytes;
+    }
+  }
+
   exportMovie.sprites = newSprites;
-  exportMovie.images = exportImages;
+  exportMovie.images = cleanedExportImages;
 
   exportMovie.audios = (project.audios || []).map((a: any) => ({
     audioKey: a.audioKey,
@@ -1020,13 +1013,6 @@ export async function exportEditedSvga(
     frames: project.totalFrames
   };
 
-  console.log('Export Movie Debug:', {
-    version: exportMovie.version,
-    spritesCount: exportMovie.sprites?.length,
-    imagesCount: Object.keys(exportMovie.images || {}).length,
-    params: exportMovie.params
-  });
-
   const errMsg = MovieEntity.verify(exportMovie);
   if (errMsg) {
     console.warn(`Protobuf verification warning: ${errMsg}`);
@@ -1035,16 +1021,10 @@ export async function exportEditedSvga(
   const message = MovieEntity.create(exportMovie);
   const encodedBuffer = MovieEntity.encode(message).finish();
 
-  // Determine zlib compression level (0 - 9)
-  let targetZlibLevel: pako.DeflateFunctionOptions["level"] = 6;
+  // Always use maximum zlib compression level 9 for minimum file size
+  let targetZlibLevel: pako.DeflateFunctionOptions["level"] = 9;
   if (typeof compressionOptions?.zlibLevel === 'number') {
-    targetZlibLevel = Math.max(0, Math.min(9, Math.round(compressionOptions.zlibLevel))) as any;
-  } else if (compressionOptions?.mode === 'low') {
-    targetZlibLevel = 9; // maximum compression
-  } else if (compressionOptions?.mode === 'medium') {
-    targetZlibLevel = 6; // balanced
-  } else if (compressionOptions?.mode === 'high') {
-    targetZlibLevel = 6; // standard lossless
+    targetZlibLevel = Math.max(1, Math.min(9, Math.round(compressionOptions.zlibLevel))) as any;
   }
 
   const deflated = pako.deflate(encodedBuffer, { level: targetZlibLevel });

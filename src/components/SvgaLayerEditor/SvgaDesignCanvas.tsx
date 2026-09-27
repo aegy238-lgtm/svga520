@@ -1263,7 +1263,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     // 3.5 Apply Edge Fade & Advanced Edge Crop to the GIFT LAYERS ONLY on layersCtx!
     // (Notice: The uploaded background image on ctx is untouched, so it remains full, crisp, and fixed!)
     if (fadeConfig && cropConfig && cropFeather) {
-      applyTransparencyEffects(layersCtx, width, height, fadeConfig, cropConfig, cropFeather);
+      applyTransparencyEffects(layersCtx, width, height, fadeConfig, cropConfig, cropFeather, currentFrame, project.totalFrames || 30);
     }
 
     // 3.6 Draw the rendered & faded gift layers directly on top of the pristine background!

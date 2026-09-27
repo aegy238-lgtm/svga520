@@ -259,6 +259,7 @@ export interface CacheFileRecord {
   uploadedAt?: any;
   createdAt?: any;
   userId?: string;
+  userNumericId?: number | string;
   userName?: string;
   userEmail?: string;
   tags?: string[];
@@ -281,6 +282,8 @@ export interface CacheActivityLog {
   userName?: string;
   userEmail?: string;
   fileName?: string;
+  fileId?: string;
+  adminId?: string;
 }
 
 export interface CacheStats {
@@ -288,6 +291,7 @@ export interface CacheStats {
   totalSize: number;
   totalSizeBytes?: number;
   categoriesCount: Record<string, number>;
+  activeCacheUsersCount?: number;
 }
 
 export interface CachePermissions {
@@ -298,13 +302,15 @@ export interface CachePermissions {
   upload?: boolean;
   delete?: boolean;
   download?: boolean;
+  copyLink?: boolean;
 }
 
-export type MegaFileCategory = 'svga' | 'vap' | 'yyeva' | 'lottie' | 'pag' | 'mp4' | 'images' | 'audio' | 'backup' | 'other';
+export type MegaFileCategory = 'svga' | 'vap' | 'yyeva' | 'lottie' | 'pag' | 'mp4' | 'images' | 'image' | 'video' | 'animation' | 'audio' | 'backup' | 'other';
 
 export interface MegaStorageRecord {
   id: string;
   fileId?: string;
+  nodeId?: string;
   name?: string;
   fileName?: string;
   originalName?: string;
@@ -317,6 +323,9 @@ export interface MegaStorageRecord {
   downloadUrl?: string;
   type?: string;
   uploadedAt?: any;
+  uploadedBy?: string;
+  lastDownloadedAt?: any;
+  downloadCount?: number;
   userId?: string;
   userName?: string;
   handle?: string;
@@ -332,12 +341,20 @@ export interface MegaStorageStats {
   usedStorageBytes: number;
   totalStorageBytes: number;
   lastSuccessfulUpload?: any;
+  todayUploads?: number;
+  totalUploads?: number;
+  totalDownloads?: number;
+  failedUploads?: number;
+  duplicatesPrevented?: number;
+  categoryCounts?: Record<string, number>;
+  categorySizes?: Record<string, number>;
 }
 
 export interface MegaSettings {
   email?: string;
   password?: string;
   folderName?: string;
+  folderUrl?: string;
   enabled?: boolean;
   provider?: string;
 }
@@ -346,6 +363,8 @@ export interface MegaConnectionTestResult {
   success: boolean;
   message: string;
   provider?: string;
+  folderUrl?: string;
+  accountEmail?: string;
   quota?: {
     used: number;
     total: number;
@@ -358,6 +377,7 @@ export interface MegaUploadProgress {
   total: number;
   statusText?: string;
   stage?: string;
+  message?: string;
 }
 
 export interface EmployeeUser {
@@ -373,6 +393,8 @@ export interface EmployeeUser {
 export interface GiftItem {
   id: string;
   name: string;
+  title?: string;
+  description?: string;
   category: string;
   price: number;
   imageUrl: string;

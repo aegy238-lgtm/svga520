@@ -2348,8 +2348,10 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     if (!rawSrcBytes && !dataUrlSrc) return;
 
     try {
-      const isMirrored = twin.isMirroredLayer || twin.transform.scaleX < 0 || Boolean(twin.autoFlipMirroredAsset);
-      const shouldFlip = isMirrored && twin.autoFlipMirroredAsset !== false;
+      const hasMatrixFlip = twin.spriteRef?.frames?.some((fr: any) => fr?.transform && fr.transform.a !== undefined && fr.transform.a < -0.01) || twin.transform.scaleX < 0;
+      const isMirrored = twin.isMirroredLayer || Boolean(twin.autoFlipMirroredAsset);
+      // Only flip pixel buffer if layer does NOT have native affine matrix flip
+      const shouldFlip = isMirrored && !hasMatrixFlip && twin.autoFlipMirroredAsset !== false;
 
       let finalBytes = rawSrcBytes;
       let finalDataUrl = dataUrlSrc;
@@ -2363,6 +2365,9 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       let twinKey = twin.imageKey;
       if (shouldFlip && twinKey === layer.imageKey) {
         twinKey = `${layer.imageKey}_mirrored_${Date.now()}`;
+      } else if (!shouldFlip) {
+        // Reuse original asset directly to prevent inflating file size
+        twinKey = layer.imageKey;
       }
 
       setProject(prev => {
@@ -2561,7 +2566,8 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const handleAddImageLayer = useCallback(async (file: File) => {
     if (!project) return;
     try {
-      const { dataUrl, bytes, width, height } = await fileToImageBuffer(file);
+      const maxAllowedDim = Math.max(1200, Math.max(project.width, project.height) * 2);
+      const { dataUrl, bytes, width, height } = await fileToImageBuffer(file, maxAllowedDim);
       const imageKey = `img_custom_${Date.now()}`;
       const layerName = file.name.replace(/\.[^/.]+$/, '') || 'صورة مخصصة';
 

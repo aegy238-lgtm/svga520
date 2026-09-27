@@ -1144,10 +1144,22 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
     setVapConfig(completeConfig);
 
-    setVideoDimensions({ width: targetW, height: targetH });
-    setCustomWidth(targetW);
-    setCustomHeight(targetH);
-    setAspectRatio(targetW / targetH);
+    const isExplicitVap = f.name.toLowerCase().endsWith('.vap') || !!(rawExtracted?.info?.rgbFrame && rawExtracted?.info?.aFrame);
+    if (!isExplicitVap) {
+      setIsRawVideoMode(true);
+      setVapLayoutMode('raw_video');
+      setVideoDimensions({ width: vw, height: vh });
+      setCustomWidth(vw);
+      setCustomHeight(vh);
+      setAspectRatio(vw / vh);
+    } else {
+      setIsRawVideoMode(false);
+      setVapLayoutMode(detected.layout);
+      setVideoDimensions({ width: targetW, height: targetH });
+      setCustomWidth(targetW);
+      setCustomHeight(targetH);
+      setAspectRatio(targetW / targetH);
+    }
     setTargetFps(fps);
     setIsPlaying(true);
 

@@ -63,7 +63,7 @@ export async function loadUniversalProject(
     fileExt === 'vap' || 
     file.type.startsWith('video/')
   ) {
-    onProgress?.('جاري استدعاء الفيديو وتجهيزه للعرض في سكريبت أفتر افكت مع الشفافية...', 25);
+    onProgress?.('جاري استدعاء وتشغيل الفيديو بألوانه الطبيعية الكاملة وبأعلى دقة...', 25);
     const fastRes = await createFastMp4Project(file, {
       quality: 'fast',
       onProgress: (phase, percent) => onProgress?.(phase, percent)
