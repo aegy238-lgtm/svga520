@@ -1656,15 +1656,42 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
               </div>
 
               <div className="pt-2 border-t border-white/10">
-                <button
-                  type="button"
-                  onClick={() => onConvertLayerFormat?.(layer.id, detected.mimeType as SupportedImageFormat, true)}
-                  className="w-full py-1.5 px-2 bg-gradient-to-r from-cyan-600/30 to-indigo-600/30 hover:from-cyan-600/50 hover:to-indigo-600/50 border border-cyan-500/40 text-cyan-200 hover:text-white rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm"
-                  title="تثبيت المقاس الحالي للطبقة وضغط حجم الملف ليطابق الأبعاد الجديدة دون أي تضخم"
-                >
-                  <Scaling size={13} className="text-cyan-300" />
-                  <span>تثبيت المقاس وضغط الحجم ({Math.round(layer.transform.width)}×{Math.round(layer.transform.height)}px)</span>
-                </button>
+                {(() => {
+                  let oldW = layer.originalInitialBounds?.width;
+                  let oldH = layer.originalInitialBounds?.height;
+                  if ((!oldW || !oldH) && layer.originalSpriteFrames?.[0]?.layout) {
+                    oldW = layer.originalSpriteFrames[0].layout.width;
+                    oldH = layer.originalSpriteFrames[0].layout.height;
+                  }
+                  if (!oldW || !oldH) {
+                    const twinOrSource = allLayers?.find(l => 
+                      l.id !== layer.id && (
+                        l.id === layer.sourceLayerId ||
+                        l.id === layer.linkedMirroredLayerId ||
+                        layer.linkedMirroredLayerId === l.id ||
+                        (layer.sequenceGroupId && l.sequenceGroupId === layer.sequenceGroupId)
+                      )
+                    );
+                    if (twinOrSource) {
+                      oldW = twinOrSource.originalInitialBounds?.width || twinOrSource.initialBounds?.width || twinOrSource.transform?.width;
+                      oldH = twinOrSource.originalInitialBounds?.height || twinOrSource.initialBounds?.height || twinOrSource.transform?.height;
+                    }
+                  }
+                  const effectiveOldW = Math.round(Math.abs(oldW || layer.initialBounds?.width || layer.transform.width));
+                  const effectiveOldH = Math.round(Math.abs(oldH || layer.initialBounds?.height || layer.transform.height));
+
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => onConvertLayerFormat?.(layer.id, detected.mimeType as SupportedImageFormat, true)}
+                      className="w-full py-1.5 px-2 bg-gradient-to-r from-cyan-600/30 to-indigo-600/30 hover:from-cyan-600/50 hover:to-indigo-600/50 border border-cyan-500/40 text-cyan-200 hover:text-white rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm hover:scale-[1.01]"
+                      title={`ضبط وتثبيت مقاس وأبعاد الطبقة الحالية لتطابق أبعاد وموضع الطبقة القديمة الأصلية (${effectiveOldW}×${effectiveOldH}px) وضغط حجم الملف`}
+                    >
+                      <Scaling size={13} className="text-cyan-300" />
+                      <span>تثبيت المقاس وضبط الحجم ({effectiveOldW}×{effectiveOldH}px)</span>
+                    </button>
+                  );
+                })()}
               </div>
             </div>
           </div>

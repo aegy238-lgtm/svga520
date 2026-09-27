@@ -135,7 +135,9 @@ export interface SVGAAudioTrack {
   durationSec?: number;
 }
 
-import type { TransparencyTimelineConfig } from './transparencyEngine';
+import type { TransparencyTimelineConfig, TimelineOpacityConfig } from './transparencyEngine';
+export type { TimelineOpacityConfig };
+export { DEFAULT_TIMELINE_OPACITY_CONFIG } from './transparencyEngine';
 
 export interface FadeConfig {
   top: number;

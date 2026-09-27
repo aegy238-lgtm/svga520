@@ -130,6 +130,33 @@ export function isTransparencyActive(fade?: FadeConfig, crop?: CropConfig): bool
   return false;
 }
 
+export interface TimelineOpacityConfig {
+  enabled: boolean;
+  startFrame?: number;
+  endFrame?: number;
+  fadeInFrames?: number;
+  fadeOutFrames?: number;
+  opacity?: number;
+}
+
+export const DEFAULT_TIMELINE_OPACITY_CONFIG: TimelineOpacityConfig = {
+  enabled: false,
+  startFrame: 0,
+  endFrame: 100,
+  fadeInFrames: 0,
+  fadeOutFrames: 0,
+  opacity: 1
+};
+
+export function getTimelineAlphaMultiplier(
+  timeline?: TransparencyTimelineConfig | TimelineOpacityConfig,
+  currentFrame: number = 0,
+  totalFrames: number = 30
+): number {
+  if (!timeline || !timeline.enabled) return 1.0;
+  return getTransparencyTimeFactor(currentFrame, totalFrames, timeline as TransparencyTimelineConfig);
+}
+
 /**
  * Returns dynamic CSS properties for real-time visual edge fade, shape crop, and feather
  * allowing MP4 videos and SVGA canvas elements to reflect transparency changes in 60fps immediately.

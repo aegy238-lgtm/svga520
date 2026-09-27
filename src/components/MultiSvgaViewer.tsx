@@ -2956,6 +2956,42 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     }
   };
 
+  // Global Keyboard Shortcuts: Space (Play/Pause all), Enter or Tab (Export SVGA)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement as HTMLElement | null;
+      const isInput = activeEl && (
+        activeEl.tagName === 'INPUT' ||
+        activeEl.tagName === 'TEXTAREA' ||
+        activeEl.tagName === 'SELECT' ||
+        activeEl.isContentEditable ||
+        Boolean(activeEl.closest('input, textarea, select, [contenteditable="true"]'))
+      );
+      if (isInput) return;
+
+      // 1. Spacebar: Play / Pause all effects
+      if (e.code === 'Space' || e.key === ' ') {
+        e.preventDefault();
+        e.stopPropagation();
+        setGlobalPaused(prev => !prev);
+        return;
+      }
+
+      // 2. Enter or Tab: Export SVGA files
+      if (e.code === 'Enter' || e.key === 'Enter' || e.code === 'Tab' || e.key === 'Tab') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isExporting && !isZipping && items.length > 0) {
+          handleDownloadAllSvga();
+        }
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [items, isExporting, isZipping]);
+
   const handleDownloadAllCombined = async () => {
     const activeItems = getActiveItems();
     if (activeItems.length === 0) return;

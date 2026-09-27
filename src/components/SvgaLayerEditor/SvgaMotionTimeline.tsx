@@ -852,6 +852,7 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
           >
             {isPlaying ? <Pause size={14} /> : <Play size={14} className="fill-white" />}
             <span>{isPlaying ? 'إيقاف' : 'تشغيل'}</span>
+            <kbd className="hidden sm:inline-block text-[9px] bg-black/30 border border-white/20 px-1 py-0.2 rounded font-mono text-white/80">Space</kbd>
           </button>
 
           <button

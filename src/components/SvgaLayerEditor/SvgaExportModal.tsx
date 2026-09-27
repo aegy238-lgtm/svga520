@@ -453,6 +453,37 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
     }
   };
 
+  // Keyboard shortcut: Press Enter to trigger SVGA export immediately, Escape to close
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement as HTMLElement | null;
+      const isInput = activeEl && (
+        activeEl.tagName === 'INPUT' ||
+        activeEl.tagName === 'TEXTAREA' ||
+        activeEl.tagName === 'SELECT' ||
+        activeEl.isContentEditable ||
+        Boolean(activeEl.closest('input, textarea, select, [contenteditable="true"]'))
+      );
+      if (isInput) return;
+
+      if (e.key === 'Enter' || e.code === 'Enter' || e.key === 'Tab' || e.code === 'Tab') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isExporting) {
+          handleExport(selectedFormat || 'SVGA 2.0');
+        }
+      } else if (e.key === 'Escape' || e.code === 'Escape') {
+        if (!isExporting) {
+          onClose();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, isExporting, selectedFormat, handleExport, onClose]);
+
   if (!isOpen) return null;
 
   return (
@@ -764,7 +795,7 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
             className="flex-1 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold rounded-2xl shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 transition-all cursor-pointer hover:scale-[1.01] disabled:opacity-50"
           >
             <Download size={14} />
-            <span>{isExporting ? 'جاري إنشاء الملف...' : `تصدير وتحميل بصيغة ${selectedFormat}`}</span>
+            <span>{isExporting ? 'جاري إنشاء الملف...' : `تصدير وتحميل بصيغة ${selectedFormat} (Enter / Tab ⇥)`}</span>
           </button>
 
           {/* Player Preview Button if SVGA was exported */}

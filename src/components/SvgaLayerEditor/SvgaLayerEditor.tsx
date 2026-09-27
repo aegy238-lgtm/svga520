@@ -2424,8 +2424,41 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     }
 
     try {
-      const targetW = forceResizeToLayer ? Math.round((targetLayer.initialBounds?.width || targetLayer.transform.width) * (targetLayer.transform.scaleX || 1)) : undefined;
-      const targetH = forceResizeToLayer ? Math.round((targetLayer.initialBounds?.height || targetLayer.transform.height) * (targetLayer.transform.scaleY || 1)) : undefined;
+      // Find old / original layer dimensions to match and fit precisely
+      let oldW = targetLayer.originalInitialBounds?.width;
+      let oldH = targetLayer.originalInitialBounds?.height;
+
+      // Check original frame layout if bounds not available
+      if ((!oldW || !oldH) && targetLayer.originalSpriteFrames?.[0]?.layout) {
+        oldW = targetLayer.originalSpriteFrames[0].layout.width;
+        oldH = targetLayer.originalSpriteFrames[0].layout.height;
+      }
+
+      // Check if linked to a source or twin layer (e.g. mirrored twin or sequence partner)
+      if (!oldW || !oldH) {
+        const twinOrSource = layers.find(l => 
+          l.id !== targetLayer.id && (
+            l.id === targetLayer.sourceLayerId ||
+            l.id === targetLayer.linkedMirroredLayerId ||
+            targetLayer.linkedMirroredLayerId === l.id ||
+            (targetLayer.sequenceGroupId && l.sequenceGroupId === targetLayer.sequenceGroupId)
+          )
+        );
+        if (twinOrSource) {
+          oldW = twinOrSource.originalInitialBounds?.width || twinOrSource.initialBounds?.width || twinOrSource.transform?.width;
+          oldH = twinOrSource.originalInitialBounds?.height || twinOrSource.initialBounds?.height || twinOrSource.transform?.height;
+        }
+      }
+
+      // Fall back to initial bounds or current transform
+      if (!oldW || oldW <= 0) oldW = targetLayer.initialBounds?.width || targetLayer.transform.width;
+      if (!oldH || oldH <= 0) oldH = targetLayer.initialBounds?.height || targetLayer.transform.height;
+
+      oldW = Math.round(Math.abs(oldW));
+      oldH = Math.round(Math.abs(oldH));
+
+      const targetW = forceResizeToLayer ? oldW : undefined;
+      const targetH = forceResizeToLayer ? oldH : undefined;
 
       const { dataUrl, bytes, width: newW, height: newH } = await convertImageData(source, targetMime, 0.95, targetW, targetH);
 
@@ -2451,11 +2484,25 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       setLayers(prev => {
         const updated = prev.map(l => {
           if (l.id === layerId) {
+            const isMirrored = l.isMirroredLayer || l.transform.scaleX < 0;
             let updatedSpriteRef = l.spriteRef;
             if (forceResizeToLayer && l.spriteRef && l.spriteRef.frames) {
-              const updatedFrames = l.spriteRef.frames.map((fr: any) => {
+              const updatedFrames = l.spriteRef.frames.map((fr: any, fIdx: number) => {
                 if (!fr) return fr;
+                const origFr = l.originalSpriteFrames?.[fIdx];
                 const t = fr.transform || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+
+                let finalTransform = { ...t };
+                if (origFr && origFr.transform) {
+                  const origA = origFr.transform.a ?? 1;
+                  const origD = origFr.transform.d ?? 1;
+                  finalTransform = {
+                    ...origFr.transform,
+                    a: isMirrored ? -Math.abs(origA) : Math.abs(origA),
+                    d: origD
+                  };
+                }
+
                 return {
                   ...fr,
                   layout: {
@@ -2463,11 +2510,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                     width: newW,
                     height: newH
                   },
-                  transform: {
-                    ...t,
-                    a: 1,
-                    d: 1
-                  }
+                  transform: finalTransform
                 };
               });
               updatedSpriteRef = {
@@ -2476,21 +2519,28 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               };
             }
 
+            const origX = l.originalInitialBounds?.x ?? (l.originalTransform?.x ?? l.transform.x);
+            const origY = l.originalInitialBounds?.y ?? (l.originalTransform?.y ?? l.transform.y);
+
             const updatedMain: EditableLayer = {
               ...l,
               thumbnailUrl: dataUrl,
               spriteRef: updatedSpriteRef,
               initialBounds: forceResizeToLayer ? {
                 ...l.initialBounds,
+                x: origX,
+                y: origY,
                 width: newW,
                 height: newH
               } : l.initialBounds,
               transform: forceResizeToLayer ? {
                 ...l.transform,
+                x: origX,
+                y: origY,
                 width: newW,
                 height: newH,
-                scaleX: 1,
-                scaleY: 1
+                scaleX: isMirrored ? -1 : 1,
+                scaleY: l.transform.scaleY < 0 ? -1 : 1
               } : l.transform
             };
             masterLayersMapRef.current.set(l.id, updatedMain);
@@ -2502,12 +2552,20 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             const isMirrored = l.isMirroredLayer || l.transform.scaleX < 0 || Boolean(l.autoFlipMirroredAsset);
             let updatedTwinSprite = l.spriteRef;
             if (forceResizeToLayer && l.spriteRef && l.spriteRef.frames) {
-              const updatedFrames = l.spriteRef.frames.map((fr: any) => {
+              const updatedFrames = l.spriteRef.frames.map((fr: any, fIdx: number) => {
                 if (!fr) return fr;
+                const origFr = l.originalSpriteFrames?.[fIdx];
                 const t = fr.transform || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
-                // Preserve negative sign if mirrored via matrix
-                const keepSignX = (t.a !== undefined && t.a < -0.01) ? -1 : 1;
-                const keepSignY = (t.d !== undefined && t.d < -0.01) ? -1 : 1;
+                let finalTransform = { ...t };
+                if (origFr && origFr.transform) {
+                  const origA = origFr.transform.a ?? 1;
+                  const origD = origFr.transform.d ?? 1;
+                  finalTransform = {
+                    ...origFr.transform,
+                    a: isMirrored ? -Math.abs(origA) : Math.abs(origA),
+                    d: origD
+                  };
+                }
                 return {
                   ...fr,
                   layout: {
@@ -2515,11 +2573,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                     width: newW,
                     height: newH
                   },
-                  transform: {
-                    ...t,
-                    a: keepSignX,
-                    d: keepSignY
-                  }
+                  transform: finalTransform
                 };
               });
               updatedTwinSprite = {
@@ -2528,17 +2582,24 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               };
             }
 
+            const origX = l.originalInitialBounds?.x ?? (l.originalTransform?.x ?? l.transform.x);
+            const origY = l.originalInitialBounds?.y ?? (l.originalTransform?.y ?? l.transform.y);
+
             const updatedTwin: EditableLayer = {
               ...l,
               thumbnailUrl: dataUrl,
               spriteRef: updatedTwinSprite,
               initialBounds: forceResizeToLayer ? {
                 ...l.initialBounds,
+                x: origX,
+                y: origY,
                 width: newW,
                 height: newH
               } : l.initialBounds,
               transform: forceResizeToLayer ? {
                 ...l.transform,
+                x: origX,
+                y: origY,
                 width: newW,
                 height: newH,
                 scaleX: isMirrored ? -1 : 1,
@@ -2555,7 +2616,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         return updated;
       });
 
-      setSuccessToast(forceResizeToLayer ? `تم تثبيت المقاس (${newW}×${newH}) وضغط الحجم بصيغة ${formatLabel} بنجاح ولن يتضخم حجم الملف! ✨` : `تم تحويل صيغة الصورة بنجاح إلى ${formatLabel} بدقة وجودة فائقة! ✨`);
+      setSuccessToast(forceResizeToLayer ? `تم ضبط وتثبيت مقاس الطبقة بأبعاد الطبقة القديمة الأصلية (${newW}×${newH}) وضغط الحجم بصيغة ${formatLabel} بنجاح! ✨` : `تم تحويل صيغة الصورة بنجاح إلى ${formatLabel} بدقة وجودة فائقة! ✨`);
     } catch (err: any) {
       console.error('Failed to convert layer image format:', err);
       alert(`فشل تحويل صيغة الصورة: ${err.message || 'خطأ غير معروف'}`);
@@ -3123,11 +3184,13 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   }, [history, historyIndex]);
 
   // Perform SVGA Export and Download
-  const handleExport = async () => {
-    if (!project) return;
+  const handleExport = useCallback(async () => {
+    if (!project || isExporting) return;
     setIsExporting(true);
+    setSuccessToast(`جاري تصدير ملف SVGA مباشرة... ⏳`);
     try {
-      const { blob, fileName } = await exportEditedSvga(project, layers, exportFileName, {
+      const targetFileName = exportFileName || (project.fileName ? project.fileName.replace(/\.[^.]+$/, '') + '_edited.svga' : 'animation_edited.svga');
+      const { blob, fileName } = await exportEditedSvga(project, layers, targetFileName, {
         fadeConfig,
         cropConfig,
         cropFeather
@@ -3141,7 +3204,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       a.click();
       URL.revokeObjectURL(url);
       
-      setSuccessToast(`تم تصدير وحفظ ملف SVGA بنجاح: ${fileName}`);
+      setSuccessToast(`تم تصدير وحفظ ملف SVGA بنجاح: ${fileName} ✓`);
       setShowExportModal(false);
     } catch (err: any) {
       console.error("Export error:", err);
@@ -3149,7 +3212,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     } finally {
       setIsExporting(false);
     }
-  };
+  }, [project, isExporting, layers, exportFileName, fadeConfig, cropConfig, cropFeather]);
 
   // Preview Exported File in SVGA Viewer
   const handlePreviewExported = async () => {
@@ -3221,6 +3284,48 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       alert(`فشل إنشاء المشروع: ${err.message || 'خطأ'}`);
     }
   };
+
+  // Keyboard Shortcuts: Space to Play/Pause, Enter to Export directly as SVGA
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement as HTMLElement | null;
+      const isInput = activeEl && (
+        activeEl.tagName === 'INPUT' ||
+        activeEl.tagName === 'TEXTAREA' ||
+        activeEl.tagName === 'SELECT' ||
+        activeEl.isContentEditable ||
+        Boolean(activeEl.closest('input, textarea, select, [contenteditable="true"]'))
+      );
+      if (isInput) return;
+
+      // 1. Spacebar: Play / Pause Project Toggle
+      if (e.code === 'Space' || e.key === ' ') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (project) {
+          setIsPlaying(prev => !prev);
+        }
+        return;
+      }
+
+      // 2. Enter / Tab: Export project immediately as SVGA
+      if (e.code === 'Enter' || e.key === 'Enter' || e.code === 'Tab' || e.key === 'Tab') {
+        // If export modal or another modal is open, don't trigger the direct background export
+        if (showExportModal || showBatchExportModal || showNewProjectModal || showMergeCanvasModal) {
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        if (project && !isExporting) {
+          handleExport();
+        }
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [project, isExporting, showExportModal, showBatchExportModal, showNewProjectModal, showMergeCanvasModal, handleExport]);
 
   const selectedLayer = layers.find(l => l.id === selectedLayerId) || null;
 
@@ -3578,8 +3683,10 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               onClick={() => setShowExportModal(true)}
               disabled={isExporting}
               className="flex items-center gap-1.5 text-xs font-black text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 px-4 py-1.5 rounded-xl shadow-lg shadow-indigo-600/30 transition-all cursor-pointer hover:scale-105"
+              title="تصدير ملف SVGA مباشر (Enter أو Tab)"
             >
               <Download size={13} /> {isExporting ? 'جاري المعالجة...' : 'تصدير SVGA'}
+              <kbd className="hidden sm:inline-block text-[10px] bg-black/30 border border-white/20 px-1 py-0.2 rounded text-white/90 font-mono">Enter / Tab ⇥</kbd>
             </button>
           )}
         </div>
