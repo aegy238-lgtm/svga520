@@ -19,7 +19,8 @@ import {
   Sparkles,
   Layers,
   Sliders,
-  Check
+  Check,
+  Clock
 } from 'lucide-react';
 
 export interface SvgaActionDockProps {
@@ -50,6 +51,9 @@ export interface SvgaActionDockProps {
   onExtractFromPdf: () => void;
   isCollapsed?: boolean;
   onToggleCollapse?: (collapsed: boolean) => void;
+  onVideoDurationSpeedOpen?: () => void;
+  exportDuration?: number;
+  useNativeDuration?: boolean;
 }
 
 export const SvgaActionDock: React.FC<SvgaActionDockProps> = ({
@@ -79,7 +83,10 @@ export const SvgaActionDock: React.FC<SvgaActionDockProps> = ({
   onUploadFolders,
   onExtractFromPdf,
   isCollapsed: controlledCollapsed,
-  onToggleCollapse
+  onToggleCollapse,
+  onVideoDurationSpeedOpen,
+  exportDuration = 10,
+  useNativeDuration = true
 }) => {
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const isCollapsed = controlledCollapsed !== undefined ? controlledCollapsed : internalCollapsed;
@@ -397,6 +404,25 @@ export const SvgaActionDock: React.FC<SvgaActionDockProps> = ({
                 </span>
                 <span className="text-[9px] font-mono font-bold text-slate-500">MP4 / VAP</span>
               </div>
+
+              {/* Video Duration & Speed Button */}
+              {onVideoDurationSpeedOpen && (
+                <button
+                  type="button"
+                  onClick={onVideoDurationSpeedOpen}
+                  disabled={isBusy || itemsCount === 0}
+                  className="w-full px-3 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 hover:text-white rounded-xl border border-amber-500/40 font-black text-xs transition-all flex items-center justify-between disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed hover:scale-[1.01] active:scale-[0.99]"
+                  title="تحديد مدة وقت الفيديو (بالثواني) والتحكم في سرعة التسجيل"
+                >
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-3.5 h-3.5 text-amber-300" />
+                    <span>مدة وقت الفيديو</span>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold text-amber-300 bg-black/40 px-1.5 py-0.5 rounded">
+                    {useNativeDuration ? 'الأساسية' : `${exportDuration}ث`}
+                  </span>
+                </button>
+              )}
 
               {/* VAP to MP4 Fast */}
               <button

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, FolderUp, X, Download, Image as ImageIcon, ShieldCheck, Monitor, Smartphone, Loader2, Camera, Video, Film, FileVideo, Volume2, Music , SquareCheck, Gift, Sparkles, FileText, Lock, Unlock, Key, Square, CheckSquare, Check, SlidersHorizontal, Sliders } from 'lucide-react';
+import { Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, FolderUp, X, Download, Image as ImageIcon, ShieldCheck, Monitor, Smartphone, Loader2, Camera, Video, Film, FileVideo, Volume2, Music , SquareCheck, Gift, Sparkles, FileText, Lock, Unlock, Key, Square, CheckSquare, Check, SlidersHorizontal, Sliders, Clock, Plus, Minus } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { PresetBackground, UserRecord } from '../types';
@@ -30,6 +30,7 @@ import { downloadDesignerInfoFile } from '../utils/designerInfo';
 import { extractSvgaFromPdfFile, PdfUnlockRequest } from '../utils/pdfSvgaExtractor';
 import { generateSvgaAllInOnePdf, SvgaPdfItem } from '../utils/svgaAllInOnePdfGenerator';
 import { SvgaActionDock } from './SvgaActionDock';
+import { VideoDurationSpeedModal } from './VideoDurationSpeedModal';
 
 const decodeDataToBytes = (data: any): Uint8Array | null => {
   if (!data) return null;
@@ -365,6 +366,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const isCanceled = useRef(false);
   const [useNativeDuration, setUseNativeDuration] = useState(true);
   const [exportDuration, setExportDuration] = useState(10);
+  const [showDurationSpeedModal, setShowDurationSpeedModal] = useState(false);
   const [gridCols, setGridCols] = useState(3);
   const [forceMobileSize, setForceMobileSize] = useState(false);
   const initialFilesLoadedRef = useRef(false);
@@ -4031,6 +4033,16 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 استوديو الفيديو:
               </span>
 
+              {/* Video Duration & Speed Button */}
+              <button
+                onClick={() => setShowDurationSpeedModal(true)}
+                className="px-3.5 py-2 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 text-amber-200 border border-amber-500/40 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-md shadow-amber-500/10"
+                title="تحديد مدة وقت الفيديو (بالثواني) والتحكم في سرعة التسجيل لجميع الملفات"
+              >
+                <Clock className="w-4 h-4 text-amber-400" />
+                <span>مدة وقت الفيديو ({useNativeDuration ? 'الأصلية' : `${exportDuration} ثواني`})</span>
+              </button>
+
               {/* Convert VAP to MP4 */}
               <button
                 onClick={handleExportAllVapToMp4}
@@ -4423,40 +4435,135 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 </select>
               </div>
 
-              {/* Checkbox Options */}
-              <div className="flex flex-col gap-1 text-[10px] font-bold text-slate-300">
-                <label className="flex items-center gap-2 cursor-pointer">
+              {/* Dedicated Video Duration Control with Checkbox (علامة الصح للمدة المخصصة أو الأساسية) */}
+              <div className="bg-slate-950/80 border border-amber-500/30 rounded-xl p-3 flex flex-col gap-2.5">
+                {/* Header & Advanced Modal Button */}
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-black text-amber-300 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-amber-400" />
+                    <span>التحكم في وقت ومدة الفيديو:</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowDurationSpeedModal(true)}
+                    className="text-[10px] text-amber-300 hover:text-white font-bold flex items-center gap-1 bg-amber-500/10 hover:bg-amber-500/25 px-2 py-0.5 rounded-lg border border-amber-500/30 transition-all cursor-pointer"
+                    title="فتح استوديو تحديد مدة وسرعة الفيديو المتقدم"
+                  >
+                    <span>التحكم المتقدم</span>
+                  </button>
+                </div>
+
+                {/* Primary Checkbox (علامة الصح المطلوبة) */}
+                <label className="flex items-center gap-2.5 px-2 py-1.5 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 cursor-pointer select-none transition-all group">
                   <input 
                     type="checkbox" 
-                    checked={forceMobileSize}
-                    onChange={(e) => setForceMobileSize(e.target.checked)}
-                    className="w-3.5 h-3.5 accent-indigo-500 rounded"
+                    checked={!useNativeDuration}
+                    onChange={(e) => {
+                      const isCustom = e.target.checked;
+                      setUseNativeDuration(!isCustom);
+                    }}
+                    className="w-4 h-4 accent-amber-500 rounded cursor-pointer transition-transform group-hover:scale-110"
                   />
-                  <span>تصدير لمقاس جوال (9:16)</span>
+                  <div className="flex flex-col">
+                    <span className="text-xs font-black text-amber-200 group-hover:text-white flex items-center gap-1.5">
+                      <span>تحديد وتخصيص مدة وقت الفيديو (بالثواني)</span>
+                    </span>
+                    <span className="text-[9px] text-slate-400">
+                      {!useNativeDuration 
+                        ? 'مفعلة: سيتم تصدير الفيديو بالمدة التي تحددها بالأسفل' 
+                        : 'غير مفعلة: يتم تصدير كل ملف بمدته الأساسية الأصلية تلقائياً'}
+                    </span>
+                  </div>
                 </label>
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-2 cursor-pointer">
+
+                {/* State 1: When Checkbox is UNCHECKED (غير متفعلة) -> Export with Base / Native Duration */}
+                {useNativeDuration ? (
+                  <div className="flex items-center justify-between px-3 py-2 bg-emerald-950/40 border border-emerald-500/30 rounded-xl text-[10px] text-emerald-300 font-bold">
+                    <span className="flex items-center gap-1.5">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>يتم تصدير الفيديو بالمدة الأساسية والأصلية للملف تلقائياً</span>
+                    </span>
+                    <span className="text-[9px] bg-emerald-500/20 text-emerald-200 px-2 py-0.5 rounded-full font-mono font-bold">
+                      المدة الأساسية ✓
+                    </span>
+                  </div>
+                ) : (
+                  /* State 2: When Checkbox is CHECKED (متفعلة) -> User specifies the exact duration */
+                  <div className="flex flex-col gap-2 p-2 bg-amber-950/20 border border-amber-500/30 rounded-xl animate-fade-in">
+                    <div className="flex items-center justify-between text-[10px] font-bold text-amber-300">
+                      <span>حدد مدة الفيديو المطلوبة:</span>
+                      <span className="font-mono bg-amber-500/20 text-amber-200 px-2 py-0.5 rounded-md">
+                        {exportDuration} ثواني
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {/* Quick Choice Buttons */}
+                      {[2, 3, 5, 8, 10, 15].map(sec => (
+                        <button
+                          key={sec}
+                          type="button"
+                          onClick={() => setExportDuration(sec)}
+                          className={`flex-1 min-w-[34px] py-1 px-1.5 rounded-lg text-[10px] font-mono font-black transition-all cursor-pointer border text-center ${
+                            exportDuration === sec 
+                              ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md shadow-amber-500/30 scale-105' 
+                              : 'bg-white/5 text-slate-300 hover:text-white border-white/10 hover:border-amber-500/40'
+                          }`}
+                          title={`تحديد مدة تصدير الفيديو إلى ${sec} ثواني`}
+                        >
+                          {sec}ث
+                        </button>
+                      ))}
+
+                      {/* Stepper with + and - */}
+                      <div className="flex items-center gap-1 bg-slate-900 border border-amber-400/60 ring-1 ring-amber-400/30 px-2 py-1 rounded-lg">
+                        <button
+                          type="button"
+                          onClick={() => setExportDuration(prev => Math.max(1, prev - 1))}
+                          className="text-slate-300 hover:text-white font-black text-xs px-1 cursor-pointer"
+                          title="تقليل ثانية واحدة"
+                        >
+                          <Minus size={11} />
+                        </button>
+                        <input 
+                          type="number" 
+                          min="1" 
+                          max="120"
+                          value={exportDuration}
+                          onChange={(e) => {
+                            const val = Math.max(1, parseInt(e.target.value) || 1);
+                            setExportDuration(val);
+                          }}
+                          className="w-8 bg-transparent text-amber-200 text-center font-mono font-black text-[11px] focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setExportDuration(prev => Math.min(120, prev + 1))}
+                          className="text-slate-300 hover:text-white font-black text-xs px-1 cursor-pointer"
+                          title="زيادة ثانية واحدة"
+                        >
+                          <Plus size={11} />
+                        </button>
+                        <span className="text-[9px] text-slate-400 font-bold">ث</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Footer Sub-Info */}
+                <div className="flex items-center justify-between pt-1 border-t border-white/5 text-[9px]">
+                  <span className="text-amber-200/80 font-bold">
+                    {useNativeDuration ? '✓ المدة الأصلية لكل ملف' : `⏱️ مدة مخصصة: ${exportDuration} ثواني`}
+                  </span>
+                  <label className="flex items-center gap-1 cursor-pointer text-slate-300 hover:text-white">
                     <input 
                       type="checkbox" 
-                      checked={useNativeDuration}
-                      onChange={(e) => setUseNativeDuration(e.target.checked)}
-                      className="w-3.5 h-3.5 accent-indigo-500 rounded"
+                      checked={forceMobileSize}
+                      onChange={(e) => setForceMobileSize(e.target.checked)}
+                      className="w-3 h-3 accent-indigo-500 rounded"
                     />
-                    <span>بالمدة الأصلية</span>
+                    <span>مقاس جوال (9:16)</span>
                   </label>
-                  {!useNativeDuration && (
-                    <div className="flex items-center gap-1">
-                      <input 
-                        type="number" 
-                        min="1" 
-                        max="60"
-                        value={exportDuration}
-                        onChange={(e) => setExportDuration(Math.max(1, parseInt(e.target.value) || 1))}
-                        className="w-10 bg-slate-900 border border-white/20 text-white text-center rounded py-0.5 font-mono text-[10px]"
-                      />
-                      <span className="text-[9px] text-slate-500">ثواني</span>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -4976,8 +5083,24 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           onExtractFromPdf={handleExtractFromPdf}
           isCollapsed={isDockCollapsed}
           onToggleCollapse={setIsDockCollapsed}
+          onVideoDurationSpeedOpen={() => setShowDurationSpeedModal(true)}
+          exportDuration={exportDuration}
+          useNativeDuration={useNativeDuration}
         />
       )}
+
+      {/* Video Duration & Speed Control Modal */}
+      <VideoDurationSpeedModal
+        isOpen={showDurationSpeedModal}
+        onClose={() => setShowDurationSpeedModal(false)}
+        initialFiles={(items as any[]).map(i => i.file).filter(Boolean)}
+        currentDuration={exportDuration}
+        onApplyToConverter={(targetDuration) => {
+          setExportDuration(targetDuration);
+          setUseNativeDuration(false);
+          setShowDurationSpeedModal(false);
+        }}
+      />
     </div>
   );
 };
