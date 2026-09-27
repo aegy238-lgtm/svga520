@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   X, Download, Sparkles, CheckCircle2, AlertCircle, FileCode, 
   Layers, Play, Sliders, Shield, Zap, Film, Image as ImageIcon,
