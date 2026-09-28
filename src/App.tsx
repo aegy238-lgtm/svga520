@@ -111,6 +111,7 @@ import { checkVersionCompatibility, verifyAccountVersionWithServer, getActiveCli
 import { AppUpdateToast } from './components/AppUpdateToast';
 import { GlobalExportWidget } from './components/GlobalExportWidget';
 import { extractSvgaFromPdfFile } from './utils/pdfSvgaExtractor';
+import { ensureSvgaFile, batchDetectAndNormalizeFiles, detectIsSvga } from './utils/svgaUniversalEngine';
 
 declare var SVGA: any;
 
@@ -506,7 +507,10 @@ const App: React.FC = () => {
     }
 
     if (expandedFiles.length === 0) return;
-    const currentFiles = expandedFiles;
+
+    // Universal SVGA Detection: Inspect binary content for SVGA regardless of name or extension (.zip, .dat, no-extension, etc.)
+    const { svgaFiles: detectedSvgaList, otherFiles: nonSvgaList } = await batchDetectAndNormalizeFiles(expandedFiles);
+    const currentFiles = [...detectedSvgaList, ...nonSvgaList];
 
     if (uploadMode === 'universal' && currentFiles.length > 0) {
       setLayerEditorInitialFile(currentFiles[0]);
@@ -515,14 +519,14 @@ const App: React.FC = () => {
     }
 
     if (currentFiles.length > 1) {
-      const svgaFiles = currentFiles.filter(f => (f?.name || '').toLowerCase().endsWith('.svga'));
+      const { svgaFiles } = await batchDetectAndNormalizeFiles(currentFiles);
       const videoFiles = currentFiles.filter(f => {
         const name = (f?.name || '').toLowerCase();
         return name.endsWith('.mp4') || name.endsWith('.vap') || name.endsWith('.webm') || name.endsWith('.mov');
       });
 
       if (svgaFiles.length === currentFiles.length || svgaFiles.length > 1) {
-        setInitialSvgaFiles(currentFiles);
+        setInitialSvgaFiles(svgaFiles);
         handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview');
         return;
       }
@@ -534,18 +538,26 @@ const App: React.FC = () => {
       }
     }
 
-    const file = currentFiles[0];
+    let file = currentFiles[0];
+    const isDetectedAsSvga = Boolean((file as any).__isSvga) || (await detectIsSvga(file)).isSvga;
+    if (isDetectedAsSvga && !file.name.toLowerCase().endsWith('.svga')) {
+      const { file: norm } = await ensureSvgaFile(file);
+      file = norm;
+    }
+
     const fileUrl = URL.createObjectURL(file);
     const fileName = (file?.name || '').toLowerCase();
 
     // Check for Universal Multi-Format files (PAG, Lottie, DotLottie, GIF, WebP, APNG, PNG sequence ZIP, SVG/SMIL)
-    const isMultiFormat = fileName.endsWith('.lottie') || 
+    // Only treat as non-SVGA zip if it is NOT a verified SVGA file
+    const isMultiFormat = !isDetectedAsSvga && (
+                          fileName.endsWith('.lottie') || 
                           fileName.endsWith('.pag') || 
                           fileName.endsWith('.gif') || 
                           fileName.endsWith('.webp') || 
                           fileName.endsWith('.apng') || 
                           fileName.endsWith('.svg') || 
-                          (fileName.endsWith('.zip') && !fileName.endsWith('.svga'));
+                          (fileName.endsWith('.zip') && !fileName.endsWith('.svga')));
 
     if (isMultiFormat) {
       setUniversalPlayerFile(file);
@@ -553,7 +565,7 @@ const App: React.FC = () => {
     }
 
     // Check for Lottie JSON
-    if (fileName.endsWith('.json') || file?.type === 'application/json') {
+    if (!isDetectedAsSvga && (fileName.endsWith('.json') || file?.type === 'application/json')) {
         try {
             const text = await file.text();
             const json = JSON.parse(text);
@@ -584,7 +596,7 @@ const App: React.FC = () => {
       return;
     }
 
-    if (!file || !(file?.name || '').toLowerCase().endsWith('.svga')) {
+    if (!isDetectedAsSvga && !(file?.name || '').toLowerCase().endsWith('.svga')) {
       alert("يرجى رفع ملف بصيغة مدعومة (.svga, .vap, .mp4, .pag, .json)");
       URL.revokeObjectURL(fileUrl);
       return;

@@ -1,6 +1,11 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, FolderUp, X, Download, Image as ImageIcon, ShieldCheck, Monitor, Smartphone, Loader2, Camera, Video, Film, FileVideo, Volume2, Music , SquareCheck, Gift, Sparkles, FileText, Lock, Unlock, Key, Square, CheckSquare, Check, SlidersHorizontal, Sliders, Clock, Plus, Minus } from 'lucide-react';
+import { 
+  Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, FolderUp, X, Download, 
+  Image as ImageIcon, ShieldCheck, Monitor, Smartphone, Loader2, Camera, Video, Film, FileVideo, 
+  Volume2, Music, SquareCheck, Gift, Sparkles, FileText, Lock, Unlock, Key, Square, CheckSquare, 
+  Check, SlidersHorizontal, Sliders, Clock, Plus, Minus, Zap, Archive, FileCode, CheckCircle2, Globe
+} from 'lucide-react';
 import { db } from '../lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { PresetBackground, UserRecord } from '../types';
@@ -14,6 +19,7 @@ import { createStreamingZip } from '../utils/streamZip';
 import { calculateSafeDimensions } from '../utils/dimensions';
 import { getPAG, convertPagToSvga } from '../utils/pagEngine';
 import { normalizeSvgaFile } from "../utils/svgaNormalizer";
+import { isSvgaContent, detectIsSvga, ensureSvgaFile } from '../utils/svgaUniversalEngine';
 import { ensureMp3WithId3, extractAllAudiosFromSvga } from '../utils/svgaAudio';
 import {
   extractAllSvgaAudioTracks,
@@ -25,7 +31,16 @@ import {
 } from '../utils/svgaVideoAudioExporter';
 import Vap from 'video-animation-player';
 import { extractVapConfigFromBlob, convertVapToMp4, WebGLVapRenderer, seekVideoToFrame, VapConfig } from '../utils/vapEngine';
-import { exportAsVap, exportAsYyeva } from './AnimationManager/utils/exportEngine';
+import { 
+  exportAsVap, 
+  exportAsYyeva, 
+  exportAsGif, 
+  exportAsWebp, 
+  exportAsApng, 
+  exportAsPngFramesZip 
+} from './AnimationManager/utils/exportEngine';
+
+export type ViewerExportFormat = 'mp4' | 'webm' | 'vap' | 'yyeva' | 'gif' | 'webp' | 'apng' | 'png_seq' | 'svga';
 import { downloadDesignerInfoFile } from '../utils/designerInfo';
 import { extractSvgaFromPdfFile, PdfUnlockRequest } from '../utils/pdfSvgaExtractor';
 import { generateSvgaAllInOnePdf, SvgaPdfItem } from '../utils/svgaAllInOnePdfGenerator';
@@ -356,7 +371,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const [isDragging, setIsDragging] = useState(false);
   const [previewBg, setPreviewBg] = useState<string | null>(null);
   const [watermark, setWatermark] = useState<string | null>(null);
-  const [exportFormat, setExportFormat] = useState<'mp4' | 'webm' | 'vap' | 'yyeva'>('mp4');
+  const [exportFormat, setExportFormat] = useState<ViewerExportFormat>('mp4');
   const [presetBgs, setPresetBgs] = useState<PresetBackground[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -518,6 +533,17 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     for (const item of fileObjects) {
       if (!item?.file) continue;
       const lowerName = (item.file.name || '').toLowerCase();
+
+      // Check if file is SVGA directly (from internal binary content regardless of name)
+      const isDirectSvga = Boolean((item.file as any).__isSvga) || (await isSvgaContent(item.file));
+      if (isDirectSvga) {
+        const { file: norm } = await ensureSvgaFile(item.file);
+        (norm as any).__isSvga = true;
+        (norm as any).__originalName = item.file.name;
+        expandedList.push({ file: norm, folderName: item.folderName, folderPath: item.folderPath });
+        continue;
+      }
+
       if (lowerName.endsWith('.zip')) {
         try {
           const zip = await JSZip.loadAsync(item.file);
@@ -575,6 +601,25 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                   console.warn("Could not extract nested PDF in zip:", filename, innerPdfErr);
                   setPdfStatusMessage(null);
                 }
+              } else {
+                // Content-based check for files without .svga extension inside ZIP
+                try {
+                  const blob = await entry.async('blob');
+                  const isEntrySvga = await isSvgaContent(blob);
+                  if (isEntrySvga) {
+                    const cleanName = filename.split('/').pop() || filename;
+                    if (!cleanName.startsWith('._') && !cleanName.startsWith('.')) {
+                      const pathParts = filename.split('/').filter(Boolean);
+                      const folderPath = pathParts.length > 1 ? pathParts.slice(0, -1).join('/') : item.folderPath;
+                      const folderName = pathParts.length > 1 ? pathParts[pathParts.length - 2] : (item.folderName || '');
+                      const normName = cleanName.toLowerCase().endsWith('.svga') ? cleanName : `${cleanName}.svga`;
+                      const extractedFile = new File([blob], normName, { type: 'application/octet-stream' });
+                      (extractedFile as any).__isSvga = true;
+                      (extractedFile as any).__originalName = cleanName;
+                      expandedList.push({ file: extractedFile, folderName, folderPath });
+                    }
+                  }
+                } catch {}
               }
             }
           }
@@ -613,12 +658,39 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       }
     }
 
-    const fileArray = expandedList.filter(f => {
-      if (!f?.file?.name) return false;
+    const fileArray: {file: File, folderName?: string, folderPath?: string}[] = [];
+    for (const f of expandedList) {
+      if (!f?.file) continue;
       const name = (f.file.name || '').toLowerCase();
-      if (name.startsWith('._') || name.startsWith('.')) return false;
-      return name.endsWith('.svga') || name.endsWith('.pag') || name.endsWith('.vap') || name.endsWith('.mp4');
-    });
+      if (name.startsWith('._') || name.startsWith('.')) continue;
+
+      if ((f.file as any).__isSvga) {
+        fileArray.push(f);
+        continue;
+      }
+
+      if (name.endsWith('.svga') || name.endsWith('.pag') || name.endsWith('.vap') || name.endsWith('.mp4')) {
+        fileArray.push(f);
+        continue;
+      }
+
+      // Check content for files with other or no extensions
+      try {
+        const isSvga = await isSvgaContent(f.file);
+        if (isSvga) {
+          const { file: normalized } = await ensureSvgaFile(f.file);
+          (normalized as any).__isSvga = true;
+          (normalized as any).__originalName = f.file.name;
+          fileArray.push({
+            file: normalized,
+            folderName: f.folderName,
+            folderPath: f.folderPath
+          });
+        }
+      } catch (err) {
+        console.warn("SVGA content detection error for file:", f.file.name, err);
+      }
+    }
     if (fileArray.length === 0) return;
     
     let loadedCount = 0;
@@ -634,6 +706,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           const lowerName = item.file.name.toLowerCase();
           const isPag = lowerName.endsWith('.pag');
           const isVap = lowerName.endsWith('.vap') || lowerName.endsWith('.mp4');
+          const isSvga = Boolean((item.file as any).__isSvga) || lowerName.endsWith('.svga') || (!isPag && !isVap);
           const itemType: 'svga' | 'pag' | 'vap' = isPag ? 'pag' : (isVap ? 'vap' : 'svga');
           let normalizedFile = item.file;
           if (itemType === 'svga') {
@@ -727,10 +800,10 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
           const resultItem = {
             id: Math.random().toString(36).substr(2, 9),
-            file: item.file,
+            file: normalizedFile,
             url,
-            name: item.file.name,
-            size: item.file.size,
+            name: (item.file as any).__originalName || item.file.name,
+            size: normalizedFile.size || item.file.size,
             type: itemType,
             presetId: 'auto',
             folderName: item.folderName,
@@ -1517,9 +1590,21 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     }
   };
 
-  const handleExportIndividualVideos = async (itemsToExport?: MultiSvgaItem[]) => {
+  const handleExportIndividualVideos = async (itemsToExport?: MultiSvgaItem[], formatOverride?: ViewerExportFormat) => {
     const list = itemsToExport || getActiveItems();
     if (list.length === 0) return;
+
+    const activeFormat: ViewerExportFormat = formatOverride || exportFormat;
+
+    // Direct SVGA export
+    if (activeFormat === 'svga') {
+      if (itemsToExport && itemsToExport.length === 1) {
+        handleDownloadSvga(itemsToExport[0]);
+      } else {
+        handleDownloadAllSvga();
+      }
+      return;
+    }
 
     const nameCounts: Record<string, number> = {};
     const uniqueNames: Record<string, string> = {};
@@ -1715,7 +1800,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           ? Math.max(1, Math.round(exportDuration * targetFps))
           : Math.max(1, Math.round(durationSec * targetFps));
 
-        const isWebM = exportFormat === 'webm';
+        const isWebM = activeFormat === 'webm';
         const div = document.createElement("div");
         div.style.width = finalWidth + "px";
         div.style.height = finalHeight + "px";
@@ -1804,8 +1889,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             }
           }
 
-          // Check if we are exporting as VAP or YYEVA
-          if (exportFormat === 'vap' || exportFormat === 'yyeva') {
+          // Check if we are exporting as VAP, YYEVA, GIF, WebP, APNG, or PNG frames ZIP
+          if (activeFormat === 'vap' || activeFormat === 'yyeva' || activeFormat === 'gif' || activeFormat === 'webp' || activeFormat === 'apng' || activeFormat === 'png_seq') {
             const collectedCanvases: HTMLCanvasElement[] = [];
             for (let frame = 0; frame < totalFrames; frame++) {
               const frameCanvas = document.createElement("canvas");
@@ -1868,7 +1953,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             const exportQualityNum = exportQuality === 'high' ? 100 : (exportQuality === 'medium' ? 80 : 50);
 
             let finalBlob: Blob;
-            if (exportFormat === 'vap') {
+            let fileExt = '.mp4';
+            if (activeFormat === 'vap') {
               finalBlob = await exportAsVap(
                 collectedCanvases,
                 delays,
@@ -1877,14 +1963,15 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 targetFps,
                 '1.0.5',
                 mixedAudioBuffer,
-                (p, msg) => {
+                (p) => {
                   const baseProg = (i / list.length) * 88;
                   const encodeProg = (((0.4 + p * 0.6) / list.length) * 88);
                   setExportProgress(Math.max(1, Math.min(88, Math.round(baseProg + encodeProg))));
                 },
                 exportQualityNum
               );
-            } else {
+              fileExt = '.mp4';
+            } else if (activeFormat === 'yyeva') {
               finalBlob = await exportAsYyeva(
                 collectedCanvases,
                 delays,
@@ -1892,18 +1979,54 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 finalHeight,
                 targetFps,
                 mixedAudioBuffer,
-                (p, msg) => {
+                (p) => {
                   const baseProg = (i / list.length) * 88;
                   const encodeProg = (((0.4 + p * 0.6) / list.length) * 88);
                   setExportProgress(Math.max(1, Math.min(88, Math.round(baseProg + encodeProg))));
                 },
                 exportQualityNum
               );
+              fileExt = '.mp4';
+            } else if (activeFormat === 'gif') {
+              finalBlob = await exportAsGif(
+                collectedCanvases,
+                delays,
+                finalWidth,
+                finalHeight
+              );
+              fileExt = '.gif';
+            } else if (activeFormat === 'webp') {
+              finalBlob = await exportAsWebp(
+                collectedCanvases,
+                delays,
+                finalWidth,
+                finalHeight,
+                exportQualityNum
+              );
+              fileExt = '.webp';
+            } else if (activeFormat === 'apng') {
+              finalBlob = await exportAsApng(
+                collectedCanvases,
+                delays,
+                finalWidth,
+                finalHeight
+              );
+              fileExt = '.png';
+            } else if (activeFormat === 'png_seq') {
+              finalBlob = await exportAsPngFramesZip(
+                collectedCanvases,
+                uniqueNames[item.id] || 'frames',
+                delays
+              );
+              fileExt = '.zip';
+            } else {
+              finalBlob = await exportAsGif(collectedCanvases, delays, finalWidth, finalHeight);
+              fileExt = '.gif';
             }
 
             const cleanName = uniqueNames[item.id];
             const folderPrefix = item.folderPath ? `${item.folderPath}/` : '';
-            const videoFilename = `${folderPrefix}${cleanName}.mp4`;
+            const videoFilename = `${folderPrefix}${cleanName}${fileExt}`;
 
             if (streamZip) {
               const arrayBuffer = await finalBlob.arrayBuffer();
@@ -1912,7 +2035,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               const url = URL.createObjectURL(finalBlob);
               const a = document.createElement("a");
               a.href = url;
-              a.download = `${cleanName}.mp4`;
+              a.download = `${cleanName}${fileExt}`;
               a.click();
               URL.revokeObjectURL(url);
             }
@@ -4402,7 +4525,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               <div className="grid grid-cols-3 gap-1.5">
                 <select 
                   value={exportFormat}
-                  onChange={(e) => setExportFormat(e.target.value as 'mp4' | 'webm' | 'vap' | 'yyeva')}
+                  onChange={(e) => setExportFormat(e.target.value as ViewerExportFormat)}
                   className="bg-slate-900 border border-white/15 rounded-xl text-[10px] font-black text-white px-2 py-1.5 focus:outline-none"
                   title="صيغة التصدير"
                 >
@@ -4721,7 +4844,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               <Upload className="w-10 h-10 text-indigo-400" />
             </div>
             <h3 className="text-xl font-black text-white mb-2">اسحب الملفات أو المجلدات أو ملفات PDF هنا للبدء</h3>
-            <p className="text-slate-400 text-sm font-bold tracking-wide max-w-lg mb-6">يدعم ملفات SVGA, VAP, PAG, ZIP واستدعاء وفك ملفات PDF المقفولة واستخراج الـ SVGA منها</p>
+            <p className="text-slate-400 text-sm font-bold tracking-wide max-w-lg mb-6">يدعم ملفات SVGA بكافة المسميات (التعرف الذكي التلقائي من المحتوى)، و VAP, PAG, ZIP وفك ملفات PDF واستخراج الـ SVGA منها</p>
             
             <div className="flex flex-wrap items-center justify-center gap-3">
               <button

@@ -10,13 +10,15 @@ import { FeatureInfoModal } from './FeatureInfoModal';
 interface BatchExportModalProps {
   selectedItems: AnimationItem[];
   onClose: () => void;
+  initialFormat?: ExportFormat;
 }
 
 export const BatchExportModal: React.FC<BatchExportModalProps> = ({
   selectedItems,
-  onClose
+  onClose,
+  initialFormat = 'original'
 }) => {
-  const [format, setFormat] = useState<ExportFormat>('original');
+  const [format, setFormat] = useState<ExportFormat>(initialFormat);
   const [backgroundColor, setBackgroundColor] = useState('#000000');
   const [compressionLevel, setCompressionLevel] = useState(80);
   const [deduplicate, setDeduplicate] = useState(true);
@@ -118,8 +120,16 @@ export const BatchExportModal: React.FC<BatchExportModalProps> = ({
                 onChange={(e) => setFormat(e.target.value as ExportFormat)}
                 className="w-full bg-[#070b14] border border-white/15 text-white text-xs rounded-xl p-3 focus:outline-none focus:border-cyan-400 font-bold"
               >
+                <option value="svga">صيغة SVGA 2.0 (.svga - رسوم متحركة قياسية)</option>
                 <option value="yyeva">صيغة YYEVA MP4 (.mp4 - فيديو شفاف بالمدة الكاملة)</option>
                 <option value="vap">صيغة Tencent VAP (.vap - فيديو شفاف بالمدة الكاملة)</option>
+                <option value="mp4">صيغة فيديو MP4 (.mp4 - فيديو عالي الجودة)</option>
+                <option value="webm">صيغة WebM (.webm - فيديو شفاف VP9)</option>
+                <option value="gif">صورة متحركة GIF (.gif)</option>
+                <option value="webp">صورة متحركة WebP (.webp - دقة ألوان عالية)</option>
+                <option value="apng">صورة متحركة APNG (.png - شفافية ناعمة)</option>
+                <option value="lottie">ملف Lottie JSON (.json)</option>
+                <option value="png_frames">سلسلة إطارات PNG (.zip)</option>
                 <option value="original">الصيغة الأصلية لكل ملف (Original)</option>
               </select>
             </div>

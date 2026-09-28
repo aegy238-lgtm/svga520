@@ -27,6 +27,16 @@ interface FormatOption {
 
 const FORMAT_OPTIONS: FormatOption[] = [
   {
+    format: 'svga',
+    name: 'صيغة SVGA (SVGA 2.0 Animation)',
+    badge: 'SVGA',
+    ext: '.svga',
+    desc: 'تنسيق الرسوم المتحركة القياسي SVGA 2.0 خفيف الحجم وعالي الأداء لتطبيقات الهدايا مع الحفاظ على الطبقات والحركة.',
+    color: 'text-sky-400',
+    bg: 'bg-sky-500/15',
+    border: 'border-sky-500/30'
+  },
+  {
     format: 'yyeva',
     name: 'صيغة YYEVA (YY Transparent Video)',
     badge: 'YYEVA',
@@ -45,6 +55,76 @@ const FORMAT_OPTIONS: FormatOption[] = [
     color: 'text-violet-400',
     bg: 'bg-violet-500/15',
     border: 'border-violet-500/30'
+  },
+  {
+    format: 'mp4',
+    name: 'فيديو MP4 (Standard Video)',
+    badge: 'MP4',
+    ext: '.mp4',
+    desc: 'تنسيق فيديو MP4 القياسي عالي الوضوح متوافق مع كافة المشغلات والأجهزة والمنصات.',
+    color: 'text-indigo-400',
+    bg: 'bg-indigo-500/15',
+    border: 'border-indigo-500/30'
+  },
+  {
+    format: 'webm',
+    name: 'فيديو WebM (VP9 Transparent)',
+    badge: 'WebM',
+    ext: '.webm',
+    desc: 'فيديو WebM VP9 شفاف حقيقي بدون تقسيم للألفا، مثالي للاستخدام المباشر على صفحات الويب.',
+    color: 'text-emerald-400',
+    bg: 'bg-emerald-500/15',
+    border: 'border-emerald-500/30'
+  },
+  {
+    format: 'gif',
+    name: 'صورة متحركة GIF (Animation)',
+    badge: 'GIF',
+    ext: '.gif',
+    desc: 'صورة متحركة تدعم الشفافية والتكرار المستمر ومناسبة لكافة المتصفحات والمحادثات.',
+    color: 'text-pink-400',
+    bg: 'bg-pink-500/15',
+    border: 'border-pink-500/30'
+  },
+  {
+    format: 'webp',
+    name: 'صورة متحركة WebP (Animated)',
+    badge: 'WebP',
+    ext: '.webp',
+    desc: 'صورة متحركة بدقة ألوان كاملة 24-bit مع قناة ألفا شفافة بحجم ملف مضغوط وصغير جداً.',
+    color: 'text-cyan-400',
+    bg: 'bg-cyan-500/15',
+    border: 'border-cyan-500/30'
+  },
+  {
+    format: 'apng',
+    name: 'صورة متحركة APNG (Animated PNG)',
+    badge: 'APNG',
+    ext: '.png',
+    desc: 'تنسيق PNG متحرك بأعلى جودة بصرية وألوان حقيقية مع شفافية تامة وبدون فقد في التفاصيل.',
+    color: 'text-teal-400',
+    bg: 'bg-teal-500/15',
+    border: 'border-teal-500/30'
+  },
+  {
+    format: 'lottie',
+    name: 'أنيميشن Lottie (JSON Animation)',
+    badge: 'Lottie',
+    ext: '.json',
+    desc: 'ملف رسوم متحركة بصيغة JSON لـ Lottie متوافق مع تطبيقات iOS و Android والويب.',
+    color: 'text-rose-400',
+    bg: 'bg-rose-500/15',
+    border: 'border-rose-500/30'
+  },
+  {
+    format: 'png_frames',
+    name: 'سلسلة إطارات (PNG Frames ZIP)',
+    badge: 'PNG ZIP',
+    ext: '.zip',
+    desc: 'تصدير كافة إطارات الأنيميشن كصور PNG شفافة عالية الدقة داخل أرشيف ZIP منظم.',
+    color: 'text-fuchsia-400',
+    bg: 'bg-fuchsia-500/15',
+    border: 'border-fuchsia-500/30'
   }
 ];
 
@@ -53,7 +133,7 @@ export const UniversalConvertModal: React.FC<UniversalConvertModalProps> = ({
   allItems,
   onClose
 }) => {
-  const [targetFormat, setTargetFormat] = useState<ExportFormat>('vap');
+  const [targetFormat, setTargetFormat] = useState<ExportFormat>('svga');
   const [scope, setScope] = useState<'selected' | 'all'>(selectedItems.length > 0 ? 'selected' : 'all');
   const [backgroundColor, setBackgroundColor] = useState<string>('#000000');
   const [fps, setFps] = useState<number>(30);

@@ -2407,8 +2407,13 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     }
   }, [project, layers, pushHistory]);
 
-  // Convert layer image format and/or bake current size & dimensions
-  const handleConvertLayerFormat = useCallback(async (layerId: string, targetMime: SupportedImageFormat, forceResizeToLayer: boolean = true) => {
+  // Convert layer image format and/or match & bake dimensions to old layer
+  const handleConvertLayerFormat = useCallback(async (
+    layerId: string,
+    targetMime: SupportedImageFormat,
+    forceResizeToLayer: boolean = true,
+    matchOldLayerId?: string
+  ) => {
     if (!project) return;
     const targetLayer = layers.find(l => l.id === layerId);
     if (!targetLayer || !targetLayer.imageKey) return;
@@ -2424,43 +2429,112 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     }
 
     try {
-      // Find old / original layer dimensions to match and fit precisely
-      let oldW = targetLayer.originalInitialBounds?.width;
-      let oldH = targetLayer.originalInitialBounds?.height;
+      // 1. Identify reference "old layer" (الطبقة القديمة) to match its dimensions and position
+      const otherLayers = layers.filter(l => l.id !== targetLayer.id);
+      let oldLayer: EditableLayer | undefined;
 
-      // Check original frame layout if bounds not available
-      if ((!oldW || !oldH) && targetLayer.originalSpriteFrames?.[0]?.layout) {
-        oldW = targetLayer.originalSpriteFrames[0].layout.width;
-        oldH = targetLayer.originalSpriteFrames[0].layout.height;
+      if (matchOldLayerId) {
+        oldLayer = otherLayers.find(l => l.id === matchOldLayerId);
+      }
+      if (!oldLayer && targetLayer.sourceLayerId) {
+        oldLayer = otherLayers.find(l => l.id === targetLayer.sourceLayerId);
+      }
+      if (!oldLayer && targetLayer.linkedMirroredLayerId) {
+        oldLayer = otherLayers.find(l => l.id === targetLayer.linkedMirroredLayerId);
       }
 
-      // Check if linked to a source or twin layer (e.g. mirrored twin or sequence partner)
-      if (!oldW || !oldH) {
-        const twinOrSource = layers.find(l => 
-          l.id !== targetLayer.id && (
-            l.id === targetLayer.sourceLayerId ||
-            l.id === targetLayer.linkedMirroredLayerId ||
-            targetLayer.linkedMirroredLayerId === l.id ||
-            (targetLayer.sequenceGroupId && l.sequenceGroupId === targetLayer.sequenceGroupId)
-          )
+      const isCustomOrAdded = Boolean(
+        targetLayer.imageKey?.startsWith('img_custom') ||
+        targetLayer.id.includes('custom') ||
+        targetLayer.id.includes('add') ||
+        !targetLayer.originalSpriteFrames
+      );
+
+      // If it's a custom/added layer, search other layers for the original SVGA layer
+      if (!oldLayer && isCustomOrAdded) {
+        oldLayer = otherLayers.find(l => 
+          !l.imageKey?.startsWith('img_custom') && 
+          !l.id.includes('custom') &&
+          (l.originalIndex !== undefined || (l.spriteRef?.frames && l.spriteRef.frames.length > 0))
         );
-        if (twinOrSource) {
-          oldW = twinOrSource.originalInitialBounds?.width || twinOrSource.initialBounds?.width || twinOrSource.transform?.width;
-          oldH = twinOrSource.originalInitialBounds?.height || twinOrSource.initialBounds?.height || twinOrSource.transform?.height;
-        }
       }
 
-      // Fall back to initial bounds or current transform
-      if (!oldW || oldW <= 0) oldW = targetLayer.initialBounds?.width || targetLayer.transform.width;
-      if (!oldH || oldH <= 0) oldH = targetLayer.initialBounds?.height || targetLayer.transform.height;
+      // If still not found and other layers exist, pick adjacent layer in the stack
+      if (!oldLayer && otherLayers.length > 0) {
+        const curIdx = layers.findIndex(l => l.id === targetLayer.id);
+        oldLayer = layers[curIdx + 1] || layers[curIdx - 1] || otherLayers[0];
+      }
 
-      oldW = Math.round(Math.abs(oldW));
-      oldH = Math.round(Math.abs(oldH));
+      // 2. Compute exact target dimensions (Width, Height, X, Y)
+      let targetW = 0;
+      let targetH = 0;
+      let targetX = 0;
+      let targetY = 0;
 
-      const targetW = forceResizeToLayer ? oldW : undefined;
-      const targetH = forceResizeToLayer ? oldH : undefined;
+      if (oldLayer) {
+        targetW = Math.max(1, Math.round(Math.abs(
+          oldLayer.transform.width ||
+          oldLayer.initialBounds.width ||
+          oldLayer.originalInitialBounds?.width ||
+          oldLayer.spriteRef?.frames?.[0]?.layout?.width ||
+          100
+        )));
+        targetH = Math.max(1, Math.round(Math.abs(
+          oldLayer.transform.height ||
+          oldLayer.initialBounds.height ||
+          oldLayer.originalInitialBounds?.height ||
+          oldLayer.spriteRef?.frames?.[0]?.layout?.height ||
+          100
+        )));
+        targetX = Math.round(
+          oldLayer.transform.x ??
+          oldLayer.initialBounds.x ??
+          oldLayer.originalInitialBounds?.x ??
+          0
+        );
+        targetY = Math.round(
+          oldLayer.transform.y ??
+          oldLayer.initialBounds.y ??
+          oldLayer.originalInitialBounds?.y ??
+          0
+        );
+      } else {
+        targetW = Math.max(1, Math.round(Math.abs(
+          targetLayer.originalInitialBounds?.width ||
+          targetLayer.originalSpriteFrames?.[0]?.layout?.width ||
+          targetLayer.initialBounds.width ||
+          targetLayer.transform.width ||
+          100
+        )));
+        targetH = Math.max(1, Math.round(Math.abs(
+          targetLayer.originalInitialBounds?.height ||
+          targetLayer.originalSpriteFrames?.[0]?.layout?.height ||
+          targetLayer.initialBounds.height ||
+          targetLayer.transform.height ||
+          100
+        )));
+        targetX = Math.round(
+          targetLayer.originalInitialBounds?.x ??
+          targetLayer.initialBounds.x ??
+          targetLayer.transform.x
+        );
+        targetY = Math.round(
+          targetLayer.originalInitialBounds?.y ??
+          targetLayer.initialBounds.y ??
+          targetLayer.transform.y
+        );
+      }
 
-      const { dataUrl, bytes, width: newW, height: newH } = await convertImageData(source, targetMime, 0.95, targetW, targetH);
+      const finalResizeW = forceResizeToLayer ? targetW : undefined;
+      const finalResizeH = forceResizeToLayer ? targetH : undefined;
+
+      const { dataUrl, bytes, width: newW, height: newH } = await convertImageData(
+        source,
+        targetMime,
+        0.95,
+        finalResizeW,
+        finalResizeH
+      );
 
       const formatLabel = targetMime === 'image/png' ? 'PNG' : targetMime === 'image/webp' ? 'WEBP' : 'JPEG';
 
@@ -2480,18 +2554,42 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         };
       });
 
-      // Update layer thumbnailUrl, sprite frames, initialBounds, and transform for target and twin layers
+      // Update layers
       setLayers(prev => {
         const updated = prev.map(l => {
           if (l.id === layerId) {
             const isMirrored = l.isMirroredLayer || l.transform.scaleX < 0;
             let updatedSpriteRef = l.spriteRef;
+
             if (forceResizeToLayer && l.spriteRef && l.spriteRef.frames) {
               const updatedFrames = l.spriteRef.frames.map((fr: any, fIdx: number) => {
                 if (!fr) return fr;
-                const origFr = l.originalSpriteFrames?.[fIdx];
-                const t = fr.transform || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
 
+                // If matching an animated old layer with frames, copy frame transform and timing
+                if (oldLayer && oldLayer.spriteRef?.frames && oldLayer.spriteRef.frames.length > 0) {
+                  const oldFr = oldLayer.spriteRef.frames[fIdx] || oldLayer.spriteRef.frames[0];
+                  const t = oldFr?.transform || { a: 1, b: 0, c: 0, d: 1, tx: targetX, ty: targetY };
+                  let finalTransform = { ...t };
+                  if (isMirrored) {
+                    finalTransform.a = -Math.abs(finalTransform.a ?? 1);
+                  }
+                  return {
+                    ...oldFr,
+                    layout: {
+                      ...(oldFr?.layout || {}),
+                      x: 0,
+                      y: 0,
+                      width: newW,
+                      height: newH
+                    },
+                    transform: finalTransform,
+                    alpha: oldFr?.alpha !== undefined ? oldFr.alpha : (fr?.alpha ?? 1.0)
+                  };
+                }
+
+                // If adapting with originalSpriteFrames
+                const origFr = l.originalSpriteFrames?.[fIdx];
+                const t = fr.transform || { a: 1, b: 0, c: 0, d: 1, tx: targetX, ty: targetY };
                 let finalTransform = { ...t };
                 if (origFr && origFr.transform) {
                   const origA = origFr.transform.a ?? 1;
@@ -2499,7 +2597,17 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                   finalTransform = {
                     ...origFr.transform,
                     a: isMirrored ? -Math.abs(origA) : Math.abs(origA),
-                    d: origD
+                    d: origD,
+                    tx: targetX,
+                    ty: targetY
+                  };
+                } else {
+                  finalTransform = {
+                    ...finalTransform,
+                    a: isMirrored ? -1 : 1,
+                    d: 1,
+                    tx: targetX,
+                    ty: targetY
                   };
                 }
 
@@ -2507,41 +2615,49 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                   ...fr,
                   layout: {
                     ...(fr.layout || {}),
+                    x: 0,
+                    y: 0,
                     width: newW,
                     height: newH
                   },
                   transform: finalTransform
                 };
               });
+
               updatedSpriteRef = {
                 ...l.spriteRef,
                 frames: updatedFrames
               };
             }
 
-            const origX = l.originalInitialBounds?.x ?? (l.originalTransform?.x ?? l.transform.x);
-            const origY = l.originalInitialBounds?.y ?? (l.originalTransform?.y ?? l.transform.y);
-
             const updatedMain: EditableLayer = {
               ...l,
               thumbnailUrl: dataUrl,
+              sourceLayerId: oldLayer ? oldLayer.id : l.sourceLayerId,
               spriteRef: updatedSpriteRef,
               initialBounds: forceResizeToLayer ? {
                 ...l.initialBounds,
-                x: origX,
-                y: origY,
+                x: targetX,
+                y: targetY,
                 width: newW,
                 height: newH
               } : l.initialBounds,
               transform: forceResizeToLayer ? {
                 ...l.transform,
-                x: origX,
-                y: origY,
+                x: targetX,
+                y: targetY,
                 width: newW,
                 height: newH,
                 scaleX: isMirrored ? -1 : 1,
-                scaleY: l.transform.scaleY < 0 ? -1 : 1
-              } : l.transform
+                scaleY: l.transform.scaleY < 0 ? -1 : 1,
+                rotation: oldLayer ? oldLayer.transform.rotation : l.transform.rotation
+              } : l.transform,
+              originalInitialBounds: forceResizeToLayer ? {
+                x: targetX,
+                y: targetY,
+                width: newW,
+                height: newH
+              } : l.originalInitialBounds
             };
             masterLayersMapRef.current.set(l.id, updatedMain);
             return updatedMain;
@@ -2554,8 +2670,27 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             if (forceResizeToLayer && l.spriteRef && l.spriteRef.frames) {
               const updatedFrames = l.spriteRef.frames.map((fr: any, fIdx: number) => {
                 if (!fr) return fr;
+                if (oldLayer && oldLayer.spriteRef?.frames && oldLayer.spriteRef.frames.length > 0) {
+                  const oldFr = oldLayer.spriteRef.frames[fIdx] || oldLayer.spriteRef.frames[0];
+                  const t = oldFr?.transform || { a: 1, b: 0, c: 0, d: 1, tx: targetX, ty: targetY };
+                  return {
+                    ...oldFr,
+                    layout: {
+                      ...(oldFr?.layout || {}),
+                      x: 0,
+                      y: 0,
+                      width: newW,
+                      height: newH
+                    },
+                    transform: {
+                      ...t,
+                      a: isMirrored ? -Math.abs(t.a ?? 1) : Math.abs(t.a ?? 1)
+                    },
+                    alpha: oldFr?.alpha !== undefined ? oldFr.alpha : (fr?.alpha ?? 1.0)
+                  };
+                }
                 const origFr = l.originalSpriteFrames?.[fIdx];
-                const t = fr.transform || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+                const t = fr.transform || { a: 1, b: 0, c: 0, d: 1, tx: targetX, ty: targetY };
                 let finalTransform = { ...t };
                 if (origFr && origFr.transform) {
                   const origA = origFr.transform.a ?? 1;
@@ -2563,13 +2698,25 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                   finalTransform = {
                     ...origFr.transform,
                     a: isMirrored ? -Math.abs(origA) : Math.abs(origA),
-                    d: origD
+                    d: origD,
+                    tx: targetX,
+                    ty: targetY
+                  };
+                } else {
+                  finalTransform = {
+                    ...finalTransform,
+                    a: isMirrored ? -1 : 1,
+                    d: 1,
+                    tx: targetX,
+                    ty: targetY
                   };
                 }
                 return {
                   ...fr,
                   layout: {
                     ...(fr.layout || {}),
+                    x: 0,
+                    y: 0,
                     width: newW,
                     height: newH
                   },
@@ -2582,24 +2729,21 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               };
             }
 
-            const origX = l.originalInitialBounds?.x ?? (l.originalTransform?.x ?? l.transform.x);
-            const origY = l.originalInitialBounds?.y ?? (l.originalTransform?.y ?? l.transform.y);
-
             const updatedTwin: EditableLayer = {
               ...l,
               thumbnailUrl: dataUrl,
               spriteRef: updatedTwinSprite,
               initialBounds: forceResizeToLayer ? {
                 ...l.initialBounds,
-                x: origX,
-                y: origY,
+                x: targetX,
+                y: targetY,
                 width: newW,
                 height: newH
               } : l.initialBounds,
               transform: forceResizeToLayer ? {
                 ...l.transform,
-                x: origX,
-                y: origY,
+                x: targetX,
+                y: targetY,
                 width: newW,
                 height: newH,
                 scaleX: isMirrored ? -1 : 1,
@@ -2616,10 +2760,11 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         return updated;
       });
 
-      setSuccessToast(forceResizeToLayer ? `تم ضبط وتثبيت مقاس الطبقة بأبعاد الطبقة القديمة الأصلية (${newW}×${newH}) وضغط الحجم بصيغة ${formatLabel} بنجاح! ✨` : `تم تحويل صيغة الصورة بنجاح إلى ${formatLabel} بدقة وجودة فائقة! ✨`);
+      const matchMsg = oldLayer ? ` لتطابق أبعاد وموضع الطبقة القديمة (${oldLayer.name}: ${newW}×${newH}px)` : ` بأبعاد (${newW}×${newH}px)`;
+      setSuccessToast(forceResizeToLayer ? `تم ضبط وتثبيت مقاس الطبقة بنجاح${matchMsg} وتحديث الكانفاس والتصدير بصيغة ${formatLabel}! ✨` : `تم تحويل صيغة الصورة بنجاح إلى ${formatLabel} بدقة وجودة فائقة! ✨`);
     } catch (err: any) {
       console.error('Failed to convert layer image format:', err);
-      alert(`فشل تحويل صيغة الصورة: ${err.message || 'خطأ غير معروف'}`);
+      alert(`فشل ضبط مقاس وتحويل صيغة الصورة: ${err.message || 'خطأ غير معروف'}`);
     }
   }, [project, layers, pushHistory]);
 
@@ -2660,6 +2805,15 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         project.totalFrames
       );
 
+      // Automatically link to previously selected layer or first original SVGA layer as reference old layer
+      const refOldLayer = selectedLayerId 
+        ? layers.find(l => l.id === selectedLayerId)
+        : layers.find(l => !l.imageKey?.startsWith('img_custom'));
+
+      if (refOldLayer) {
+        newLayer.sourceLayerId = refOldLayer.id;
+      }
+
       setLayers(prev => {
         const updated = [newLayer, ...prev];
         pushHistory(updated);
@@ -2672,7 +2826,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       console.error("Failed to add image layer:", err);
       alert(`فشل إضافة الصورة: ${err.message || 'خطأ غير متوقع'}`);
     }
-  }, [project, pushHistory]);
+  }, [project, layers, selectedLayerId, pushHistory]);
 
   // Add New Shape / Text Layer
   const handleAddShapeLayer = useCallback(async (shapeType: 'rect' | 'circle' | 'star' | 'badge' | 'text', customText?: string) => {
