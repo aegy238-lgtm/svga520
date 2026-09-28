@@ -112,6 +112,9 @@ import { AppUpdateToast } from './components/AppUpdateToast';
 import { GlobalExportWidget } from './components/GlobalExportWidget';
 import { extractSvgaFromPdfFile } from './utils/pdfSvgaExtractor';
 import { ensureSvgaFile, batchDetectAndNormalizeFiles, detectIsSvga } from './utils/svgaUniversalEngine';
+import { usePWAFileHandling } from './hooks/usePWAFileHandling';
+import { PWAAndroidActionButtons } from './components/PWAAndroidActionButtons';
+import { PWAFloatingInstallButton } from './components/PWAFloatingInstallButton';
 
 declare var SVGA: any;
 
@@ -630,6 +633,28 @@ const App: React.FC = () => {
     }
   }, [currentUser, settings]);
 
+  // Connect PWA File Handling API & Web Share Target for Android
+  usePWAFileHandling({
+    onFilesReceived: (files) => {
+      if (files && files.length > 0) {
+        handleFileUpload(files);
+      }
+    }
+  });
+
+  // Handle shortcut actions from Android launcher icons
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const action = params.get('action');
+    if (action === 'editor') {
+      handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
+    } else if (action === 'player') {
+      handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview');
+    } else if (action === 'converter') {
+      handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter');
+    }
+  }, []);
+
   const handleReset = useCallback(() => {
     if (fileMetadata?.fileUrl) {
       URL.revokeObjectURL(fileMetadata.fileUrl);
@@ -856,6 +881,7 @@ const App: React.FC = () => {
         }}
         onBatchSvgaConverterOpen={() => handleFeatureAccess(AppState.BATCH_SVGA_CONVERTER, 'Batch SVGA Converter')}
         onBatchImageOpen={() => setShowBatchImage(true)}
+        onOpenFile={(files) => handleFileUpload(files)}
         onLoginClick={() => {}}
         onProfileClick={() => {}}
         currentTab={
@@ -1241,9 +1267,20 @@ const App: React.FC = () => {
             >
               <BookOpen className="w-6 h-6" />
             </button>
+
+            {/* PWA Phone Install Floating Button (Directly above Features Guide / Book icon) */}
+            <PWAFloatingInstallButton />
           </>
         )}
       </div>
+
+      {/* Mobile Android Floating Action Bar (فتح ملف + تثبيت التطبيق) */}
+      {state !== AppState.SVGA_LAYER_EDITOR && (
+        <PWAAndroidActionButtons
+          variant="mobile-bar"
+          onOpenFile={(files) => handleFileUpload(files)}
+        />
+      )}
 
       {showBatchImage && (
         <BatchImageConverter

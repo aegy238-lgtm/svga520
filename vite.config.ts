@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { defineConfig, loadEnv, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { VitePWA } from 'vite-plugin-pwa';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -42,7 +43,25 @@ export default defineConfig(({ mode }) => {
           'Access-Control-Allow-Origin': '*',
         },
       },
-      plugins: [react(), tailwindcss(), versionPlugin()],
+      plugins: [
+        react(), 
+        tailwindcss(), 
+        versionPlugin(),
+        VitePWA({
+          registerType: 'autoUpdate',
+          includeAssets: ['favicon-32x32.png', 'apple-touch-icon.png', 'icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'sw-share-target.js'],
+          manifest: false,
+          workbox: {
+            globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+            importScripts: ['/sw-share-target.js'],
+            navigateFallback: '/index.html'
+          },
+          devOptions: {
+            enabled: true,
+            type: 'module'
+          }
+        })
+      ],
       assetsInclude: ['**/*.svga', '**/*.proto', '**/*.wasm'],
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
@@ -59,8 +78,12 @@ export default defineConfig(({ mode }) => {
       build: {
         outDir: 'dist',
         sourcemap: false,
+        minify: 'esbuild',
+        cssMinify: true,
+        target: 'es2020',
         chunkSizeWarningLimit: 1800,
         rollupOptions: {
+          treeshake: true,
           output: {
             manualChunks(id) {
               if (id.includes('node_modules')) {

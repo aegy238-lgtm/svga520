@@ -13,6 +13,7 @@ import { SUPPORTED_LANGUAGES } from './LanguageTranslatorWidget';
 import { CURRENT_APP_VERSION, BUILD_NUMBER } from '../utils/versionControl';
 import { VersionInfoModal } from './VersionInfoModal';
 import { useStarredTools } from '../utils/starredTools';
+import { PWAAndroidActionButtons } from './PWAAndroidActionButtons';
 import { 
   TOOLS_REGISTRY, 
   TOOL_FEATURE_MAP, 
@@ -65,6 +66,7 @@ export interface HeaderProps {
   onLoginClick: () => void;
   onProfileClick: () => void;
   currentTab: string;
+  onOpenFile?: (files: File[]) => void;
 }
 
 export const Header: React.FC<HeaderProps> = (props) => {
@@ -609,6 +611,9 @@ export const Header: React.FC<HeaderProps> = (props) => {
         {/* Right Side Controls (Search, Pin Toggle, Admin, Profile) */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           
+          {/* PWA Android Install & Open File Buttons */}
+          <PWAAndroidActionButtons onOpenFile={props.onOpenFile} variant="header" />
+
           {/* Mega Tools Grid Trigger Button */}
           <button
             onClick={() => setIsAllToolsOpen(true)}

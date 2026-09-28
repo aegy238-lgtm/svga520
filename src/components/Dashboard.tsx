@@ -6,6 +6,7 @@ import { UserRecord, AppSettings, CustomExternalLink } from '../types';
 import { TOOLS_REGISTRY, CATEGORIES_CONFIG, ToolCategory } from '../config/toolsRegistry';
 import { useStarredTools } from '../utils/starredTools';
 import { useLanguage } from '../contexts/LanguageContext';
+import { PWAAndroidActionButtons } from './PWAAndroidActionButtons';
 
 interface DashboardProps {
   onUpload: (files: File[], mode?: UploadMode) => void;
@@ -97,6 +98,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <p className="text-slate-400 font-medium text-xs sm:text-sm tracking-wide max-w-xl">
                  استوديو احترافي فائق السرعة لمعاينة، تحرير، ضغط، وتحويل ملفات الأنيميشن والفيديو
               </p>
+
+              {/* PWA Android Install & Open File Prominent Buttons */}
+              <div className="pt-2">
+                <PWAAndroidActionButtons 
+                  onOpenFile={(files) => onUpload(files, 'single')} 
+                  variant="hero" 
+                />
+              </div>
             </div>
             
             <div className="relative z-10 px-2 sm:px-8 pb-8 sm:pb-10">
