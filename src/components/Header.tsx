@@ -13,7 +13,6 @@ import { SUPPORTED_LANGUAGES } from './LanguageTranslatorWidget';
 import { CURRENT_APP_VERSION, BUILD_NUMBER } from '../utils/versionControl';
 import { VersionInfoModal } from './VersionInfoModal';
 import { useStarredTools } from '../utils/starredTools';
-import { PWAAndroidActionButtons } from './PWAAndroidActionButtons';
 import { 
   TOOLS_REGISTRY, 
   TOOL_FEATURE_MAP, 
@@ -589,18 +588,18 @@ export const Header: React.FC<HeaderProps> = (props) => {
         {/* Logo */}
         <div className="flex items-center shrink-0">
           <button onClick={props.onLogoClick} className="flex items-center gap-2.5 md:gap-3.5 group shrink-0 text-start cursor-pointer">
-            <div className="w-9 h-9 md:w-11 md:h-11 bg-gradient-to-br from-indigo-500 via-sky-500 to-indigo-700 rounded-xl md:rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/25 group-hover:scale-105 transition-all duration-300 border border-white/20 relative overflow-hidden shrink-0">
-               {props.settings?.logoUrl ? (
-                 <img src={props.settings.logoUrl} alt="Logo" className="w-full h-full object-cover relative z-10" />
-               ) : (
-                 <span className="text-white font-black text-xl md:text-2xl drop-shadow-md relative z-10">S</span>
-               )}
+            <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl flex items-center justify-center shadow-lg shadow-amber-500/15 group-hover:scale-105 transition-all duration-300 relative overflow-hidden shrink-0">
+               <img 
+                 src={props.settings?.logoUrl || "/logo.png"} 
+                 alt="SVGA AHMED Logo" 
+                 className="w-full h-full object-contain relative z-10 drop-shadow-md" 
+               />
             </div>
             <div className="flex flex-col items-start hidden lg:flex shrink-0">
-              <h1 className="text-base md:text-lg font-black text-white tracking-tight whitespace-nowrap group-hover:text-indigo-200 transition-colors">
-                {props.settings?.appName?.trim() ? props.settings.appName : 'SVGA Studio'}
+              <h1 className="text-base md:text-lg font-black text-white tracking-tight whitespace-nowrap group-hover:text-amber-300 transition-colors">
+                {props.settings?.appName?.trim() ? props.settings.appName : 'SVGA AHMED'}
               </h1>
-              <span className="text-[10px] text-sky-400 font-bold tracking-wider uppercase whitespace-nowrap">Professional Media Suite</span>
+              <span className="text-[10px] text-amber-400/90 font-bold tracking-wider uppercase whitespace-nowrap">Professional Studio</span>
             </div>
           </button>
         </div>
@@ -610,9 +609,6 @@ export const Header: React.FC<HeaderProps> = (props) => {
 
         {/* Right Side Controls (Search, Pin Toggle, Admin, Profile) */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-          
-          {/* PWA Android Install & Open File Buttons */}
-          <PWAAndroidActionButtons onOpenFile={props.onOpenFile} variant="header" />
 
           {/* Mega Tools Grid Trigger Button */}
           <button

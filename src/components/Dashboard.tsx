@@ -6,7 +6,6 @@ import { UserRecord, AppSettings, CustomExternalLink } from '../types';
 import { TOOLS_REGISTRY, CATEGORIES_CONFIG, ToolCategory } from '../config/toolsRegistry';
 import { useStarredTools } from '../utils/starredTools';
 import { useLanguage } from '../contexts/LanguageContext';
-import { PWAAndroidActionButtons } from './PWAAndroidActionButtons';
 
 interface DashboardProps {
   onUpload: (files: File[], mode?: UploadMode) => void;
@@ -87,25 +86,27 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <div className="absolute bottom-[-20%] right-[25%] w-[50%] h-[50%] bg-sky-500/10 blur-[130px] rounded-full mix-blend-screen pointer-events-none"></div>
             
             <div className="text-center mt-6 sm:mt-9 mb-7 flex flex-col items-center gap-3 relative z-10 w-full px-4">
+              {/* Official Site Logo Emblem */}
+              <div className="relative flex items-center justify-center group cursor-pointer mb-1">
+                <div className="absolute inset-0 bg-gradient-to-r from-amber-500/20 via-sky-500/20 to-indigo-500/20 rounded-full blur-2xl pointer-events-none scale-125 group-hover:scale-150 transition-transform duration-500" />
+                <img 
+                  src="/logo.png" 
+                  alt="SVGA AHMED Logo" 
+                  className="w-24 h-24 sm:w-28 sm:h-28 object-contain drop-shadow-[0_12px_30px_rgba(234,179,8,0.3)] group-hover:scale-105 group-hover:rotate-1 transition-all duration-300 relative z-10" 
+                />
+              </div>
+
               <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/25 text-indigo-300 text-xs font-bold shadow-sm">
                 <Sparkles className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
                 <span>منظومة متكاملة لمعالجة وتحويل الوسائط الرقمية</span>
               </div>
               
               <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-white tracking-tight">
-                 SVGA MOTION STUDIO
+                 SVGA AHMED STUDIO
               </h1>
               <p className="text-slate-400 font-medium text-xs sm:text-sm tracking-wide max-w-xl">
                  استوديو احترافي فائق السرعة لمعاينة، تحرير، ضغط، وتحويل ملفات الأنيميشن والفيديو
               </p>
-
-              {/* PWA Android Install & Open File Prominent Buttons */}
-              <div className="pt-2">
-                <PWAAndroidActionButtons 
-                  onOpenFile={(files) => onUpload(files, 'single')} 
-                  variant="hero" 
-                />
-              </div>
             </div>
             
             <div className="relative z-10 px-2 sm:px-8 pb-8 sm:pb-10">

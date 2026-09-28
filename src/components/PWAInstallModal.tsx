@@ -179,9 +179,9 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({
 
         {/* Header with App Logo and Badges */}
         <div className="flex items-center gap-4 mb-5">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 via-sky-500 to-indigo-700 p-0.5 shadow-xl shadow-indigo-500/25 shrink-0 flex items-center justify-center">
-            <div className="w-full h-full rounded-2xl bg-[#090e1c] flex items-center justify-center overflow-hidden">
-              <img src="/pwa-192x192.png" alt="App Logo" className="w-12 h-12 object-contain" />
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500/30 via-indigo-500/20 to-sky-500/30 p-0.5 shadow-xl shadow-amber-500/10 shrink-0 flex items-center justify-center">
+            <div className="w-full h-full rounded-2xl bg-[#090e1c] flex items-center justify-center overflow-hidden p-1">
+              <img src="/logo.png" alt="SVGA AHMED Logo" className="w-full h-full object-contain" />
             </div>
           </div>
           <div>

@@ -113,7 +113,6 @@ import { GlobalExportWidget } from './components/GlobalExportWidget';
 import { extractSvgaFromPdfFile } from './utils/pdfSvgaExtractor';
 import { ensureSvgaFile, batchDetectAndNormalizeFiles, detectIsSvga } from './utils/svgaUniversalEngine';
 import { usePWAFileHandling } from './hooks/usePWAFileHandling';
-import { PWAAndroidActionButtons } from './components/PWAAndroidActionButtons';
 import { PWAFloatingInstallButton } from './components/PWAFloatingInstallButton';
 
 declare var SVGA: any;
@@ -1273,14 +1272,6 @@ const App: React.FC = () => {
           </>
         )}
       </div>
-
-      {/* Mobile Android Floating Action Bar (فتح ملف + تثبيت التطبيق) */}
-      {state !== AppState.SVGA_LAYER_EDITOR && (
-        <PWAAndroidActionButtons
-          variant="mobile-bar"
-          onOpenFile={(files) => handleFileUpload(files)}
-        />
-      )}
 
       {showBatchImage && (
         <BatchImageConverter
