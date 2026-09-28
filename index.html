@@ -2,6 +2,24 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <script>
+      window.$RefreshReg$ = window.$RefreshReg$ || function() {};
+      window.$RefreshSig$ = window.$RefreshSig$ || function() { return function(type) { return type; }; };
+      window.__vite_plugin_react_preamble_installed__ = true;
+    </script>
+    <script type="module">
+      try {
+        import('/@react-refresh').then(function(RefreshRuntime) {
+          var runtime = RefreshRuntime.default || RefreshRuntime;
+          if (runtime && runtime.injectIntoGlobalHook) {
+            runtime.injectIntoGlobalHook(window);
+          }
+          window.$RefreshReg$ = () => {};
+          window.$RefreshSig$ = () => (type) => type;
+          window.__vite_plugin_react_preamble_installed__ = true;
+        }).catch(function() {});
+      } catch(e) {}
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="description" content="موقع احترافي مصمم بأحدث تقنيات التصميم ثلاثي الأبعاد (3D)، يقدّم تجربة استخدام فريدة تجمع بين السهولة والجمال البصري.">
@@ -21,15 +39,16 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <script>
-      // Global safeguard against unhandled cross-origin masked "Script error." events
+      // Global safeguard against unhandled cross-origin masked "Script error." events and [vite] HMR in iframe
       window.addEventListener('error', function(e) {
-        if (e && (e.message === 'Script error.' || (!e.filename && !e.lineno))) {
+        if (e && (e.message === 'Script error.' || (!e.filename && !e.lineno) || (typeof e.message === 'string' && (e.message.includes('[vite]') || e.message.includes('WebSocket'))))) {
           if (e.preventDefault) e.preventDefault();
           return true;
         }
       });
       window.addEventListener('unhandledrejection', function(e) {
-        if (e && e.reason && (e.reason.message === 'Script error.' || String(e.reason).indexOf('Script error') !== -1)) {
+        var reasonStr = String(e && e.reason ? (e.reason.message || e.reason) : '');
+        if (reasonStr.includes('Script error') || reasonStr.includes('[vite]') || reasonStr.includes('WebSocket')) {
           if (e.preventDefault) e.preventDefault();
         }
       });

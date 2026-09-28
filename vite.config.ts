@@ -38,6 +38,7 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
+        hmr: false,
         headers: {
           'Cross-Origin-Resource-Policy': 'cross-origin',
           'Access-Control-Allow-Origin': '*',
@@ -51,14 +52,14 @@ export default defineConfig(({ mode }) => {
           registerType: 'autoUpdate',
           includeAssets: ['favicon-32x32.png', 'apple-touch-icon.png', 'icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'sw-share-target.js'],
           manifest: false,
+          injectRegister: null,
           workbox: {
             globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
             importScripts: ['/sw-share-target.js'],
             navigateFallback: '/index.html'
           },
           devOptions: {
-            enabled: true,
-            type: 'module'
+            enabled: false
           }
         })
       ],
