@@ -731,83 +731,50 @@ const App: React.FC = () => {
         }} />
       )}
 
-      <AnimatePresence>
-        {showSplash && (
-          <motion.div 
-            initial={{ opacity: 1 }}
-            exit={{ opacity: 0, transition: { duration: 0.8, ease: "easeInOut" } }}
-            onClick={() => setShowSplash(false)}
-            className="fixed inset-0 z-[2000] bg-[#020617] flex flex-col items-center justify-center cursor-pointer select-none"
-            title="انقر لتخطي الإعلان والدخول فوراً"
-          >
-            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20 mix-blend-overlay"></div>
-            
-            <motion.div
-              initial={{ scale: 0.5, y: 50, rotateX: 30, opacity: 0 }}
-              animate={{ scale: 1, y: 0, rotateX: 0, opacity: 1 }}
-              exit={{ scale: 1.1, opacity: 0, filter: 'blur(10px)' }}
-              transition={{ duration: 1, type: "spring", bounce: 0.5 }}
-              className="relative z-10 flex flex-col items-center"
-            >
-               {settings?.logoUrl ? (
-                 <motion.img 
-                   src={settings.logoUrl} 
-                   alt="Logo" 
-                   initial={{ filter: 'drop-shadow(0 0 0 rgba(99,102,241,0))' }}
-                   animate={{ filter: ['drop-shadow(0 0 20px rgba(99,102,241,0.8))', 'drop-shadow(0 0 40px rgba(168,85,247,0.8))', 'drop-shadow(0 0 20px rgba(99,102,241,0.8))'] }}
-                   transition={{ duration: 2, repeat: Infinity }}
-                   className="w-32 h-32 md:w-48 md:h-48 object-cover rounded-3xl mb-6 shadow-2xl" 
-                 />
-               ) : (
-                 <motion.div 
-                   initial={{ filter: 'drop-shadow(0 0 0 rgba(99,102,241,0))' }}
-                   animate={{ filter: ['drop-shadow(0 0 20px rgba(99,102,241,0.8))', 'drop-shadow(0 0 40px rgba(168,85,247,0.8))', 'drop-shadow(0 0 20px rgba(99,102,241,0.8))'] }}
-                   transition={{ duration: 2, repeat: Infinity }}
-                   className="w-32 h-32 md:w-48 md:h-48 bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-900 rounded-3xl flex items-center justify-center shadow-lg border-2 border-white/20 mb-6"
-                 >
-                   <span className="text-white font-black text-6xl md:text-8xl drop-shadow-lg">S</span>
-                 </motion.div>
-               )}
-               
-               <h1 className="text-4xl md:text-6xl font-black animated-brand-text tracking-tight uppercase">
-                 {settings?.appName?.trim() ? settings.appName : 'SVGA Studio'}
-               </h1>
-               <motion.span 
-                 initial={{ opacity: 0, y: 10 }}
-                 animate={{ opacity: 1, y: 0 }}
-                 transition={{ delay: 0.5, duration: 0.5 }}
-                 className="text-xs md:text-sm text-indigo-400 font-bold tracking-[0.4em] uppercase mt-4"
-               >
-                 Professional Platform
-               </motion.span>
-               
-               {/* 3D Core Loader Ring */}
-               <div className="absolute inset-0 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] border-2 border-dashed border-indigo-500/30 rounded-full animate-[spin_10s_linear_infinite] -z-10"></div>
-               <div className="absolute inset-0 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[140%] h-[140%] border border-purple-500/20 rounded-full animate-[spin_15s_linear_infinite_reverse] -z-10"></div>
+      {showSplash && (
+        <div 
+          onClick={() => setShowSplash(false)}
+          className="fixed inset-0 z-[2000] bg-[#020617] flex flex-col items-center justify-center cursor-pointer select-none animate-in fade-in duration-500"
+          title="انقر لتخطي الإعلان والدخول فوراً"
+        >
+          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20 mix-blend-overlay"></div>
+          
+          <div className="relative z-10 flex flex-col items-center animate-in zoom-in-95 duration-700">
+             {settings?.logoUrl ? (
+               <img 
+                 src={settings.logoUrl} 
+                 alt="Logo" 
+                 className="w-32 h-32 md:w-48 md:h-48 object-cover rounded-3xl mb-6 shadow-2xl drop-shadow-[0_0_30px_rgba(99,102,241,0.6)] animate-pulse" 
+               />
+             ) : (
+               <div className="w-32 h-32 md:w-48 md:h-48 bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-900 rounded-3xl flex items-center justify-center shadow-lg border-2 border-white/20 mb-6 drop-shadow-[0_0_30px_rgba(99,102,241,0.6)]">
+                 <span className="text-white font-black text-6xl md:text-8xl drop-shadow-lg">S</span>
+               </div>
+             )}
+             
+             <h1 className="text-4xl md:text-6xl font-black animated-brand-text tracking-tight uppercase">
+               {settings?.appName?.trim() ? settings.appName : 'SVGA Studio'}
+             </h1>
+             <span className="text-xs md:text-sm text-indigo-400 font-bold tracking-[0.4em] uppercase mt-4">
+               Professional Platform
+             </span>
+             
+             {/* 3D Core Loader Ring */}
+             <div className="absolute inset-0 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] border-2 border-dashed border-indigo-500/30 rounded-full animate-[spin_10s_linear_infinite] -z-10"></div>
+             <div className="absolute inset-0 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[140%] h-[140%] border border-purple-500/20 rounded-full animate-[spin_15s_linear_infinite_reverse] -z-10"></div>
 
-               {/* Dismiss hint & loading bar */}
-               <motion.div 
-                 initial={{ opacity: 0 }}
-                 animate={{ opacity: 0.8 }}
-                 transition={{ delay: 1 }}
-                 className="mt-8 flex flex-col items-center gap-2"
-               >
-                 <div className="w-36 h-1 bg-white/10 rounded-full overflow-hidden">
-                   <motion.div 
-                     initial={{ width: "0%" }}
-                     animate={{ width: "100%" }}
-                     transition={{ duration: 2.8, ease: "linear" }}
-                     className="h-full bg-gradient-to-r from-indigo-500 to-cyan-400 rounded-full"
-                   />
-                 </div>
-                 <span className="text-[10px] text-slate-400 font-mono tracking-wider">
-                   انقر في أي مكان للتخطي
-                 </span>
-               </motion.div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+             {/* Dismiss hint & loading bar */}
+             <div className="mt-8 flex flex-col items-center gap-2">
+               <div className="w-36 h-1 bg-white/10 rounded-full overflow-hidden">
+                 <div className="h-full bg-gradient-to-r from-indigo-500 to-cyan-400 rounded-full w-full animate-pulse" />
+               </div>
+               <span className="text-[10px] text-slate-400 font-mono tracking-wider">
+                 انقر في أي مكان للتخطي
+               </span>
+             </div>
+          </div>
+        </div>
+      )}
       
       {isMaintenanceActive && isAdminUser && (
         <div className="fixed top-0 left-0 right-0 bg-gradient-to-r from-rose-700 via-amber-700 to-rose-700 text-white py-1.5 px-4 text-xs font-bold z-[300] flex items-center justify-between shadow-lg border-b border-rose-500/40">

@@ -854,7 +854,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     }
 
     setSelectedLayerId(newLayers[0].id);
-    setSelectedLayerIds(newLayers.map(l => l.id));
+    setSelectedLayerIds(newLayers[0]?.id ? [newLayers[0].id] : []);
     setSuccessToast(`تمت إضافة ${newLayers.length} طبقات فيديو MP4 إلى المشروع بنجاح`);
   }, [pushHistory]);
 
@@ -1240,21 +1240,11 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       return () => clearTimeout(timer);
     }
   }, [successToast]);
-  // Layer Update Handlers
+  // Layer Update Handlers - Updates the specific layer individually without propagating to other layers
   const handleUpdateLayerTransform = useCallback((layerId: string, deltaTransform: Partial<EditableLayer['transform']>) => {
     setLayers(prev => {
       const target = prev.find(l => l.id === layerId);
       if (!target) return prev;
-
-      const isSequence = Boolean(target.sequenceGroupId || (target.keyframeSummary?.isSequenceOrRepeated && target.imageKey));
-      const targetSeqGroupId = target.sequenceGroupId;
-      const targetImageKey = target.imageKey;
-
-      const dx = deltaTransform.x !== undefined ? deltaTransform.x - target.transform.x : 0;
-      const dy = deltaTransform.y !== undefined ? deltaTransform.y - target.transform.y : 0;
-      const dScaleX = deltaTransform.scaleX !== undefined ? deltaTransform.scaleX - target.transform.scaleX : 0;
-      const dScaleY = deltaTransform.scaleY !== undefined ? deltaTransform.scaleY - target.transform.scaleY : 0;
-      const dRot = deltaTransform.rotation !== undefined ? deltaTransform.rotation - target.transform.rotation : 0;
 
       return prev.map(l => {
         if (l.id === layerId) {
@@ -1263,24 +1253,6 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             transform: {
               ...l.transform,
               ...deltaTransform
-            }
-          };
-        }
-        // If part of sequence/repeated group, propagate delta so sequential images move together like SVGA 2.0
-        if (isSequence && (
-          (targetSeqGroupId && l.sequenceGroupId === targetSeqGroupId) ||
-          (targetImageKey && l.imageKey === targetImageKey && l.keyframeSummary?.isSequenceOrRepeated)
-        )) {
-          return {
-            ...l,
-            transform: {
-              ...l.transform,
-              x: l.transform.x + dx,
-              y: l.transform.y + dy,
-              scaleX: Math.max(0.01, l.transform.scaleX + dScaleX),
-              scaleY: Math.max(0.01, l.transform.scaleY + dScaleY),
-              rotation: l.transform.rotation + dRot,
-              opacity: deltaTransform.opacity !== undefined ? deltaTransform.opacity : l.transform.opacity
             }
           };
         }
@@ -4012,6 +3984,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                     onUpdateShineConfig={handleUpdateLayerShineConfig}
                     shinePointStep={shinePointStep}
                     onShinePointStepChange={setShinePointStep}
+                    onDragEnd={() => pushHistory(layers)}
                   />
 
                   {/* Floating Timeline Toggle on Mobile */}

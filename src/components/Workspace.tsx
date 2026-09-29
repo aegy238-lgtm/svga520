@@ -1,6 +1,5 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
 import { FileMetadata, MaterialAsset, AppSettings, UserRecord, PresetBackground } from '../types';
 import { Layers, Download, Copy, Trash2, Lock, ListOrdered, Upload, CheckCircle2, Image as ImageIcon, Music, Scissors, Film } from 'lucide-react';
 import { logActivity } from '../utils/logger';
@@ -8363,7 +8362,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                         </div>
 
                         {showRangeSelect && (
-                            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-3">
+                            <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
                                 <div className="grid grid-cols-2 gap-3">
                                     <div className="space-y-1">
                                         <label className="text-[8px] text-slate-500 font-black uppercase">من اسم (مثلاً img_1)</label>
@@ -8390,7 +8389,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                                     <button onClick={handleSelectRange} className="flex-1 py-2 bg-sky-500 text-white rounded-lg text-[10px] font-black uppercase shadow-glow-sky">تطبيق التحديد</button>
                                     <button onClick={() => setShowRangeSelect(false)} className="px-4 py-2 bg-white/5 text-slate-400 rounded-lg text-[10px] font-black uppercase">إلغاء</button>
                                 </div>
-                            </motion.div>
+                            </div>
                         )}
                     </div>
                     
@@ -10264,15 +10263,13 @@ class _MyAppState extends State<MyApp> {
         </div>
       )}
       
-      <AnimatePresence>
-        {lottiePreviewData && (
-          <LottieViewer 
-            animationData={lottiePreviewData} 
-            onClose={() => setLottiePreviewData(null)} 
-            fileName={`${metadata.name.replace('.svga', '')}.json`}
-          />
-        )}
-      </AnimatePresence>
+      {lottiePreviewData && (
+        <LottieViewer 
+          animationData={lottiePreviewData} 
+          onClose={() => setLottiePreviewData(null)} 
+          fileName={`${metadata.name.replace('.svga', '')}.json`}
+        />
+      )}
 
       {/* SVGA Audio Editor Studio Modal */}
       {showAudioStudioModal && (
@@ -10288,22 +10285,17 @@ class _MyAppState extends State<MyApp> {
       )}
 
       {/* Audio Studio Success Toast Notification */}
-      <AnimatePresence>
-        {audioStudioToast && (
-          <motion.div
-            initial={{ opacity: 0, y: 50, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.9 }}
-            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[9999] bg-slate-900/95 border border-emerald-500/40 text-white px-6 py-3.5 rounded-2xl shadow-2xl backdrop-blur-xl flex items-center gap-3 text-sm font-bold pointer-events-none"
-            dir="rtl"
-          >
-            <div className="w-7 h-7 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
-              <CheckCircle2 className="w-4 h-4" />
-            </div>
-            <span>{audioStudioToast}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {audioStudioToast && (
+        <div
+          className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[9999] bg-slate-900/95 border border-emerald-500/40 text-white px-6 py-3.5 rounded-2xl shadow-2xl backdrop-blur-xl flex items-center gap-3 text-sm font-bold pointer-events-none animate-in fade-in slide-in-from-bottom-4 duration-300"
+          dir="rtl"
+        >
+          <div className="w-7 h-7 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+            <CheckCircle2 className="w-4 h-4" />
+          </div>
+          <span>{audioStudioToast}</span>
+        </div>
+      )}
 
       {/* Adobe After Effects Export Modal */}
       {isAeExportModalOpen && (

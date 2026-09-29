@@ -40,6 +40,7 @@ interface SvgaDesignCanvasProps {
   bgImageUrl?: string | null;
   shinePointStep?: 'idle' | 'place-start' | 'place-end';
   onShinePointStepChange?: (step: 'idle' | 'place-start' | 'place-end') => void;
+  onDragEnd?: () => void;
 }
 
 type DragHandleType = 'move' | 'nw' | 'ne' | 'se' | 'sw' | 'n' | 's' | 'e' | 'w' | 'rot' | 'pan' | 'shine-start' | 'shine-end' | 'shine-mid';
@@ -463,7 +464,8 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
   cropFeather,
   bgImageUrl,
   shinePointStep: externalShinePointStep,
-  onShinePointStepChange
+  onShinePointStepChange,
+  onDragEnd
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -515,6 +517,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [initialTransform, setInitialTransform] = useState<EditableLayer['transform'] | null>(null);
   const [initialTransformsMap, setInitialTransformsMap] = useState<Record<string, EditableLayer['transform']>>({});
+  const activeDragLayerIdRef = useRef<string | null>(null);
   const [activeGuides, setActiveGuides] = useState<GuideLine[]>([]);
   const [cacheVersion, setCacheVersion] = useState<number>(0);
 
@@ -1420,6 +1423,8 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
   // Hit test to find layer under cursor (search foreground to background: layers[0] to layers[last])
   // Locked layers are completely skipped so they cannot be clicked/selected on canvas
   const hitTestLayer = useCallback((cx: number, cy: number): string | null => {
+    const candidates: Array<{ id: string; area: number; index: number }> = [];
+
     for (let i = 0; i < layers.length; i++) {
       const layer = layers[i];
       if (!layer.visible || layer.locked || layer.isMatteMask) continue;
@@ -1467,7 +1472,6 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       const localPointX = invA * cx + invC * cy + invTx;
       const localPointY = invB * cx + invD * cy + invTy;
 
-      // Generous hit tolerance for small layers so clicking near them easily grabs them
       const hitMargin = (localW < 40 || localH < 40) ? 14 : 8;
 
       if (
@@ -1476,11 +1480,39 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         localPointY >= localY - hitMargin &&
         localPointY <= localY + localH + hitMargin
       ) {
-        return layer.id;
+        const area = Math.abs(localW * localH);
+        candidates.push({ id: layer.id, area, index: i });
       }
     }
-    return null;
-  }, [layers, currentFrame, computeLayerMatrix, getLayerFrameState]);
+
+    if (candidates.length === 0) return null;
+
+    // Prioritize smaller/focused elements over massive full-canvas layers
+    candidates.sort((a, b) => {
+      const canvasArea = (project.width || 500) * (project.height || 500);
+      const aIsFull = a.area >= canvasArea * 0.7;
+      const bIsFull = b.area >= canvasArea * 0.7;
+      if (aIsFull !== bIsFull) {
+        return aIsFull ? 1 : -1;
+      }
+      
+      // If one candidate is significantly smaller, prioritize the smaller element (e.g. icon over background panel)
+      const areaRatio = a.area / Math.max(1, b.area);
+      if (areaRatio > 2.0) return 1;
+      if (areaRatio < 0.5) return -1;
+
+      // If currently selected layer is one of the candidates of similar size, keep it
+      if (selectedLayer) {
+        if (a.id === selectedLayer.id) return -1;
+        if (b.id === selectedLayer.id) return 1;
+      }
+
+      // Otherwise top-most in z-stack (smaller index in layers array) wins
+      return a.index - b.index;
+    });
+
+    return candidates[0].id;
+  }, [layers, currentFrame, computeLayerMatrix, getLayerFrameState, selectedLayer, project.width, project.height]);
 
   // Determine handle under mouse for selected layer
   const getHandleUnderMouse = useCallback((cx: number, cy: number): DragHandleType | null => {
@@ -1573,12 +1605,8 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     if (Math.hypot(cx - p2.x, cy - p2.y) <= cornerHitDist) return 'se';
     if (Math.hypot(cx - p3.x, cy - p3.y) <= cornerHitDist) return 'sw';
 
-    // 4. Check inside polygon (or generous perimeter) for move
-    const clickedLayerId = hitTestLayer(cx, cy);
-    if (clickedLayerId === selectedLayer.id) return 'move';
-
     return null;
-  }, [selectedLayer, currentFrame, computeLayerMatrix, hitTestLayer]);
+  }, [selectedLayer, currentFrame, computeLayerMatrix, getLayerFrameState]);
 
   // Dynamic Hover Cursor
   const [canvasCursor, setCanvasCursor] = useState<string>('default');
@@ -1646,48 +1674,27 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       setDragHandle(handle);
       setDragStart(coords);
 
-      // Snapshot all selected layers transforms for simultaneous collective delta manipulation
-      const initialMap: Record<string, EditableLayer['transform']> = {};
-      layers.forEach(l => {
-        if (activeSelectedIds.includes(l.id)) {
-          initialMap[l.id] = { ...l.transform };
-        }
-      });
-      setInitialTransformsMap(initialMap);
-
       if (selectedLayer) {
+        activeDragLayerIdRef.current = selectedLayer.id;
         setInitialTransform({ ...selectedLayer.transform });
+        setInitialTransformsMap({ [selectedLayer.id]: { ...selectedLayer.transform } });
       }
     } else {
       const clickedId = hitTestLayer(coords.x, coords.y);
       if (clickedId) {
-        if (isModifierKey) {
-          onSelectLayer(clickedId, true);
-        } else {
-          // If clicking an unselected layer without Ctrl/Shift, select it
-          // If clicking one of the already selected multiple layers, keep selection to drag together
-          if (!activeSelectedIds.includes(clickedId)) {
-            onSelectLayer(clickedId, false);
-          }
-        }
-
-        const effectiveIds = activeSelectedIds.includes(clickedId) ? activeSelectedIds : [clickedId];
-        const initialMap: Record<string, EditableLayer['transform']> = {};
-        layers.forEach(l => {
-          if (effectiveIds.includes(l.id)) {
-            initialMap[l.id] = { ...l.transform };
-          }
-        });
-        setInitialTransformsMap(initialMap);
+        onSelectLayer(clickedId, false);
 
         const targetLayer = layers.find(l => l.id === clickedId);
         if (targetLayer) {
+          activeDragLayerIdRef.current = targetLayer.id;
           setIsInteracting(true);
           setDragHandle('move');
           setDragStart(coords);
           setInitialTransform({ ...targetLayer.transform });
+          setInitialTransformsMap({ [clickedId]: { ...targetLayer.transform } });
         }
       } else {
+        activeDragLayerIdRef.current = null;
         if (!isModifierKey) {
           onSelectLayer(null, false);
         }
@@ -1819,59 +1826,42 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       return;
     }
 
-    if (!selectedLayer || !initialTransform) return;
+    const currentDragId = activeDragLayerIdRef.current || selectedLayer?.id;
+    const targetDragLayer = layers.find(l => l.id === currentDragId) || selectedLayer;
+    if (!targetDragLayer || !initialTransform) return;
 
     const deltaX = coords.x - dragStart.x;
     const deltaY = coords.y - dragStart.y;
 
-    const isBulk = activeSelectedIds.length > 1 && onBulkUpdateTransforms;
-
     if (dragHandle === 'move') {
-      if (isBulk) {
-        // Bulk move all selected layers simultaneously
-        const updates = activeSelectedIds.map(id => {
-          const orig = initialTransformsMap[id] || layers.find(l => l.id === id)?.transform;
-          if (!orig) return null;
-          return {
-            id,
-            transform: {
-              x: Math.round(orig.x + deltaX),
-              y: Math.round(orig.y + deltaY)
-            }
-          };
-        }).filter(Boolean) as Array<{ id: string; transform: Partial<EditableLayer['transform']> }>;
+      let newX = Math.round(initialTransform.x + deltaX);
+      let newY = Math.round(initialTransform.y + deltaY);
 
-        onBulkUpdateTransforms(updates);
-      } else {
-        let newX = Math.round(initialTransform.x + deltaX);
-        let newY = Math.round(initialTransform.y + deltaY);
+      // Smart Snapping to Canvas Center / Borders
+      const guides: GuideLine[] = [];
+      const cx = newX + targetDragLayer.initialBounds.width / 2;
+      const cy = newY + targetDragLayer.initialBounds.height / 2;
+      const snapThreshold = 6;
 
-        // Smart Snapping to Canvas Center / Borders
-        const guides: GuideLine[] = [];
-        const cx = newX + selectedLayer.initialBounds.width / 2;
-        const cy = newY + selectedLayer.initialBounds.height / 2;
-        const snapThreshold = 6;
-
-        // Horizontal Center snap
-        if (Math.abs(cx - project.width / 2) <= snapThreshold) {
-          newX = Math.round(project.width / 2 - selectedLayer.initialBounds.width / 2);
-          guides.push({ type: 'vertical', position: project.width / 2 });
-        }
-        // Vertical Center snap
-        if (Math.abs(cy - project.height / 2) <= snapThreshold) {
-          newY = Math.round(project.height / 2 - selectedLayer.initialBounds.height / 2);
-          guides.push({ type: 'horizontal', position: project.height / 2 });
-        }
-
-        setActiveGuides(guides);
-        onUpdateLayerTransform(selectedLayer.id, { x: newX, y: newY });
+      // Horizontal Center snap
+      if (Math.abs(cx - project.width / 2) <= snapThreshold) {
+        newX = Math.round(project.width / 2 - targetDragLayer.initialBounds.width / 2);
+        guides.push({ type: 'vertical', position: project.width / 2 });
       }
+      // Vertical Center snap
+      if (Math.abs(cy - project.height / 2) <= snapThreshold) {
+        newY = Math.round(project.height / 2 - targetDragLayer.initialBounds.height / 2);
+        guides.push({ type: 'horizontal', position: project.height / 2 });
+      }
+
+      setActiveGuides(guides);
+      onUpdateLayerTransform(targetDragLayer.id, { x: newX, y: newY });
     } else if (dragHandle === 'rot') {
       // Rotation Handle Dragging
-      const pivotX = selectedLayer.initialBounds.x + selectedLayer.initialBounds.width / 2;
-      const pivotY = selectedLayer.initialBounds.y + selectedLayer.initialBounds.height / 2;
-      const centerCanvasX = pivotX + (initialTransform.x - selectedLayer.initialBounds.x);
-      const centerCanvasY = pivotY + (initialTransform.y - selectedLayer.initialBounds.y);
+      const pivotX = targetDragLayer.initialBounds.x + targetDragLayer.initialBounds.width / 2;
+      const pivotY = targetDragLayer.initialBounds.y + targetDragLayer.initialBounds.height / 2;
+      const centerCanvasX = pivotX + (initialTransform.x - targetDragLayer.initialBounds.x);
+      const centerCanvasY = pivotY + (initialTransform.y - targetDragLayer.initialBounds.y);
 
       const angleRad = Math.atan2(coords.y - centerCanvasY, coords.x - centerCanvasX);
       let angleDeg = Math.round((angleRad * 180) / Math.PI) + 90;
@@ -1883,27 +1873,11 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         angleDeg = Math.round(angleDeg / 45) * 45;
       }
 
-      if (isBulk) {
-        const rotDelta = angleDeg - initialTransform.rotation;
-        const updates = activeSelectedIds.map(id => {
-          const orig = initialTransformsMap[id] || layers.find(l => l.id === id)?.transform;
-          if (!orig) return null;
-          return {
-            id,
-            transform: {
-              rotation: Math.round((orig.rotation + rotDelta) % 360)
-            }
-          };
-        }).filter(Boolean) as Array<{ id: string; transform: Partial<EditableLayer['transform']> }>;
-
-        onBulkUpdateTransforms(updates);
-      } else {
-        onUpdateLayerTransform(selectedLayer.id, { rotation: angleDeg });
-      }
+      onUpdateLayerTransform(targetDragLayer.id, { rotation: angleDeg });
     } else if (['nw', 'ne', 'se', 'sw', 'n', 's', 'e', 'w'].includes(dragHandle || '')) {
       // Scaling Resize Handles
-      const initW = Math.max(10, selectedLayer.initialBounds.width);
-      const initH = Math.max(10, selectedLayer.initialBounds.height);
+      const initW = Math.max(10, targetDragLayer.initialBounds.width);
+      const initH = Math.max(10, targetDragLayer.initialBounds.height);
       const origW = initW * initialTransform.scaleX;
       const origH = initH * initialTransform.scaleY;
 
@@ -1952,7 +1926,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         if (dragHandle?.includes('s')) factorY = 1 + (localDeltaY * 2) / (initH * initialTransform.scaleY);
         if (dragHandle?.includes('n')) factorY = 1 - (localDeltaY * 2) / (initH * initialTransform.scaleY);
 
-        if (selectedLayer.aspectRatioLocked || e.shiftKey) {
+        if (targetDragLayer.aspectRatioLocked || e.shiftKey) {
           const factor = Math.max(factorX, factorY);
           factorX = factor;
           factorY = factor;
@@ -1973,46 +1947,23 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       const newX = Math.round(initialTransform.x + worldShiftX);
       const newY = Math.round(initialTransform.y + worldShiftY);
 
-      if (isBulk) {
-        const multX = newScaleX / initialTransform.scaleX;
-        const multY = newScaleY / initialTransform.scaleY;
-        const updates = activeSelectedIds.map(id => {
-          const orig = initialTransformsMap[id] || layers.find(l => l.id === id)?.transform;
-          const targetL = layers.find(l => l.id === id);
-          if (!orig || !targetL) return null;
-          const targetInitW = Math.max(10, targetL.initialBounds.width);
-          const targetInitH = Math.max(10, targetL.initialBounds.height);
-          const sX = Math.max(0.05, Math.min(10, orig.scaleX * multX));
-          const sY = Math.max(0.05, Math.min(10, orig.scaleY * multY));
-          return {
-            id,
-            transform: {
-              x: Math.round(orig.x + worldShiftX),
-              y: Math.round(orig.y + worldShiftY),
-              scaleX: parseFloat(sX.toFixed(3)),
-              scaleY: parseFloat(sY.toFixed(3)),
-              width: Math.round(targetInitW * sX),
-              height: Math.round(targetInitH * sY)
-            }
-          };
-        }).filter(Boolean) as Array<{ id: string; transform: Partial<EditableLayer['transform']> }>;
-
-        onBulkUpdateTransforms(updates);
-      } else {
-        onUpdateLayerTransform(selectedLayer.id, {
-          x: newX,
-          y: newY,
-          scaleX: parseFloat(newScaleX.toFixed(3)),
-          scaleY: parseFloat(newScaleY.toFixed(3)),
-          width: Math.round(newW),
-          height: Math.round(newH)
-        });
-      }
+      onUpdateLayerTransform(targetDragLayer.id, {
+        x: newX,
+        y: newY,
+        scaleX: parseFloat(newScaleX.toFixed(3)),
+        scaleY: parseFloat(newScaleY.toFixed(3)),
+        width: Math.round(newW),
+        height: Math.round(newH)
+      });
     }
   };
 
   // Mouse Up Handler
   const handleMouseUp = () => {
+    if (isInteracting && dragHandle && dragHandle !== 'pan') {
+      onDragEnd?.();
+    }
+    activeDragLayerIdRef.current = null;
     setIsInteracting(false);
     setDragHandle(null);
     setInitialTransform(null);

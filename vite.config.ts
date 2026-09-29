@@ -74,7 +74,20 @@ export default defineConfig(({ mode }) => {
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),
-        }
+          'react': path.resolve(__dirname, 'node_modules/react'),
+          'react-dom': path.resolve(__dirname, 'node_modules/react-dom'),
+        },
+        dedupe: ['react', 'react-dom']
+      },
+      optimizeDeps: {
+        include: [
+          'react',
+          'react-dom',
+          'react-dom/client',
+          'react/jsx-runtime',
+          'react/jsx-dev-runtime',
+          'lucide-react'
+        ]
       },
       build: {
         outDir: 'dist',
@@ -103,7 +116,7 @@ export default defineConfig(({ mode }) => {
                 if (id.includes('lucide-react')) {
                   return 'vendor-icons';
                 }
-                if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
+                if (id.includes('/node_modules/react/') || id.includes('/node_modules/react-dom/') || id.includes('/node_modules/react-router/')) {
                   return 'vendor-react';
                 }
                 if (id.includes('pako') || id.includes('jszip') || id.includes('fflate')) {

@@ -1319,22 +1319,22 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
                 <RotateCcw size={15} className="text-teal-300" />
               </div>
               <div>
-                <span className="text-xs font-black text-white block">مزامنة حركة التسلسل (SVGA 2.0)</span>
+                <span className="text-xs font-black text-white block">حركة مستقلة للطبقة</span>
                 <span className="text-[10px] text-teal-300 font-mono">
                   {layer.sequenceIndex && layer.sequenceTotal 
                     ? `إطار تسلسلي ${layer.sequenceIndex} من ${layer.sequenceTotal}` 
-                    : 'طبقات متسلسلة / صور متكررة'}
+                    : 'طبقة تسلسلية / صورة متكررة'}
                 </span>
               </div>
             </div>
             <span className="text-[9px] font-bold text-teal-300 bg-teal-500/20 border border-teal-500/35 px-2 py-0.5 rounded-full">
-              SVGA 2.0 Motion
+              تحريك مستقل
             </span>
           </div>
 
           <div className="text-[11px] text-teal-200/90 leading-relaxed bg-black/40 border border-teal-500/20 rounded-xl p-2.5 space-y-2">
             <p className="text-[10px] text-slate-300">
-              هذه الطبقة تنتمي إلى تسلسل صور متحركة. عند تحريكها أو تغيير موضعها يتم تحريك كامل التسلسل بنفس المسار، ويمكنك أخذ نفس مسار الحركة ومزامنته بضغطة واحدة:
+              تتحرك هذه الطبقة بشكل مستقل تماماً دون التأثير على باقي الطبقات. إذا أردت نسخ مسار حركتها ومزامنته مع بقية طبقات التسلسل، اضغط الزر أدناه:
             </p>
 
             {onSyncSequenceMotion && (
