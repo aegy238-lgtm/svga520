@@ -1,11 +1,12 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, Star, Crown, ExternalLink, ShoppingBag, Layers, Globe, Sparkles } from 'lucide-react';
+import { ArrowLeft, Star, Crown, ExternalLink, ShoppingBag, Layers, Globe, Sparkles, Calendar, Clock, AlertTriangle, AlertCircle, ShieldCheck, User } from 'lucide-react';
 import { Uploader, UploadMode } from './Uploader';
 import { UserRecord, AppSettings, CustomExternalLink } from '../types';
 import { TOOLS_REGISTRY, CATEGORIES_CONFIG, ToolCategory } from '../config/toolsRegistry';
 import { useStarredTools } from '../utils/starredTools';
 import { useLanguage } from '../contexts/LanguageContext';
+import { calculateSubscriptionInfo } from '../utils/subscriptionUtils';
 
 interface DashboardProps {
   onUpload: (files: File[], mode?: UploadMode) => void;
@@ -14,6 +15,7 @@ interface DashboardProps {
   currentUser?: UserRecord | null;
   settings?: AppSettings | null;
   onOpenVipModal?: () => void;
+  onOpenProfile?: () => void;
   onOpenEmbeddedPortal?: (tabId: 'first' | 'second' | string) => void;
 }
 
@@ -24,10 +26,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
   currentUser,
   settings,
   onOpenVipModal,
+  onOpenProfile,
   onOpenEmbeddedPortal
 }) => {
   const { isStarred, toggleStar } = useStarredTools();
   const { language, dir } = useLanguage();
+
+  const subInfo = useMemo(() => {
+    return currentUser ? calculateSubscriptionInfo(currentUser) : null;
+  }, [currentUser]);
 
   const isFeatureAllowed = (featureAccessKey: string) => {
     if (!currentUser) return true;

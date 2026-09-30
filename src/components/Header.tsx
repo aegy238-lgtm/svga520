@@ -6,8 +6,10 @@ import {
   BadgeCheck, Maximize, Lock, Scissors, Menu, X as CloseIcon, 
   Zap, Sparkles, Info, Search, ChevronDown, ChevronUp, Check, LayoutGrid, 
   Command, Wand, Cpu, Repeat, RefreshCw, User, GitBranch, Pin, PinOff,
-  BookOpen, Eye, EyeOff, ChevronLeft, ChevronRight, Grid, Star, Globe, Crown
+  BookOpen, Eye, EyeOff, ChevronLeft, ChevronRight, Grid, Star, Globe, Crown,
+  AlertTriangle, AlertCircle
 } from 'lucide-react';
+import { calculateSubscriptionInfo } from '../utils/subscriptionUtils';
 import { useLanguage } from '../contexts/LanguageContext';
 import { SUPPORTED_LANGUAGES } from './LanguageTranslatorWidget';
 import { CURRENT_APP_VERSION, BUILD_NUMBER } from '../utils/versionControl';
@@ -151,6 +153,11 @@ export const Header: React.FC<HeaderProps> = (props) => {
   const isHeaderVisible = isPinned || isHovered || isSearchOpen || isMobileMenuOpen || isVersionModalOpen || isAllToolsOpen;
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Live subscription info calculation for current user
+  const headerSubInfo = useMemo(() => {
+    return props.currentUser ? calculateSubscriptionInfo(props.currentUser) : null;
+  }, [props.currentUser]);
 
   // Feature Access Control check
   const isFeatureAllowed = (toolId: string) => {
@@ -737,6 +744,59 @@ export const Header: React.FC<HeaderProps> = (props) => {
               <Crown className="w-4 h-4 text-amber-400 animate-pulse" />
               <span>VIP 👑</span>
             </div>
+          )}
+
+          {/* Expiring Soon Alert Badge in Header */}
+          {headerSubInfo?.isExpiringSoon && (
+            <button
+              onClick={props.onProfileClick}
+              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-black animate-pulse cursor-pointer shadow-sm shadow-amber-500/10 shrink-0 hover:bg-amber-500/30 transition-all"
+              title={`تنبيه: اقترب انتهاء الاشتراك (${headerSubInfo.formattedRemaining}) - انقر للتجديد`}
+            >
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden md:inline">{headerSubInfo.formattedRemaining}</span>
+            </button>
+          )}
+
+          {/* Expired Warning Badge in Header */}
+          {headerSubInfo?.isExpired && (
+            <button
+              onClick={props.onProfileClick}
+              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-black cursor-pointer shadow-sm shadow-rose-500/10 shrink-0 hover:bg-rose-500/30 transition-all"
+              title="الاشتراك منتهي - انقر للتجديد"
+            >
+              <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+              <span className="hidden md:inline">الاشتراك منتهي</span>
+            </button>
+          )}
+
+          {/* User Account / Profile Button with Live Subscription Status */}
+          {props.currentUser && (
+            <button
+              onClick={props.onProfileClick}
+              className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] hover:border-indigo-500/40 transition-all cursor-pointer group shrink-0"
+              title="الملف الشخصي وتفاصيل الاشتراك وتاريخ الانتهاء"
+            >
+              <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs font-black text-white shadow-sm">
+                {(props.currentUser.name || props.currentUser.email || 'U')[0].toUpperCase()}
+              </div>
+              <div className="hidden xl:flex flex-col text-right">
+                <span className="text-xs font-bold text-slate-200 group-hover:text-white max-w-[85px] truncate leading-tight">
+                  {props.currentUser.name || 'حسابي'}
+                </span>
+                <span className={`text-[10px] font-black ${
+                  headerSubInfo?.isExpired 
+                    ? 'text-rose-400' 
+                    : headerSubInfo?.isExpiringSoon 
+                    ? 'text-amber-400' 
+                    : headerSubInfo?.isActive 
+                    ? 'text-emerald-400' 
+                    : 'text-slate-400'
+                }`}>
+                  {headerSubInfo?.statusLabelAr || 'عضو'}
+                </span>
+              </div>
+            </button>
           )}
 
           <div className="w-px h-7 bg-white/[0.08] hidden sm:block mx-0.5"></div>

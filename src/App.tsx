@@ -151,6 +151,7 @@ const App: React.FC = () => {
   const [initialSvgaFiles, setInitialSvgaFiles] = useState<File[]>([]);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const [showDurationSpeedModal, setShowDurationSpeedModal] = useState(false);
   const [showVipModal, setShowVipModal] = useState(false);
   const [vipFeatureName, setVipFeatureName] = useState<string>('تحرير طبقات SVGA');
@@ -849,7 +850,7 @@ const App: React.FC = () => {
         onBatchImageOpen={() => setShowBatchImage(true)}
         onOpenFile={(files) => handleFileUpload(files)}
         onLoginClick={() => {}}
-        onProfileClick={() => {}}
+        onProfileClick={() => setShowProfileModal(true)}
         currentTab={
           state === AppState.ANIMATION_MANAGER ? 'animation-manager' :
           state === AppState.AI_VIDEO_MATTING ? 'ai-video-matting' :
@@ -916,6 +917,7 @@ const App: React.FC = () => {
                   currentUser={currentUser}
                   settings={settings}
                   onOpenVipModal={() => setShowVipModal(true)}
+                  onOpenProfile={() => setShowProfileModal(true)}
                   onOpenEmbeddedPortal={handleOpenEmbeddedPortal}
                   onAction={(actionKey: string) => {
                      switch(actionKey) {
@@ -1285,6 +1287,18 @@ const App: React.FC = () => {
         isOpen={showOnboarding} 
         onClose={handleCloseOnboarding} 
       />
+
+      {/* User Profile & Subscription Details Modal */}
+      {showProfileModal && currentUser && (
+        <UserProfileModal
+          currentUser={currentUser}
+          onClose={() => setShowProfileModal(false)}
+          onOpenStore={() => {
+            setShowProfileModal(false);
+            handleFeatureAccess(AppState.STORE, 'SVGA Store & Library');
+          }}
+        />
+      )}
 
       {/* Subscription Modal */}
       <SubscriptionModal 

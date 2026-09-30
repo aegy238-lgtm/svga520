@@ -1,13 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 import { collection, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy, getDocs, writeBatch, Timestamp, setDoc } from 'firebase/firestore';
-import { Trash2, Edit2, Coins, Image as ImageIcon, Search, Tag, Crown, Eye, EyeOff, Copy, Check, Key, Loader2, CheckCircle2, ShieldAlert, ShieldCheck, UserX, UserCheck, UserPlus, Sparkles } from 'lucide-react';
+import { 
+  Trash2, Edit2, Coins, Image as ImageIcon, Search, Tag, Crown, 
+  Eye, EyeOff, Copy, Check, Key, Loader2, CheckCircle2, ShieldAlert, 
+  ShieldCheck, UserX, UserCheck, UserPlus, Sparkles,
+  Calendar, Clock, AlertTriangle, AlertCircle, ArrowUpDown, Filter
+} from 'lucide-react';
 import { createRandomUserAccount, RandomUserAccount } from '../../services/userService';
+import { calculateSubscriptionInfo, parseDate } from '../../utils/subscriptionUtils';
+import { UserSubscriptionModal } from './UserSubscriptionModal';
 
 export default function UsersTab() {
   const [users, setUsers] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [subscriptionModalUser, setSubscriptionModalUser] = useState<any>(null);
+  const [subStatusFilter, setSubStatusFilter] = useState<'all' | 'active' | 'expiring_soon' | 'expired' | 'no_subscription'>('all');
+  const [sortBy, setSortBy] = useState<'default' | 'expiry_asc' | 'expiry_desc' | 'created_desc'>('default');
   const [coinsAmount, setCoinsAmount] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [idIconUrl, setIdIconUrl] = useState('');
@@ -212,22 +222,92 @@ export default function UsersTab() {
     }
   };
 
-  const filteredUsers = users.filter(u => 
-    u.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    u.email?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Subscription statistics for quick dashboard view
+  const subscriptionStats = React.useMemo(() => {
+    let active = 0;
+    let expiring = 0;
+    let expired = 0;
+    let noSub = 0;
+
+    users.forEach(u => {
+      const info = calculateSubscriptionInfo(u);
+      if (info.status === 'active' || info.status === 'lifetime') active++;
+      else if (info.status === 'expiring_soon') expiring++;
+      else if (info.status === 'expired') expired++;
+      else noSub++;
+    });
+
+    return { active, expiring, expired, noSub, total: users.length };
+  }, [users]);
+
+  const filteredUsers = users
+    .filter(u => {
+      const matchesSearch = 
+        (u.displayName || u.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+        (u.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (u.numericId || '').toString().includes(searchTerm);
+
+      if (!matchesSearch) return false;
+
+      if (subStatusFilter === 'all') return true;
+      const info = calculateSubscriptionInfo(u);
+      if (subStatusFilter === 'active') return info.status === 'active' || info.status === 'lifetime';
+      if (subStatusFilter === 'expiring_soon') return info.status === 'expiring_soon';
+      if (subStatusFilter === 'expired') return info.status === 'expired';
+      if (subStatusFilter === 'no_subscription') return info.status === 'no_subscription';
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'expiry_asc') {
+        const da = parseDate(a.subscriptionExpiry)?.getTime() || 9999999999999;
+        const db = parseDate(b.subscriptionExpiry)?.getTime() || 9999999999999;
+        return da - db;
+      }
+      if (sortBy === 'expiry_desc') {
+        const da = parseDate(a.subscriptionExpiry)?.getTime() || 0;
+        const db = parseDate(b.subscriptionExpiry)?.getTime() || 0;
+        return db - da;
+      }
+      if (sortBy === 'created_desc') {
+        const da = parseDate(a.createdAt)?.getTime() || 0;
+        const db = parseDate(b.createdAt)?.getTime() || 0;
+        return db - da;
+      }
+      return 0;
+    });
 
   return (
     <div className="space-y-6">
+      {/* Expiring Soon Alert for Admin */}
+      {subscriptionStats.expiring > 0 && (
+        <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center justify-between gap-3 text-amber-900 shadow-sm animate-pulse">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+            <div className="text-xs sm:text-sm font-bold">
+              <span>⚠️ تنبيه الإدارة: يوجد </span>
+              <span className="font-black text-amber-700 underline mx-1">{subscriptionStats.expiring} مستخدمين</span>
+              <span>اقتربت اشتراكاتهم من الانتهاء خلال 7 أيام!</span>
+            </div>
+          </div>
+          <button
+            onClick={() => setSubStatusFilter('expiring_soon')}
+            className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black transition-all shrink-0 shadow"
+          >
+            عرضهم الآن
+          </button>
+        </div>
+      )}
+
+      {/* Search & Actions Bar */}
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-3 items-center justify-between">
         <div className="relative flex-1 w-full">
           <Search className="absolute right-3 top-3 text-gray-400" size={20} />
           <input
             type="text"
-            placeholder="بحث عن مستخدم بالاسم أو البريد..."
+            placeholder="بحث عن مستخدم بالاسم أو البريد أو الآي دي..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            className="w-full pl-4 pr-10 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            className="w-full pl-4 pr-10 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
           />
         </div>
 
@@ -254,6 +334,86 @@ export default function UsersTab() {
           <button onClick={handleResetDailySupport} className="bg-red-100 text-red-600 hover:bg-red-200 px-4 py-2 rounded-xl font-bold whitespace-nowrap transition-colors text-sm">
             تصفير الدعم اليومي
           </button>
+        </div>
+      </div>
+
+      {/* Subscription Filter & Sort Pills */}
+      <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-gray-100 flex flex-wrap items-center justify-between gap-3 text-xs">
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="font-bold text-gray-500 ml-1 flex items-center gap-1">
+            <Filter size={14} />
+            <span>فلترة الاشتراكات:</span>
+          </span>
+          <button
+            onClick={() => setSubStatusFilter('all')}
+            className={`px-3 py-1.5 rounded-xl font-bold transition-all ${
+              subStatusFilter === 'all'
+                ? 'bg-slate-900 text-white shadow-sm'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            الكل ({subscriptionStats.total})
+          </button>
+          <button
+            onClick={() => setSubStatusFilter('active')}
+            className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 ${
+              subStatusFilter === 'active'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400" />
+            <span>نشط ({subscriptionStats.active})</span>
+          </button>
+          <button
+            onClick={() => setSubStatusFilter('expiring_soon')}
+            className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 ${
+              subStatusFilter === 'expiring_soon'
+                ? 'bg-amber-500 text-white shadow-sm'
+                : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
+            }`}
+          >
+            <AlertTriangle size={12} className={subStatusFilter === 'expiring_soon' ? 'text-white' : 'text-amber-500'} />
+            <span>قريب من الانتهاء ({subscriptionStats.expiring})</span>
+          </button>
+          <button
+            onClick={() => setSubStatusFilter('expired')}
+            className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 ${
+              subStatusFilter === 'expired'
+                ? 'bg-rose-600 text-white shadow-sm'
+                : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-rose-500" />
+            <span>منتهي ({subscriptionStats.expired})</span>
+          </button>
+          <button
+            onClick={() => setSubStatusFilter('no_subscription')}
+            className={`px-3 py-1.5 rounded-xl font-bold transition-all ${
+              subStatusFilter === 'no_subscription'
+                ? 'bg-gray-700 text-white shadow-sm'
+                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+            }`}
+          >
+            بدون اشتراك ({subscriptionStats.noSub})
+          </button>
+        </div>
+
+        {/* Sort Selector */}
+        <div className="flex items-center gap-2">
+          <ArrowUpDown size={14} className="text-gray-400" />
+          <span className="font-bold text-gray-500">ترتيب:</span>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as any)}
+            className="border border-gray-200 rounded-xl px-2.5 py-1.5 text-xs text-gray-700 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-purple-500 font-bold"
+          >
+            <option value="default">الافتراضي</option>
+            <option value="expiry_asc">تاريخ الانتهاء: الأقرب انتهاءً أولاً</option>
+            <option value="expiry_desc">تاريخ الانتهاء: الأبعد انتهاءً أولاً</option>
+            <option value="created_desc">تاريخ التسجيل: الأحدث أولاً</option>
+          </select>
         </div>
       </div>
 
@@ -365,6 +525,13 @@ export default function UsersTab() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex gap-2">
+                      <button 
+                        onClick={() => setSubscriptionModalUser(user)} 
+                        className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg" 
+                        title="إدارة وتعديل وتمديد تاريخ انتهاء الاشتراك"
+                      >
+                        <Calendar size={18} />
+                      </button>
                       <button 
                         onClick={() => { setSelectedUser({ ...user, action: 'password' }); setNewPasswordInput(''); setPasswordSuccess(false); }} 
                         className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg" 
@@ -665,6 +832,17 @@ export default function UsersTab() {
             </div>
           </div>
         </div>
+      )}
+      {/* User Subscription Modal */}
+      {subscriptionModalUser && (
+        <UserSubscriptionModal
+          user={subscriptionModalUser}
+          isOpen={!!subscriptionModalUser}
+          onClose={() => setSubscriptionModalUser(null)}
+          onUpdated={() => {
+            // onSnapshot automatically updates the users list in real-time
+          }}
+        />
       )}
     </div>
   );

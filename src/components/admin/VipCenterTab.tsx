@@ -7,6 +7,8 @@ import {
   RefreshCw, ShieldOff, Calendar, Award, Check
 } from 'lucide-react';
 import { UserRecord, AppSettings } from '../../types';
+import { calculateSubscriptionInfo } from '../../utils/subscriptionUtils';
+import { UserSubscriptionModal } from './UserSubscriptionModal';
 
 interface VipCenterTabProps {
   settings: AppSettings | null;
@@ -37,6 +39,7 @@ export const VipCenterTab: React.FC<VipCenterTabProps> = ({
   const [actionLoadingUserId, setActionLoadingUserId] = useState<string | null>(null);
   const [actionSuccessMsg, setActionSuccessMsg] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'vip' | 'regular'>('all');
+  const [editingSubscriptionUser, setEditingSubscriptionUser] = useState<UserRecord | null>(null);
 
   // Load initial settings
   useEffect(() => {
@@ -543,14 +546,41 @@ export const VipCenterTab: React.FC<VipCenterTabProps> = ({
                         )}
                       </td>
 
-                      {/* Expiry Date */}
-                      <td className="p-3.5 text-slate-300 font-mono text-xs">
-                        {expiryDateStr}
+                      {/* Expiry Date & Remaining Days */}
+                      <td className="p-3.5">
+                        {(() => {
+                          const subInfo = calculateSubscriptionInfo(u);
+                          return (
+                            <div className="flex flex-col gap-1 min-w-[130px]">
+                              <span className="text-amber-300 font-mono text-xs font-bold">{subInfo.expiryDateFormatted}</span>
+                              <div className="flex items-center gap-1.5">
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black border ${subInfo.badgeClass}`}>
+                                  <span className={`w-1 h-1 rounded-full ${subInfo.dotClass}`} />
+                                  <span>{subInfo.statusLabelAr}</span>
+                                </span>
+                                <span className={`text-[10px] font-bold ${subInfo.isExpired ? 'text-rose-400' : subInfo.isExpiringSoon ? 'text-amber-400 font-black' : 'text-slate-400'}`}>
+                                  {subInfo.formattedRemaining}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </td>
 
                       {/* Actions */}
                       <td className="p-3.5 text-center">
-                        <div className="flex items-center justify-center gap-2">
+                        <div className="flex items-center justify-center gap-2 flex-wrap">
+                          {/* Dedicated Date & Expiry Manager Modal Button */}
+                          <button
+                            type="button"
+                            onClick={() => setEditingSubscriptionUser(u)}
+                            className="px-3 py-1.5 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 text-xs font-bold transition-all flex items-center gap-1.5"
+                            title="تعديل تاريخ الانتهاء والمدة والبدء"
+                          >
+                            <Calendar className="w-3.5 h-3.5 text-purple-400" />
+                            <span>تعديل التاريخ</span>
+                          </button>
+
                           {isUserVip ? (
                             <>
                               {/* Quick Re-activate / Extend */}
@@ -600,6 +630,19 @@ export const VipCenterTab: React.FC<VipCenterTabProps> = ({
           </table>
         </div>
       </div>
+
+      {/* User Subscription Modal */}
+      {editingSubscriptionUser && (
+        <UserSubscriptionModal
+          user={editingSubscriptionUser}
+          isOpen={!!editingSubscriptionUser}
+          onClose={() => {
+            setEditingSubscriptionUser(null);
+            fetchUsers();
+          }}
+          currentAdminEmail={currentUser?.email || 'admin'}
+        />
+      )}
     </div>
   );
 };

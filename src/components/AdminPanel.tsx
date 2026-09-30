@@ -4,7 +4,9 @@ import { db, storage } from '../lib/firebase';
 import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, query, orderBy, Timestamp, setDoc, getDoc, limit, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { StoreManager } from './StoreManager';
-import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, Link2, BadgeCheck, Wifi, Smartphone, Store, UserPlus, Lock, Unlock, Shield, ShieldPlus, ShieldOff, GitBranch, Download, ShieldCheck, PowerOff, Power, AlertTriangle, Eye, EyeOff, Copy, Check, CheckCircle2, Loader2, Server, Clock, UserCheck, Search, Filter, Crown, Send } from 'lucide-react';
+import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, Link2, BadgeCheck, Wifi, Smartphone, Store, UserPlus, Lock, Unlock, Shield, ShieldPlus, ShieldOff, GitBranch, Download, ShieldCheck, PowerOff, Power, AlertTriangle, Eye, EyeOff, Copy, Check, CheckCircle2, Loader2, Server, Clock, UserCheck, Search, Filter, Crown, Send, Calendar, ArrowUpDown, AlertCircle, Edit, Edit2 } from 'lucide-react';
+import { calculateSubscriptionInfo, parseDate, calculateExtendedExpiry, formatInputDate } from '../utils/subscriptionUtils';
+import { UserSubscriptionModal } from './admin/UserSubscriptionModal';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -58,8 +60,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [cache, setCache] = useState<Record<string, { data: any, timestamp: number }>>({});
   const [showCreateUser, setShowCreateUser] = useState(false);
-  const [newUser, setNewUser] = useState({ name: '', email: '', password: '', role: 'user' as 'admin' | 'moderator' | 'user' });
+  const [newUser, setNewUser] = useState({ 
+    name: '', 
+    email: '', 
+    password: '', 
+    role: 'user' as 'admin' | 'moderator' | 'user',
+    subscriptionType: 'none',
+    subscriptionExpiryDate: ''
+  });
   const [creatingUser, setCreatingUser] = useState(false);
+  const [adminSubscriptionUser, setAdminSubscriptionUser] = useState<UserRecord | null>(null);
+  const [adminSubFilter, setAdminSubFilter] = useState<'all' | 'active' | 'expiring_soon' | 'expired' | 'no_subscription'>('all');
+  const [adminSubSort, setAdminSubSort] = useState<'default' | 'expiry_asc' | 'expiry_desc' | 'created_desc'>('default');
+  const [adminUserSearch, setAdminUserSearch] = useState('');
   const [permissionModal, setPermissionModal] = useState<{ userId: string; name: string; permissions: string[] } | null>(null);
 
   // Outage / Server Control States
@@ -194,6 +207,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
         ? crypto.randomUUID()
         : `dev_${Date.now()}_${Math.random().toString(36).substring(2)}`;
       
+      let finalExpiry: Timestamp | null = null;
+      let finalType: SubscriptionType = 'none';
+      let hasActiveVip = false;
+
+      if (newUser.role === 'admin' || newUser.role === 'moderator') {
+        finalExpiry = Timestamp.fromDate(new Date(Date.now() + 1000 * 60 * 60 * 24 * 365));
+        finalType = 'year';
+        hasActiveVip = true;
+      } else if (newUser.subscriptionExpiryDate) {
+        const d = new Date(newUser.subscriptionExpiryDate + 'T23:59:59');
+        if (!isNaN(d.getTime())) {
+          finalExpiry = Timestamp.fromDate(d);
+          finalType = (newUser.subscriptionType as SubscriptionType) || 'month';
+          hasActiveVip = d > new Date();
+        }
+      } else if (newUser.subscriptionType && newUser.subscriptionType !== 'none') {
+        const d = calculateExtendedExpiry(null, newUser.subscriptionType as any);
+        finalExpiry = Timestamp.fromDate(d);
+        finalType = newUser.subscriptionType as SubscriptionType;
+        hasActiveVip = true;
+      }
+
       const userData: UserRecord = {
         id: user.uid,
         name: cleanName,
@@ -202,17 +237,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
         plainPassword: cleanPass,
         role: newUser.role,
         isApproved: true,
-        isVIP: newUser.role === 'admin' || newUser.role === 'moderator',
+        isVIP: hasActiveVip,
         status: 'active',
-        subscriptionType: (newUser.role === 'admin' || newUser.role === 'moderator') ? 'year' : 'none',
-        freeAttempts: (newUser.role === 'admin' || newUser.role === 'moderator') ? 999999 : settings.defaultFreeAttempts,
+        subscriptionType: finalType,
+        freeAttempts: (newUser.role === 'admin' || newUser.role === 'moderator' || hasActiveVip) ? 999999 : settings.defaultFreeAttempts,
         coins: (newUser.role === 'admin' || newUser.role === 'moderator') ? 999999 : 0,
-        subscriptionExpiry: (newUser.role === 'admin' || newUser.role === 'moderator') ? Timestamp.fromDate(new Date(Date.now() + 1000 * 60 * 60 * 24 * 365)) : null,
+        subscriptionStartDate: Timestamp.now(),
+        subscriptionExpiry: finalExpiry,
         createdAt: Timestamp.now(),
         lastLogin: Timestamp.now(),
         deviceId: generatedDeviceId,
         lastIp: '127.0.0.1',
-        hasSvgaExAccess: newUser.role === 'admin' || newUser.role === 'moderator',
+        hasSvgaExAccess: newUser.role === 'admin' || newUser.role === 'moderator' || hasActiveVip,
         permissions: newUser.role === 'moderator' ? ['users'] : []
       };
 
@@ -223,7 +259,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
       
       alert("تم إنشاء الحساب بنجاح");
       setShowCreateUser(false);
-      setNewUser({ name: '', email: '', password: '', role: 'user' });
+      setNewUser({ name: '', email: '', password: '', role: 'user', subscriptionType: 'none', subscriptionExpiryDate: '' });
       fetchData();
     } catch (error: any) {
       console.error("Error creating user:", error);
@@ -988,33 +1024,193 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                   currentAdminId={currentUser?.id || 'admin'} 
                 />
               )}
-              {activeTab === 'users' && (
-                <div className="space-y-6">
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-xl font-bold">إدارة المستخدمين</h3>
-                    <button 
-                      onClick={() => setShowCreateUser(true)}
-                      className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-bold transition-all flex items-center gap-2 shadow-lg shadow-indigo-500/20"
-                    >
-                      <UserPlus className="w-4 h-4" />
-                      إنشاء مستخدم جديد
-                    </button>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-right border-collapse">
-                      <thead>
-                        <tr className="border-b border-white/10 text-slate-400 text-sm">
-                          <th className="p-3">الاسم</th>
-                          <th className="p-3">البريد الإلكتروني</th>
-                          <th className="p-3">كلمة المرور 🔑</th>
-                          <th className="p-3">الحالة</th>
-                          <th className="p-3">الاشتراك</th>
-                          <th className="p-3">عضوية VIP</th>
-                          <th className="p-3">الإجراءات</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {users.map((user, index) => (
+              {activeTab === 'users' && (() => {
+                const adminSubscriptionStats = {
+                  active: users.filter(u => {
+                    const i = calculateSubscriptionInfo(u);
+                    return i.status === 'active' || i.status === 'lifetime';
+                  }).length,
+                  expiring: users.filter(u => calculateSubscriptionInfo(u).status === 'expiring_soon').length,
+                  expired: users.filter(u => calculateSubscriptionInfo(u).status === 'expired').length,
+                  noSub: users.filter(u => calculateSubscriptionInfo(u).status === 'no_subscription').length,
+                  total: users.length
+                };
+
+                const displayedAdminUsers = users
+                  .filter(u => {
+                    const q = adminUserSearch.toLowerCase().trim();
+                    if (q) {
+                      const matches = (u.name || '').toLowerCase().includes(q) ||
+                        (u.email || '').toLowerCase().includes(q) ||
+                        (u.numericId || '').toString().includes(q);
+                      if (!matches) return false;
+                    }
+                    if (adminSubFilter === 'all') return true;
+                    const info = calculateSubscriptionInfo(u);
+                    if (adminSubFilter === 'active') return info.status === 'active' || info.status === 'lifetime';
+                    if (adminSubFilter === 'expiring_soon') return info.status === 'expiring_soon';
+                    if (adminSubFilter === 'expired') return info.status === 'expired';
+                    if (adminSubFilter === 'no_subscription') return info.status === 'no_subscription';
+                    return true;
+                  })
+                  .sort((a, b) => {
+                    if (adminSubSort === 'expiry_asc') {
+                      const da = parseDate(a.subscriptionExpiry)?.getTime() || 9999999999999;
+                      const db = parseDate(b.subscriptionExpiry)?.getTime() || 9999999999999;
+                      return da - db;
+                    }
+                    if (adminSubSort === 'expiry_desc') {
+                      const da = parseDate(a.subscriptionExpiry)?.getTime() || 0;
+                      const db = parseDate(b.subscriptionExpiry)?.getTime() || 0;
+                      return db - da;
+                    }
+                    if (adminSubSort === 'created_desc') {
+                      const da = parseDate(a.createdAt)?.getTime() || 0;
+                      const db = parseDate(b.createdAt)?.getTime() || 0;
+                      return db - da;
+                    }
+                    return 0;
+                  });
+
+                return (
+                  <div className="space-y-6">
+                    {/* Expiring Soon Alert for Admin */}
+                    {adminSubscriptionStats.expiring > 0 && (
+                      <div className="p-4 bg-amber-500/15 border border-amber-500/40 rounded-2xl flex items-center justify-between gap-3 text-amber-300 shadow-lg shadow-amber-500/10 animate-pulse">
+                        <div className="flex items-center gap-3">
+                          <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
+                          <div className="text-xs sm:text-sm font-bold">
+                            <span>⚠️ تنبيه الإدارة: يوجد </span>
+                            <span className="font-black text-amber-300 underline mx-1">{adminSubscriptionStats.expiring} مستخدمين</span>
+                            <span>اقتربت اشتراكاتهم من الانتهاء خلال 7 أيام!</span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setAdminSubFilter('expiring_soon')}
+                          className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl text-xs transition-all shrink-0 shadow"
+                        >
+                          عرض المشتركين
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Top Controls: Search & Create User */}
+                    <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
+                      <div className="relative flex-1 max-w-md">
+                        <Search className="absolute right-3.5 top-3 w-4 h-4 text-slate-400" />
+                        <input
+                          type="text"
+                          value={adminUserSearch}
+                          onChange={(e) => setAdminUserSearch(e.target.value)}
+                          placeholder="بحث بالاسم أو البريد الإلكتروني أو الآي دي..."
+                          className="w-full bg-slate-950/50 border border-white/10 rounded-xl pr-10 pl-4 py-2 text-xs text-white focus:outline-none focus:border-indigo-500/50"
+                        />
+                      </div>
+
+                      <button 
+                        onClick={() => setShowCreateUser(true)}
+                        className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20 shrink-0"
+                      >
+                        <UserPlus className="w-4 h-4" />
+                        <span>إنشاء مستخدم جديد مع تحديد الاشتراك</span>
+                      </button>
+                    </div>
+
+                    {/* Filter & Sort Pills */}
+                    <div className="bg-slate-950/40 p-3 rounded-2xl border border-white/5 flex flex-wrap items-center justify-between gap-3 text-xs">
+                      {/* Status Filters */}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-bold text-slate-400 ml-1 flex items-center gap-1">
+                          <Filter className="w-3.5 h-3.5" />
+                          <span>فلترة الاشتراكات:</span>
+                        </span>
+                        <button
+                          onClick={() => setAdminSubFilter('all')}
+                          className={`px-3 py-1 rounded-xl font-bold transition-all ${
+                            adminSubFilter === 'all'
+                              ? 'bg-indigo-600 text-white shadow-sm'
+                              : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                          }`}
+                        >
+                          الكل ({adminSubscriptionStats.total})
+                        </button>
+                        <button
+                          onClick={() => setAdminSubFilter('active')}
+                          className={`px-3 py-1 rounded-xl font-bold transition-all flex items-center gap-1.5 ${
+                            adminSubFilter === 'active'
+                              ? 'bg-emerald-600 text-white shadow-sm'
+                              : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20'
+                          }`}
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                          <span>نشط ({adminSubscriptionStats.active})</span>
+                        </button>
+                        <button
+                          onClick={() => setAdminSubFilter('expiring_soon')}
+                          className={`px-3 py-1 rounded-xl font-bold transition-all flex items-center gap-1.5 ${
+                            adminSubFilter === 'expiring_soon'
+                              ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                              : 'bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 border border-amber-500/20'
+                          }`}
+                        >
+                          <AlertTriangle className="w-3 h-3 text-amber-400" />
+                          <span>قريب من الانتهاء ({adminSubscriptionStats.expiring})</span>
+                        </button>
+                        <button
+                          onClick={() => setAdminSubFilter('expired')}
+                          className={`px-3 py-1 rounded-xl font-bold transition-all flex items-center gap-1.5 ${
+                            adminSubFilter === 'expired'
+                              ? 'bg-rose-600 text-white shadow-sm'
+                              : 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20'
+                          }`}
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                          <span>منتهي ({adminSubscriptionStats.expired})</span>
+                        </button>
+                        <button
+                          onClick={() => setAdminSubFilter('no_subscription')}
+                          className={`px-3 py-1 rounded-xl font-bold transition-all ${
+                            adminSubFilter === 'no_subscription'
+                              ? 'bg-slate-700 text-white shadow-sm'
+                              : 'bg-white/5 text-slate-500 hover:bg-white/10'
+                          }`}
+                        >
+                          بدون اشتراك ({adminSubscriptionStats.noSub})
+                        </button>
+                      </div>
+
+                      {/* Sort Selector */}
+                      <div className="flex items-center gap-2">
+                        <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+                        <span className="font-bold text-slate-400">ترتيب:</span>
+                        <select
+                          value={adminSubSort}
+                          onChange={(e) => setAdminSubSort(e.target.value as any)}
+                          className="bg-slate-900 border border-white/10 rounded-xl px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-bold"
+                        >
+                          <option value="default">الافتراضي</option>
+                          <option value="expiry_asc">تاريخ الانتهاء: الأقرب انتهاءً أولاً</option>
+                          <option value="expiry_desc">تاريخ الانتهاء: الأبعد انتهاءً أولاً</option>
+                          <option value="created_desc">تاريخ التسجيل: الأحدث أولاً</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-right border-collapse">
+                        <thead>
+                          <tr className="border-b border-white/10 text-slate-400 text-xs font-bold">
+                            <th className="p-3">الاسم</th>
+                            <th className="p-3">البريد الإلكتروني</th>
+                            <th className="p-3">كلمة المرور 🔑</th>
+                            <th className="p-3">الحالة</th>
+                            <th className="p-3">الرتبة</th>
+                            <th className="p-3">عضوية VIP</th>
+                            <th className="p-3">الإجراءات</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {displayedAdminUsers.map((user, index) => (
                           <tr key={user.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                             <td className="p-3 font-medium flex items-center gap-2">
                                 {user.name}
@@ -1091,9 +1287,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                                 <span>{user.isVIP ? 'VIP 👑' : 'تفعيل'}</span>
                               </button>
                             </td>
-                            <td className="p-3 flex gap-2">
+                             <td className="p-3 flex gap-2">
                               {!isSuperAdmin(user) && (
                                 <>
+                                  <button 
+                                    onClick={() => setAdminSubscriptionUser(user)}
+                                    className="p-1.5 hover:bg-purple-500/20 text-purple-400 rounded transition-colors"
+                                    title="إدارة وتعديل وتمديد تاريخ انتهاء الاشتراك"
+                                  >
+                                    <Calendar className="w-4 h-4" />
+                                  </button>
                                   <button 
                                     onClick={() => handleOpenResetPassword(user)}
                                     className="p-1.5 hover:bg-indigo-500/20 text-indigo-400 rounded transition-colors"
@@ -1254,7 +1457,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                     </table>
                   </div>
                 </div>
-              )}
+                );
+              })()}
 
               {/* Fixed Dropdown Portal */}
               {dropdownState && (
@@ -2126,6 +2330,49 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                 </select>
               </div>
 
+              <div>
+                <label className="block text-slate-400 text-xs font-bold uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-purple-400" />
+                  <span>نوع الاشتراك ومدة الصلاحية</span>
+                </label>
+                <select 
+                  value={newUser.subscriptionType}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    let exp = '';
+                    if (val !== 'none' && val !== 'custom') {
+                      exp = formatInputDate(calculateExtendedExpiry(null, val as any));
+                    }
+                    setNewUser({ ...newUser, subscriptionType: val, subscriptionExpiryDate: exp });
+                  }}
+                  className="w-full bg-slate-950/50 border border-white/10 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:border-indigo-500/50 transition-all text-xs"
+                >
+                  <option value="none">بدون اشتراك (حساب مجاني عادي)</option>
+                  <option value="day">يومي (24 ساعة)</option>
+                  <option value="week">أسبوعي (7 أيام)</option>
+                  <option value="month">شهري (30 يوماً)</option>
+                  <option value="3months">3 أشهر (ربع سنوي)</option>
+                  <option value="year">سنوي (سنة كاملة)</option>
+                  <option value="lifetime">دائم مدى الحياة 👑</option>
+                  <option value="custom">تاريخ مخصص</option>
+                </select>
+              </div>
+
+              {newUser.subscriptionType !== 'none' && (
+                <div>
+                  <label className="block text-slate-400 text-xs font-bold uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-amber-400" />
+                    <span>تاريخ انتهاء الاشتراك المحدد</span>
+                  </label>
+                  <input 
+                    type="date" 
+                    value={newUser.subscriptionExpiryDate}
+                    onChange={(e) => setNewUser({ ...newUser, subscriptionExpiryDate: e.target.value })}
+                    className="w-full bg-slate-950/50 border border-white/10 rounded-xl px-4 py-2.5 text-slate-200 focus:outline-none focus:border-indigo-500/50 transition-all text-xs"
+                  />
+                </div>
+              )}
+
               <button 
                 type="submit"
                 disabled={creatingUser}
@@ -2732,6 +2979,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
             )}
           </div>
         </div>
+      )}
+
+      {/* Admin User Subscription Management Modal */}
+      {adminSubscriptionUser && (
+        <UserSubscriptionModal
+          user={adminSubscriptionUser}
+          isOpen={!!adminSubscriptionUser}
+          onClose={() => {
+            setAdminSubscriptionUser(null);
+            fetchData();
+          }}
+          currentAdminEmail={currentUser?.email || 'admin'}
+        />
       )}
     </div>
   );
