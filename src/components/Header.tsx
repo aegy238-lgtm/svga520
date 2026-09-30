@@ -57,6 +57,7 @@ export interface HeaderProps {
   onName3DEditorOpen: () => void;
   onAudioExtractorOpen: () => void;
   onAiVideoMattingOpen?: () => void;
+  onImageCollageStudioOpen?: () => void;
   onSvgaBatchCompressorOpen?: () => void;
   onSvgaLayerEditorOpen?: () => void;
   onAnimationManagerOpen?: () => void;

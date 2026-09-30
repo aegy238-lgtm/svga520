@@ -121,6 +121,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     onUpload={onUpload} 
                     isUploading={false}
                     onUniversalPlay={onUniversalPlay}
+                    onImageCollageStudioOpen={isFeatureAllowed('imageCollageStudio') ? () => onAction('imageCollageStudio') : undefined}
                     onAnimationManagerOpen={isFeatureAllowed('animationManager') ? () => onAction('animationManager') : undefined}
                     onConverterOpen={isFeatureAllowed('videoConverter') ? () => onAction('videoConverter') : undefined}
                     onMultiSvgaOpen={isFeatureAllowed('multiSvga') ? () => onAction('multiSvga') : undefined}

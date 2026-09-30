@@ -82,6 +82,7 @@ const Name3DEditor = lazyWithRetry(() => import('./components/Name3DEditor/Name3
 const ImageMatcher = lazyWithRetry(() => import('./components/ImageMatcher').then(m => ({ default: m.ImageMatcher })));
 const AudioExtractor = lazyWithRetry(() => import('./components/AudioExtractor').then(m => ({ default: m.AudioExtractor })));
 const AIVideoMattingStudio = lazyWithRetry(() => import('./components/AIVideoMattingStudio').then(m => ({ default: m.AIVideoMattingStudio })));
+const ImageCollageStudio = lazyWithRetry(() => import('./components/ImageCollageStudio/ImageCollageStudio').then(m => ({ default: m.ImageCollageStudio || m.default })));
 const AnimationManager = lazyWithRetry(() => import('./components/AnimationManager/AnimationManager').then(m => ({ default: m.AnimationManager })));
 const AdminPanel = lazyWithRetry(() => import('./components/AdminPanel').then(m => ({ default: m.AdminPanel })));
 const Store = lazyWithRetry(() => import('./components/Store').then(m => ({ default: m.Store })));
@@ -440,7 +441,8 @@ const App: React.FC = () => {
         [AppState.IMAGE_EDITOR]: 'imageEditor',
         [AppState.IMAGE_ENHANCER]: 'imageEnhancer',
         [AppState.NAME_3D_EDITOR]: 'name3DEditor',
-        [AppState.AUDIO_EXTRACTOR]: 'audioExtractor'
+        [AppState.AUDIO_EXTRACTOR]: 'audioExtractor',
+        [AppState.IMAGE_COLLAGE_STUDIO]: 'imageCollageStudio'
       };
 
       const actionKey = stateToActionKey[targetState];
@@ -837,6 +839,7 @@ const App: React.FC = () => {
         onName3DEditorOpen={() => handleFeatureAccess(AppState.NAME_3D_EDITOR, '3D Name Editor')}
         onAudioExtractorOpen={() => handleFeatureAccess(AppState.AUDIO_EXTRACTOR, 'Audio Extractor')}
         onAiVideoMattingOpen={() => handleFeatureAccess(AppState.AI_VIDEO_MATTING, 'AI Video Matting Studio')}
+        onImageCollageStudioOpen={() => handleFeatureAccess(AppState.IMAGE_COLLAGE_STUDIO, 'Image Collage & Watermark Studio')}
         onSvgaBatchCompressorOpen={() => handleFeatureAccess(AppState.SVGA_BATCH_COMPRESSOR, 'SVGA Batch Compressor')}
         onAnimationManagerOpen={() => handleFeatureAccess(AppState.ANIMATION_MANAGER, 'Animation File Manager')}
         onVideoDurationSpeedOpen={handleVideoDurationSpeedOpen}
@@ -853,6 +856,7 @@ const App: React.FC = () => {
         onProfileClick={() => setShowProfileModal(true)}
         currentTab={
           state === AppState.ANIMATION_MANAGER ? 'animation-manager' :
+          state === AppState.IMAGE_COLLAGE_STUDIO ? 'image-collage-studio' :
           state === AppState.AI_VIDEO_MATTING ? 'ai-video-matting' :
           state === AppState.SVGA_LAYER_EDITOR ? 'svga-layer-editor' :
           state === AppState.SVGA_BATCH_COMPRESSOR ? 'svga-compressor' :
@@ -938,6 +942,7 @@ const App: React.FC = () => {
                         case 'videoDurationSpeed': handleVideoDurationSpeedOpen(); break;
                         case 'animationManager': handleFeatureAccess(AppState.ANIMATION_MANAGER, 'Animation File Manager'); break;
                         case 'aiVideoMatting': handleFeatureAccess(AppState.AI_VIDEO_MATTING, 'AI Video Matting Studio'); break;
+                        case 'imageCollageStudio': handleFeatureAccess(AppState.IMAGE_COLLAGE_STUDIO, 'Image Collage & Watermark Studio'); break;
                         case 'videoConverter': handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter'); break;
                         case 'universalConverter': handleFeatureAccess(AppState.UNIVERSAL_CONVERTER, 'Universal Motion Tools'); break;
                         case 'multiSvga': handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview'); break;
@@ -1153,6 +1158,12 @@ const App: React.FC = () => {
                 onCancel={handleReset}
                 onSubscriptionRequired={() => setShowSubscriptionModal(true)}
                 initialVideoFile={fileMetadata?.originalFile || null}
+              />
+            )}
+            {state === AppState.IMAGE_COLLAGE_STUDIO && (
+              <ImageCollageStudio 
+                onBack={handleReset} 
+                initialFiles={fileMetadata?.originalFile ? [fileMetadata.originalFile] : null}
               />
             )}
             {state === AppState.ANIMATION_MANAGER && (

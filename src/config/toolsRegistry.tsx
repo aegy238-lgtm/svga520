@@ -199,6 +199,21 @@ export const TOOLS_REGISTRY: ToolRegistryItem[] = [
 
   // --- معالجة الصور والذكاء الاصطناعي ---
   {
+    id: 'image-collage-studio',
+    label: 'تجميع وترتيب الصور والعلامة المائية',
+    shortLabel: 'تجميع الصور وحمايتها',
+    icon: <LayoutGrid className="w-4 h-4 text-cyan-400" />,
+    category: 'image',
+    categoryNameAr: 'معالجة الصور والذكاء الاصطناعي',
+    actionKey: 'onImageCollageStudioOpen' as any,
+    dashboardActionKey: 'imageCollageStudio',
+    featureAccessKey: 'imageCollageStudio',
+    descAr: 'رفع وترتيب وتجميع عشرات الصور في شبكة أو كتالوج (Grid/Sprite Sheet) بأشكال وقوالب متعددة مع حمايتها بنمط علامة مائية ذكي وتصديرها بصورة واحدة فائقة الجودة.',
+    descEn: 'Bulk image collage, catalog grid assembler & watermark pattern studio with ultra-high resolution export.',
+    highlight: true,
+    pinnedTop: true
+  },
+  {
     id: 'ai-video-matting',
     label: 'AI Video Matting Studio',
     icon: <Sparkles className="w-4 h-4 text-cyan-400" />,

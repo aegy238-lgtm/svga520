@@ -12,6 +12,7 @@ interface UploaderProps {
   onMultiSvgaOpen?: () => void;
   onBatchImageOpen?: () => void;
   onAnimationManagerOpen?: () => void;
+  onImageCollageStudioOpen?: () => void;
   onUniversalPlay?: (file: File) => void;
   globalQuality?: 'low' | 'medium' | 'high';
   setGlobalQuality?: (q: 'low' | 'medium' | 'high') => void;
@@ -27,6 +28,7 @@ export const Uploader: React.FC<UploaderProps> = ({
   onMultiSvgaOpen, 
   onBatchImageOpen, 
   onAnimationManagerOpen, 
+  onImageCollageStudioOpen,
   onUniversalPlay,
   globalQuality = 'high', 
   setGlobalQuality,
@@ -274,6 +276,18 @@ export const Uploader: React.FC<UploaderProps> = ({
               >
                  <Layers className="w-4 h-4 text-cyan-400" />
                  <span>{svgaEditorLink.title || 'محرر SVGA'}</span>
+              </button>
+            )}
+
+            {/* Dedicated Button for Image Collage & Watermark Studio */}
+            {onImageCollageStudioOpen && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onImageCollageStudioOpen(); }}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-cyan-500/20 via-indigo-600/25 to-purple-600/20 hover:from-cyan-500/35 hover:to-purple-600/35 text-cyan-200 border border-cyan-400/50 hover:border-cyan-400 rounded-xl text-xs font-black transition-all cursor-pointer shadow-[0_0_20px_rgba(6,182,212,0.2)] hover:shadow-[0_0_30px_rgba(6,182,212,0.4)] hover:scale-105 active:scale-95"
+                title="تجميع وترتيب عشرات ومئات الصور في شبكة أو كتالوج وحمايتها بالعلامة المائية"
+              >
+                 <LayoutGrid className="w-4 h-4 text-cyan-300 animate-pulse" />
+                 <span>تجميع الصور والعلامة المائية (Collage Pro) 👑</span>
               </button>
             )}
 
