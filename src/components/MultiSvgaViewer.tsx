@@ -43,6 +43,7 @@ import {
 
 export type ViewerExportFormat = 'mp4' | 'webm' | 'vap' | 'yyeva' | 'gif' | 'webp' | 'apng' | 'png_seq' | 'svga';
 import { downloadDesignerInfoFile } from '../utils/designerInfo';
+import { drawUniversalWatermarkOnCanvas, getSavedWatermarkSettings } from '../utils/watermarkAndBackground';
 import { extractSvgaFromPdfFile, PdfUnlockRequest } from '../utils/pdfSvgaExtractor';
 import { generateSvgaAllInOnePdf, SvgaPdfItem } from '../utils/svgaAllInOnePdfGenerator';
 import { SvgaActionDock } from './SvgaActionDock';
@@ -346,155 +347,8 @@ const drawWatermarkOnCanvasHelper = (
   settings: any,
   wmImg?: HTMLImageElement | null
 ) => {
-  if (!settings?.enabled && !wmImg && !(settings?.text && settings.text.trim().length > 0)) return;
-  const opacity = settings?.opacity !== undefined ? settings.opacity : 0.35;
-  const color = settings?.color || '#ffffff';
-  const text = settings?.text || 'Ahmed SVGA • Ahmed SVGA';
-  const pattern: ViewerWatermarkPattern = settings?.pattern || (settings?.mode === 'grid' ? 'diagonal_repeat' : settings?.isAnimated ? 'floating' : settings?.mode || 'diagonal_repeat');
-  const type: ViewerWatermarkType = settings?.type || (wmImg ? (text ? 'both' : 'image') : 'text');
-  const angle = settings?.angle !== undefined ? settings.angle : -25;
-  const hasText = (type === 'text' || type === 'both') && !!text.trim();
-  const hasImage = (type === 'image' || type === 'both') && !!wmImg;
-
-  if (!hasText && !hasImage) return;
-
-  ctx.save();
-  ctx.globalAlpha = Math.max(0.05, Math.min(1.0, opacity));
-
-  const fontSize = Math.max(12, settings?.fontSize || Math.round(Math.min(width, height) * 0.035));
-  ctx.font = `900 ${fontSize}px system-ui, -apple-system, sans-serif`;
-  ctx.fillStyle = color;
-  ctx.textBaseline = 'middle';
-
-  if (settings?.shadow !== false) {
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
-    ctx.shadowBlur = 6;
-    ctx.shadowOffsetX = 2;
-    ctx.shadowOffsetY = 2;
-  } else {
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-  }
-
-  const textW = hasText ? ctx.measureText(text).width : 0;
-  const imgSize = hasImage ? Math.max(18, Math.round(fontSize * 1.4)) : 0;
-  const compoundW = textW + (hasImage ? imgSize + (hasText ? 8 : 0) : 0);
-
-  const drawCompoundBadge = (x: number, y: number) => {
-    let curX = x;
-    if (hasImage && wmImg) {
-      ctx.drawImage(wmImg, curX, y - imgSize / 2, imgSize, imgSize);
-      curX += imgSize + (hasText ? 8 : 0);
-    }
-    if (hasText) {
-      ctx.fillText(text, curX, y);
-    }
-  };
-
-  const isAnimated = settings?.isAnimated !== false;
-  const animSpeed = settings?.animationSpeed || 5;
-  const animOffset = isAnimated ? (frame * animSpeed * 1.2) : 0;
-
-  if (pattern === 'diagonal_repeat') {
-    ctx.save();
-    ctx.translate(width / 2, height / 2);
-    ctx.rotate((angle * Math.PI) / 180);
-
-    const stepX = Math.max(120, (settings?.spacingX || 200) + compoundW);
-    const stepY = Math.max(50, settings?.spacingY || 120);
-    const diag = Math.sqrt(width * width + height * height) * 1.5;
-
-    const driftX = isAnimated ? ((animOffset * 1.1) % stepX) : 0;
-    const driftY = isAnimated ? ((animOffset * 0.7) % stepY) : 0;
-
-    let rowIndex = 0;
-    for (let y = -diag - stepY; y <= diag + stepY; y += stepY) {
-      const rowOffset = (rowIndex % 2 === 0) ? 0 : (stepX / 2);
-      for (let x = -diag - stepX; x <= diag + stepX; x += stepX) {
-        drawCompoundBadge(x + rowOffset - compoundW / 2 + driftX, y + driftY);
-      }
-      rowIndex++;
-    }
-    ctx.restore();
-  } else if (pattern === 'horizontal_bands') {
-    ctx.save();
-    const stepY = Math.max(60, settings?.spacingY || 140);
-    const stepX = Math.max(140, (settings?.spacingX || 240) + compoundW);
-    const driftX = isAnimated ? ((animOffset * 1.5) % stepX) : 0;
-    for (let y = 50; y < height; y += stepY) {
-      for (let x = -compoundW - stepX; x < width + compoundW + stepX; x += stepX) {
-        drawCompoundBadge(x + driftX, y);
-      }
-    }
-    ctx.restore();
-  } else if (pattern === 'floating') {
-    const speed = settings?.animationSpeed || 5;
-    const pxPerFrame = speed * 1.5;
-    const badgeW = compoundW + 28;
-    const badgeH = Math.max(fontSize, imgSize) + 16;
-    const maxX = Math.max(1, width - badgeW);
-    const maxY = Math.max(1, height - badgeH);
-    const distX = frame * pxPerFrame;
-    const distY = frame * pxPerFrame * 0.75;
-    const modX = distX % (maxX * 2);
-    const modY = distY % (maxY * 2);
-    const wx = modX > maxX ? (maxX * 2) - modX : modX;
-    const wy = modY > maxY ? (maxY * 2) - modY : modY;
-
-    ctx.save();
-    ctx.fillStyle = 'rgba(5, 8, 18, 0.85)';
-    ctx.strokeStyle = `${color}45`;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(wx, wy, badgeW, badgeH, 14);
-    else ctx.rect(wx, wy, badgeW, badgeH);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = color;
-    drawCompoundBadge(wx + 14, wy + badgeH / 2);
-    ctx.restore();
-  } else if (pattern === 'pulse') {
-    const scale = 1 + Math.sin(frame * 0.1) * 0.05;
-    const badgeW = (compoundW + 24) * scale;
-    const badgeH = (Math.max(fontSize, imgSize) + 16) * scale;
-    const wx = width - badgeW - 20;
-    const wy = height - badgeH - 20;
-
-    ctx.save();
-    ctx.fillStyle = 'rgba(5, 8, 18, 0.85)';
-    ctx.strokeStyle = `${color}50`;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(wx, wy, badgeW, badgeH, 14);
-    else ctx.rect(wx, wy, badgeW, badgeH);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = color;
-    drawCompoundBadge(wx + 12, wy + badgeH / 2);
-    ctx.restore();
-  } else {
-    // Single position
-    let px = 20;
-    let py = 20;
-    const margin = 24;
-    switch (settings?.position) {
-      case 'top-left': px = margin; py = margin; break;
-      case 'top-right': px = width - compoundW - margin; py = margin; break;
-      case 'bottom-left': px = margin; py = height - fontSize - margin; break;
-      case 'bottom-right': px = width - compoundW - margin; py = height - fontSize - margin; break;
-      case 'center': px = (width - compoundW) / 2; py = height / 2; break;
-      case 'top-center': px = (width - compoundW) / 2; py = margin; break;
-      case 'bottom-center': px = (width - compoundW) / 2; py = height - fontSize - margin; break;
-      case 'center-left': px = margin; py = height / 2; break;
-      case 'center-right': px = width - compoundW - margin; py = height / 2; break;
-      default: px = width - compoundW - margin; py = height - fontSize - margin;
-    }
-    drawCompoundBadge(px, py + fontSize / 2);
-  }
-
-  ctx.restore();
+  const activeSettings = settings || getSavedWatermarkSettings();
+  drawUniversalWatermarkOnCanvas(ctx, width, height, frame, activeSettings, wmImg);
 };
 
 const extractAudioData = (item: any): Uint8Array | null => {
@@ -1662,12 +1516,14 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       }
 
       let wmImg: HTMLImageElement | null = null;
-      if (watermark) {
+      const wmUrl = watermark || wmSettings?.logoUrl;
+      if (wmUrl) {
         wmImg = await new Promise((resolve) => {
           const img = new Image();
           img.crossOrigin = "anonymous";
           img.onload = () => resolve(img);
-          img.src = watermark;
+          img.onerror = () => resolve(null);
+          img.src = wmUrl;
         });
       }
 
@@ -1954,9 +1810,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           }
         }
 
-        if (wmSettings.enabled || wmImg) {
-          drawWatermarkOnCanvasHelper(ctx, canvas.width, canvas.height, frame, wmSettings, wmImg);
-        }
+        // Always render watermark on MP4 video frame
+        drawWatermarkOnCanvasHelper(ctx, canvas.width, canvas.height, frame, wmSettings, wmImg);
 
         const timestamp = (frame / targetFps) * 1_000_000;
         const videoFrame = new VideoFrame(canvas, { timestamp });
@@ -2358,9 +2213,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 fCtx.drawImage(internalCanvas, dx, dy, drawW, drawH);
               }
 
-              if (wmSettings.enabled || wmImg) {
-                drawWatermarkOnCanvasHelper(fCtx, finalWidth, finalHeight, frame, wmSettings, wmImg);
-              }
+              // Always render watermark on frames
+              drawWatermarkOnCanvasHelper(fCtx, finalWidth, finalHeight, frame, wmSettings, wmImg);
 
               collectedCanvases.push(frameCanvas);
 
@@ -2585,9 +2439,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               ctx.drawImage(internalCanvas, dx, dy, drawW, drawH);
             }
 
-            if (wmSettings.enabled || wmImg) {
-              drawWatermarkOnCanvasHelper(ctx, finalWidth, finalHeight, frame, wmSettings, wmImg);
-            }
+            // Always render watermark on MP4 video frame
+            drawWatermarkOnCanvasHelper(ctx, finalWidth, finalHeight, frame, wmSettings, wmImg);
 
             const timestamp = (frame / targetFps) * 1_000_000;
             const videoFrame = new VideoFrame(canvas, { timestamp });
@@ -5467,8 +5320,18 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                   </div>
                 )}
                 <div 
-                  className="grid gap-5 sm:gap-6 w-full"
-                  style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}
+                  className={`grid gap-6 w-full transition-all ${
+                    (folderItems as any[]).length === 1 
+                      ? 'max-w-2xl sm:max-w-3xl mx-auto grid-cols-1' 
+                      : (folderItems as any[]).length === 2
+                      ? 'max-w-5xl mx-auto grid-cols-1 sm:grid-cols-2'
+                      : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3'
+                  }`}
+                  style={
+                    (folderItems as any[]).length > 2 
+                      ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${gridCols <= 2 ? '440px' : gridCols === 3 ? '360px' : '300px'}), 1fr))` }
+                      : undefined
+                  }
                 >
                   <AnimatePresence mode="popLayout">
                     {(folderItems as any[]).map((item) => (
@@ -6572,22 +6435,26 @@ const SvgaCard: React.FC<{
     ? (selectedPreset.height / selectedPreset.width) 
     : (itemHeight / (itemWidth || 1));
 
-  const cols = gridCols || 4;
-  const baseH = cols <= 1 ? 360 : cols === 2 ? 300 : cols === 3 ? 240 : cols === 4 ? 190 : cols === 5 ? 160 : 140;
-  const cardPreviewHeight = Math.min(420, Math.max(130, Math.round(effectiveRatio * baseH)));
+  const cols = gridCols || 3;
+  const baseH = cols <= 1 ? 640 : cols === 2 ? 560 : cols === 3 ? 480 : cols === 4 ? 420 : 360;
+  const cardPreviewHeight = Math.min(800, Math.max(320, Math.round(effectiveRatio * baseH)));
+
+  const [isCardHovered, setIsCardHovered] = useState(false);
 
   return (
     <motion.div 
       layout
+      onMouseEnter={() => setIsCardHovered(true)}
+      onMouseLeave={() => setIsCardHovered(false)}
       initial={{ opacity: 0, scale: 0.95, y: 10 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95, y: 10 }}
-      className="group relative bg-slate-900/60 hover:bg-slate-900/90 rounded-2xl border border-white/10 overflow-hidden hover:border-indigo-500/50 transition-all duration-300 hover:shadow-xl flex flex-col w-full min-w-0"
+      className="group relative bg-[#0b1022]/90 hover:bg-[#0e142a] rounded-3xl border-2 border-white/10 hover:border-indigo-500/70 transition-all duration-300 hover:shadow-[0_10px_40px_rgba(99,102,241,0.2)] flex flex-col w-full min-w-0 overflow-hidden shadow-2xl"
     >
-      {/* Preview Area - Forced Ratio */}
+      {/* Preview Area - Spacious, Crisp & Eye-Friendly */}
       <div 
         ref={wrapperRef}
-        className="relative bg-slate-950/70 flex items-center justify-center overflow-hidden w-full"
+        className="relative bg-slate-950/90 flex items-center justify-center overflow-hidden w-full transition-all"
         style={{ height: `${cardPreviewHeight}px` }}
       >
         {previewBg && <img src={previewBg} alt="Background" className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none" referrerPolicy="no-referrer" />}
@@ -6606,14 +6473,14 @@ const SvgaCard: React.FC<{
         
         {/* Selection Checkbox */}
         {onToggleSelect && (
-          <div className={`absolute top-2.5 left-2.5 z-30 transition-opacity duration-300 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+          <div className={`absolute top-3.5 left-3.5 z-30 transition-opacity duration-300 ${isSelected ? 'opacity-100' : (isCardHovered ? 'opacity-100' : 'opacity-0 pointer-events-none')}`}>
             <button
               onClick={onToggleSelect}
-              className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all cursor-pointer ${
-                isSelected ? "bg-indigo-500 border-indigo-500 text-white shadow-lg shadow-indigo-500/30" : "bg-black/50 backdrop-blur-md border-white/50 hover:border-white hover:bg-black/70 text-transparent"
+              className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all cursor-pointer shadow-lg ${
+                isSelected ? "bg-indigo-500 border-indigo-400 text-white shadow-indigo-500/50 scale-105" : "bg-black/70 backdrop-blur-md border-white/60 hover:border-white hover:bg-black/90 text-transparent"
               }`}
             >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12"></polyline>
               </svg>
             </button>
@@ -6622,49 +6489,51 @@ const SvgaCard: React.FC<{
         
         {/* Audio Badge */}
         {hasAudio && (
-          <div className={`absolute ${onToggleSelect ? 'top-10' : 'top-2.5'} left-2.5 z-20 px-2 py-0.5 bg-indigo-500/80 backdrop-blur-md border border-indigo-400/50 rounded-lg flex items-center gap-1 shadow-md`}>
-            <Volume2 className="w-3 h-3 text-white" />
-            <span className="text-[8px] font-black text-white uppercase tracking-wider">صوت</span>
+          <div className={`absolute ${onToggleSelect ? 'top-14' : 'top-3.5'} left-3.5 z-20 px-3 py-1 bg-indigo-500/90 backdrop-blur-md border border-indigo-400/60 rounded-xl flex items-center gap-1.5 shadow-xl transition-opacity duration-300 ${isCardHovered ? 'opacity-100' : 'opacity-30'}`}>
+            <Volume2 className="w-4 h-4 text-white animate-pulse" />
+            <span className="text-[10px] font-black text-white uppercase tracking-wider">مدمج صوت 🔊</span>
           </div>
         )}
 
         {/* Info Badge */}
-        <div className="absolute bottom-2.5 left-2.5 flex flex-col gap-1 z-20">
-          <div className="px-2 py-0.5 bg-black/60 backdrop-blur-md border border-white/10 rounded-lg flex items-center gap-1.5">
-            <span className="text-[9px] font-black text-white font-mono">
-              {selectedPreset ? `${selectedPreset.width}×${selectedPreset.height}` : `${itemWidth}×${itemHeight}`}
+        <div className={`absolute bottom-3.5 left-3.5 flex flex-col gap-1.5 z-20 transition-opacity duration-300 ${isCardHovered ? 'opacity-100' : 'opacity-40'}`}>
+          <div className="px-3 py-1.5 bg-black/80 backdrop-blur-md border border-white/20 rounded-xl flex items-center gap-2 shadow-xl">
+            <span className="text-[11px] font-black text-white font-mono tracking-wide">
+              {selectedPreset ? `${selectedPreset.width} × ${selectedPreset.height}` : `${itemWidth} × ${itemHeight}`}
             </span>
-            {isPortrait ? <Smartphone className="w-2.5 h-2.5 text-sky-400" /> : <Monitor className="w-2.5 h-2.5 text-indigo-400" />}
+            {isPortrait ? <Smartphone className="w-3.5 h-3.5 text-sky-400" /> : <Monitor className="w-3.5 h-3.5 text-indigo-400" />}
           </div>
           {selectedPreset && (
-            <div className="px-1.5 py-0.5 bg-indigo-500/20 border border-indigo-500/30 rounded text-[7px] font-black text-indigo-300 uppercase tracking-tighter text-center">
-              Fill
+            <div className="px-2.5 py-0.5 bg-indigo-500/30 border border-indigo-500/50 rounded-lg text-[9px] font-black text-indigo-200 uppercase tracking-wider text-center shadow-md">
+              مقاس إجباري (Fill)
             </div>
           )}
         </div>
         
-        {/* Overlay Controls */}
-        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col items-center justify-center gap-3 z-20 pointer-events-auto">
-          <div className="flex items-center gap-3">
+        {/* Overlay Center Controls */}
+        <div className={`absolute inset-0 bg-black/40 flex flex-col items-center justify-center gap-5 z-20 transition-all duration-300 ${isCardHovered ? 'opacity-100 pointer-events-auto scale-100' : 'opacity-0 pointer-events-none scale-95'}`}>
+          <div className="flex items-center gap-4">
             <button 
               onClick={togglePlay}
-              className="w-9 h-9 bg-white text-black rounded-full flex items-center justify-center hover:scale-110 transition-transform shadow-lg cursor-pointer"
+              className="w-12 h-12 bg-white text-slate-950 rounded-full flex items-center justify-center hover:scale-110 transition-transform shadow-[0_0_30px_rgba(255,255,255,0.4)] cursor-pointer"
+              title={isPlaying ? "إيقاف مؤقت" : "تشغيل الأنيميشن"}
             >
-              {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+              {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
             </button>
             <button 
               onClick={replay}
-              className="w-9 h-9 bg-white/20 backdrop-blur-md text-white rounded-full flex items-center justify-center hover:scale-110 transition-transform shadow-lg cursor-pointer"
+              className="w-12 h-12 bg-white/25 backdrop-blur-md text-white rounded-full flex items-center justify-center hover:scale-110 transition-transform shadow-2xl cursor-pointer hover:bg-white/35 border border-white/30"
+              title="إعادة التشغيل من أول إطار"
             >
-              <RotateCcw className="w-4 h-4" />
+              <RotateCcw className="w-6 h-6" />
             </button>
           </div>
 
           {/* Zoom Slider */}
-          <div className="w-36 px-3 py-1.5 bg-black/70 backdrop-blur-md rounded-xl border border-white/10 flex flex-col gap-1">
-            <div className="flex justify-between items-center text-[8px] font-black text-white">
-              <span>Zoom</span>
-              <span className="text-indigo-400 font-mono">{Math.round(zoom * 100)}%</span>
+          <div className="w-48 px-4 py-2.5 bg-black/80 backdrop-blur-md rounded-2xl border border-white/20 flex flex-col gap-1.5 shadow-2xl">
+            <div className="flex justify-between items-center text-[10px] font-black text-white">
+              <span className="tracking-wide">تكبير العرض (Zoom)</span>
+              <span className="text-indigo-400 font-mono font-black text-xs">{Math.round(zoom * 100)}%</span>
             </div>
             <input 
               type="range" 
@@ -6673,108 +6542,108 @@ const SvgaCard: React.FC<{
               step="0.1" 
               value={zoom} 
               onChange={(e) => setZoom(parseFloat(e.target.value))}
-              className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-indigo-500"
             />
           </div>
         </div>
 
-        {/* Sleek Top Right Action Pill Toolbar */}
-        <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-30 bg-black/70 backdrop-blur-md p-1 rounded-xl border border-white/15 shadow-xl">
+        {/* Prominent Vertical Action Dock on the SIDE (تختفي تماماً وتظهر بالكامل عند مرور الماوس فقط) */}
+        <div className={`absolute top-3.5 right-3.5 flex flex-col gap-2 z-30 bg-black/95 backdrop-blur-xl p-2 rounded-2xl border-2 border-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.85)] transition-all duration-300 ${isCardHovered ? 'opacity-100 pointer-events-auto scale-100' : 'opacity-0 pointer-events-none scale-90'}`}>
           <button 
             onClick={onRemove}
-            className="w-7 h-7 bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white rounded-lg flex items-center justify-center transition-all cursor-pointer"
-            title="حذف"
+            className="w-8 h-8 sm:w-9 sm:h-9 bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-md hover:scale-110 active:scale-95 border border-red-500/30"
+            title="حذف هذا الملف"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Trash2 className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
           </button>
           <button 
             onClick={onMaximize}
-            className="w-7 h-7 bg-indigo-500/20 hover:bg-indigo-500 text-indigo-300 hover:text-white rounded-lg flex items-center justify-center transition-all cursor-pointer"
-            title="تكبير كامل"
+            className="w-8 h-8 sm:w-9 sm:h-9 bg-indigo-500/20 hover:bg-indigo-500 text-indigo-300 hover:text-white rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-md hover:scale-110 active:scale-95 border border-indigo-500/30"
+            title="تكبير ملء الشاشة"
           >
-            <Maximize2 className="w-3.5 h-3.5" />
+            <Maximize2 className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
           </button>
           {onExportVideo && (
             <button 
               onClick={onExportVideo}
-              className={`w-7 h-7 ${item.type === 'vap' ? 'bg-indigo-600 text-white' : 'bg-purple-500/20 text-purple-300 hover:bg-purple-600 hover:text-white'} rounded-lg flex items-center justify-center transition-all cursor-pointer`}
-              title={item.type === 'vap' ? "تصدير VAP إلى MP4" : "تصدير MP4"}
+              className={`w-8 h-8 sm:w-9 sm:h-9 ${item.type === 'vap' ? 'bg-indigo-600 text-white shadow-indigo-500/40' : 'bg-purple-500/20 text-purple-300 hover:bg-purple-600 hover:text-white border border-purple-500/30'} rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-md hover:scale-110 active:scale-95`}
+              title={item.type === 'vap' ? "تصدير VAP إلى MP4" : "تصدير كفيديو MP4"}
             >
-              <Video className="w-3.5 h-3.5" />
+              <Video className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
             </button>
           )}
           <button 
             onClick={onDownloadSvga}
-            className="w-7 h-7 bg-blue-500/20 hover:bg-blue-600 text-blue-300 hover:text-white rounded-lg flex items-center justify-center transition-all cursor-pointer"
-            title="تنزيل الملف"
+            className="w-8 h-8 sm:w-9 sm:h-9 bg-blue-500/20 hover:bg-blue-600 text-blue-300 hover:text-white rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-md hover:scale-110 active:scale-95 border border-blue-500/30"
+            title={item.type === 'vap' ? "تنزيل ملف VAP" : item.type === 'pag' ? "تنزيل ملف PAG" : "تنزيل ملف SVGA"}
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
           </button>
           <button 
             onClick={onDownload}
-            className="w-7 h-7 bg-emerald-500/20 hover:bg-emerald-600 text-emerald-300 hover:text-white rounded-lg flex items-center justify-center transition-all cursor-pointer"
-            title="لقطة صورة"
+            className="w-8 h-8 sm:w-9 sm:h-9 bg-emerald-500/20 hover:bg-emerald-600 text-emerald-300 hover:text-white rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-md hover:scale-110 active:scale-95 border border-emerald-500/30"
+            title="أخذ لقطة صورة فورية"
           >
-            <Camera className="w-3.5 h-3.5" />
+            <Camera className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
           </button>
           <button 
             onClick={onDownloadGiftBundle || onDownloadSvga}
-            className="w-7 h-7 bg-amber-500/20 hover:bg-amber-600 text-amber-300 hover:text-white rounded-lg flex items-center justify-center transition-all cursor-pointer"
-            title="حزمة الهدية (الملف + أحلى كادر)"
+            className="w-8 h-8 sm:w-9 sm:h-9 bg-amber-500/20 hover:bg-amber-600 text-amber-300 hover:text-white rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-md hover:scale-110 active:scale-95 border border-amber-500/30"
+            title="حزمة الهدية (الملف + أحلى كادر صورة في ملف ZIP)"
           >
-            <Gift className="w-3.5 h-3.5" />
+            <Gift className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
           </button>
           <button 
             onClick={() => setShowItemControls(!showItemControls)}
-            className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all cursor-pointer ${showItemControls ? 'bg-purple-600 text-white' : 'bg-white/10 hover:bg-white/20 text-slate-300'}`}
-            title="أدوات تحكم الهدية"
+            className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-md hover:scale-110 active:scale-95 ${showItemControls ? 'bg-purple-600 text-white ring-2 ring-purple-400 shadow-purple-500/50' : 'bg-white/10 hover:bg-white/20 text-slate-300 border border-white/20'}`}
+            title="تخصيص الهدية (الشفافية، الحجم، الموضع)"
           >
-            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <SlidersHorizontal className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
           </button>
           <button 
             onClick={() => setShowInfo(!showInfo)}
-            className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all cursor-pointer ${showInfo ? 'bg-indigo-500 text-white' : 'bg-white/10 hover:bg-white/20 text-slate-300'}`}
-            title="معلومات الملف"
+            className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-md hover:scale-110 active:scale-95 ${showInfo ? 'bg-indigo-500 text-white shadow-indigo-500/50' : 'bg-white/10 hover:bg-white/20 text-slate-300 border border-white/20'}`}
+            title="تفاصيل ومعلومات الملف"
           >
-            <Info className="w-3.5 h-3.5" />
+            <Info className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
           </button>
         </div>
       </div>
 
       {/* Info Footer */}
-      <div className="p-2.5 sm:p-3 bg-white/[0.02] z-10 border-t border-white/5 flex flex-col gap-2">
-        <div className="flex items-center justify-between gap-1.5">
-          <div className="flex items-center gap-1.5 truncate flex-1 min-w-0">
+      <div className="p-4 sm:p-5 bg-white/[0.03] z-10 border-t border-white/10 flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2.5 truncate flex-1 min-w-0">
             {item.type === 'vap' && (
-              <span className="px-1.5 py-0.5 rounded bg-indigo-500/30 border border-indigo-400/40 text-[8px] font-black text-indigo-300 uppercase shrink-0">
+              <span className="px-2.5 py-1 rounded-lg bg-indigo-500/30 border border-indigo-400/50 text-[10px] font-black text-indigo-300 uppercase shrink-0 shadow-sm">
                 VAP
               </span>
             )}
             {item.type === 'pag' && (
-              <span className="px-1.5 py-0.5 rounded bg-amber-500/30 border border-amber-400/40 text-[8px] font-black text-amber-300 uppercase shrink-0">
+              <span className="px-2.5 py-1 rounded-lg bg-amber-500/30 border border-amber-400/50 text-[10px] font-black text-amber-300 uppercase shrink-0 shadow-sm">
                 PAG
               </span>
             )}
             {item.type !== 'vap' && item.type !== 'pag' && (
-              <span className="px-1.5 py-0.5 rounded bg-blue-500/20 border border-blue-400/30 text-[8px] font-black text-blue-300 uppercase shrink-0">
+              <span className="px-2.5 py-1 rounded-lg bg-blue-500/25 border border-blue-400/40 text-[10px] font-black text-blue-300 uppercase shrink-0 shadow-sm">
                 SVGA
               </span>
             )}
-            <h4 className="text-white font-bold text-xs truncate" title={item.name}>
+            <h4 className="text-white font-black text-sm sm:text-base truncate tracking-wide" title={item.name}>
               {item.name}
             </h4>
           </div>
-          <span className="text-[9px] text-slate-400 font-mono font-bold shrink-0">
+          <span className="text-xs text-slate-400 font-mono font-bold shrink-0 bg-black/40 px-2.5 py-1 rounded-lg border border-white/5">
             {(item.size / 1024).toFixed(1)} KB
           </span>
         </div>
         
         {/* Preset Selector & Custom Button Row */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2.5">
           <select 
             value={item.presetId}
             onChange={(e) => onUpdatePreset(e.target.value)}
-            className="flex-1 bg-black/40 border border-white/10 rounded-lg px-2 py-1 text-[9px] text-slate-300 font-bold focus:outline-none focus:border-indigo-500 transition-all"
+            className="flex-1 bg-black/60 border border-white/20 rounded-xl px-3 py-2 text-xs text-slate-200 font-bold focus:outline-none focus:border-indigo-500 transition-all cursor-pointer shadow-inner"
           >
             <option value="auto">تلقائي (Native)</option>
             {DEVICE_PRESETS.map(p => (
@@ -6785,15 +6654,15 @@ const SvgaCard: React.FC<{
           <button
             type="button"
             onClick={() => setShowItemControls(!showItemControls)}
-            className={`px-2 py-1 rounded-lg border text-[9px] font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
+            className={`px-3.5 py-2 rounded-xl border text-xs font-black flex items-center gap-2 transition-all cursor-pointer shrink-0 ${
               showItemControls 
-                ? 'bg-purple-500/25 border-purple-500/50 text-purple-200' 
-                : 'bg-white/5 border-white/10 text-slate-400 hover:text-white hover:bg-white/10'
+                ? 'bg-purple-600 text-white border-purple-400 shadow-lg shadow-purple-500/30' 
+                : 'bg-white/5 border-white/15 text-slate-300 hover:text-white hover:bg-white/10'
             }`}
             title="تحكم مخصص للهدية"
           >
-            <SlidersHorizontal className="w-3 h-3 text-purple-400" />
-            <span>تخصيص</span>
+            <SlidersHorizontal className="w-4 h-4 text-purple-300" />
+            <span>تخصيص الهدية</span>
           </button>
         </div>
 

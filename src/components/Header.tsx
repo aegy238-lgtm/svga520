@@ -618,28 +618,6 @@ export const Header: React.FC<HeaderProps> = (props) => {
         {/* Right Side Controls (Search, Pin Toggle, Admin, Profile) */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
 
-          {/* Dedicated Direct Button: Image Collage & Watermark Studio */}
-          <button
-            onClick={() => {
-              if (props.onImageCollageStudioOpen) {
-                props.onImageCollageStudioOpen();
-              }
-            }}
-            className={`hidden lg:flex items-center gap-2 px-3.5 py-2 rounded-xl border font-black text-xs shrink-0 transition-all duration-300 cursor-pointer shadow-sm ${
-              props.currentTab === 'image-collage-studio'
-                ? 'bg-gradient-to-r from-cyan-500 to-indigo-600 text-white border-cyan-300 shadow-[0_0_20px_rgba(6,182,212,0.4)] scale-105'
-                : 'bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 hover:text-white border-cyan-400/40 hover:border-cyan-300 hover:scale-105 shadow-[0_0_12px_rgba(6,182,212,0.15)]'
-            }`}
-            title="نظام رفع وترتيب وتجميع الصور مع العلامة المائية"
-          >
-            <LayoutGrid className="w-4 h-4 text-cyan-300 animate-pulse" />
-            <span className="hidden xl:inline">تجميع الصور وحمايتها</span>
-            <span className="xl:hidden">تجميع الصور</span>
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-cyan-400/25 text-cyan-100 border border-cyan-400/35 font-mono">
-              جديد 👑
-            </span>
-          </button>
-
           {/* Mega Tools Grid Trigger Button */}
           <button
             onClick={() => setIsAllToolsOpen(true)}

@@ -14,6 +14,7 @@ import { deduplicateItems } from './hashUtils';
 import { convertFramesToLottieSequence } from '../../../utils/svgaToLottie';
 import { encodeAudioBufferToMuxer } from '../../../utils/svgaVideoAudioExporter';
 import { extractVapConfigFromBlob, detectVapChannelLayout, seekVideoToFrame, parseMp4DurationFromBlob } from '../../../utils/vapEngine';
+import { drawUniversalWatermarkOnCanvas, getSavedWatermarkSettings } from '../../../utils/watermarkAndBackground';
 
 /**
  * Trigger browser file download for a Blob
@@ -1225,24 +1226,24 @@ export async function exportAsMp4(
 
       for (let i = 0; i < canvases.length; i++) {
         const srcCanvas = canvases[i];
-        let frameSource: CanvasImageSource = srcCanvas;
+        
+        if (!scratchCanvas) {
+          scratchCanvas = document.createElement('canvas');
+          scratchCanvas.width = evenWidth;
+          scratchCanvas.height = evenHeight;
+          scratchCtx = scratchCanvas.getContext('2d');
+        }
+        
+        if (scratchCtx) {
+          scratchCtx.fillStyle = bgColor || '#000000';
+          scratchCtx.fillRect(0, 0, evenWidth, evenHeight);
+          scratchCtx.drawImage(srcCanvas, 0, 0, evenWidth, evenHeight);
 
-        // Only draw onto scratch canvas if dimension padding or specific non-black background fill is needed
-        if (srcCanvas.width !== evenWidth || srcCanvas.height !== evenHeight || (bgColor && bgColor !== '#000000' && bgColor !== 'transparent')) {
-          if (!scratchCanvas) {
-            scratchCanvas = document.createElement('canvas');
-            scratchCanvas.width = evenWidth;
-            scratchCanvas.height = evenHeight;
-            scratchCtx = scratchCanvas.getContext('2d');
-          }
-          if (scratchCtx) {
-            scratchCtx.fillStyle = bgColor || '#000000';
-            scratchCtx.fillRect(0, 0, evenWidth, evenHeight);
-            scratchCtx.drawImage(srcCanvas, 0, 0, evenWidth, evenHeight);
-            frameSource = scratchCanvas;
-          }
+          // Bake watermark on MP4 video frame
+          drawUniversalWatermarkOnCanvas(scratchCtx, evenWidth, evenHeight, i, getSavedWatermarkSettings());
         }
 
+        const frameSource = scratchCanvas || srcCanvas;
         const frameDelay = delays[i] || Math.round(1000 / fps);
         const frameDurMicros = Math.round(frameDelay * 1000);
 

@@ -3,6 +3,7 @@ import { parse } from 'protobufjs';
 import { svgaSchema } from '../svga-proto';
 import { extractVapConfigFromBlob, VapConfig } from './vapEngine';
 import { extractAudioFromVap } from './vapFFmpeg';
+import { drawUniversalWatermarkOnCanvas, getSavedWatermarkSettings } from './watermarkAndBackground';
 
 const rootProto = parse(svgaSchema).root;
 const MovieEntity = rootProto.lookupType('com.opensource.svga.MovieEntity');
@@ -23,6 +24,8 @@ export interface VapToSvgaOptions {
   deduplicateFrames?: boolean; // Reuse identical images
   alphaMode?: VapAlphaMode;
   preserveAudio?: boolean;
+  watermark?: string | null;
+  wmSettings?: any;
   onProgress?: (progress: {
     percent: number;
     phase: string;
@@ -177,8 +180,24 @@ export const convertVapFileToSvga = async (
     deduplicateFrames = true,
     alphaMode = 'auto',
     preserveAudio = true,
+    watermark,
+    wmSettings,
     onProgress
   } = options;
+
+  // Preload watermark image if provided
+  let wmImgEl: HTMLImageElement | null = null;
+  const wmUrl = watermark || wmSettings?.logoUrl;
+  if (wmUrl) {
+    wmImgEl = new Image();
+    wmImgEl.crossOrigin = 'anonymous';
+    wmImgEl.src = wmUrl;
+    await new Promise((res) => {
+      if (!wmImgEl) return res(null);
+      wmImgEl.onload = () => res(null);
+      wmImgEl.onerror = () => res(null);
+    });
+  }
 
   onProgress?.({
     percent: 3,
@@ -350,6 +369,12 @@ export const convertVapFileToSvga = async (
       finalCtx.drawImage(compCanvas, 0, 0, finalViewBoxW, finalViewBoxH);
     } else {
       finalCtx.drawImage(compCanvas, 0, 0);
+    }
+
+    // 4.5. Render Watermark if active
+    if (wmSettings || watermark || wmImgEl) {
+      const activeSettings = wmSettings || (watermark ? { enabled: true, logoUrl: watermark, type: 'image' } : getSavedWatermarkSettings());
+      drawUniversalWatermarkOnCanvas(finalCtx, finalViewBoxW, finalViewBoxH, fIdx, activeSettings, wmImgEl);
     }
 
     // 5. Optional Trim transparent padding

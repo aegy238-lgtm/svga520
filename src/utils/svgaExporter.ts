@@ -1,5 +1,6 @@
 import * as pako from 'pako';
 import { parse } from 'protobufjs';
+import { drawUniversalWatermarkOnCanvas, getSavedWatermarkSettings } from './watermarkAndBackground';
 
 export const convertVapToSvga = async (
     video: HTMLVideoElement,
@@ -7,7 +8,8 @@ export const convertVapToSvga = async (
     vh: number,
     totalFrames: number,
     fps: number,
-    onProgress: (progress: number, phase: string) => void
+    onProgress: (progress: number, phase: string) => void,
+    watermarkOptions?: { watermark?: string | null; wmSettings?: any }
 ): Promise<Blob> => {
     onProgress(0, "جاري إعداد محرك SVGA...");
 
@@ -98,6 +100,20 @@ export const convertVapToSvga = async (
     const originalTime = video.currentTime;
     const originalPaused = video.paused;
 
+    // Preload watermark image
+    let wmImgEl: HTMLImageElement | null = null;
+    const wmUrl = watermarkOptions?.watermark || watermarkOptions?.wmSettings?.logoUrl;
+    if (wmUrl) {
+        wmImgEl = new Image();
+        wmImgEl.crossOrigin = 'anonymous';
+        wmImgEl.src = wmUrl;
+        await new Promise((res) => {
+            if (!wmImgEl) return res(null);
+            wmImgEl.onload = () => res(null);
+            wmImgEl.onerror = () => res(null);
+        });
+    }
+
     const frameDuration = 1 / fps;
     const spriteFrames = [];
     let currentKey = "";
@@ -129,6 +145,12 @@ export const convertVapToSvga = async (
         }
         
         fCtx.putImageData(combinedData, 0, 0);
+
+        // Render Watermark on SVGA frame
+        if (watermarkOptions?.wmSettings || watermarkOptions?.watermark || wmImgEl) {
+            const activeSettings = watermarkOptions?.wmSettings || (watermarkOptions?.watermark ? { enabled: true, logoUrl: watermarkOptions.watermark, type: 'image' } : getSavedWatermarkSettings());
+            drawUniversalWatermarkOnCanvas(fCtx, actualWidth, actualHeight, i, activeSettings, wmImgEl);
+        }
 
         const dataUrl = frameCanvas.toDataURL("image/png");
         const base64Data = dataUrl.split(',')[1];

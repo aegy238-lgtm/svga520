@@ -1,6 +1,6 @@
 import * as Mp4Muxer from 'mp4-muxer';
 import JSZip from 'jszip';
-import { drawCustomBackground, drawAnimatedWatermark, WatermarkConfig } from './watermarkAndBackground';
+import { drawCustomBackground, drawAnimatedWatermark, drawUniversalWatermarkOnCanvas, getSavedWatermarkSettings, WatermarkConfig } from './watermarkAndBackground';
 import { extractVapConfigFromBlob, detectVapChannelLayout, seekVideoToFrame, WebGLVapRenderer, prepareAudioDataChunks } from './vapEngine';
 import { extractAllSvgaAudioTracks, mixAudioTracksToBuffer, encodeAudioBufferToMuxer } from './svgaVideoAudioExporter';
 import { extractGifFrames } from '../components/AnimationManager/utils/exportEngine';
@@ -496,9 +496,10 @@ async function convertYyevaVapToMp4(
         }
       }
 
-      // 3. Draw Watermark if enabled
-      if (watermarkConfig?.enabled) {
-        drawAnimatedWatermark(outCtx, outW, outH, i, totalFrames, watermarkConfig);
+      // 3. Draw Watermark
+      const activeWm1 = (watermarkConfig && watermarkConfig.enabled) ? watermarkConfig : getSavedWatermarkSettings();
+      if (activeWm1 && activeWm1.enabled !== false) {
+        drawUniversalWatermarkOnCanvas(outCtx, outW, outH, i, activeWm1, null);
       }
 
       // 4. Encode Video Frame
@@ -679,8 +680,9 @@ async function convertSvgaToMp4(
         renderBackground(fCtx, outW, outH, bgType, bgImg, bgMode);
         fCtx.drawImage(sourceCanvas, 0, 0, outW, outH);
 
-        if (watermarkConfig?.enabled) {
-          drawAnimatedWatermark(fCtx, outW, outH, i, totalFrames, watermarkConfig);
+        const activeWm2 = (watermarkConfig && watermarkConfig.enabled) ? watermarkConfig : getSavedWatermarkSettings();
+        if (activeWm2 && activeWm2.enabled !== false) {
+          drawUniversalWatermarkOnCanvas(fCtx, outW, outH, i, activeWm2, null);
         }
 
         const bitmap = await createImageBitmap(frameCanvas);
@@ -836,8 +838,9 @@ async function convertVideoToMp4(
       renderBackground(fCtx, outW, outH, bgType, bgImg, bgMode);
       fCtx.drawImage(video, 0, 0, outW, outH);
 
-      if (watermarkConfig?.enabled) {
-        drawAnimatedWatermark(fCtx, outW, outH, i, totalFrames, watermarkConfig);
+      const activeWm3 = (watermarkConfig && watermarkConfig.enabled) ? watermarkConfig : getSavedWatermarkSettings();
+      if (activeWm3 && activeWm3.enabled !== false) {
+        drawUniversalWatermarkOnCanvas(fCtx, outW, outH, i, activeWm3, null);
       }
 
       const bitmap = await createImageBitmap(frameCanvas);
@@ -958,8 +961,9 @@ async function convertGifToMp4(
     renderBackground(fCtx, outW, outH, bgType, bgImg, bgMode);
     fCtx.drawImage(canvases[i], 0, 0, outW, outH);
 
-    if (watermarkConfig?.enabled) {
-      drawAnimatedWatermark(fCtx, outW, outH, i, totalFrames, watermarkConfig);
+    const activeWm4 = (watermarkConfig && watermarkConfig.enabled) ? watermarkConfig : getSavedWatermarkSettings();
+    if (activeWm4 && activeWm4.enabled !== false) {
+      drawUniversalWatermarkOnCanvas(fCtx, outW, outH, i, activeWm4, null);
     }
 
     const bitmap = await createImageBitmap(frameCanvas);
@@ -1103,8 +1107,9 @@ async function convertPngSeqToMp4(
     fCtx.drawImage(bitmap, 0, 0, outW, outH);
     bitmap.close();
 
-    if (watermarkConfig?.enabled) {
-      drawAnimatedWatermark(fCtx, outW, outH, i, totalFrames, watermarkConfig);
+    const activeWm5 = (watermarkConfig && watermarkConfig.enabled) ? watermarkConfig : getSavedWatermarkSettings();
+    if (activeWm5 && activeWm5.enabled !== false) {
+      drawUniversalWatermarkOnCanvas(fCtx, outW, outH, i, activeWm5, null);
     }
 
     const frameBitmap = await createImageBitmap(frameCanvas);
