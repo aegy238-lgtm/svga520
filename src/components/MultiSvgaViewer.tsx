@@ -2,9 +2,10 @@ import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, FolderUp, X, Download, 
-  Image as ImageIcon, ShieldCheck, Monitor, Smartphone, Loader2, Camera, Video, Film, FileVideo, 
+  Image as ImageIcon, ShieldCheck, Shield, ShieldAlert, Scroll, Monitor, Smartphone, Loader2, Camera, Video, Film, FileVideo, 
   Volume2, Music, SquareCheck, Gift, Sparkles, FileText, Lock, Unlock, Key, Square, CheckSquare, 
-  Check, SlidersHorizontal, Sliders, Clock, Plus, Minus, Zap, Archive, FileCode, CheckCircle2, Globe
+  Check, SlidersHorizontal, Sliders, Clock, Plus, Minus, Zap, Archive, FileCode, CheckCircle2, Globe,
+  Grid, LayoutGrid, Type, Palette, RotateCw, RefreshCw, Pin, Bookmark, Star, FastForward
 } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
@@ -46,6 +47,7 @@ import { extractSvgaFromPdfFile, PdfUnlockRequest } from '../utils/pdfSvgaExtrac
 import { generateSvgaAllInOnePdf, SvgaPdfItem } from '../utils/svgaAllInOnePdfGenerator';
 import { SvgaActionDock } from './SvgaActionDock';
 import { VideoDurationSpeedModal } from './VideoDurationSpeedModal';
+import { MultiSvgaWatermarkModal } from './MultiSvgaWatermarkModal';
 
 const decodeDataToBytes = (data: any): Uint8Array | null => {
   if (!data) return null;
@@ -79,91 +81,420 @@ const decodeDataToBytes = (data: any): Uint8Array | null => {
   return null;
 };
 
+export type ViewerWatermarkPattern = 'diagonal_repeat' | 'horizontal_bands' | 'floating' | 'pulse' | 'single_position';
+export type ViewerWatermarkType = 'text' | 'image' | 'both';
+export type ViewerWatermarkPosition = 
+  | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center' 
+  | 'top-center' | 'bottom-center' | 'center-left' | 'center-right';
+
+export interface ViewerWatermarkSettings {
+  enabled: boolean;
+  type: ViewerWatermarkType;
+  text: string;
+  logoUrl?: string | null;
+  pattern: ViewerWatermarkPattern;
+  position: ViewerWatermarkPosition;
+  opacity: number;
+  fontSize: number;
+  color: string;
+  angle: number;
+  spacingX: number;
+  spacingY: number;
+  shadow: boolean;
+  isAnimated?: boolean;
+  animationSpeed?: number;
+  animationType?: 'drift' | 'floating' | 'marquee' | 'pulse' | 'orbit';
+}
+
 const WatermarkOverlay: React.FC<{
-  watermark: string;
+  watermark?: string | null;
   settings: any;
 }> = ({ watermark, settings }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const imgRef = useRef<HTMLImageElement>(null);
-  
+  const badgeRef = useRef<HTMLDivElement>(null);
+
+  const isEnabled = settings?.enabled !== false && (settings?.enabled || watermark || (settings?.text && settings.text.trim().length > 0));
+  if (!isEnabled) return null;
+
+  const pattern: ViewerWatermarkPattern = settings?.pattern || (settings?.mode === 'grid' ? 'diagonal_repeat' : settings?.isAnimated ? 'floating' : settings?.mode || 'diagonal_repeat');
+  const type: ViewerWatermarkType = settings?.type || (watermark ? (settings?.text ? 'both' : 'image') : 'text');
+  const color = settings?.color || '#ffffff';
+  const text = settings?.text || 'Ahmed SVGA • Ahmed SVGA';
+  const opacity = settings?.opacity !== undefined ? settings.opacity : 0.35;
+  const angle = settings?.angle !== undefined ? settings.angle : -25;
+  const logoSrc = settings?.logoUrl || watermark || null;
+  const hasText = (type === 'text' || type === 'both') && !!text.trim();
+  const hasLogo = (type === 'image' || type === 'both') && !!logoSrc;
+  const isAnimated = settings?.isAnimated !== false;
+  const animSpeed = settings?.animationSpeed || 5;
+  const driftDuration = Math.max(2, 14 - animSpeed * 1.1);
+
   useEffect(() => {
-    if (!settings.isAnimated || !containerRef.current || !imgRef.current) return;
-    
+    if (pattern !== 'floating' || !containerRef.current || !badgeRef.current || !isAnimated) return;
+
     let animationFrameId: number;
     let startTime: number | null = null;
-    
+
     const animate = (time: number) => {
       if (!startTime) startTime = time;
       const elapsed = time - startTime;
-      // Approximate frame based on 30fps
       const frame = Math.floor((elapsed / 1000) * 30);
-      
+
       const container = containerRef.current;
-      if (!container) return;
-      
-      const wmSize = Math.min(container.clientWidth, container.clientHeight) * (settings.size / 100);
-      const speed = settings.animationSpeed || 5;
-      const pxPerFrame = speed * 0.8;
-      
-      const maxX = Math.max(1, container.clientWidth - wmSize);
-      const maxY = Math.max(1, container.clientHeight - wmSize);
-      
+      const badge = badgeRef.current;
+      if (!container || !badge) return;
+
+      const badgeW = badge.offsetWidth || 140;
+      const badgeH = badge.offsetHeight || 34;
+      const speed = settings?.animationSpeed || 5;
+      const pxPerFrame = speed * 0.95;
+
+      const maxX = Math.max(1, container.clientWidth - badgeW);
+      const maxY = Math.max(1, container.clientHeight - badgeH);
+
       if (maxX > 0 && maxY > 0) {
         const distX = frame * pxPerFrame;
-        const distY = frame * pxPerFrame * 0.75;
-        
+        const distY = frame * pxPerFrame * 0.7;
+
         const modX = distX % (maxX * 2);
         const modY = distY % (maxY * 2);
-        
+
         const x = modX > maxX ? (maxX * 2) - modX : modX;
         const y = modY > maxY ? (maxY * 2) - modY : modY;
-        
-        if (imgRef.current) {
-          imgRef.current.style.transform = `translate(${x}px, ${y}px)`;
-          imgRef.current.style.width = `${wmSize}px`;
-          imgRef.current.style.height = `${wmSize}px`;
-        }
+
+        badge.style.transform = `translate(${x}px, ${y}px)`;
       }
-      
+
       animationFrameId = requestAnimationFrame(animate);
     };
-    
+
     animationFrameId = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [settings]);
+  }, [isEnabled, pattern, isAnimated, settings?.animationSpeed]);
 
-  if (!watermark) return null;
-
-  const staticStyle: React.CSSProperties = {
-    opacity: settings.opacity,
-    position: 'absolute',
-    pointerEvents: 'none',
-    zIndex: 50,
-  };
-
-  if (!settings.isAnimated) {
-    staticStyle.width = `${settings.size}%`;
-    staticStyle.height = `${settings.size}%`;
-    staticStyle.objectFit = 'contain';
-    
-    if (settings.position === 'top-left') { staticStyle.top = '5%'; staticStyle.left = '5%'; }
-    else if (settings.position === 'top-right') { staticStyle.top = '5%'; staticStyle.right = '5%'; }
-    else if (settings.position === 'bottom-left') { staticStyle.bottom = '5%'; staticStyle.left = '5%'; }
-    else if (settings.position === 'bottom-right') { staticStyle.bottom = '5%'; staticStyle.right = '5%'; }
-    else if (settings.position === 'center') { 
-      staticStyle.top = '50%'; staticStyle.left = '50%'; 
-      staticStyle.transform = 'translate(-50%, -50%)';
-    }
-  } else {
-    staticStyle.top = 0;
-    staticStyle.left = 0;
-  }
+  const renderBadgeContent = (extraClass = '') => (
+    <span className={`inline-flex items-center gap-1.5 select-none ${extraClass}`}>
+      {hasLogo && logoSrc && (
+        <img src={logoSrc} className="w-4 h-4 sm:w-5 sm:h-5 object-contain inline shrink-0 drop-shadow" alt="" />
+      )}
+      {hasText && (
+        <span 
+          style={{ 
+            color,
+            textShadow: settings?.shadow !== false ? '0 2px 4px rgba(0,0,0,0.85), 0 0 10px rgba(0,0,0,0.7)' : 'none'
+          }}
+        >
+          {text}
+        </span>
+      )}
+    </span>
+  );
 
   return (
-    <div ref={containerRef} className="absolute inset-0 pointer-events-none overflow-hidden">
-      <img ref={imgRef} src={watermark} style={staticStyle} alt="watermark" />
+    <div ref={containerRef} className="absolute inset-0 pointer-events-none overflow-hidden select-none z-40">
+      <style>{`
+        @keyframes wmPulseAnim {
+          0%, 100% { transform: scale(0.95); opacity: ${Math.max(0.2, opacity * 0.8)}; }
+          50% { transform: scale(1.06); opacity: ${opacity}; filter: drop-shadow(0 0 14px ${color}80); }
+        }
+        @keyframes wmGridDrift {
+          0% { transform: rotate(${angle}deg) translate(0px, 0px); }
+          50% { transform: rotate(${angle}deg) translate(-70px, -45px) scale(1.02); }
+          100% { transform: rotate(${angle}deg) translate(-140px, -90px); }
+        }
+        @keyframes wmMarqueeFlow {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
+        }
+      `}</style>
+
+      {/* 1. Diagonal Repeat Pattern */}
+      {pattern === 'diagonal_repeat' && (
+        <div 
+          className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden"
+          style={{ opacity }}
+        >
+          <div 
+            className="w-[320%] h-[320%] -translate-x-[40%] -translate-y-[40%] flex flex-col justify-around select-none pointer-events-none will-change-transform"
+            style={{ 
+              transform: `rotate(${angle}deg)`,
+              animation: isAnimated ? `wmGridDrift ${driftDuration}s linear infinite alternate` : 'none'
+            }}
+          >
+            {Array.from({ length: 11 }).map((_, rowIdx) => (
+              <div 
+                key={rowIdx} 
+                className="flex justify-around whitespace-nowrap text-xs sm:text-sm font-black tracking-wider"
+                style={{ 
+                  transform: rowIdx % 2 === 1 ? 'translateX(55px)' : 'none'
+                }}
+              >
+                {Array.from({ length: 8 }).map((_, colIdx) => (
+                  <span key={colIdx} className="px-5 py-2.5 inline-flex items-center gap-2 opacity-95">
+                    {renderBadgeContent()}
+                  </span>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 2. Horizontal Bands Pattern */}
+      {pattern === 'horizontal_bands' && (
+        <div 
+          className="absolute inset-0 flex flex-col justify-around pointer-events-none overflow-hidden py-3"
+          style={{ opacity }}
+        >
+          {Array.from({ length: 6 }).map((_, rowIdx) => (
+            <div 
+              key={rowIdx} 
+              className="flex justify-around whitespace-nowrap text-xs font-black tracking-wider py-1 border-y border-white/5 bg-black/10 backdrop-blur-[1px] will-change-transform"
+              style={{
+                animation: isAnimated ? `wmMarqueeFlow ${driftDuration * 0.7}s linear infinite` : 'none'
+              }}
+            >
+              {Array.from({ length: 8 }).map((_, colIdx) => (
+                <span key={colIdx} className="px-4 inline-flex items-center gap-1.5">
+                  {renderBadgeContent()}
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 3. Floating Bouncing Badge */}
+      {pattern === 'floating' && (
+        <div
+          ref={badgeRef}
+          className="absolute top-2 left-2 pointer-events-none will-change-transform"
+          style={{ opacity }}
+        >
+          <div 
+            className="flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-md border shadow-2xl font-black text-xs tracking-wide"
+            style={{
+              backgroundColor: 'rgba(5, 8, 18, 0.85)',
+              borderColor: `${color}45`,
+              color,
+              boxShadow: `0 0 20px ${color}35`
+            }}
+          >
+            {renderBadgeContent()}
+          </div>
+        </div>
+      )}
+
+      {/* 4. Pulsing Corner Badge */}
+      {pattern === 'pulse' && (
+        <div 
+          className="absolute bottom-3 right-3 pointer-events-none"
+          style={{ animation: isAnimated ? 'wmPulseAnim 2.2s ease-in-out infinite' : 'none', opacity }}
+        >
+          <div 
+            className="flex items-center gap-2 px-3 py-1.5 rounded-2xl backdrop-blur-md border shadow-2xl font-black text-xs"
+            style={{
+              backgroundColor: 'rgba(5, 8, 18, 0.85)',
+              borderColor: `${color}50`,
+              color,
+              boxShadow: `0 0 25px ${color}40`
+            }}
+          >
+            {renderBadgeContent()}
+          </div>
+        </div>
+      )}
+
+      {/* 5. Single Fixed Position */}
+      {pattern === 'single_position' && (
+        <div 
+          className={`absolute pointer-events-none p-3 flex ${
+            settings?.position === 'top-left' ? 'top-2 left-2' :
+            settings?.position === 'top-center' ? 'top-2 left-1/2 -translate-x-1/2' :
+            settings?.position === 'top-right' ? 'top-2 right-2' :
+            settings?.position === 'center-left' ? 'top-1/2 left-2 -translate-y-1/2' :
+            settings?.position === 'center' ? 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2' :
+            settings?.position === 'center-right' ? 'top-1/2 right-2 -translate-y-1/2' :
+            settings?.position === 'bottom-left' ? 'bottom-2 left-2' :
+            settings?.position === 'bottom-center' ? 'bottom-2 left-1/2 -translate-x-1/2' :
+            'bottom-2 right-2'
+          }`}
+          style={{ opacity }}
+        >
+          <div 
+            className="flex items-center gap-2 px-3 py-1.5 rounded-2xl backdrop-blur-md border shadow-xl font-black text-xs"
+            style={{
+              backgroundColor: 'rgba(5, 8, 18, 0.85)',
+              borderColor: `${color}40`,
+              color,
+              boxShadow: `0 0 20px ${color}30`
+            }}
+          >
+            {renderBadgeContent()}
+          </div>
+        </div>
+      )}
     </div>
   );
+};
+
+const drawWatermarkOnCanvasHelper = (
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  frame: number,
+  settings: any,
+  wmImg?: HTMLImageElement | null
+) => {
+  if (!settings?.enabled && !wmImg && !(settings?.text && settings.text.trim().length > 0)) return;
+  const opacity = settings?.opacity !== undefined ? settings.opacity : 0.35;
+  const color = settings?.color || '#ffffff';
+  const text = settings?.text || 'Ahmed SVGA • Ahmed SVGA';
+  const pattern: ViewerWatermarkPattern = settings?.pattern || (settings?.mode === 'grid' ? 'diagonal_repeat' : settings?.isAnimated ? 'floating' : settings?.mode || 'diagonal_repeat');
+  const type: ViewerWatermarkType = settings?.type || (wmImg ? (text ? 'both' : 'image') : 'text');
+  const angle = settings?.angle !== undefined ? settings.angle : -25;
+  const hasText = (type === 'text' || type === 'both') && !!text.trim();
+  const hasImage = (type === 'image' || type === 'both') && !!wmImg;
+
+  if (!hasText && !hasImage) return;
+
+  ctx.save();
+  ctx.globalAlpha = Math.max(0.05, Math.min(1.0, opacity));
+
+  const fontSize = Math.max(12, settings?.fontSize || Math.round(Math.min(width, height) * 0.035));
+  ctx.font = `900 ${fontSize}px system-ui, -apple-system, sans-serif`;
+  ctx.fillStyle = color;
+  ctx.textBaseline = 'middle';
+
+  if (settings?.shadow !== false) {
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 2;
+  } else {
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+  }
+
+  const textW = hasText ? ctx.measureText(text).width : 0;
+  const imgSize = hasImage ? Math.max(18, Math.round(fontSize * 1.4)) : 0;
+  const compoundW = textW + (hasImage ? imgSize + (hasText ? 8 : 0) : 0);
+
+  const drawCompoundBadge = (x: number, y: number) => {
+    let curX = x;
+    if (hasImage && wmImg) {
+      ctx.drawImage(wmImg, curX, y - imgSize / 2, imgSize, imgSize);
+      curX += imgSize + (hasText ? 8 : 0);
+    }
+    if (hasText) {
+      ctx.fillText(text, curX, y);
+    }
+  };
+
+  const isAnimated = settings?.isAnimated !== false;
+  const animSpeed = settings?.animationSpeed || 5;
+  const animOffset = isAnimated ? (frame * animSpeed * 1.2) : 0;
+
+  if (pattern === 'diagonal_repeat') {
+    ctx.save();
+    ctx.translate(width / 2, height / 2);
+    ctx.rotate((angle * Math.PI) / 180);
+
+    const stepX = Math.max(120, (settings?.spacingX || 200) + compoundW);
+    const stepY = Math.max(50, settings?.spacingY || 120);
+    const diag = Math.sqrt(width * width + height * height) * 1.5;
+
+    const driftX = isAnimated ? ((animOffset * 1.1) % stepX) : 0;
+    const driftY = isAnimated ? ((animOffset * 0.7) % stepY) : 0;
+
+    let rowIndex = 0;
+    for (let y = -diag - stepY; y <= diag + stepY; y += stepY) {
+      const rowOffset = (rowIndex % 2 === 0) ? 0 : (stepX / 2);
+      for (let x = -diag - stepX; x <= diag + stepX; x += stepX) {
+        drawCompoundBadge(x + rowOffset - compoundW / 2 + driftX, y + driftY);
+      }
+      rowIndex++;
+    }
+    ctx.restore();
+  } else if (pattern === 'horizontal_bands') {
+    ctx.save();
+    const stepY = Math.max(60, settings?.spacingY || 140);
+    const stepX = Math.max(140, (settings?.spacingX || 240) + compoundW);
+    const driftX = isAnimated ? ((animOffset * 1.5) % stepX) : 0;
+    for (let y = 50; y < height; y += stepY) {
+      for (let x = -compoundW - stepX; x < width + compoundW + stepX; x += stepX) {
+        drawCompoundBadge(x + driftX, y);
+      }
+    }
+    ctx.restore();
+  } else if (pattern === 'floating') {
+    const speed = settings?.animationSpeed || 5;
+    const pxPerFrame = speed * 1.5;
+    const badgeW = compoundW + 28;
+    const badgeH = Math.max(fontSize, imgSize) + 16;
+    const maxX = Math.max(1, width - badgeW);
+    const maxY = Math.max(1, height - badgeH);
+    const distX = frame * pxPerFrame;
+    const distY = frame * pxPerFrame * 0.75;
+    const modX = distX % (maxX * 2);
+    const modY = distY % (maxY * 2);
+    const wx = modX > maxX ? (maxX * 2) - modX : modX;
+    const wy = modY > maxY ? (maxY * 2) - modY : modY;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(5, 8, 18, 0.85)';
+    ctx.strokeStyle = `${color}45`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(wx, wy, badgeW, badgeH, 14);
+    else ctx.rect(wx, wy, badgeW, badgeH);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = color;
+    drawCompoundBadge(wx + 14, wy + badgeH / 2);
+    ctx.restore();
+  } else if (pattern === 'pulse') {
+    const scale = 1 + Math.sin(frame * 0.1) * 0.05;
+    const badgeW = (compoundW + 24) * scale;
+    const badgeH = (Math.max(fontSize, imgSize) + 16) * scale;
+    const wx = width - badgeW - 20;
+    const wy = height - badgeH - 20;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(5, 8, 18, 0.85)';
+    ctx.strokeStyle = `${color}50`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(wx, wy, badgeW, badgeH, 14);
+    else ctx.rect(wx, wy, badgeW, badgeH);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = color;
+    drawCompoundBadge(wx + 12, wy + badgeH / 2);
+    ctx.restore();
+  } else {
+    // Single position
+    let px = 20;
+    let py = 20;
+    const margin = 24;
+    switch (settings?.position) {
+      case 'top-left': px = margin; py = margin; break;
+      case 'top-right': px = width - compoundW - margin; py = margin; break;
+      case 'bottom-left': px = margin; py = height - fontSize - margin; break;
+      case 'bottom-right': px = width - compoundW - margin; py = height - fontSize - margin; break;
+      case 'center': px = (width - compoundW) / 2; py = height / 2; break;
+      case 'top-center': px = (width - compoundW) / 2; py = margin; break;
+      case 'bottom-center': px = (width - compoundW) / 2; py = height - fontSize - margin; break;
+      case 'center-left': px = margin; py = height / 2; break;
+      case 'center-right': px = width - compoundW - margin; py = height / 2; break;
+      default: px = width - compoundW - margin; py = height - fontSize - margin;
+    }
+    drawCompoundBadge(px, py + fontSize / 2);
+  }
+
+  ctx.restore();
 };
 
 const extractAudioData = (item: any): Uint8Array | null => {
@@ -382,7 +713,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const [useNativeDuration, setUseNativeDuration] = useState(true);
   const [exportDuration, setExportDuration] = useState(10);
   const [showDurationSpeedModal, setShowDurationSpeedModal] = useState(false);
-  const [gridCols, setGridCols] = useState(3);
+  const [gridCols, setGridCols] = useState(4);
   const [forceMobileSize, setForceMobileSize] = useState(false);
   const initialFilesLoadedRef = useRef(false);
   const [exportResolution, setExportResolution] = useState<'natural' | '720p' | '1080p'>('natural');
@@ -427,13 +758,134 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     fileStatuses: { id: string; name: string; status: 'pending' | 'processing' | 'done' | 'error'; errorMsg?: string }[];
   } | null>(null);
 
-  const [wmSettings, setWmSettings] = useState({
-    position: 'bottom-right' as 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center',
-    size: 15,
-    opacity: 0.5,
-    isAnimated: false,
-    animationSpeed: 5
+  const [pinnedName, setPinnedName] = useState<string>(() => {
+    try {
+      return localStorage.getItem('svga_permanent_watermark_text') || 'Ahmed SVGA • Ahmed SVGA';
+    } catch (e) {
+      return 'Ahmed SVGA • Ahmed SVGA';
+    }
   });
+
+  const [savedPresets, setSavedPresets] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem('svga_saved_watermark_presets');
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return ['Ahmed SVGA • Ahmed SVGA', '🔒 محتوى محمي - يمنع السرقة', 'SVGA AHMED STUDIO'];
+  });
+
+  const [pinnedNotice, setPinnedNotice] = useState<string | null>(null);
+
+  const [wmSettings, setWmSettings] = useState<ViewerWatermarkSettings>(() => {
+    try {
+      const savedText = localStorage.getItem('svga_permanent_watermark_text');
+      const savedRaw = localStorage.getItem('svga_watermark_settings');
+      if (savedRaw) {
+        const parsed = JSON.parse(savedRaw);
+        return {
+          ...parsed,
+          text: savedText || parsed.text || 'Ahmed SVGA • Ahmed SVGA',
+          isAnimated: parsed.isAnimated !== undefined ? parsed.isAnimated : true,
+          animationSpeed: parsed.animationSpeed || 5
+        };
+      }
+      if (savedText) {
+        return {
+          enabled: true,
+          type: 'text',
+          text: savedText,
+          logoUrl: null,
+          pattern: 'diagonal_repeat',
+          position: 'bottom-right',
+          opacity: 0.35,
+          fontSize: 22,
+          color: '#ffffff',
+          angle: -25,
+          spacingX: 200,
+          spacingY: 120,
+          shadow: true,
+          isAnimated: true,
+          animationSpeed: 5
+        };
+      }
+    } catch (e) {}
+    return {
+      enabled: true,
+      type: 'text',
+      text: 'Ahmed SVGA • Ahmed SVGA',
+      logoUrl: null,
+      pattern: 'diagonal_repeat',
+      position: 'bottom-right',
+      opacity: 0.35,
+      fontSize: 22,
+      color: '#ffffff',
+      angle: -25,
+      spacingX: 200,
+      spacingY: 120,
+      shadow: true,
+      isAnimated: true,
+      animationSpeed: 5
+    };
+  });
+
+  // Guarantee permanent localStorage synchronization on every wmSettings change
+  useEffect(() => {
+    try {
+      localStorage.setItem('svga_watermark_settings', JSON.stringify(wmSettings));
+      if (wmSettings.text && wmSettings.text.trim()) {
+        localStorage.setItem('svga_permanent_watermark_text', wmSettings.text.trim());
+      }
+    } catch (e) {}
+  }, [wmSettings]);
+
+  const updateAndSaveWmSettings = (updater: ViewerWatermarkSettings | ((prev: ViewerWatermarkSettings) => ViewerWatermarkSettings)) => {
+    setWmSettings(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      try {
+        localStorage.setItem('svga_watermark_settings', JSON.stringify(next));
+        if (next.text && next.text.trim()) {
+          localStorage.setItem('svga_permanent_watermark_text', next.text.trim());
+        }
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  const pinAsPermanentDefault = (textToPin?: string) => {
+    const text = (textToPin !== undefined ? textToPin : wmSettings.text).trim();
+    if (!text) return;
+    try {
+      localStorage.setItem('svga_permanent_watermark_text', text);
+      setPinnedName(text);
+      updateAndSaveWmSettings(prev => ({ ...prev, text }));
+      setPinnedNotice(`✓ تم تثبيت "${text}" كاسم دائم لك بنجاح! سيتم اعتماده تلقائياً كل مرة.`);
+      setTimeout(() => setPinnedNotice(null), 4500);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const addCustomPreset = (nameToAdd: string) => {
+    const text = nameToAdd.trim();
+    if (!text || savedPresets.includes(text)) return;
+    const updated = [text, ...savedPresets].slice(0, 10);
+    setSavedPresets(updated);
+    try {
+      localStorage.setItem('svga_saved_watermark_presets', JSON.stringify(updated));
+      setPinnedNotice(`✓ تمت إضافة "${text}" إلى قائمة أسمائك السريعة`);
+      setTimeout(() => setPinnedNotice(null), 3000);
+    } catch (e) {}
+  };
+
+  const removeCustomPreset = (nameToRemove: string) => {
+    const updated = savedPresets.filter(p => p !== nameToRemove);
+    setSavedPresets(updated);
+    try {
+      localStorage.setItem('svga_saved_watermark_presets', JSON.stringify(updated));
+    } catch (e) {}
+  };
+
+  const [isWatermarkModalOpen, setIsWatermarkModalOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bgInputRef = useRef<HTMLInputElement>(null);
@@ -1147,7 +1599,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         a.download = `${cleanName}.mp4`;
         a.click();
         URL.revokeObjectURL(url);
-        document.body.removeChild(renderContainer);
+        if (renderContainer && renderContainer.parentNode) {
+          renderContainer.parentNode.removeChild(renderContainer);
+        }
         setIsExporting(false);
         setExportProgress(0);
         return;
@@ -1411,7 +1865,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       } catch (e) {
         console.error("Encoder Configuration Error:", e);
         alert("خطأ في إعدادات ترميز الفيديو: " + (e instanceof Error ? e.message : String(e)));
-        document.body.removeChild(renderContainer);
+        if (renderContainer && renderContainer.parentNode) {
+          renderContainer.parentNode.removeChild(renderContainer);
+        }
         setIsExporting(false);
         setExportProgress(0);
         return;
@@ -1498,32 +1954,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           }
         }
 
-        if (wmImg) {
-          const wmSize = Math.min(canvas.width, canvas.height) * (wmSettings.size / 100);
-          let wx = 0, wy = 0;
-          if (wmSettings.isAnimated) {
-            const speed = wmSettings.animationSpeed || 5;
-            const pxPerFrame = speed * 1.5;
-            const maxX = Math.max(1, canvas.width - wmSize);
-            const maxY = Math.max(1, canvas.height - wmSize);
-            const distX = frame * pxPerFrame;
-            const distY = frame * pxPerFrame * 0.75;
-            const modX = distX % (maxX * 2);
-            const modY = distY % (maxY * 2);
-            wx = modX > maxX ? (maxX * 2) - modX : modX;
-            wy = modY > maxY ? (maxY * 2) - modY : modY;
-          } else {
-            switch(wmSettings.position) {
-              case "top-left": wx = 40; wy = 40; break;
-              case "top-right": wx = canvas.width - wmSize - 40; wy = 40; break;
-              case "bottom-left": wx = 40; wy = canvas.height - wmSize - 40; break;
-              case "bottom-right": wx = canvas.width - wmSize - 40; wy = canvas.height - wmSize - 40; break;
-              case "center": wx = (canvas.width - wmSize) / 2; wy = (canvas.height - wmSize) / 2; break;
-            }
-          }
-          ctx.globalAlpha = wmSettings.opacity;
-          ctx.drawImage(wmImg, wx, wy, wmSize, wmSize);
-          ctx.globalAlpha = 1.0;
+        if (wmSettings.enabled || wmImg) {
+          drawWatermarkOnCanvasHelper(ctx, canvas.width, canvas.height, frame, wmSettings, wmImg);
         }
 
         const timestamp = (frame / targetFps) * 1_000_000;
@@ -1584,7 +2016,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       console.error("Export error:", error);
       alert("حدث خطأ أثناء التصدير.");
     } finally {
-      document.body.removeChild(renderContainer);
+      if (renderContainer && renderContainer.parentNode) {
+        renderContainer.parentNode.removeChild(renderContainer);
+      }
       setIsExporting(false);
       setExportProgress(0);
     }
@@ -1924,19 +2358,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 fCtx.drawImage(internalCanvas, dx, dy, drawW, drawH);
               }
 
-              if (wmImg) {
-                const wmSize = Math.min(finalWidth, finalHeight) * (wmSettings.size / 100);
-                let wx = 0, wy = 0;
-                switch (wmSettings.position) {
-                  case "top-left": wx = 20; wy = 20; break;
-                  case "top-right": wx = finalWidth - wmSize - 20; wy = 20; break;
-                  case "bottom-left": wx = 20; wy = finalHeight - wmSize - 20; break;
-                  case "bottom-right": wx = finalWidth - wmSize - 20; wy = finalHeight - wmSize - 20; break;
-                  case "center": wx = (finalWidth - wmSize) / 2; wy = (finalHeight - wmSize) / 2; break;
-                }
-                fCtx.globalAlpha = wmSettings.opacity;
-                fCtx.drawImage(wmImg, wx, wy, wmSize, wmSize);
-                fCtx.globalAlpha = 1.0;
+              if (wmSettings.enabled || wmImg) {
+                drawWatermarkOnCanvasHelper(fCtx, finalWidth, finalHeight, frame, wmSettings, wmImg);
               }
 
               collectedCanvases.push(frameCanvas);
@@ -2162,32 +2585,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               ctx.drawImage(internalCanvas, dx, dy, drawW, drawH);
             }
 
-            if (wmImg) {
-              const wmSize = Math.min(finalWidth, finalHeight) * (wmSettings.size / 100);
-              let wx = 0, wy = 0;
-              if (wmSettings.isAnimated) {
-                const speed = wmSettings.animationSpeed || 5;
-                const pxPerFrame = speed * 1.5;
-                const maxX = Math.max(1, finalWidth - wmSize);
-                const maxY = Math.max(1, finalHeight - wmSize);
-                const distX = frame * pxPerFrame;
-                const distY = frame * pxPerFrame * 0.75;
-                const modX = distX % (maxX * 2);
-                const modY = distY % (maxY * 2);
-                wx = modX > maxX ? (maxX * 2) - modX : modX;
-                wy = modY > maxY ? (maxY * 2) - modY : modY;
-              } else {
-                switch (wmSettings.position) {
-                  case "top-left": wx = 20; wy = 20; break;
-                  case "top-right": wx = finalWidth - wmSize - 20; wy = 20; break;
-                  case "bottom-left": wx = 20; wy = finalHeight - wmSize - 20; break;
-                  case "bottom-right": wx = finalWidth - wmSize - 20; wy = finalHeight - wmSize - 20; break;
-                  case "center": wx = (finalWidth - wmSize) / 2; wy = (finalHeight - wmSize) / 2; break;
-                }
-              }
-              ctx.globalAlpha = wmSettings.opacity;
-              ctx.drawImage(wmImg, wx, wy, wmSize, wmSize);
-              ctx.globalAlpha = 1.0;
+            if (wmSettings.enabled || wmImg) {
+              drawWatermarkOnCanvasHelper(ctx, finalWidth, finalHeight, frame, wmSettings, wmImg);
             }
 
             const timestamp = (frame / targetFps) * 1_000_000;
@@ -2764,7 +3163,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         try { pagPlayer.destroy?.(); } catch (e) {}
         try { pagSurface?.destroy?.(); } catch (e) {}
       } finally {
-        document.body.removeChild(tmpCanvas);
+        if (tmpCanvas && tmpCanvas.parentNode) {
+          tmpCanvas.parentNode.removeChild(tmpCanvas);
+        }
       }
     } else if (item.type === 'vap') {
       const config = item.vapConfig || (await extractVapConfigFromBlob(item.file));
@@ -2874,36 +3275,19 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     }
 
     // Draw Watermark
-    if (watermark) {
+    if (wmSettings.enabled || watermark) {
       try {
-        const wmImg = await new Promise<HTMLImageElement>((resolve, reject) => {
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          img.onload = () => resolve(img);
-          img.onerror = reject;
-          img.src = watermark;
-        });
-        ctx.globalAlpha = wmSettings.opacity;
-        const wmSize = Math.min(canvas.width, canvas.height) * (wmSettings.size / 100);
-        let wx = 0, wy = 0;
-        
-        // For static image capture, if animated we just place it in center or a calculated position
-        // Since it's a single frame, we just use a default or frame 0 position
-        if (wmSettings.isAnimated) {
-           wx = (canvas.width - wmSize) / 2;
-           wy = (canvas.height - wmSize) / 2;
-        } else {
-          switch(wmSettings.position) {
-            case 'top-left': wx = 20; wy = 20; break;
-            case 'top-right': wx = canvas.width - wmSize - 20; wy = 20; break;
-            case 'bottom-left': wx = 20; wy = canvas.height - wmSize - 20; break;
-            case 'bottom-right': wx = canvas.width - wmSize - 20; wy = canvas.height - wmSize - 20; break;
-            case 'center': wx = (canvas.width - wmSize) / 2; wy = (canvas.height - wmSize) / 2; break;
-          }
+        let wmImg: HTMLImageElement | null = null;
+        if (watermark) {
+          wmImg = await new Promise<HTMLImageElement>((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => resolve(img);
+            img.onerror = reject;
+            img.src = watermark;
+          });
         }
-        
-        ctx.drawImage(wmImg, wx, wy, wmSize, wmSize);
-        ctx.globalAlpha = 1.0;
+        drawWatermarkOnCanvasHelper(ctx, canvas.width, canvas.height, 0, wmSettings, wmImg);
       } catch (e) {
         console.error("Failed to load watermark for capture", e);
       }
@@ -4217,14 +4601,14 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 </span>
               </div>
 
-              {/* Quick Column Pills 1 to 6 */}
+              {/* Quick Column Pills 1 to 8 */}
               <div className="flex items-center justify-between gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
-                {[1, 2, 3, 4, 5, 6].map(num => (
+                {[1, 2, 3, 4, 5, 6, 7, 8].map(num => (
                   <button
                     key={num}
                     type="button"
                     onClick={() => setGridCols(num)}
-                    className={`flex-1 py-1.5 rounded-lg text-xs font-black transition-all ${
+                    className={`flex-1 py-1 rounded-lg text-[11px] font-black transition-all ${
                       gridCols === num 
                         ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 scale-105' 
                         : 'text-slate-400 hover:text-white hover:bg-white/5'
@@ -4724,8 +5108,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-8">
-          <div className="flex items-center gap-3 border-r border-white/10 pr-6">
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-5 w-full">
+          {/* Background selector */}
+          <div className="flex items-center gap-3 bg-white/[0.02] p-4 rounded-2xl border border-white/10 shrink-0">
             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">الخلفية:</span>
             <div className="flex gap-2">
               <button 
@@ -4735,7 +5120,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               >
                 <X className="w-4 h-4 mx-auto text-slate-400" />
               </button>
-              {presetBgs.slice(0, 5).map(bg => (
+              {presetBgs.slice(0, 4).map(bg => (
                 <button 
                   key={bg.id}
                   onClick={() => setPreviewBg(bg.url)}
@@ -4755,72 +5140,256 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">العلامة المائية:</span>
-            <button 
-              onClick={() => watermarkInputRef.current?.click()}
-              className={`px-5 py-2.5 rounded-xl border text-[10px] font-black uppercase transition-all flex items-center gap-2 ${watermark ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400' : 'border-white/10 bg-white/5 text-slate-400'}`}
-            >
-              <ShieldCheck className="w-4 h-4" />
-              {watermark ? 'تم التحديد' : 'رفع شعار'}
-            </button>
-            {watermark && (
-              <div className="flex items-center gap-4 ml-2">
-                <select 
-                  value={wmSettings.position}
-                  onChange={(e) => setWmSettings(prev => ({ ...prev, position: e.target.value as any }))}
-                  className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-[10px] text-white focus:outline-none"
-                  disabled={wmSettings.isAnimated}
+          {/* EXACT Anti-Theft Watermark Card as in User Screenshot */}
+          <div className="flex-1 max-w-2xl bg-[#090d1c] border border-pink-500/30 hover:border-pink-500/50 rounded-2xl p-4 sm:p-5 space-y-3 shadow-[0_0_25px_rgba(244,63,94,0.15)] transition-all">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 bg-pink-500/20 rounded-2xl flex items-center justify-center border border-pink-500/30 shrink-0">
+                  <Shield className="w-5 h-5 text-pink-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white flex items-center gap-2">
+                    علامة مائية متحركة لمنع السرقة
+                    {wmSettings.enabled && (
+                      <span className="w-2 h-2 rounded-full bg-pink-500 animate-ping" />
+                    )}
+                  </h3>
+                  <p className="text-[11px] text-slate-400 font-medium">تتنقل باستمرار عبر الإطارات لتصعيب السرقة والقص</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={wmSettings.enabled}
+                    onChange={(e) => setWmSettings(prev => ({ ...prev, enabled: e.target.checked }))}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:right-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-pink-600 shadow-inner"></div>
+                </label>
+
+                <button
+                  type="button"
+                  onClick={() => setIsWatermarkModalOpen(true)}
+                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-[11px] font-bold transition-all border border-white/10"
+                  title="خيارات متقدمة ورفع شعار"
                 >
-                  <option value="top-left">أعلى يسار</option>
-                  <option value="top-right">أعلى يمين</option>
-                  <option value="bottom-left">أسفل يسار</option>
-                  <option value="bottom-right">أسفل يمين</option>
-                  <option value="center">منتصف</option>
-                </select>
-                <div className="flex flex-col gap-1">
-                  <span className="text-[8px] text-slate-500 uppercase font-black">الحجم</span>
-                  <input 
-                    type="range" min="5" max="100" value={wmSettings.size} 
-                    onChange={(e) => setWmSettings(prev => ({ ...prev, size: parseInt(e.target.value) }))}
-                    className="w-16 accent-indigo-500"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-[8px] text-slate-500 uppercase font-black">الشفافية</span>
-                  <input 
-                    type="range" min="0.1" max="1" step="0.1" value={wmSettings.opacity} 
-                    onChange={(e) => setWmSettings(prev => ({ ...prev, opacity: parseFloat(e.target.value) }))}
-                    className="w-16 accent-indigo-500"
-                  />
-                </div>
-                <div className="flex items-center gap-2 border-r border-white/10 pr-4 ml-2">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input 
-                      type="checkbox" 
-                      checked={wmSettings.isAnimated}
-                      onChange={(e) => setWmSettings(prev => ({ ...prev, isAnimated: e.target.checked }))}
-                      className="accent-indigo-500"
-                    />
-                    <span className="text-[10px] text-slate-300 font-bold">متحرك</span>
-                  </label>
-                  {wmSettings.isAnimated && (
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[8px] text-slate-500 uppercase font-black">السرعة</span>
-                      <input 
-                        type="range" min="1" max="10" value={wmSettings.animationSpeed} 
-                        onChange={(e) => setWmSettings(prev => ({ ...prev, animationSpeed: parseInt(e.target.value) }))}
-                        className="w-16 accent-indigo-500"
+                  خيارات متقدمة ⚙️
+                </button>
+              </div>
+            </div>
+
+            {wmSettings.enabled && (
+              <div className="space-y-3 pt-2 border-t border-white/5 animate-in fade-in duration-300">
+                {/* Notification toast for permanent pin */}
+                {pinnedNotice && (
+                  <div className="text-[11px] font-bold text-emerald-300 bg-emerald-950/70 border border-emerald-500/40 p-2 rounded-xl flex items-center gap-1.5 animate-in fade-in duration-200 shadow-md">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span>{pinnedNotice}</span>
+                  </div>
+                )}
+
+                {/* Text and Color Row with Pin Button */}
+                <div className="flex flex-col sm:flex-row items-center gap-2">
+                  <div className="flex items-center gap-1.5 bg-black/40 p-1.5 rounded-xl border border-white/5 shrink-0">
+                    {([
+                      { color: '#be185d', label: 'وردي داكن' },
+                      { color: '#0284c7', label: 'أزرق سماوي' },
+                      { color: '#ca8a04', label: 'ذهبي' },
+                      { color: '#ffffff', label: 'أبيض' }
+                    ] as const).map(({ color, label }) => (
+                      <button
+                        key={color}
+                        type="button"
+                        onClick={() => updateAndSaveWmSettings(prev => ({ ...prev, color }))}
+                        style={{ backgroundColor: color }}
+                        className={`w-6 h-6 rounded-lg transition-transform cursor-pointer ${
+                          wmSettings.color.toLowerCase() === color.toLowerCase() 
+                            ? 'scale-110 ring-2 ring-white shadow-md' 
+                            : 'opacity-70 hover:opacity-100'
+                        }`}
+                        title={label}
                       />
+                    ))}
+                  </div>
+
+                  <div className="flex-1 flex items-center gap-1.5 w-full">
+                    <input
+                      type="text"
+                      value={wmSettings.text}
+                      onChange={(e) => updateAndSaveWmSettings(prev => ({ ...prev, text: e.target.value }))}
+                      placeholder="🔒 اكتب اسمك أو علامتك المائية"
+                      className="flex-1 bg-black/40 text-white text-xs font-bold px-3 py-2 rounded-xl border border-white/10 focus:outline-none focus:ring-1 focus:ring-pink-500 text-right"
+                    />
+
+                    {/* Pin as Permanent Default Button */}
+                    <button
+                      type="button"
+                      onClick={() => pinAsPermanentDefault()}
+                      className={`px-3 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shrink-0 border cursor-pointer select-none ${
+                        wmSettings.text.trim() === pinnedName.trim()
+                          ? 'bg-amber-500/25 text-amber-200 border-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.3)]'
+                          : 'bg-white/5 hover:bg-amber-500/20 text-slate-300 hover:text-amber-200 border-white/10 hover:border-amber-400/40'
+                      }`}
+                      title="تثبيت هذا الاسم كاسمك الافتراضي الدائم، لتجده دائماً جاهزاً في كل مرة تفتح فيها الموقع لتسريع عملك"
+                    >
+                      <Pin className={`w-3.5 h-3.5 ${wmSettings.text.trim() === pinnedName.trim() ? 'text-amber-400 fill-amber-400' : 'text-slate-400'}`} />
+                      <span className="hidden xs:inline">
+                        {wmSettings.text.trim() === pinnedName.trim() ? 'مثبت دائماً ✓' : 'تثبيت دائم 📌'}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quick Presets & Permanent Name Chips Row */}
+                <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                  <span className="text-[10px] text-amber-300 font-black flex items-center gap-1">
+                    <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
+                    <span>أسمائي السريعة:</span>
+                  </span>
+
+                  {/* 1. Permanent Default Button */}
+                  {pinnedName && (
+                    <button
+                      type="button"
+                      onClick={() => updateAndSaveWmSettings(prev => ({ ...prev, text: pinnedName }))}
+                      className={`px-2 py-0.5 rounded-lg border text-[10px] font-black transition-all flex items-center gap-1 cursor-pointer ${
+                        wmSettings.text === pinnedName 
+                          ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md font-black' 
+                          : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 border-amber-500/30'
+                      }`}
+                      title="استعادة اسمك المثبت دائماً بضغطة واحدة"
+                    >
+                      <span>📌 {pinnedName}</span>
+                      <span className="text-[8px] px-1 py-0.2 rounded bg-black/40 text-amber-200 font-mono">دائم</span>
+                    </button>
+                  )}
+
+                  {/* 2. Other Saved Presets */}
+                  {savedPresets.filter(p => p !== pinnedName).map(preset => (
+                    <div key={preset} className="inline-flex items-center">
+                      <button
+                        type="button"
+                        onClick={() => updateAndSaveWmSettings(prev => ({ ...prev, text: preset }))}
+                        className={`px-2 py-0.5 rounded-lg border text-[10px] font-bold transition-all cursor-pointer ${
+                          wmSettings.text === preset
+                            ? 'bg-pink-600 text-white border-pink-400 shadow-sm'
+                            : 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border-white/5'
+                        }`}
+                      >
+                        {preset}
+                      </button>
+                    </div>
+                  ))}
+
+                  {/* 3. Add Current Text to Presets */}
+                  {wmSettings.text && !savedPresets.includes(wmSettings.text) && (
+                    <button
+                      type="button"
+                      onClick={() => addCustomPreset(wmSettings.text)}
+                      className="px-2 py-0.5 rounded-lg bg-pink-500/10 hover:bg-pink-500/20 text-pink-300 border border-pink-500/30 text-[9px] font-bold transition-all cursor-pointer"
+                      title="إضافة الاسم المكتوب حالياً إلى القائمة السريعة"
+                    >
+                      + حفظ بالقائمة
+                    </button>
+                  )}
+                </div>
+
+                {/* 4 Mode Buttons exactly matching screenshot */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 bg-black/40 p-1 rounded-xl border border-white/5">
+                  {[
+                    { id: 'floating', label: 'عائمة ومتحركة 🪄' },
+                    { id: 'horizontal_bands', label: 'انسياب قطري 📜' },
+                    { id: 'diagonal_repeat', label: 'شبكة مكررة 🛡️' },
+                    { id: 'pulse', label: 'نبض بالزاوية 💫' }
+                  ].map(st => (
+                    <button
+                      key={st.id}
+                      type="button"
+                      onClick={() => updateAndSaveWmSettings(prev => ({ ...prev, pattern: st.id as any }))}
+                      className={`py-2 px-2 rounded-lg text-[11px] font-black transition-all cursor-pointer text-center ${
+                        wmSettings.pattern === st.id 
+                          ? 'bg-pink-600 text-white shadow-md shadow-pink-600/30' 
+                          : 'text-slate-400 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      {st.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Dedicated Watermark Motion & Animation Control Row (أوبشن تحريك العلامة المائية) */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 p-2.5 rounded-xl bg-black/40 border border-pink-500/20">
+                  <div className="flex items-center gap-2">
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={wmSettings.isAnimated !== false}
+                        onChange={(e) => updateAndSaveWmSettings(prev => ({ ...prev, isAnimated: e.target.checked }))}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:right-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-pink-500 shadow-inner"></div>
+                    </label>
+
+                    <div className="flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-pink-400 animate-pulse" />
+                      <span className="text-xs font-black text-white">
+                        تحريك العلامة المائية مستمراً 🎬
+                      </span>
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                        wmSettings.isAnimated !== false 
+                          ? 'bg-pink-500/25 text-pink-200 border border-pink-500/40' 
+                          : 'bg-white/5 text-slate-400 border border-white/10'
+                      }`}>
+                        {wmSettings.isAnimated !== false ? 'مفعلة (متحركة عبر الفيديو) ✓' : 'ثابتة'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Motion Speed Selector */}
+                  {wmSettings.isAnimated !== false && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-slate-400 font-bold">سرعة الحركة:</span>
+                      <div className="flex items-center gap-1">
+                        {[
+                          { speed: 2, label: 'بطيء 🐢' },
+                          { speed: 5, label: 'عادي ⚡' },
+                          { speed: 8, label: 'سريع 🚀' },
+                        ].map(s => (
+                          <button
+                            key={s.speed}
+                            type="button"
+                            onClick={() => updateAndSaveWmSettings(prev => ({ ...prev, animationSpeed: s.speed }))}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                              (wmSettings.animationSpeed || 5) === s.speed
+                                ? 'bg-pink-600 text-white border-pink-400 shadow-md font-black'
+                                : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/5'
+                            }`}
+                          >
+                            {s.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
-                <button onClick={() => setWatermark(null)} className="text-red-500 hover:text-red-400 ml-2">
-                  <X className="w-4 h-4" />
-                </button>
+
+                {/* Opacity slider with pink accent */}
+                <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
+                  <span className="font-bold">الشفافية: {Math.round(wmSettings.opacity * 100)}%</span>
+                  <input
+                    type="range"
+                    min={0.15}
+                    max={0.9}
+                    step={0.05}
+                    value={wmSettings.opacity}
+                    onChange={(e) => updateAndSaveWmSettings(prev => ({ ...prev, opacity: parseFloat(e.target.value) }))}
+                    className="w-48 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-pink-500"
+                  />
+                </div>
               </div>
             )}
-            <input type="file" ref={watermarkInputRef} className="hidden" accept="image/*" onChange={(e) => e.target.files?.[0] && setWatermark(URL.createObjectURL(e.target.files[0]))} />
           </div>
         </div>
       </div>
@@ -4983,7 +5552,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 >
                   {previewBg && <img src={previewBg} alt="Background" className="absolute inset-0 w-full h-full object-cover z-0" referrerPolicy="no-referrer" />}
                   <SvgaPlayer item={selectedItem} />
-                  {watermark && <WatermarkOverlay watermark={watermark} settings={wmSettings} />}
+                  {(wmSettings?.enabled || watermark) && <WatermarkOverlay watermark={watermark} settings={wmSettings} />}
                 </div>
               </div>
 
@@ -5026,6 +5595,24 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           </div>
         )}
       </AnimatePresence>
+
+      {/* Comprehensive Watermark Studio Modal */}
+      <MultiSvgaWatermarkModal
+        isOpen={isWatermarkModalOpen}
+        onClose={() => setIsWatermarkModalOpen(false)}
+        settings={wmSettings}
+        onSave={(newSettings) => {
+          updateAndSaveWmSettings(newSettings);
+          if (newSettings.logoUrl) {
+            setWatermark(newSettings.logoUrl);
+          }
+        }}
+        watermarkLogo={watermark}
+        onLogoChange={(url) => {
+          setWatermark(url);
+          updateAndSaveWmSettings(prev => ({ ...prev, logoUrl: url }));
+        }}
+      />
 
       {/* VAP Batch Export Progress Modal */}
       <AnimatePresence>
@@ -5209,6 +5796,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           onVideoDurationSpeedOpen={() => setShowDurationSpeedModal(true)}
           exportDuration={exportDuration}
           useNativeDuration={useNativeDuration}
+          onOpenWatermarkModal={() => setIsWatermarkModalOpen(true)}
+          wmSettings={wmSettings}
         />
       )}
 
@@ -5983,22 +6572,22 @@ const SvgaCard: React.FC<{
     ? (selectedPreset.height / selectedPreset.width) 
     : (itemHeight / (itemWidth || 1));
 
-  const cols = gridCols || 3;
-  const baseH = cols <= 1 ? 420 : cols === 2 ? 370 : cols === 3 ? 310 : cols === 4 ? 260 : 210;
-  const cardPreviewHeight = Math.min(560, Math.max(170, Math.round(effectiveRatio * baseH)));
+  const cols = gridCols || 4;
+  const baseH = cols <= 1 ? 360 : cols === 2 ? 300 : cols === 3 ? 240 : cols === 4 ? 190 : cols === 5 ? 160 : 140;
+  const cardPreviewHeight = Math.min(420, Math.max(130, Math.round(effectiveRatio * baseH)));
 
   return (
     <motion.div 
       layout
-      initial={{ opacity: 0, scale: 0.9, y: 20 }}
+      initial={{ opacity: 0, scale: 0.95, y: 10 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.9, y: 20 }}
-      className="group relative bg-white/5 rounded-[2.5rem] border border-white/10 overflow-hidden hover:border-indigo-500/50 transition-all duration-300 hover:shadow-2xl hover:shadow-indigo-500/10 flex flex-col w-full min-w-0"
+      exit={{ opacity: 0, scale: 0.95, y: 10 }}
+      className="group relative bg-slate-900/60 hover:bg-slate-900/90 rounded-2xl border border-white/10 overflow-hidden hover:border-indigo-500/50 transition-all duration-300 hover:shadow-xl flex flex-col w-full min-w-0"
     >
       {/* Preview Area - Forced Ratio */}
       <div 
         ref={wrapperRef}
-        className="relative bg-slate-950/60 flex items-center justify-center overflow-hidden w-full"
+        className="relative bg-slate-950/70 flex items-center justify-center overflow-hidden w-full"
         style={{ height: `${cardPreviewHeight}px` }}
       >
         {previewBg && <img src={previewBg} alt="Background" className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none" referrerPolicy="no-referrer" />}
@@ -6013,18 +6602,18 @@ const SvgaCard: React.FC<{
         />
 
         {/* Watermark */}
-        {watermark && <WatermarkOverlay watermark={watermark} settings={wmSettings} />}
+        {(wmSettings?.enabled || watermark) && <WatermarkOverlay watermark={watermark} settings={wmSettings} />}
         
         {/* Selection Checkbox */}
         {onToggleSelect && (
-          <div className={`absolute top-4 left-4 z-30 transition-opacity duration-300 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+          <div className={`absolute top-2.5 left-2.5 z-30 transition-opacity duration-300 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
             <button
               onClick={onToggleSelect}
-              className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${
-                isSelected ? "bg-indigo-500 border-indigo-500 text-white shadow-lg shadow-indigo-500/20" : "bg-black/40 backdrop-blur-md border-white/50 hover:border-white hover:bg-black/60 text-transparent"
+              className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all cursor-pointer ${
+                isSelected ? "bg-indigo-500 border-indigo-500 text-white shadow-lg shadow-indigo-500/30" : "bg-black/50 backdrop-blur-md border-white/50 hover:border-white hover:bg-black/70 text-transparent"
               }`}
             >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12"></polyline>
               </svg>
             </button>
@@ -6033,49 +6622,49 @@ const SvgaCard: React.FC<{
         
         {/* Audio Badge */}
         {hasAudio && (
-          <div className={`absolute ${onToggleSelect ? 'top-14' : 'top-4'} left-4 z-20 px-3 py-1.5 bg-indigo-500/80 backdrop-blur-md border border-indigo-400/50 rounded-xl flex items-center gap-2 shadow-lg`}>
-            <Volume2 className="w-4 h-4 text-white" />
-            <span className="text-[10px] font-black text-white uppercase tracking-wider">يحتوي صوت</span>
+          <div className={`absolute ${onToggleSelect ? 'top-10' : 'top-2.5'} left-2.5 z-20 px-2 py-0.5 bg-indigo-500/80 backdrop-blur-md border border-indigo-400/50 rounded-lg flex items-center gap-1 shadow-md`}>
+            <Volume2 className="w-3 h-3 text-white" />
+            <span className="text-[8px] font-black text-white uppercase tracking-wider">صوت</span>
           </div>
         )}
 
         {/* Info Badge */}
-        <div className="absolute bottom-4 left-4 flex flex-col gap-1 z-20">
-          <div className="px-3 py-1.5 bg-black/60 backdrop-blur-md border border-white/10 rounded-xl flex items-center gap-2">
-            <span className="text-[10px] font-black text-white">
-              {selectedPreset ? `${selectedPreset.width} × ${selectedPreset.height}` : `${itemWidth} × ${itemHeight}`}
+        <div className="absolute bottom-2.5 left-2.5 flex flex-col gap-1 z-20">
+          <div className="px-2 py-0.5 bg-black/60 backdrop-blur-md border border-white/10 rounded-lg flex items-center gap-1.5">
+            <span className="text-[9px] font-black text-white font-mono">
+              {selectedPreset ? `${selectedPreset.width}×${selectedPreset.height}` : `${itemWidth}×${itemHeight}`}
             </span>
-            {isPortrait ? <Smartphone className="w-3 h-3 text-sky-400" /> : <Monitor className="w-3 h-3 text-indigo-400" />}
+            {isPortrait ? <Smartphone className="w-2.5 h-2.5 text-sky-400" /> : <Monitor className="w-2.5 h-2.5 text-indigo-400" />}
           </div>
           {selectedPreset && (
-            <div className="px-2 py-0.5 bg-indigo-500/20 border border-indigo-500/30 rounded-lg text-[8px] font-black text-indigo-300 uppercase tracking-tighter text-center">
-              مقاس إجباري (Fill)
+            <div className="px-1.5 py-0.5 bg-indigo-500/20 border border-indigo-500/30 rounded text-[7px] font-black text-indigo-300 uppercase tracking-tighter text-center">
+              Fill
             </div>
           )}
         </div>
         
         {/* Overlay Controls */}
-        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center justify-center gap-6 z-20">
-          <div className="flex items-center gap-4">
+        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col items-center justify-center gap-3 z-20 pointer-events-auto">
+          <div className="flex items-center gap-3">
             <button 
               onClick={togglePlay}
-              className="w-12 h-12 bg-white text-black rounded-full flex items-center justify-center hover:scale-110 transition-transform"
+              className="w-9 h-9 bg-white text-black rounded-full flex items-center justify-center hover:scale-110 transition-transform shadow-lg cursor-pointer"
             >
-              {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-1" />}
+              {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
             </button>
             <button 
               onClick={replay}
-              className="w-12 h-12 bg-white/20 backdrop-blur-md text-white rounded-full flex items-center justify-center hover:scale-110 transition-transform"
+              className="w-9 h-9 bg-white/20 backdrop-blur-md text-white rounded-full flex items-center justify-center hover:scale-110 transition-transform shadow-lg cursor-pointer"
             >
-              <RotateCcw className="w-6 h-6" />
+              <RotateCcw className="w-4 h-4" />
             </button>
           </div>
 
           {/* Zoom Slider */}
-          <div className="w-48 px-4 py-3 bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 flex flex-col gap-2">
-            <div className="flex justify-between items-center">
-              <span className="text-[10px] font-black text-white uppercase tracking-widest">تكبير العرض (Zoom)</span>
-              <span className="text-[10px] font-black text-indigo-400">{Math.round(zoom * 100)}%</span>
+          <div className="w-36 px-3 py-1.5 bg-black/70 backdrop-blur-md rounded-xl border border-white/10 flex flex-col gap-1">
+            <div className="flex justify-between items-center text-[8px] font-black text-white">
+              <span>Zoom</span>
+              <span className="text-indigo-400 font-mono">{Math.round(zoom * 100)}%</span>
             </div>
             <input 
               type="range" 
@@ -6084,124 +6673,129 @@ const SvgaCard: React.FC<{
               step="0.1" 
               value={zoom} 
               onChange={(e) => setZoom(parseFloat(e.target.value))}
-              className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
             />
           </div>
         </div>
 
-        {/* Top Right Actions */}
-        <div className="absolute top-4 right-4 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20">
+        {/* Sleek Top Right Action Pill Toolbar */}
+        <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-30 bg-black/70 backdrop-blur-md p-1 rounded-xl border border-white/15 shadow-xl">
           <button 
             onClick={onRemove}
-            className="w-10 h-10 bg-red-500/20 backdrop-blur-md text-red-500 rounded-xl flex items-center justify-center hover:bg-red-500 hover:text-white transition-all"
+            className="w-7 h-7 bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white rounded-lg flex items-center justify-center transition-all cursor-pointer"
+            title="حذف"
           >
-            <Trash2 className="w-5 h-5" />
+            <Trash2 className="w-3.5 h-3.5" />
           </button>
           <button 
             onClick={onMaximize}
-            className="w-10 h-10 bg-indigo-500/20 backdrop-blur-md text-indigo-400 rounded-xl flex items-center justify-center hover:bg-indigo-500 hover:text-white transition-all"
+            className="w-7 h-7 bg-indigo-500/20 hover:bg-indigo-500 text-indigo-300 hover:text-white rounded-lg flex items-center justify-center transition-all cursor-pointer"
+            title="تكبير كامل"
           >
-            <Maximize2 className="w-5 h-5" />
-          </button>
-          <button 
-            onClick={onDownloadGiftBundle || onDownloadSvga}
-            className="w-10 h-10 bg-amber-500/20 backdrop-blur-md text-amber-300 rounded-xl flex items-center justify-center hover:bg-amber-500 hover:text-white transition-all shadow-lg shadow-amber-500/10"
-            title="تنزيل حزمة الهدية (الملف + أحلى كادر صورة في ملف ZIP)"
-          >
-            <Gift className="w-5 h-5" />
-          </button>
-          <button 
-            onClick={onDownload}
-            className="w-10 h-10 bg-emerald-500/20 backdrop-blur-md text-emerald-400 rounded-xl flex items-center justify-center hover:bg-emerald-500 hover:text-white transition-all"
-            title="تنزيل صورة"
-          >
-            <Camera className="w-5 h-5" />
-          </button>
-          <button 
-            onClick={onDownloadSvga}
-            className="w-10 h-10 bg-blue-500/20 backdrop-blur-md text-blue-400 rounded-xl flex items-center justify-center hover:bg-blue-500 hover:text-white transition-all"
-            title={item.type === 'vap' ? "تنزيل ملف VAP" : item.type === 'pag' ? "تنزيل ملف PAG" : "تنزيل ملف SVGA"}
-          >
-            <Download className="w-5 h-5" />
+            <Maximize2 className="w-3.5 h-3.5" />
           </button>
           {onExportVideo && (
             <button 
               onClick={onExportVideo}
-              className={`w-10 h-10 ${item.type === 'vap' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'bg-purple-500/20 text-purple-400'} backdrop-blur-md rounded-xl flex items-center justify-center hover:bg-purple-500 hover:text-white transition-all`}
-              title={item.type === 'vap' ? "تصدير VAP إلى MP4" : "تصدير كفيديو MP4"}
+              className={`w-7 h-7 ${item.type === 'vap' ? 'bg-indigo-600 text-white' : 'bg-purple-500/20 text-purple-300 hover:bg-purple-600 hover:text-white'} rounded-lg flex items-center justify-center transition-all cursor-pointer`}
+              title={item.type === 'vap' ? "تصدير VAP إلى MP4" : "تصدير MP4"}
             >
-              <Video className="w-5 h-5" />
+              <Video className="w-3.5 h-3.5" />
             </button>
           )}
           <button 
-            onClick={() => setShowItemControls(!showItemControls)}
-            className={`w-10 h-10 backdrop-blur-md rounded-xl flex items-center justify-center transition-all ${showItemControls ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30' : 'bg-purple-500/20 text-purple-300 hover:bg-purple-500 hover:text-white'}`}
-            title="أدوات تحكم الهدية المستقلة (الشفافية، الحجم، الموضع)"
+            onClick={onDownloadSvga}
+            className="w-7 h-7 bg-blue-500/20 hover:bg-blue-600 text-blue-300 hover:text-white rounded-lg flex items-center justify-center transition-all cursor-pointer"
+            title="تنزيل الملف"
           >
-            <SlidersHorizontal className="w-5 h-5" />
+            <Download className="w-3.5 h-3.5" />
+          </button>
+          <button 
+            onClick={onDownload}
+            className="w-7 h-7 bg-emerald-500/20 hover:bg-emerald-600 text-emerald-300 hover:text-white rounded-lg flex items-center justify-center transition-all cursor-pointer"
+            title="لقطة صورة"
+          >
+            <Camera className="w-3.5 h-3.5" />
+          </button>
+          <button 
+            onClick={onDownloadGiftBundle || onDownloadSvga}
+            className="w-7 h-7 bg-amber-500/20 hover:bg-amber-600 text-amber-300 hover:text-white rounded-lg flex items-center justify-center transition-all cursor-pointer"
+            title="حزمة الهدية (الملف + أحلى كادر)"
+          >
+            <Gift className="w-3.5 h-3.5" />
+          </button>
+          <button 
+            onClick={() => setShowItemControls(!showItemControls)}
+            className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all cursor-pointer ${showItemControls ? 'bg-purple-600 text-white' : 'bg-white/10 hover:bg-white/20 text-slate-300'}`}
+            title="أدوات تحكم الهدية"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
           </button>
           <button 
             onClick={() => setShowInfo(!showInfo)}
-            className={`w-10 h-10 backdrop-blur-md rounded-xl flex items-center justify-center transition-all ${showInfo ? 'bg-indigo-500 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
+            className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all cursor-pointer ${showInfo ? 'bg-indigo-500 text-white' : 'bg-white/10 hover:bg-white/20 text-slate-300'}`}
+            title="معلومات الملف"
           >
-            <Info className="w-5 h-5" />
+            <Info className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
 
       {/* Info Footer */}
-      <div className="p-5 bg-white/[0.02] z-10">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2 truncate max-w-[170px]">
+      <div className="p-2.5 sm:p-3 bg-white/[0.02] z-10 border-t border-white/5 flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-1.5">
+          <div className="flex items-center gap-1.5 truncate flex-1 min-w-0">
             {item.type === 'vap' && (
-              <span className="px-1.5 py-0.5 rounded bg-indigo-500/30 border border-indigo-400/40 text-[9px] font-black text-indigo-300 uppercase shrink-0">
+              <span className="px-1.5 py-0.5 rounded bg-indigo-500/30 border border-indigo-400/40 text-[8px] font-black text-indigo-300 uppercase shrink-0">
                 VAP
               </span>
             )}
             {item.type === 'pag' && (
-              <span className="px-1.5 py-0.5 rounded bg-amber-500/30 border border-amber-400/40 text-[9px] font-black text-amber-300 uppercase shrink-0">
+              <span className="px-1.5 py-0.5 rounded bg-amber-500/30 border border-amber-400/40 text-[8px] font-black text-amber-300 uppercase shrink-0">
                 PAG
               </span>
             )}
-            <h4 className="text-white font-black text-sm truncate" title={item.name}>
+            {item.type !== 'vap' && item.type !== 'pag' && (
+              <span className="px-1.5 py-0.5 rounded bg-blue-500/20 border border-blue-400/30 text-[8px] font-black text-blue-300 uppercase shrink-0">
+                SVGA
+              </span>
+            )}
+            <h4 className="text-white font-bold text-xs truncate" title={item.name}>
               {item.name}
             </h4>
           </div>
-          <span className="text-[10px] text-slate-500 font-bold">
+          <span className="text-[9px] text-slate-400 font-mono font-bold shrink-0">
             {(item.size / 1024).toFixed(1)} KB
           </span>
         </div>
         
-        {/* Preset Selector */}
-        <select 
-          value={item.presetId}
-          onChange={(e) => onUpdatePreset(e.target.value)}
-          className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white font-black uppercase tracking-widest focus:outline-none focus:border-indigo-500 transition-all mb-2"
-        >
-          <option value="auto">تلقائي (Native)</option>
-          {DEVICE_PRESETS.map(p => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
+        {/* Preset Selector & Custom Button Row */}
+        <div className="flex items-center gap-1.5">
+          <select 
+            value={item.presetId}
+            onChange={(e) => onUpdatePreset(e.target.value)}
+            className="flex-1 bg-black/40 border border-white/10 rounded-lg px-2 py-1 text-[9px] text-slate-300 font-bold focus:outline-none focus:border-indigo-500 transition-all"
+          >
+            <option value="auto">تلقائي (Native)</option>
+            {DEVICE_PRESETS.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
 
-        {/* Toggle Independent Controls Panel Button */}
-        <button
-          type="button"
-          onClick={() => setShowItemControls(!showItemControls)}
-          className={`w-full py-2 px-3 rounded-xl border text-[11px] font-black flex items-center justify-between transition-all mb-3 cursor-pointer ${
-            showItemControls 
-              ? 'bg-purple-500/20 border-purple-500/50 text-purple-200 shadow-sm' 
-              : 'bg-white/5 border-white/10 text-slate-300 hover:text-white hover:bg-white/10'
-          }`}
-        >
-          <span className="flex items-center gap-2">
-            <SlidersHorizontal className="w-3.5 h-3.5 text-purple-400" />
-            تحكم الهدية (الشفافية، الحجم، الموضع)
-          </span>
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/30 text-purple-200">
-            مستقل
-          </span>
-        </button>
+          <button
+            type="button"
+            onClick={() => setShowItemControls(!showItemControls)}
+            className={`px-2 py-1 rounded-lg border text-[9px] font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
+              showItemControls 
+                ? 'bg-purple-500/25 border-purple-500/50 text-purple-200' 
+                : 'bg-white/5 border-white/10 text-slate-400 hover:text-white hover:bg-white/10'
+            }`}
+            title="تحكم مخصص للهدية"
+          >
+            <SlidersHorizontal className="w-3 h-3 text-purple-400" />
+            <span>تخصيص</span>
+          </button>
+        </div>
 
         {/* Dedicated Independent Controls Panel for this SVGA Item */}
         <AnimatePresence>
@@ -6210,7 +6804,7 @@ const SvgaCard: React.FC<{
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden mb-4 p-3.5 bg-slate-900/90 border border-purple-500/30 rounded-2xl space-y-3 shadow-inner"
+              className="overflow-hidden p-2.5 bg-slate-900/90 border border-purple-500/30 rounded-xl space-y-2.5 shadow-inner"
             >
               <div className="flex items-center justify-between text-[10px] font-black text-purple-300 border-b border-white/5 pb-1.5">
                 <span>تخصيص الهدية الحالية فقط</span>

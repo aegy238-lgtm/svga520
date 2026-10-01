@@ -5,7 +5,7 @@ import {
   Type, Check, Image as ImageIcon, Plus, Move, RotateCw, ZoomIn, 
   ZoomOut, Maximize2, Minimize2, AlertCircle, CheckCircle2, 
   ArrowUp, ArrowDown, Shuffle, FileText, Smartphone, Monitor,
-  SlidersHorizontal, X, Lock, Unlock, HelpCircle
+  SlidersHorizontal, X, Lock, Unlock, HelpCircle, Pin, Star
 } from 'lucide-react';
 
 export interface CollageImageItem {
@@ -83,7 +83,13 @@ export const ImageCollageStudio: React.FC<ImageCollageStudioProps> = ({ onBack, 
   // --- Watermark Engine ---
   const [watermarkEnabled, setWatermarkEnabled] = useState<boolean>(true);
   const [watermarkType, setWatermarkType] = useState<'text' | 'image'>('text');
-  const [watermarkText, setWatermarkText] = useState<string>('Ahmed SVGA • SVGA Studio');
+  const [watermarkText, setWatermarkText] = useState<string>(() => {
+    try {
+      return localStorage.getItem('svga_permanent_watermark_text') || 'Ahmed SVGA • SVGA Studio';
+    } catch (e) {
+      return 'Ahmed SVGA • SVGA Studio';
+    }
+  });
   const [watermarkLogoUrl, setWatermarkLogoUrl] = useState<string | null>(null);
   const [watermarkPattern, setWatermarkPattern] = useState<WatermarkPatternMode>('diagonal_repeat');
   const [watermarkPosition, setWatermarkPosition] = useState<WatermarkPosition>('bottom_right');
@@ -1493,15 +1499,34 @@ export const ImageCollageStudio: React.FC<ImageCollageStudioProps> = ({ onBack, 
                     {/* Text Watermark Input */}
                     {watermarkType === 'text' ? (
                       <div>
-                        <label className="block text-slate-300 font-bold mb-1">نص العلامة المائية:</label>
-                        <input
-                          type="text"
-                          value={watermarkText}
-                          onChange={(e) => setWatermarkText(e.target.value)}
-                          placeholder="مثلاً: Ahmed SVGA • SVGA Studio"
-                          className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:border-amber-400 focus:outline-none"
-                        />
-                        <div className="flex gap-1.5 mt-2 flex-wrap">
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-slate-300 font-bold text-xs">نص العلامة المائية:</label>
+                          <span className="text-[10px] text-slate-500">حفظ دائم لتسريع العمل</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={watermarkText}
+                            onChange={(e) => setWatermarkText(e.target.value)}
+                            placeholder="مثلاً: Ahmed SVGA • SVGA Studio"
+                            className="flex-1 bg-slate-900 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:border-amber-400 focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              try {
+                                localStorage.setItem('svga_permanent_watermark_text', watermarkText);
+                              } catch (e) {}
+                            }}
+                            className="px-3 py-2.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shrink-0"
+                            title="تثبيت هذا الاسم كاسمك الافتراضي الدائم في كل أدوات الموقع"
+                          >
+                            <Pin className="w-3.5 h-3.5" />
+                            <span>تثبيت دائم</span>
+                          </button>
+                        </div>
+                        <div className="flex gap-1.5 mt-2 flex-wrap items-center">
+                          <span className="text-[10px] text-amber-400 font-bold">قوالب:</span>
                           {['Ahmed SVGA • SVGA Studio', 'DESIGNER • AHMED', 'SVGA EXCLUSIVE 👑', 'SAMPLE PREVIEW'].map(t => (
                             <button
                               key={t}

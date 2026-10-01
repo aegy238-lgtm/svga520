@@ -54,6 +54,8 @@ export interface SvgaActionDockProps {
   onVideoDurationSpeedOpen?: () => void;
   exportDuration?: number;
   useNativeDuration?: boolean;
+  onOpenWatermarkModal?: () => void;
+  wmSettings?: any;
 }
 
 export const SvgaActionDock: React.FC<SvgaActionDockProps> = ({
@@ -86,7 +88,9 @@ export const SvgaActionDock: React.FC<SvgaActionDockProps> = ({
   onToggleCollapse,
   onVideoDurationSpeedOpen,
   exportDuration = 10,
-  useNativeDuration = true
+  useNativeDuration = true,
+  onOpenWatermarkModal,
+  wmSettings
 }) => {
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const isCollapsed = controlledCollapsed !== undefined ? controlledCollapsed : internalCollapsed;
@@ -253,6 +257,37 @@ export const SvgaActionDock: React.FC<SvgaActionDockProps> = ({
                   {preventDuplicates ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Square className="w-3 h-3 opacity-30" />}
                 </div>
               </button>
+
+              {/* Anti-Theft Watermark Studio Trigger Button in Dock */}
+              {onOpenWatermarkModal && (
+                <button
+                  type="button"
+                  onClick={onOpenWatermarkModal}
+                  className={`w-full p-2.5 rounded-2xl font-black text-xs transition-all flex items-center justify-between shadow-lg border cursor-pointer select-none hover:scale-[1.01] active:scale-[0.99] ${
+                    wmSettings?.enabled !== false
+                      ? 'bg-gradient-to-r from-pink-600 via-rose-600 to-purple-600 text-white border-pink-400/40 shadow-pink-600/25 ring-1 ring-pink-400/30'
+                      : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                  }`}
+                  title="فتح استوديو العلامة المائية المتقدمة وحماية العرض لمنع السرقة"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-pink-500/20 flex items-center justify-center">
+                      <Lock className="w-4 h-4 text-pink-300" />
+                    </div>
+                    <div className="flex flex-col text-right">
+                      <span className="text-white text-xs font-black">
+                        العلامة المائية المانعة للسرقة
+                      </span>
+                      <span className="text-[9px] text-pink-200/90 font-medium">
+                        {wmSettings?.enabled !== false ? 'مفعلة (حماية مشددة 🔒)' : 'معطلة'}
+                      </span>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-lg bg-black/30 border border-white/15 text-[10px] text-pink-200 font-mono">
+                    تخصيص ⚙️
+                  </span>
+                </button>
+              )}
 
               {/* Select All & Clear All Row */}
               <div className="grid grid-cols-2 gap-1.5">
