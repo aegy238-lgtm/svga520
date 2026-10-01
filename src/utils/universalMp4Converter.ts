@@ -503,11 +503,12 @@ async function convertYyevaVapToMp4(
       }
 
       // 4. Encode Video Frame
-      const bitmap = await createImageBitmap(outCanvas);
-      const frame = new (window as any).VideoFrame(bitmap, { timestamp: Math.round((i * 1000000) / fps) });
+      while (videoEncoder.encodeQueueSize > 6) {
+        await new Promise(r => setTimeout(r, 2));
+      }
+      const frame = new (window as any).VideoFrame(outCanvas, { timestamp: Math.round((i * 1000000) / fps) });
       videoEncoder.encode(frame, { keyFrame: i % 30 === 0 || i === 0 });
       frame.close();
-      bitmap.close();
 
       const progress = 20 + Math.round((i / totalFrames) * 75);
       onProgress?.(progress, `تحويل إطار ${i + 1} من ${totalFrames} (${progress}%)...`);
@@ -685,11 +686,12 @@ async function convertSvgaToMp4(
           drawUniversalWatermarkOnCanvas(fCtx, outW, outH, i, activeWm2, null);
         }
 
-        const bitmap = await createImageBitmap(frameCanvas);
-        const frame = new (window as any).VideoFrame(bitmap, { timestamp: Math.round((i * 1000000) / fps) });
+        while (videoEncoder.encodeQueueSize > 6) {
+          await new Promise(r => setTimeout(r, 2));
+        }
+        const frame = new (window as any).VideoFrame(frameCanvas, { timestamp: Math.round((i * 1000000) / fps) });
         videoEncoder.encode(frame, { keyFrame: i % 30 === 0 || i === 0 });
         frame.close();
-        bitmap.close();
       }
 
       const progress = 15 + Math.round((i / totalFrames) * 80);
@@ -843,11 +845,12 @@ async function convertVideoToMp4(
         drawUniversalWatermarkOnCanvas(fCtx, outW, outH, i, activeWm3, null);
       }
 
-      const bitmap = await createImageBitmap(frameCanvas);
-      const frame = new (window as any).VideoFrame(bitmap, { timestamp: Math.round((i * 1000000) / fps) });
+      while (videoEncoder.encodeQueueSize > 6) {
+        await new Promise(r => setTimeout(r, 2));
+      }
+      const frame = new (window as any).VideoFrame(frameCanvas, { timestamp: Math.round((i * 1000000) / fps) });
       videoEncoder.encode(frame, { keyFrame: i % 30 === 0 || i === 0 });
       frame.close();
-      bitmap.close();
 
       const progress = 15 + Math.round((i / totalFrames) * 80);
       onProgress?.(progress, `تحويل إطار ${i + 1} من ${totalFrames} (${progress}%)...`);
@@ -966,11 +969,12 @@ async function convertGifToMp4(
       drawUniversalWatermarkOnCanvas(fCtx, outW, outH, i, activeWm4, null);
     }
 
-    const bitmap = await createImageBitmap(frameCanvas);
-    const frame = new (window as any).VideoFrame(bitmap, { timestamp: accumTimeUs });
+    while (videoEncoder.encodeQueueSize > 6) {
+      await new Promise(r => setTimeout(r, 2));
+    }
+    const frame = new (window as any).VideoFrame(frameCanvas, { timestamp: accumTimeUs });
     videoEncoder.encode(frame, { keyFrame: i % 30 === 0 || i === 0 });
     frame.close();
-    bitmap.close();
 
     const delayMs = delays[i] || 100;
     accumTimeUs += Math.round(delayMs * 1000);
@@ -1112,11 +1116,12 @@ async function convertPngSeqToMp4(
       drawUniversalWatermarkOnCanvas(fCtx, outW, outH, i, activeWm5, null);
     }
 
-    const frameBitmap = await createImageBitmap(frameCanvas);
-    const frame = new (window as any).VideoFrame(frameBitmap, { timestamp: Math.round((i * 1000000) / fps) });
+    while (videoEncoder.encodeQueueSize > 6) {
+      await new Promise(r => setTimeout(r, 2));
+    }
+    const frame = new (window as any).VideoFrame(frameCanvas, { timestamp: Math.round((i * 1000000) / fps) });
     videoEncoder.encode(frame, { keyFrame: i % 30 === 0 || i === 0 });
     frame.close();
-    frameBitmap.close();
 
     const progress = 20 + Math.round((i / totalFrames) * 75);
     onProgress?.(progress, `معالجة صورة ${i + 1} من ${totalFrames} (${progress}%)...`);

@@ -415,15 +415,18 @@ export const detectVapChannelLayout = (
 
 // Ultra-fast, frame-accurate video frame seeker without keyframe-skipping stutter
 export const seekVideoToFrame = (video: HTMLVideoElement, targetTime: number): Promise<void> => {
-  if (Math.abs(video.currentTime - targetTime) < 0.001) {
+  if (Math.abs(video.currentTime - targetTime) < 0.0005) {
     return Promise.resolve();
   }
 
   return new Promise<void>((resolve) => {
     let isDone = false;
+    let timerId: any = null;
+
     const finish = () => {
       if (!isDone) {
         isDone = true;
+        if (timerId) clearTimeout(timerId);
         video.removeEventListener('seeked', onSeeked);
         video.removeEventListener('error', onError);
         resolve();
@@ -431,27 +434,10 @@ export const seekVideoToFrame = (video: HTMLVideoElement, targetTime: number): P
     };
 
     const onSeeked = () => {
-      // If requestVideoFrameCallback is available, wait for the decoded frame to paint into texture
-      if ('requestVideoFrameCallback' in video && typeof (video as any).requestVideoFrameCallback === 'function') {
-        let rvfcDone = false;
-        try {
-          (video as any).requestVideoFrameCallback(() => {
-            if (!rvfcDone) {
-              rvfcDone = true;
-              finish();
-            }
-          });
-          setTimeout(() => {
-            if (!rvfcDone) {
-              rvfcDone = true;
-              finish();
-            }
-          }, 35);
-        } catch {
-          finish();
-        }
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => finish());
       } else {
-        finish();
+        setTimeout(finish, 0);
       }
     };
 
@@ -459,19 +445,17 @@ export const seekVideoToFrame = (video: HTMLVideoElement, targetTime: number): P
       finish();
     };
 
+    // Fast safety timeout in case seeked event is dropped
+    timerId = setTimeout(finish, 150);
+
     video.addEventListener('seeked', onSeeked, { once: true });
     video.addEventListener('error', onError, { once: true });
 
     try {
-      // CRITICAL FIX: NEVER use fastSeek! fastSeek rounds to the nearest keyframe (I-frame),
-      // which causes severe video lag, frame skipping, and freezing during export!
-      video.currentTime = targetTime;
+      video.currentTime = Math.max(0, targetTime);
     } catch {
-      video.currentTime = targetTime;
+      finish();
     }
-
-    // Safe fallback timeout in case the browser drops the seeked event
-    setTimeout(finish, 400);
   });
 };
 
