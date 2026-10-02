@@ -968,6 +968,18 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
                         <span>{layer.groupName || 'مدمج'}</span>
                       </span>
                     )}
+                    {layer.clipToLayerId && (
+                      <span className="text-[9px] text-violet-300 font-bold bg-violet-500/20 border border-violet-500/30 px-1.5 py-0.5 rounded flex items-center gap-1" title="مدمجة كقناع Alpha Matte داخل الطبقة الأصلية">
+                        <Layers size={9} className="text-violet-400" />
+                        <span>قناع ↳ {layers.find(l => l.id === layer.clipToLayerId)?.name || 'الطبقة الأم'}</span>
+                      </span>
+                    )}
+                    {layers.filter(l => l.clipToLayerId === layer.id).length > 0 && (
+                      <span className="text-[9px] text-violet-300 font-bold bg-violet-500/15 border border-violet-500/25 px-1.5 py-0.5 rounded flex items-center gap-1" title="تحتوي على قطع مدمجة (Alpha Matte)">
+                        <Layers size={9} className="text-violet-400" />
+                        <span>+{layers.filter(l => l.clipToLayerId === layer.id).length} مدمجة</span>
+                      </span>
+                    )}
                     {layer.keyframes && layer.keyframes.length > 0 && (
                       <span className="text-[9px] text-amber-300 font-bold bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 flex items-center gap-0.5">
                         <Diamond size={8} className="fill-amber-400" />

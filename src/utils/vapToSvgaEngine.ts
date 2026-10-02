@@ -371,10 +371,10 @@ export const convertVapFileToSvga = async (
       finalCtx.drawImage(compCanvas, 0, 0);
     }
 
-    // 4.5. Render Watermark if active
-    if (wmSettings || watermark || wmImgEl) {
-      const activeSettings = wmSettings || (watermark ? { enabled: true, logoUrl: watermark, type: 'image' } : getSavedWatermarkSettings());
-      drawUniversalWatermarkOnCanvas(finalCtx, finalViewBoxW, finalViewBoxH, fIdx, activeSettings, wmImgEl);
+    // 4.5. Render Watermark only if explicitly enabled
+    if ((wmSettings && wmSettings.enabled) || watermark) {
+      const activeSettings = wmSettings || { enabled: true, logoUrl: watermark, type: 'image' };
+      drawUniversalWatermarkOnCanvas(finalCtx, finalViewBoxW, finalViewBoxH, step, activeSettings, wmImgEl);
     }
 
     // 5. Optional Trim transparent padding

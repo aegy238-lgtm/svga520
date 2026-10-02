@@ -7,7 +7,7 @@ import {
   Zap, Sparkles, Info, Search, ChevronDown, ChevronUp, Check, LayoutGrid, 
   Command, Wand, Cpu, Repeat, RefreshCw, User, GitBranch, Pin, PinOff,
   BookOpen, Eye, EyeOff, ChevronLeft, ChevronRight, Grid, Star, Globe, Crown,
-  AlertTriangle, AlertCircle
+  AlertTriangle, AlertCircle, Film, SlidersHorizontal
 } from 'lucide-react';
 import { calculateSubscriptionInfo } from '../utils/subscriptionUtils';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -62,6 +62,7 @@ export interface HeaderProps {
   onSvgaLayerEditorOpen?: () => void;
   onAnimationManagerOpen?: () => void;
   onStoreOpen?: () => void;
+  onAfterEffectsStudioOpen?: () => void;
   onVapHubOpen?: () => void;
   onVideoDurationSpeedOpen?: () => void;
   onBatchImageOpen: () => void;
@@ -83,12 +84,17 @@ export const Header: React.FC<HeaderProps> = (props) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
   const langMenuRef = useRef<HTMLDivElement>(null);
+  const [isMoreToolsOpen, setIsMoreToolsOpen] = useState(false);
+  const moreToolsMenuRef = useRef<HTMLDivElement>(null);
   const { language, setLanguage } = useLanguage();
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (langMenuRef.current && !langMenuRef.current.contains(e.target as Node)) {
         setIsLangMenuOpen(false);
+      }
+      if (moreToolsMenuRef.current && !moreToolsMenuRef.current.contains(e.target as Node)) {
+        setIsMoreToolsOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -162,11 +168,13 @@ export const Header: React.FC<HeaderProps> = (props) => {
 
   // Feature Access Control check
   const isFeatureAllowed = (toolId: string) => {
+    if (toolId === 'after-effects-studio' || toolId === 'afterEffectsStudio') return true;
+    if (toolId === 'svga-layer-editor' || toolId === 'svgaLayerEditor') return true;
     if (!props.currentUser) return true;
     if (props.currentUser.allFeaturesEnabled !== false) return true;
     const allowed = props.currentUser.allowedFeatures || [];
     const featureKey = TOOL_FEATURE_MAP[toolId] || toolId;
-    return allowed.includes(featureKey);
+    return allowed.includes(featureKey) || featureKey === 'afterEffectsStudio' || featureKey === 'svgaLayerEditor';
   };
 
   // Dynamic allowed tools from unified TOOLS_REGISTRY
@@ -174,25 +182,25 @@ export const Header: React.FC<HeaderProps> = (props) => {
     return TOOLS_REGISTRY.filter(t => isFeatureAllowed(t.id));
   }, [props.currentUser]);
 
-  // Separate top bar tools: Pinned VIP tools and Starred tools are strictly placed FIRST at the beginning
+  // Separate top bar tools: 2 core VIP hero tools in fixed section, all remaining tools in scrollable area
   const { starredNavTools, unstarredNavTools } = useMemo(() => {
     const validTools = allTools.filter(t => !t.hideFromTopNav && t.id !== 'pag-to-svga');
     
-    // Pinned VIP tools always stand first at the top for everyone
-    const pinnedTools = validTools.filter(t => t.pinnedTop || t.isVip);
-    const starred: ToolDefinition[] = [...pinnedTools];
+    // Always place after-effects-studio and svga-layer-editor (زر الطبقات المطلوب) prominently in primary section
+    const aeTool = validTools.find(t => t.id === 'after-effects-studio');
+    const layerEditorTool = validTools.find(t => t.id === 'svga-layer-editor');
+
+    const primaryFixed: ToolDefinition[] = [];
+    if (aeTool) primaryFixed.push(aeTool);
+    if (layerEditorTool) primaryFixed.push(layerEditorTool);
     
-    // Sort starred tools according to user's starred list order
-    starredToolIds.forEach(id => {
-      const match = validTools.find(t => t.id === id);
-      if (match && !starred.some(st => st.id === match.id)) {
-        starred.push(match);
-      }
-    });
+    // Remaining tools in scrollable area, with user-starred tools placed first
+    const remaining = validTools.filter(t => !primaryFixed.some(st => st.id === t.id));
+    const starredRemaining = remaining.filter(t => starredToolIds.includes(t.id));
+    const nonStarredRemaining = remaining.filter(t => !starredToolIds.includes(t.id));
+    const sortedScrollable = [...starredRemaining, ...nonStarredRemaining];
 
-    const unstarred = validTools.filter(t => !starred.some(st => st.id === t.id));
-
-    return { starredNavTools: starred, unstarredNavTools: unstarred };
+    return { starredNavTools: primaryFixed, unstarredNavTools: sortedScrollable };
   }, [allTools, starredToolIds]);
 
   // Combined topNavTools for references
@@ -383,6 +391,9 @@ export const Header: React.FC<HeaderProps> = (props) => {
 
   const renderNavToolButton = (tool: ToolDefinition, isItemStarred: boolean) => {
     const isToolActive = props.currentTab === tool.id;
+    const isAfterEffects = tool.id === 'after-effects-studio';
+    const isLayerEditor = tool.id === 'svga-layer-editor';
+    const displayLabel = tool.shortLabel || tool.label;
 
     return (
       <div
@@ -394,120 +405,127 @@ export const Header: React.FC<HeaderProps> = (props) => {
           data-active={isToolActive}
           onClick={(e) => {
             e.stopPropagation();
-            // If dragging, ignore click
             if (isNavDragging && dragDistance.current > 10) return;
 
             if (isToolActive) {
               if (isItemStarred) {
-                // If already active and starred, keep it active
                 handleToolClick(tool);
               } else {
-                // If already active and unstarred, clicking it cycles directly to the NEXT unstarred tool!
                 if (nextTool) {
                   handleToolClick(nextTool);
                 }
               }
             } else {
-              // If not active, clicking it opens this tool immediately
               handleToolClick(tool);
             }
           }}
-          className={`flex items-center gap-1.5 pl-3 pr-2.5 py-1.5 md:pl-4 md:pr-3 md:py-2 rounded-full transition-all duration-300 select-none cursor-pointer ${
-            isToolActive 
-              ? tool.isVip
-                ? 'bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-600 text-black font-black shadow-[0_0_26px_rgba(245,158,11,0.65)] border border-amber-200 scale-105'
-                : isItemStarred
-                  ? 'bg-gradient-to-r from-amber-500 via-[#4DA3FF] to-[#8B5CF6] text-white shadow-[0_0_22px_rgba(245,158,11,0.45)] border border-amber-300/40 scale-105' 
-                  : 'bg-gradient-to-r from-[#4DA3FF] to-[#8B5CF6] text-white shadow-[0_0_20px_rgba(77,163,255,0.4)] border border-white/20 scale-105'
-              : tool.isVip
-                ? 'text-amber-300 bg-gradient-to-r from-amber-950/80 via-purple-950/60 to-amber-950/80 hover:bg-amber-500/25 border border-amber-400/60 hover:border-amber-300 shadow-[0_0_18px_rgba(245,158,11,0.3)] hover:scale-105 font-bold'
-                : isItemStarred
-                  ? 'text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/35 hover:border-amber-400/60 shadow-[0_0_12px_rgba(245,158,11,0.15)]'
-                  : tool.highlight
-                    ? 'text-[#4DA3FF] hover:text-white hover:bg-[#4DA3FF]/10 border border-transparent hover:border-[#4DA3FF]/30 hover:shadow-[0_0_15px_rgba(77,163,255,0.2)]'
-                    : 'text-slate-400 hover:text-white hover:bg-white/10 border border-transparent hover:border-white/20 hover:shadow-[0_0_15px_rgba(255,255,255,0.1)]'
+          className={`h-9 md:h-10 px-3 md:px-3.5 flex items-center justify-center gap-2 rounded-xl transition-all duration-200 select-none cursor-pointer shrink-0 whitespace-nowrap border text-xs md:text-[13px] font-bold ${
+            isAfterEffects
+              ? isToolActive
+                ? 'bg-gradient-to-r from-red-600 via-rose-600 to-red-700 text-white font-black shadow-[0_0_24px_rgba(239,68,68,0.9)] border-red-200 scale-[1.02]'
+                : 'bg-gradient-to-r from-red-600/30 via-rose-600/25 to-red-700/30 hover:from-red-600/50 hover:to-red-700/50 text-red-100 hover:text-white border-red-500/70 hover:border-red-400 shadow-[0_0_16px_rgba(239,68,68,0.45)] font-black'
+              : isLayerEditor
+                ? isToolActive
+                  ? 'bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-600 text-black font-black shadow-[0_0_24px_rgba(245,158,11,0.7)] border-amber-200 scale-[1.02]'
+                  : 'bg-gradient-to-r from-amber-500/25 via-yellow-500/20 to-amber-600/25 hover:from-amber-500/40 hover:to-amber-600/40 text-amber-200 hover:text-amber-100 border-amber-500/60 hover:border-amber-400 shadow-[0_0_16px_rgba(245,158,11,0.3)] font-black'
+              : isToolActive 
+                ? tool.isVip
+                  ? 'bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-600 text-black font-black shadow-[0_0_24px_rgba(245,158,11,0.65)] border border-amber-200 scale-[1.02]'
+                  : isItemStarred
+                    ? 'bg-gradient-to-r from-amber-500 via-[#4DA3FF] to-[#8B5CF6] text-white shadow-[0_0_20px_rgba(245,158,11,0.45)] border border-amber-300/40 scale-[1.02]' 
+                    : 'bg-gradient-to-r from-[#4DA3FF] to-[#8B5CF6] text-white shadow-[0_0_18px_rgba(77,163,255,0.4)] border border-white/20 scale-[1.02]'
+                : tool.isVip
+                  ? 'text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-400/50 hover:border-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.18)] font-bold'
+                  : isItemStarred
+                    ? 'text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/35 hover:border-amber-400/60 shadow-[0_0_10px_rgba(245,158,11,0.12)]'
+                    : tool.highlight
+                      ? 'text-[#4DA3FF] hover:text-white bg-[#4DA3FF]/10 hover:bg-[#4DA3FF]/20 border border-[#4DA3FF]/30 hover:border-[#4DA3FF]/50'
+                      : 'text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] hover:border-white/20'
           }`}
           title={
             isToolActive
-              ? `${tool.label} (نشطة حالياً - انقر للانتقال للأداة التالية: ${nextTool?.label || ''})`
+              ? `${tool.label} (نشطة حالياً)`
               : tool.isVip
                 ? `${tool.descAr} (👑 ميزة VIP مثبتة ومميزة)`
                 : isItemStarred 
-                  ? `${tool.descAr} (أداة مثبتة بنجمة في البداية)` 
+                  ? `${tool.descAr} (أداة مثبتة بنجمة)` 
                   : `${tool.descAr}`
           }
         >
-          {React.cloneElement(tool.icon as React.ReactElement<any>, { className: 'w-4 h-4 shrink-0' })}
-          <span>{tool.label}</span>
+          {isAfterEffects ? (
+            <Film className="w-4 h-4 text-red-300 fill-red-500/30 shrink-0" />
+          ) : isLayerEditor ? (
+            <Layers className="w-4 h-4 text-amber-400 shrink-0" />
+          ) : (
+            React.cloneElement(tool.icon as React.ReactElement<any>, { className: 'w-4 h-4 shrink-0' })
+          )}
           
-          {tool.isVip && (
-            <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-yellow-300 text-black shadow-[0_0_10px_rgba(251,191,36,0.6)] ml-1 shrink-0 animate-pulse">
+          <span className="whitespace-nowrap shrink-0">{displayLabel}</span>
+          
+          {isAfterEffects ? (
+            <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-red-600 text-white shadow-[0_0_10px_rgba(239,68,68,0.9)] shrink-0 border border-red-300 leading-none">
+              PRO 🎬
+            </span>
+          ) : (tool.isVip || isLayerEditor) ? (
+            <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-yellow-300 text-black shadow-[0_0_10px_rgba(251,191,36,0.6)] shrink-0 leading-none">
               VIP 👑
             </span>
+          ) : null}
+
+          {tool.highlight && !isToolActive && !isItemStarred && !tool.isVip && !isAfterEffects && !isLayerEditor && (
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse shrink-0"></span>
           )}
 
-          {tool.highlight && !isToolActive && !isItemStarred && !tool.isVip && (
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-          )}
-
-          {/* Star Icon Toggle on the Tool Button */}
-          <span
-            data-interactive="true"
-            onClick={(e) => handleToggleStar(tool, e)}
-            className={`p-0.5 ml-0.5 rounded-full transition-all duration-200 cursor-pointer flex items-center justify-center ${
-              isItemStarred
-                ? 'opacity-100 hover:scale-130'
-                : 'opacity-0 group-hover:opacity-100 hover:scale-130 text-slate-500 hover:text-amber-400'
-            }`}
-            title={isItemStarred ? 'أداة مثبتة بنجمة في البداية ⭐ (انقر لإلغاء التثبيت)' : 'تثبيت هذه الأداة بنجمة في البداية ⭐'}
-          >
-            <Star
-              className={`w-3.5 h-3.5 transition-colors ${
+          {/* Star Icon Toggle */}
+          {!isAfterEffects && !isLayerEditor && (
+            <span
+              data-interactive="true"
+              onClick={(e) => handleToggleStar(tool, e)}
+              className={`p-0.5 rounded-full transition-all duration-200 cursor-pointer flex items-center justify-center shrink-0 ${
                 isItemStarred
-                  ? 'text-amber-400 fill-amber-400 drop-shadow-[0_0_6px_rgba(251,191,36,0.8)]'
-                  : 'hover:text-amber-400 hover:fill-amber-400/40'
+                  ? 'opacity-100 hover:scale-125'
+                  : 'opacity-0 group-hover:opacity-100 hover:scale-125 text-slate-500 hover:text-amber-400'
               }`}
-            />
-          </span>
+              title={isItemStarred ? 'أداة مثبتة بنجمة ⭐ (انقر لإلغاء التثبيت)' : 'تثبيت هذه الأداة بنجمة ⭐'}
+            >
+              <Star
+                className={`w-3.5 h-3.5 transition-colors ${
+                  isItemStarred
+                    ? 'text-amber-400 fill-amber-400 drop-shadow-[0_0_6px_rgba(251,191,36,0.8)]'
+                    : 'hover:text-amber-400 hover:fill-amber-400/40'
+                }`}
+              />
+            </span>
+          )}
         </button>
       </div>
     );
   };
 
   const TopLevelNavigation = () => (
-    <div className="flex items-center flex-1 min-w-0 mx-1 sm:mx-2 md:mx-3 relative group/nav">
-      {/* 1. Starred Tools (Permanently Fixed & Stationary at the start) */}
+    <div className="flex items-center flex-1 min-w-0 max-w-full overflow-hidden mx-1 lg:mx-2.5 gap-1.5 sm:gap-2">
+      {/* 1. Primary Fixed Section (Logo -> مجموعة الأزرار الرئيسية) */}
       {starredNavTools.length > 0 && (
-        <div className="flex items-center gap-1.5 shrink-0 z-20 pl-0.5 pr-2 mr-1 md:mr-2 border-r border-white/10">
-          <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {starredNavTools.map((tool) => renderNavToolButton(tool, true))}
           </div>
 
-          {/* Elegant Divider between Starred and Regular Tools */}
-          <div className="flex items-center gap-1 px-1 shrink-0 select-none">
-            <div className="w-[1.5px] h-6 bg-gradient-to-b from-transparent via-amber-500/60 to-transparent" />
-            <span 
-              className="hidden xl:flex items-center gap-1 text-[10px] text-amber-300 font-bold px-1.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/25"
-              title="الأدوات المثبتة بنجمة تظل ثابتة في مكانها دائماً"
-            >
-              <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />
-              <span>ثابتة</span>
-            </span>
-          </div>
+          <div className="hidden sm:block w-[1.5px] h-6 bg-gradient-to-b from-transparent via-white/15 to-transparent shrink-0 mx-0.5" />
         </div>
       )}
 
-      {/* 2. Scrollable & Movable Unstarred Tools with Step Navigation */}
-      <div className="flex items-center flex-1 min-w-0 relative">
-        {/* Previous Tool Button (Left Arrow) */}
+      {/* 2. Scrollable Secondary Tools Track (الأدوات الإضافية) */}
+      <div className="flex items-center flex-1 min-w-0 overflow-hidden relative">
+        {/* Previous Scroll Step Button */}
         <button
           type="button"
-          onClick={() => handleNavToolStep('prev')}
-          className="flex p-1.5 md:p-2 rounded-full bg-slate-900/90 hover:bg-gradient-to-r hover:from-indigo-600 hover:to-blue-600 text-slate-300 hover:text-white border border-white/10 hover:border-indigo-400/50 shadow-lg transition-all shrink-0 z-10 hover:scale-110 active:scale-95 cursor-pointer group/prevBtn"
-          title={prevTool ? `الانتقال وفتح الأداة السابقة: ${prevTool.label}` : 'الأداة السابقة'}
-          aria-label="الأداة السابقة"
+          onClick={() => handleNavScroll('left')}
+          className="w-8 h-8 rounded-xl bg-slate-900/90 hover:bg-indigo-600 text-slate-300 hover:text-white border border-white/10 hover:border-indigo-400/50 shadow-md transition-all shrink-0 flex items-center justify-center active:scale-95 cursor-pointer ml-0.5"
+          title="الأدوات السابقة"
+          aria-label="الأدوات السابقة"
         >
-          <ChevronLeft className="w-3.5 h-3.5 md:w-4 md:h-4 group-hover/prevBtn:-translate-x-0.5 transition-transform" />
+          <ChevronRight className="w-4 h-4 shrink-0" />
         </button>
 
         <nav 
@@ -517,26 +535,92 @@ export const Header: React.FC<HeaderProps> = (props) => {
           onMouseMove={handleNavMouseMove}
           onMouseUp={handleNavMouseUp}
           onMouseLeave={handleNavMouseUp}
-          className={`flex items-center gap-1.5 md:gap-2 mx-1 md:mx-2 text-xs md:text-[13px] font-bold overflow-x-auto no-scrollbar flex-1 whitespace-nowrap mask-edges min-w-0 px-2 md:px-3 scroll-smooth will-change-scroll select-none ${
+          className={`flex items-center gap-1.5 sm:gap-2 mx-1 text-xs font-bold overflow-x-auto no-scrollbar flex-1 whitespace-nowrap min-w-0 px-0.5 scroll-smooth select-none ${
             isNavDragging ? 'cursor-grabbing' : 'cursor-grab'
           }`} 
-          dir="ltr"
         >
-          <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {unstarredNavTools.map((tool) => renderNavToolButton(tool, false))}
           </div>
         </nav>
 
-        {/* Next Tool Button (Right Arrow) */}
+        {/* Next Scroll Step Button */}
         <button
           type="button"
-          onClick={() => handleNavToolStep('next')}
-          className="flex p-1.5 md:p-2 rounded-full bg-slate-900/90 hover:bg-gradient-to-r hover:from-blue-600 hover:to-indigo-600 text-slate-300 hover:text-white border border-white/10 hover:border-indigo-400/50 shadow-lg transition-all shrink-0 z-10 hover:scale-110 active:scale-95 cursor-pointer group/nextBtn"
-          title={nextTool ? `الانتقال وفتح الأداة التالية: ${nextTool.label}` : 'الأداة التالية'}
-          aria-label="الأداة التالية"
+          onClick={() => handleNavScroll('right')}
+          className="w-8 h-8 rounded-xl bg-slate-900/90 hover:bg-indigo-600 text-slate-300 hover:text-white border border-white/10 hover:border-indigo-400/50 shadow-md transition-all shrink-0 flex items-center justify-center active:scale-95 cursor-pointer mr-0.5"
+          title="الأدوات التالية"
+          aria-label="الأدوات التالية"
         >
-          <ChevronRight className="w-3.5 h-3.5 md:w-4 md:h-4 group-hover/nextBtn:translate-x-0.5 transition-transform" />
+          <ChevronLeft className="w-4 h-4 shrink-0" />
         </button>
+
+        {/* Quick More Tools Dropdown */}
+        <div className="relative shrink-0 mr-0.5" ref={moreToolsMenuRef}>
+          <button
+            type="button"
+            onClick={() => setIsMoreToolsOpen(prev => !prev)}
+            className={`h-8 md:h-9 px-2 sm:px-2.5 rounded-xl border flex items-center gap-1 text-xs font-bold transition-all cursor-pointer shrink-0 ${
+              isMoreToolsOpen
+                ? 'bg-indigo-600/30 text-white border-indigo-400 shadow-[0_0_12px_rgba(99,102,241,0.3)]'
+                : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border-white/[0.08] hover:border-white/[0.15]'
+            }`}
+            title="قائمة الأدوات الإضافية / More Tools"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+            <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${isMoreToolsOpen ? 'rotate-180' : ''}`} />
+          </button>
+
+          <AnimatePresence>
+            {isMoreToolsOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 8, scale: 0.96 }}
+                transition={{ duration: 0.15 }}
+                className="absolute top-full mt-2 end-0 w-72 bg-[#0c1222]/98 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl p-2 z-[1100] flex flex-col gap-1 max-h-[460px] overflow-y-auto custom-scrollbar"
+                dir="rtl"
+              >
+                <div className="px-3 py-1.5 text-[11px] font-black text-indigo-300 border-b border-white/10 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>كافة الأدوات الإضافية</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {unstarredNavTools.length} أداة
+                  </span>
+                </div>
+                {unstarredNavTools.map(tool => {
+                  const isCurrent = props.currentTab === tool.id;
+                  return (
+                    <button
+                      key={tool.id}
+                      onClick={() => {
+                        handleToolClick(tool);
+                        setIsMoreToolsOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-right ${
+                        isCurrent
+                          ? 'bg-indigo-600 text-white shadow-md'
+                          : 'text-slate-300 hover:text-white hover:bg-white/10'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2 truncate">
+                        {React.cloneElement(tool.icon as React.ReactElement<any>, { className: 'w-4 h-4 shrink-0 text-indigo-400' })}
+                        <span className="truncate">{tool.label}</span>
+                      </span>
+                      {tool.isVip && (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0">
+                          VIP 👑
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
     </div>
   );
@@ -573,7 +657,7 @@ export const Header: React.FC<HeaderProps> = (props) => {
         <div 
           onMouseEnter={handleMouseEnterHeader}
           onClick={handleMouseEnterHeader}
-          className="fixed top-1.5 left-[62%] -translate-x-1/2 z-[1001] cursor-pointer group flex items-center gap-2 bg-slate-950/85 hover:bg-[#0f172a]/95 border border-indigo-500/30 hover:border-indigo-400/60 shadow-[0_4px_20px_rgba(0,0,0,0.6)] backdrop-blur-xl px-3.5 py-1.5 rounded-full transition-all duration-300 hover:scale-105 select-none"
+          className="fixed top-1.5 left-1/2 -translate-x-1/2 z-[1001] cursor-pointer group flex items-center gap-2 bg-slate-950/85 hover:bg-[#0f172a]/95 border border-indigo-500/30 hover:border-indigo-400/60 shadow-[0_4px_20px_rgba(0,0,0,0.6)] backdrop-blur-xl px-3.5 py-1.5 rounded-full transition-all duration-300 hover:scale-105 select-none"
         >
           <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse shadow-[0_0_8px_#818cf8]" />
           <span className="text-[11px] font-bold text-slate-300 group-hover:text-white">شريط الأدوات</span>
@@ -590,24 +674,24 @@ export const Header: React.FC<HeaderProps> = (props) => {
           pointerEvents: isHeaderVisible ? 'auto' : 'none',
           transition: 'all 0.35s cubic-bezier(0.16, 1, 0.3, 1)'
         }}
-        className="fixed top-2.5 sm:top-3 left-3 sm:left-5 right-3 sm:right-5 h-16 md:h-20 bg-[#090e1c]/90 backdrop-blur-2xl rounded-2xl md:rounded-3xl z-[1000] px-3 md:px-6 flex items-center justify-between shadow-[0_16px_45px_rgba(0,0,0,0.75)] border border-white/[0.09]"
+        className="fixed top-2.5 sm:top-3 left-3 sm:left-5 right-3 sm:right-5 h-16 md:h-20 bg-[#090e1c]/90 backdrop-blur-2xl rounded-2xl md:rounded-3xl z-[1000] px-2.5 sm:px-4 md:px-6 flex items-center justify-between shadow-[0_16px_45px_rgba(0,0,0,0.75)] border border-white/[0.09] gap-2 lg:gap-3"
       >
         
         {/* Logo */}
         <div className="flex items-center shrink-0">
-          <button onClick={props.onLogoClick} className="flex items-center gap-2.5 md:gap-3.5 group shrink-0 text-start cursor-pointer">
-            <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl flex items-center justify-center shadow-lg shadow-amber-500/15 group-hover:scale-105 transition-all duration-300 relative overflow-hidden shrink-0">
+          <button onClick={props.onLogoClick} className="flex items-center gap-2 md:gap-3 group shrink-0 text-start cursor-pointer">
+            <div className="w-9 h-9 md:w-11 md:h-11 rounded-xl md:rounded-2xl flex items-center justify-center shadow-lg shadow-amber-500/15 group-hover:scale-105 transition-all duration-300 relative overflow-hidden shrink-0">
                <img 
                  src={props.settings?.logoUrl || "/logo.png"} 
                  alt="SVGA AHMED Logo" 
                  className="w-full h-full object-contain relative z-10 drop-shadow-md" 
                />
             </div>
-            <div className="flex flex-col items-start hidden lg:flex shrink-0">
-              <h1 className="text-base md:text-lg font-black text-white tracking-tight whitespace-nowrap group-hover:text-amber-300 transition-colors">
+            <div className="flex flex-col items-start hidden xl:flex shrink-0">
+              <h1 className="text-sm md:text-base font-black text-white tracking-tight whitespace-nowrap group-hover:text-amber-300 transition-colors">
                 {props.settings?.appName?.trim() ? props.settings.appName : 'SVGA AHMED'}
               </h1>
-              <span className="text-[10px] text-amber-400/90 font-bold tracking-wider uppercase whitespace-nowrap">Professional Studio</span>
+              <span className="text-[9px] text-amber-400/90 font-bold tracking-wider uppercase whitespace-nowrap">Professional Studio</span>
             </div>
           </button>
         </div>
@@ -616,17 +700,16 @@ export const Header: React.FC<HeaderProps> = (props) => {
         <TopLevelNavigation />
 
         {/* Right Side Controls (Search, Pin Toggle, Admin, Profile) */}
-        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
 
           {/* Mega Tools Grid Trigger Button */}
           <button
             onClick={() => setIsAllToolsOpen(true)}
-            className="hidden md:flex items-center gap-2 px-3.5 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-200 hover:text-white border border-indigo-500/25 hover:border-indigo-500/40 rounded-xl transition-all font-bold text-xs shrink-0 shadow-sm active:scale-95 cursor-pointer"
-            title="استعراض كافة الأدوات (19 أداة) في نافذة سريعة ومنظمة"
+            className="flex items-center justify-center gap-1.5 h-9 md:h-10 px-2 sm:px-2.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-200 hover:text-white border border-indigo-500/25 hover:border-indigo-500/40 rounded-xl transition-all font-bold text-xs shrink-0 shadow-sm active:scale-95 cursor-pointer whitespace-nowrap"
+            title="استعراض كافة الأدوات في نافذة سريعة ومنظمة"
           >
-            <LayoutGrid className="w-4 h-4 text-indigo-400" />
-            <span className="hidden xl:inline font-bold">جميع الأدوات</span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/30 text-indigo-100 font-mono font-bold">
+            <LayoutGrid className="w-4 h-4 text-indigo-400 shrink-0" />
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/30 text-indigo-100 font-mono font-bold shrink-0">
               {allTools.length}
             </span>
           </button>
@@ -634,54 +717,46 @@ export const Header: React.FC<HeaderProps> = (props) => {
           {/* Search Trigger */}
           <button
             onClick={() => setIsSearchOpen(true)}
-            className="hidden sm:flex items-center gap-3 px-3.5 py-2 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] hover:border-white/[0.15] rounded-xl transition-all text-slate-400 hover:text-white group cursor-pointer"
+            className="flex items-center justify-center gap-1.5 h-9 md:h-10 px-2 sm:px-2.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] hover:border-white/[0.15] rounded-xl transition-all text-slate-400 hover:text-white group cursor-pointer shrink-0 whitespace-nowrap"
+            title="بحث في كافة الأدوات (Ctrl + K)"
           >
-            <Search className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform" />
-            <span className="text-xs font-semibold mr-1">البحث عن أداة...</span>
-            <div className="flex items-center gap-1 font-sans text-[10px] bg-slate-900/80 px-2 py-0.5 rounded-md border border-slate-700/60 text-slate-400">
+            <Search className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform shrink-0" />
+            <div className="hidden sm:flex items-center gap-0.5 font-sans text-[10px] bg-slate-900/80 px-1.5 py-0.5 rounded-md border border-slate-700/60 text-slate-400 shrink-0">
               <Command className="w-3 h-3" />
               <span>K</span>
             </div>
-          </button>
-          
-          <button
-            onClick={() => setIsSearchOpen(true)}
-            className="sm:hidden p-2 rounded-xl bg-white/[0.05] text-slate-300 hover:text-white hover:bg-white/[0.1] transition-colors border border-white/[0.08]"
-            title="بحث"
-          >
-            <Search className="w-4 h-4" />
           </button>
 
           {/* Pin / Auto-hide Toggle Button */}
           <button
             onClick={togglePin}
-            className={`p-2 rounded-xl transition-all duration-300 border cursor-pointer ${
+            className={`w-9 h-9 md:w-10 md:h-10 rounded-xl transition-all duration-300 border flex items-center justify-center shrink-0 cursor-pointer ${
               isPinned 
                 ? 'bg-indigo-600/20 text-indigo-300 border-indigo-500/35 shadow-[0_0_12px_rgba(99,102,241,0.2)]' 
-                : 'text-slate-400 hover:text-white hover:bg-white/[0.06] border-transparent hover:border-white/[0.1]'
+                : 'text-slate-400 hover:text-white hover:bg-white/[0.06] border-white/[0.08] hover:border-white/[0.15]'
             }`}
             title={isPinned ? 'الشريط مثبت دائماً (انقر للتبديل إلى الإخفاء التلقائي)' : 'الشريط في وضع الإخفاء التلقائي (انقر لتثبيته دائماً)'}
           >
             {isPinned ? <Pin className="w-4 h-4 text-indigo-400" /> : <PinOff className="w-4 h-4 opacity-70" />}
           </button>
 
-          {/* Version & Build Indicator Badge */}
+          {/* Version Indicator Badge (Visible on large screens) */}
           <button
             onClick={() => setIsVersionModalOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#0e1629] hover:bg-[#131d36] border border-white/[0.08] hover:border-indigo-500/30 rounded-xl transition-all group shrink-0 cursor-pointer"
+            className="hidden 2xl:flex items-center gap-1.5 h-9 md:h-10 px-2.5 bg-[#0e1629] hover:bg-[#131d36] border border-white/[0.08] hover:border-indigo-500/30 rounded-xl transition-all group shrink-0 cursor-pointer whitespace-nowrap"
             title="معلومات الإصدار وتحديثات النظام"
           >
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_6px_#34d399]" />
-            <span className="text-[11px] font-mono font-bold text-slate-300 group-hover:text-white dir-ltr">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_6px_#34d399] shrink-0" />
+            <span className="text-[11px] font-mono font-bold text-slate-300 group-hover:text-white dir-ltr shrink-0">
               {CURRENT_APP_VERSION}
             </span>
           </button>
 
           {/* Language Switcher Dropdown */}
-          <div className="relative" ref={langMenuRef}>
+          <div className="relative shrink-0" ref={langMenuRef}>
             <button
               onClick={() => setIsLangMenuOpen(prev => !prev)}
-              className={`px-2.5 py-1.5 rounded-xl transition-all duration-300 border flex items-center gap-1.5 cursor-pointer ${
+              className={`h-9 md:h-10 px-2 sm:px-2.5 rounded-xl transition-all duration-300 border flex items-center gap-1 cursor-pointer shrink-0 whitespace-nowrap ${
                 isLangMenuOpen 
                   ? 'bg-indigo-600/25 text-white border-indigo-400/50 shadow-[0_0_15px_rgba(99,102,241,0.25)]' 
                   : 'text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.08]'
@@ -689,10 +764,10 @@ export const Header: React.FC<HeaderProps> = (props) => {
               title="تغيير لغة الموقع / Change Language"
             >
               <Globe className="w-4 h-4 text-indigo-400 shrink-0" />
-              <span className="text-xs font-bold uppercase hidden sm:inline">
+              <span className="text-[11px] font-bold uppercase hidden 2xl:inline shrink-0">
                 {SUPPORTED_LANGUAGES.find(l => l.code === language)?.flag || '🌐'} {language}
               </span>
-              <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${isLangMenuOpen ? 'rotate-180' : ''}`} />
+              <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform shrink-0 ${isLangMenuOpen ? 'rotate-180' : ''}`} />
             </button>
 
             <AnimatePresence>
@@ -739,7 +814,7 @@ export const Header: React.FC<HeaderProps> = (props) => {
           {/* VIP Member Badge */}
           {(props.currentUser?.isVIP || props.currentUser?.role === 'admin' || props.currentUser?.isSuperAdmin) && (
             <div 
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 via-yellow-500/25 to-amber-500/20 border border-amber-400/40 shadow-[0_0_15px_rgba(245,158,11,0.2)] text-amber-300 text-xs font-black select-none shrink-0"
+              className="hidden 2xl:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 via-yellow-500/25 to-amber-500/20 border border-amber-400/40 shadow-[0_0_15px_rgba(245,158,11,0.2)] text-amber-300 text-xs font-black select-none shrink-0"
               title="عضوية VIP مفعلة - كافة الميزات الملكية متاحة 👑"
             >
               <Crown className="w-4 h-4 text-amber-400 animate-pulse" />
@@ -775,17 +850,17 @@ export const Header: React.FC<HeaderProps> = (props) => {
           {props.currentUser && (
             <button
               onClick={props.onProfileClick}
-              className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] hover:border-indigo-500/40 transition-all cursor-pointer group shrink-0"
+              className="flex items-center gap-2 h-9 md:h-10 px-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] hover:border-indigo-500/40 transition-all cursor-pointer group shrink-0 whitespace-nowrap"
               title="الملف الشخصي وتفاصيل الاشتراك وتاريخ الانتهاء"
             >
-              <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs font-black text-white shadow-sm">
+              <div className="w-6 h-6 md:w-7 md:h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs font-black text-white shadow-sm shrink-0">
                 {(props.currentUser.name || props.currentUser.email || 'U')[0].toUpperCase()}
               </div>
-              <div className="hidden xl:flex flex-col text-right">
-                <span className="text-xs font-bold text-slate-200 group-hover:text-white max-w-[85px] truncate leading-tight">
+              <div className="hidden 2xl:flex flex-col text-right shrink-0">
+                <span className="text-xs font-bold text-slate-200 group-hover:text-white max-w-[85px] truncate leading-tight whitespace-nowrap">
                   {props.currentUser.name || 'حسابي'}
                 </span>
-                <span className={`text-[10px] font-black ${
+                <span className={`text-[10px] font-black leading-none whitespace-nowrap ${
                   headerSubInfo?.isExpired 
                     ? 'text-rose-400' 
                     : headerSubInfo?.isExpiringSoon 
@@ -800,36 +875,37 @@ export const Header: React.FC<HeaderProps> = (props) => {
             </button>
           )}
 
-          <div className="w-px h-7 bg-white/[0.08] hidden sm:block mx-0.5"></div>
+          <div className="w-px h-6 bg-white/[0.08] hidden sm:block shrink-0 mx-0.5"></div>
 
           {props.isAdmin && (
             <button
               onClick={props.onAdminToggle}
-              className={`p-2 rounded-xl transition-all duration-300 border cursor-pointer ${
+              className={`w-9 h-9 md:w-10 md:h-10 rounded-xl transition-all duration-300 border flex items-center justify-center shrink-0 cursor-pointer ${
                 props.isAdminOpen 
                   ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-[0_0_15px_rgba(245,158,11,0.2)]' 
-                  : 'text-slate-400 hover:text-white hover:bg-white/[0.06] border-transparent hover:border-white/[0.1]'
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.06] border-white/[0.08] hover:border-white/[0.15]'
               }`}
               title="لوحة الإدارة / Admin Panel"
             >
-              <Settings className="w-4 h-4" />
+              <Settings className="w-4 h-4 shrink-0" />
             </button>
           )}
+
           <button
             onClick={props.onLogout}
-            className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/25 transition-all duration-300 cursor-pointer"
+            className="w-9 h-9 md:w-10 md:h-10 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-white/[0.08] hover:border-rose-500/25 transition-all duration-300 flex items-center justify-center shrink-0 cursor-pointer"
             title="تسجيل الخروج"
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="w-4 h-4 shrink-0" />
           </button>
 
           {/* Mobile Menu Trigger */}
           <button 
             onClick={() => setIsMobileMenuOpen(true)}
-            className="lg:hidden p-2 bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 border border-indigo-500/30 rounded-xl transition-all cursor-pointer"
+            className="lg:hidden w-9 h-9 md:w-10 md:h-10 bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 border border-indigo-500/30 rounded-xl flex items-center justify-center transition-all cursor-pointer shrink-0"
             title="القائمة"
           >
-            <Menu className="w-4 h-4" />
+            <Menu className="w-4 h-4 shrink-0" />
           </button>
         </div>
       </header>
@@ -1047,6 +1123,28 @@ export const Header: React.FC<HeaderProps> = (props) => {
               </div>
 
               <div className="p-4 flex flex-col gap-6 pt-6">
+                {/* Featured Prominent Banner for After Effects Studio in Mobile */}
+                {props.onAfterEffectsStudioOpen && (
+                  <button
+                    onClick={() => {
+                      props.onAfterEffectsStudioOpen?.();
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-r from-red-600/35 via-rose-600/30 to-red-700/35 border-2 border-red-500/80 shadow-[0_0_25px_rgba(239,68,68,0.5)] text-right group active:scale-95 transition-all cursor-pointer"
+                  >
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-500 to-rose-600 text-white flex items-center justify-center font-black shadow-md shrink-0">
+                      <Film className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="flex-1 flex flex-col items-start gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-black text-lg text-red-100 group-hover:text-white">استوديو After Effects</span>
+                        <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-red-600 text-white shadow-sm border border-red-300">PRO 🎬</span>
+                      </div>
+                      <span className="text-xs text-red-200/80 font-medium">الكومبوزيشن والتايم لاين ومفاتيح الحركة وتصدير SVGA وAPNG</span>
+                    </div>
+                  </button>
+                )}
+
                 {visibleCategories.map((category) => (
                   <div key={category.id} className="flex flex-col gap-3">
                     <div className="flex items-center gap-2 px-2 text-indigo-400">

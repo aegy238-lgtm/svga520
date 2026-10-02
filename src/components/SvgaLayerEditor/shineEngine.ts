@@ -23,15 +23,35 @@ export interface ShineEffectOptions {
   localEndPoint?: ShineVectorPoint;   // نقطة نهاية المسار المحولة لمساحة الطبقة
 }
 
+const COLOR_NAME_MAP: Record<string, { r: number; g: number; b: number }> = {
+  white: { r: 255, g: 255, b: 255 },
+  gold: { r: 255, g: 215, b: 0 },
+  yellow: { r: 255, g: 255, b: 0 },
+  blue: { r: 56, g: 189, b: 248 },
+  sky: { r: 56, g: 189, b: 248 },
+  pink: { r: 244, g: 114, b: 182 },
+  green: { r: 52, g: 211, b: 153 },
+  purple: { r: 192, g: 132, b: 252 },
+  red: { r: 239, g: 68, b: 68 },
+  orange: { r: 249, g: 115, b: 22 },
+  cyan: { r: 6, g: 182, b: 212 },
+};
+
 /**
  * Helper to parse any color format (RGB string, Hex, or rgba) into RGB values
  */
 export function parseColorToRgb(colorStr: string = '255, 255, 255'): { r: number; g: number; b: number } {
-  const trimmed = colorStr.trim();
+  if (!colorStr) return { r: 255, g: 255, b: 255 };
+  const trimmed = colorStr.trim().toLowerCase();
+  if (COLOR_NAME_MAP[trimmed]) {
+    return COLOR_NAME_MAP[trimmed];
+  }
   if (trimmed.startsWith('#')) {
     let hex = trimmed.slice(1);
-    if (hex.length === 3) {
-      hex = hex.split('').map(c => c + c).join('');
+    if (hex.length === 3 || hex.length === 4) {
+      hex = hex.split('').slice(0, 3).map(c => c + c).join('');
+    } else if (hex.length >= 6) {
+      hex = hex.slice(0, 6);
     }
     const num = parseInt(hex, 16);
     if (!isNaN(num)) {
@@ -45,9 +65,9 @@ export function parseColorToRgb(colorStr: string = '255, 255, 255'): { r: number
     const parts = trimmed.replace(/[rgba()]/gi, '').split(',').map(p => parseFloat(p.trim()));
     if (parts.length >= 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
       return {
-        r: Math.round(parts[0]),
-        g: Math.round(parts[1]),
-        b: Math.round(parts[2])
+        r: Math.max(0, Math.min(255, Math.round(parts[0]))),
+        g: Math.max(0, Math.min(255, Math.round(parts[1]))),
+        b: Math.max(0, Math.min(255, Math.round(parts[2])))
       };
     }
   }
@@ -191,7 +211,7 @@ export function drawAnimatedShine(
     hGrad.addColorStop(Math.max(0, (mid - flareW) / offW), `rgba(${rgbStr}, 0)`);
     hGrad.addColorStop(Math.max(0, (mid - flareW * 0.4) / offW), `rgba(${rgbStr}, ${opacity * 0.4})`);
     hGrad.addColorStop(Math.max(0, (mid - coreW) / offW), `rgba(${rgbStr}, ${opacity * 0.8})`);
-    hGrad.addColorStop(0.5, `rgba(255, 255, 255, ${opacity})`);
+    hGrad.addColorStop(0.5, `rgba(${rgbStr}, ${opacity})`);
     hGrad.addColorStop(Math.min(1, (mid + coreW) / offW), `rgba(${rgbStr}, ${opacity * 0.8})`);
     hGrad.addColorStop(Math.min(1, (mid + flareW * 0.4) / offW), `rgba(${rgbStr}, ${opacity * 0.4})`);
     hGrad.addColorStop(Math.min(1, (mid + flareW) / offW), `rgba(${rgbStr}, 0)`);
@@ -335,12 +355,45 @@ export function renderLayerShine(
   projectWidth?: number,
   projectHeight?: number,
   layerMatrix?: [number, number, number, number, number, number] | null,
-  fps: number = 30
+  fps: number = 30,
+  isLivePreviewEditing?: boolean,
+  previewTimeSeconds?: number
 ) {
   if (!config || !config.enabled) return;
   if (width <= 0 || height <= 0 || totalFrames <= 0) return;
 
-  const { isActive, progress } = calculateShineProgress(currentFrame, totalFrames, fps, config);
+  let isActive = false;
+  let progress = 0;
+
+  if (isLivePreviewEditing && previewTimeSeconds !== undefined) {
+    const durationSec = (config.durationSeconds ?? 2.0) / Math.max(0.1, config.speedMultiplier ?? 1.0);
+    const repeatInterval = config.repeatInterval ?? 0.5;
+    const cyclePeriod = durationSec + repeatInterval;
+    const cycleTime = previewTimeSeconds % cyclePeriod;
+
+    if (cycleTime <= durationSec) {
+      isActive = true;
+      const keyStart = config.keyframeStart ?? 0.0;
+      const keyEnd = config.keyframeEnd ?? 1.0;
+      const norm = cycleTime / durationSec;
+      progress = keyStart + norm * (keyEnd - keyStart);
+    } else {
+      // In pause gap: hold shine beam visible at center 0.5 so color remains visible!
+      isActive = true;
+      progress = 0.5;
+    }
+  } else {
+    const calc = calculateShineProgress(currentFrame, totalFrames, fps, config);
+    isActive = calc.isActive;
+    progress = calc.progress;
+
+    // Fallback for static/paused frame: hold shine beam at center 0.5 so color change is 100% visible on canvas!
+    if (!isActive || progress <= 0.001 || progress >= 0.999) {
+      isActive = true;
+      progress = 0.5;
+    }
+  }
+
   if (!isActive) return;
 
   // Convert Project Canvas Vector Points to Layer Local Space

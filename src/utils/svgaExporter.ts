@@ -146,9 +146,9 @@ export const convertVapToSvga = async (
         
         fCtx.putImageData(combinedData, 0, 0);
 
-        // Render Watermark on SVGA frame
-        if (watermarkOptions?.wmSettings || watermarkOptions?.watermark || wmImgEl) {
-            const activeSettings = watermarkOptions?.wmSettings || (watermarkOptions?.watermark ? { enabled: true, logoUrl: watermarkOptions.watermark, type: 'image' } : getSavedWatermarkSettings());
+        // Render Watermark on SVGA frame (only if explicitly enabled)
+        if (watermarkOptions?.wmSettings?.enabled || watermarkOptions?.watermark) {
+            const activeSettings = watermarkOptions?.wmSettings || { enabled: true, logoUrl: watermarkOptions?.watermark, type: 'image' };
             drawUniversalWatermarkOnCanvas(fCtx, actualWidth, actualHeight, i, activeSettings, wmImgEl);
         }
 

@@ -47,7 +47,7 @@ export function getSavedWatermarkSettings(): UniversalWatermarkSettings {
   try {
     if (typeof window === 'undefined' || !window.localStorage) {
       return {
-        enabled: true,
+        enabled: false,
         type: 'text',
         text: 'Ahmed SVGA • Ahmed SVGA',
         color: '#ffffff',
@@ -65,11 +65,11 @@ export function getSavedWatermarkSettings(): UniversalWatermarkSettings {
       return {
         ...parsed,
         text: parsed.text || pinnedText,
-        enabled: parsed.enabled !== false,
+        enabled: parsed.enabled === true,
       };
     }
     return {
-      enabled: true,
+      enabled: false,
       type: 'text',
       text: pinnedText,
       color: '#ffffff',
@@ -81,7 +81,7 @@ export function getSavedWatermarkSettings(): UniversalWatermarkSettings {
     };
   } catch {
     return {
-      enabled: true,
+      enabled: false,
       type: 'text',
       text: 'Ahmed SVGA • Ahmed SVGA',
       color: '#ffffff',
@@ -152,7 +152,7 @@ export function drawUniversalWatermarkOnCanvas(
   wmImg?: HTMLImageElement | null
 ) {
   const activeSettings = settings || getSavedWatermarkSettings();
-  if (!activeSettings || activeSettings.enabled === false) return;
+  if (!activeSettings || activeSettings.enabled !== true) return;
 
   const opacity = activeSettings.opacity !== undefined ? activeSettings.opacity : 0.45;
   const color = activeSettings.color || '#ffffff';

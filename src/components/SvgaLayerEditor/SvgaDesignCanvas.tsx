@@ -521,6 +521,38 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
   const [activeGuides, setActiveGuides] = useState<GuideLine[]>([]);
   const [cacheVersion, setCacheVersion] = useState<number>(0);
 
+  // Real-time live shine preview time to animate and display shine color live on the layer
+  const [liveShineTime, setLiveShineTime] = useState<number>(() => performance.now() / 1000);
+  const shineAnimRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const hasShine = layers.some(l => l.shineConfig?.enabled);
+    if (!hasShine) {
+      if (shineAnimRef.current) cancelAnimationFrame(shineAnimRef.current);
+      return;
+    }
+
+    // Trigger instant render with updated color
+    setLiveShineTime(performance.now() / 1000);
+
+    let isSubscribed = true;
+    let lastTime = performance.now();
+    const tick = (now: number) => {
+      if (!isSubscribed) return;
+      if (now - lastTime >= 30) {
+        lastTime = now;
+        setLiveShineTime(now / 1000);
+      }
+      shineAnimRef.current = requestAnimationFrame(tick);
+    };
+
+    shineAnimRef.current = requestAnimationFrame(tick);
+    return () => {
+      isSubscribed = false;
+      if (shineAnimRef.current) cancelAnimationFrame(shineAnimRef.current);
+    };
+  }, [layers]);
+
   const selectedLayer = useMemo(() => {
     return layers.find(l => l.id === selectedLayerId) || null;
   }, [layers, selectedLayerId]);
@@ -1053,7 +1085,9 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
             project.width,
             project.height,
             finalTotalMatrix,
-            project.fps || 30
+            project.fps || 30,
+            true,
+            liveShineTime
           );
         }
       } else if (layerItem.shineConfig && layerItem.shineConfig.enabled) {
@@ -1069,7 +1103,9 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
           project.width,
           project.height,
           finalTotalMatrix,
-          project.fps || 30
+          project.fps || 30,
+          true,
+          liveShineTime
         );
       }
 
@@ -1219,6 +1255,52 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         }
       }
 
+      // ⭐️ Alpha Matte Child Layers Rendering (دمج وقص القطع المدمجة داخل الطبقة الأم) ⭐️
+      const childPieces = layers.filter(c => c.clipToLayerId === layerItem.id && c.visible);
+      if (childPieces.length > 0) {
+        if (!offscreenCanvasRef.current) {
+          offscreenCanvasRef.current = document.createElement('canvas');
+        }
+        const tempCanvas = offscreenCanvasRef.current;
+        if (tempCanvas.width !== width || tempCanvas.height !== height) {
+          tempCanvas.width = width;
+          tempCanvas.height = height;
+        }
+        const tempCtx = tempCanvas.getContext('2d');
+        if (tempCtx) {
+          tempCtx.imageSmoothingEnabled = true;
+          tempCtx.imageSmoothingQuality = 'high';
+          tempCtx.clearRect(0, 0, width, height);
+          renderLeafSprite(tempCtx, layerItem, currentTotalMatrix, currentAlpha);
+
+          for (const child of childPieces) {
+            const childAnim = getLayerAnimatedTransform(child, currentFrame);
+            const childAlpha = Math.max(0, Math.min(1, (childAnim.opacity !== undefined ? childAnim.opacity : child.transform.opacity) / 100));
+            const childInitial = child.initialBounds || { x: 0, y: 0, width: 100, height: 100 };
+            const cRad = (childAnim.rotation * Math.PI) / 180;
+            const cCos = Math.cos(cRad);
+            const cSin = Math.sin(cRad);
+            const cPivotX = childInitial.x + childInitial.width / 2;
+            const cPivotY = childInitial.y + childInitial.height / 2;
+            const cA = childAnim.scaleX * cCos;
+            const cB = childAnim.scaleX * cSin;
+            const cC = -childAnim.scaleY * cSin;
+            const cD = childAnim.scaleY * cCos;
+            const cTx = (cPivotX + childAnim.x - childInitial.x) - (cA * cPivotX + cC * cPivotY);
+            const cTy = (cPivotY + childAnim.y - childInitial.y) - (cB * cPivotX + cD * cPivotY);
+            const mUserChild: [number, number, number, number, number, number] = [cA, cB, cC, cD, cTx, cTy];
+
+            tempCtx.save();
+            tempCtx.globalCompositeOperation = (child.blendMode as any) || 'source-atop';
+            renderLeafSprite(tempCtx, child, mUserChild, childAlpha);
+            tempCtx.restore();
+          }
+
+          layersCtx.drawImage(tempCanvas, 0, 0);
+          return;
+        }
+      }
+
       // Standard leaf sprite drawing to layers canvas
       renderLeafSprite(layersCtx, layerItem, currentTotalMatrix, currentAlpha);
     };
@@ -1258,6 +1340,9 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     for (const layer of layersToRender) {
       // A matte mask template must NEVER be drawn as a standalone opaque layer on the canvas!
       if (isLayerMatteTemplate(layer)) {
+        continue;
+      }
+      if (layer.clipToLayerId && layers.some(p => p.id === layer.clipToLayerId)) {
         continue;
       }
       renderLayerRecursive(layer, null, 1.0);
@@ -1414,7 +1499,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
         ctx.restore();
       }
     }
-  }, [project, layers, selectedLayer, activeSelectedIds, selectedLayerId, currentFrame, bgColor, showGrid, showGuides, activeGuides, computeLayerMatrix, getLayerFrameState, cacheVersion, fadeConfig, cropConfig, cropFeather]);
+  }, [project, layers, selectedLayer, activeSelectedIds, selectedLayerId, currentFrame, bgColor, showGrid, showGuides, activeGuides, computeLayerMatrix, getLayerFrameState, cacheVersion, fadeConfig, cropConfig, cropFeather, liveShineTime]);
 
   useEffect(() => {
     drawScene();

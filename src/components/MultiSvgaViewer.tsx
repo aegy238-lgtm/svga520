@@ -1810,8 +1810,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           }
         }
 
-        // Always render watermark on MP4 video frame
-        drawWatermarkOnCanvasHelper(ctx, canvas.width, canvas.height, frame, wmSettings, wmImg);
+        // Clean MP4 Export without watermark (user requirement)
+        // Watermark is excluded from exported MP4 files
 
         const timestamp = (frame / targetFps) * 1_000_000;
         const videoFrame = new VideoFrame(canvas, { timestamp });
@@ -2439,8 +2439,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               ctx.drawImage(internalCanvas, dx, dy, drawW, drawH);
             }
 
-            // Always render watermark on MP4 video frame
-            drawWatermarkOnCanvasHelper(ctx, finalWidth, finalHeight, frame, wmSettings, wmImg);
+            // Clean MP4 Export without watermark (user requirement)
+            // Watermark is excluded from exported MP4 files
 
             const timestamp = (frame / targetFps) * 1_000_000;
             const videoFrame = new VideoFrame(canvas, { timestamp });
@@ -4434,6 +4434,22 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               >
                 <span className="w-2 h-2 rounded-full bg-white animate-ping" />
                 <span>{isExporting ? `تسجيل (${exportProgress}%)` : 'تسجيل فيديو مجمع'}</span>
+              </button>
+
+              {/* Dedicated Export to After Effects JSX */}
+              <button
+                onClick={() => {
+                  if (selectedItem) {
+                    handleOpenAeExportModal(selectedItem);
+                  } else if ((items as any[]).length > 0) {
+                    handleOpenAeExportModal((items as any[])[0]);
+                  }
+                }}
+                className="px-3.5 py-2 bg-gradient-to-r from-red-600 via-rose-600 to-red-600 hover:from-red-500 hover:to-rose-500 text-white rounded-xl font-black text-xs shadow-md shadow-red-600/30 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer border border-red-400/40"
+                title="تصدير ونقل مشروع وسكربت After Effects (.jsx) مع تحديد المقاسات والمدة والفريمات والطبقات"
+              >
+                <Film className="w-4 h-4 text-red-200" />
+                <span>🚀 نقل وتصدير المشروع إلى After Effects (.jsx)</span>
               </button>
             </div>
           </div>

@@ -35,6 +35,7 @@ export enum AppState {
   ANIMATION_MANAGER = 'ANIMATION_MANAGER',
   IMAGE_COLLAGE_STUDIO = 'IMAGE_COLLAGE_STUDIO',
   EMBEDDED_PORTAL = 'EMBEDDED_PORTAL',
+  AFTER_EFFECTS_STUDIO = 'AFTER_EFFECTS_STUDIO',
   HOME = 'HOME'
 }
 
@@ -401,5 +402,14 @@ export interface GiftItem {
   imageUrl: string;
   fileUrl?: string;
   type?: string;
+}
+
+export interface SVGAFileExtended {
+  name: string;
+  size: number;
+  type: string;
+  lastModified: number;
+  url: string;
+  rawFile: File;
 }
 

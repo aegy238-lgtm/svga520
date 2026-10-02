@@ -86,6 +86,23 @@ export const CATEGORIES_CONFIG: Record<ToolCategory, CategoryInfo> = {
 
 export const TOOLS_REGISTRY: ToolRegistryItem[] = [
   {
+    id: 'after-effects-studio',
+    label: 'استوديو After Effects الاحترافي (أفتر افكت)',
+    shortLabel: 'After Effects',
+    icon: <Film className="w-4 h-4 text-red-500 fill-red-500/20" />,
+    category: 'svga',
+    categoryNameAr: 'أنيميشن و SVGA',
+    actionKey: 'onAfterEffectsStudioOpen',
+    dashboardActionKey: 'afterEffectsStudio',
+    featureAccessKey: 'afterEffectsStudio',
+    descAr: 'استوديو تحريك وتصميم كامل بنظام Adobe After Effects: كومبوزيشن احترافي، تايم لاين بمفاتيح حركة (Keyframes)، وأقنعة Alpha Matte، وتصدير SVGA وAPNG وGIF وسكربتات JSX.',
+    descEn: 'Full-featured Adobe After Effects Animation Studio: Timeline, Keyframing, Alpha Matte, and Multi-format Export.',
+    highlight: true,
+    isVip: true,
+    vipBadge: 'PRO 🎬',
+    pinnedTop: true
+  },
+  {
     id: 'video-duration-speed',
     label: 'التحكم في سرعة ومدة الفيديو',
     shortLabel: 'سرعة الفيديو VIP',
@@ -104,14 +121,15 @@ export const TOOLS_REGISTRY: ToolRegistryItem[] = [
   },
   {
     id: 'svga-layer-editor',
-    label: 'تحرير طبقات SVGA',
+    label: 'استدعاء ومحرر الطبقات',
+    shortLabel: 'استدعاء الطبقات',
     icon: <Layers className="w-4 h-4 text-amber-400" />,
     category: 'svga',
     categoryNameAr: 'أنيميشن و SVGA',
     actionKey: 'onSvgaLayerEditorOpen',
     dashboardActionKey: 'svgaLayerEditor',
     featureAccessKey: 'svgaLayerEditor',
-    descAr: 'محرر طبقات SVGA الملكي الحصري (VIP) للتحكم بالماوس في الكانفاس، وتغيير الحجم والتدوير والموضع والترتيب مع الحفاظ التام على الحركة والأصوات.',
+    descAr: 'استدعاء ومحرر طبقات SVGA الملكي الحصري (VIP) للتحكم بالماوس في الكانفاس، وتغيير الحجم والتدوير والموضع والترتيب مع الحفاظ التام على الحركة والأصوات.',
     descEn: 'Exclusive VIP SVGA Layer Editor with interactive mouse canvas manipulation, resize, rotation and audio preservation.',
     highlight: true,
     isVip: true,

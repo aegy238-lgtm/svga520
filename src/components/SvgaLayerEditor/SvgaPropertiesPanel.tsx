@@ -16,7 +16,7 @@ import {
   Layers, Box, Trash2, Maximize2, Move, Package, CheckSquare,
   Square as UncheckedSquare, Link2, Check,
   ZoomIn, ZoomOut, Scaling, SlidersHorizontal, ArrowLeftRight,
-  RotateCw, Target, CheckCheck, Minimize2, Diamond, FileType
+  RotateCw, Target, CheckCheck, Minimize2, Diamond, FileType, X
 } from 'lucide-react';
 
 interface SvgaPropertiesPanelProps {
@@ -82,6 +82,10 @@ interface SvgaPropertiesPanelProps {
   onToggleAutoSyncMirrored?: (layerId: string, enabled: boolean) => void;
   onToggleAutoFlipMirrored?: (layerId: string, enabled: boolean) => void;
   onDuplicateLayer?: (layerId: string, mirror?: boolean) => void;
+  onAddMaskedChildLayer?: (parentLayerId: string, file: File) => void;
+  onUnlinkMaskedChildLayer?: (layerId: string) => void;
+  onSelectLayer?: (layerId: string) => void;
+  onOpenAeMaskedStudio?: () => void;
 }
 
 export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
@@ -130,9 +134,14 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
   onSyncMirroredLayerAsset,
   onToggleAutoSyncMirrored,
   onToggleAutoFlipMirrored,
-  onDuplicateLayer
+  onDuplicateLayer,
+  onAddMaskedChildLayer,
+  onUnlinkMaskedChildLayer,
+  onSelectLayer,
+  onOpenAeMaskedStudio
 }) => {
   const replaceInputRef = useRef<HTMLInputElement>(null);
+  const maskedChildInputRef = useRef<HTMLInputElement>(null);
   const [panelNudgeStep, setPanelNudgeStep] = useState<number>(1);
   const [groupNudgeStep, setGroupNudgeStep] = useState<number>(5);
   const [bulkNudgeStep, setBulkNudgeStep] = useState<number>(10);
@@ -1167,7 +1176,10 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
             onCancelPickPoints={onCancelPickShinePoints}
             onUpdateShineConfig={(cfg) => {
               if (layer && onUpdateShineConfig) {
-                onUpdateShineConfig(layer.id, cfg);
+                onUpdateShineConfig(layer.id, { 
+                  ...cfg, 
+                  enabled: cfg.enabled !== undefined ? cfg.enabled : true 
+                });
               }
             }}
             onResetShine={() => {

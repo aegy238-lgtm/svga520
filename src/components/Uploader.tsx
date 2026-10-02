@@ -9,6 +9,8 @@ interface UploaderProps {
   onUpload: (files: File[], mode?: UploadMode) => void;
   isUploading: boolean;
   onConverterOpen?: () => void;
+  onAfterEffectsStudioOpen?: () => void;
+  onSvgaLayerEditorOpen?: () => void;
   onMultiSvgaOpen?: () => void;
   onBatchImageOpen?: () => void;
   onAnimationManagerOpen?: () => void;
@@ -25,6 +27,8 @@ export const Uploader: React.FC<UploaderProps> = ({
   onUpload, 
   isUploading, 
   onConverterOpen, 
+  onAfterEffectsStudioOpen,
+  onSvgaLayerEditorOpen,
   onMultiSvgaOpen, 
   onBatchImageOpen, 
   onAnimationManagerOpen, 
@@ -276,6 +280,30 @@ export const Uploader: React.FC<UploaderProps> = ({
               >
                  <Layers className="w-4 h-4 text-cyan-400" />
                  <span>{svgaEditorLink.title || 'محرر SVGA'}</span>
+              </button>
+            )}
+
+            {/* Dedicated RED Button for After Effects Animation Studio */}
+            {onAfterEffectsStudioOpen && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onAfterEffectsStudioOpen(); }}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-red-600/35 via-rose-600/40 to-red-700/35 hover:from-red-600/60 hover:to-red-700/60 text-red-100 hover:text-white border-2 border-red-500/80 hover:border-red-400 rounded-xl text-xs font-black transition-all cursor-pointer shadow-[0_0_25px_rgba(239,68,68,0.5)] hover:shadow-[0_0_35px_rgba(239,68,68,0.7)] hover:scale-105 active:scale-95"
+                title="استوديو ومحرر After Effects الاحترافي: تحريك، تايم لاين، مفاتيح حركة، وتصدير SVGA وAPNG"
+              >
+                 <Film className="w-4 h-4 text-red-300 animate-pulse" />
+                 <span>استوديو After Effects الاحترافي PRO 🎬</span>
+              </button>
+            )}
+
+            {/* Dedicated GOLD VIP Button for SVGA Layer Editor (استدعاء الطبقات) */}
+            {onSvgaLayerEditorOpen && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onSvgaLayerEditorOpen(); }}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-500/30 via-yellow-500/25 to-amber-600/30 hover:from-amber-500/50 hover:to-amber-600/50 text-amber-200 hover:text-white border-2 border-amber-500/80 hover:border-amber-400 rounded-xl text-xs font-black transition-all cursor-pointer shadow-[0_0_25px_rgba(245,158,11,0.4)] hover:shadow-[0_0_35px_rgba(245,158,11,0.65)] hover:scale-105 active:scale-95"
+                title="استدعاء ومحرر الطبقات الملكي (Layer Studio VIP): تحكم كامل بالماوس في الكانفاس، وتغيير الحجم والتدوير والموضع مع الحفاظ على الحركة"
+              >
+                 <Layers className="w-4 h-4 text-amber-400 animate-pulse" />
+                 <span>استدعاء الطبقات (محرر الطبقات VIP 👑)</span>
               </button>
             )}
 

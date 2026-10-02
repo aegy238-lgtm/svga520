@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ShineEffectConfig, ShineApplyScope, ShineStyle, ShineDirection, ShineVectorPoint } from './types';
+import { parseColorToRgb } from './shineEngine';
 import { 
   Sparkles, RotateCcw, Sliders, Check, Compass, 
   ArrowRightLeft, Layers, CheckSquare, Zap, Eye,
@@ -902,16 +903,21 @@ export const SvgaShinePanel: React.FC<SvgaShinePanelProps> = ({
                   <button
                     key={p.value}
                     type="button"
-                    onClick={() => onUpdateShineConfig({ color: p.value }, applyScope)}
+                    onClick={() => onUpdateShineConfig({ 
+                      color: p.value, 
+                      enabled: true,
+                      startPoint: startPoint,
+                      endPoint: endPoint
+                    }, applyScope)}
                     className={`p-1.5 rounded-xl border flex flex-col items-center gap-1 transition-all cursor-pointer ${
                       isSelected
-                        ? 'border-amber-400 bg-amber-500/20 shadow-sm ring-1 ring-amber-400'
+                        ? 'border-amber-400 bg-amber-500/20 shadow-sm ring-1 ring-amber-400 scale-105'
                         : 'border-white/10 bg-white/5 hover:bg-white/10'
                     }`}
                     title={p.name}
                   >
                     <div
-                      className="w-5 h-5 rounded-full border border-white/30 shadow-inner flex items-center justify-center"
+                      className="w-5 h-5 rounded-full border border-white/30 shadow-inner flex items-center justify-center transition-transform hover:scale-110"
                       style={{ backgroundColor: p.hex }}
                     >
                       {isSelected && <Check size={10} className={p.value === '255, 255, 255' ? 'text-black' : 'text-white'} />}
@@ -927,18 +933,44 @@ export const SvgaShinePanel: React.FC<SvgaShinePanelProps> = ({
               <span className="text-[10px] font-bold text-slate-300">لون مخصص:</span>
               <input
                 type="color"
-                value={color.startsWith('#') ? color : '#ffffff'}
-                onChange={(e) => onUpdateShineConfig({ color: e.target.value }, applyScope)}
-                className="w-7 h-7 rounded-lg bg-transparent border border-white/20 cursor-pointer"
-                title="اختر لوناً مخصصاً"
+                value={(() => {
+                  if (color.startsWith('#')) return color;
+                  const rgb = parseColorToRgb(color);
+                  return `#${((1 << 24) + (rgb.r << 16) + (rgb.g << 8) + rgb.b).toString(16).slice(1)}`;
+                })()}
+                onChange={(e) => onUpdateShineConfig({ 
+                  color: e.target.value, 
+                  enabled: true,
+                  startPoint: startPoint,
+                  endPoint: endPoint 
+                }, applyScope)}
+                className="w-8 h-8 rounded-lg bg-transparent border border-white/20 cursor-pointer shadow-md"
+                title="اختر لوناً مخصصاً للمعة"
               />
               <input
                 type="text"
                 value={color}
-                onChange={(e) => onUpdateShineConfig({ color: e.target.value }, applyScope)}
-                className="flex-1 bg-black/40 border border-white/10 rounded-lg px-2 py-1 text-[11px] font-mono text-white text-left"
-                placeholder="255, 255, 255 or #ffffff"
+                onChange={(e) => onUpdateShineConfig({ 
+                  color: e.target.value, 
+                  enabled: true,
+                  startPoint: startPoint,
+                  endPoint: endPoint 
+                }, applyScope)}
+                className="flex-1 bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-white text-left focus:border-amber-400 outline-none"
+                placeholder="255, 255, 255 or #ffd700"
               />
+            </div>
+
+            {/* Live Canvas Color Sync Banner */}
+            <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-bold">
+              <div className="flex items-center gap-1.5">
+                <div 
+                  className="w-3 h-3 rounded-full border border-white/50 shadow-sm animate-pulse" 
+                  style={{ backgroundColor: color.startsWith('#') ? color : `rgb(${color})` }} 
+                />
+                <span>يتم تطبيق لون اللمعة مباشرة أمامك في المشروع ✨</span>
+              </div>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200 font-mono">Live Sync</span>
             </div>
 
             {/* Beam Width & Opacity */}

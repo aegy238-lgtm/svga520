@@ -82,6 +82,8 @@ export interface EditableLayer {
   matteKey?: string;
   blendMode?: string;
   isMatteMask?: boolean;
+  clipToLayerId?: string;
+  sourceLayerId?: string;
   framesCount: number;
   keyframeSummary: SVGAKeyframeSummary;
 

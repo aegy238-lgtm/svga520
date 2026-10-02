@@ -9904,20 +9904,20 @@ class _MyAppState extends State<MyApp> {
              <div className="flex flex-col gap-2 mb-2">
                <button 
                  onClick={() => handleExportAEProject({ decrement: false })}
-                 className="w-full py-4 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-black rounded-xl shadow-glow-indigo active:scale-95 transition-all flex items-center justify-center gap-2 border border-indigo-400/30 group"
-                 title="تصدير مشروع After Effects قابل للتعديل بالكامل مع الطبقات والكي فريمز"
+                 className="w-full py-4 bg-gradient-to-r from-red-600 via-rose-600 to-red-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-black rounded-xl shadow-[0_0_25px_rgba(239,68,68,0.5)] active:scale-95 transition-all flex items-center justify-center gap-2 border border-red-400/50 group"
+                 title="تصدير مشروع وسكربت After Effects قابل للتعديل بالكامل مع الطبقات والكي فريمز"
                >
-                 <Film className="w-4 h-4 text-indigo-200 group-hover:rotate-12 transition-transform" />
-                 <span>🎬 Export to Adobe After Effects</span>
+                 <Film className="w-4 h-4 text-red-200 group-hover:rotate-12 transition-transform" />
+                 <span>🚀 نقل وتصدير المشروع إلى After Effects (.jsx)</span>
                </button>
                
                <div className="grid grid-cols-2 gap-2">
                  <button 
                    onClick={handleDirectDownloadJsx}
-                   className="py-2.5 px-2 bg-indigo-950/70 hover:bg-indigo-900/80 text-indigo-200 hover:text-white text-[10px] font-black rounded-lg active:scale-95 transition-all flex items-center justify-center gap-1.5 border border-indigo-500/40 shadow-sm"
+                   className="py-2.5 px-2 bg-red-950/80 hover:bg-red-900 text-red-200 hover:text-white text-[10px] font-black rounded-lg active:scale-95 transition-all flex items-center justify-center gap-1.5 border border-red-500/50 shadow-sm"
                    title="تحميل ملف السكريبت (.jsx) فقط بضغطة واحدة مباشرة"
                  >
-                   <Download className="w-3.5 h-3.5 text-indigo-400" />
+                   <Download className="w-3.5 h-3.5 text-red-400" />
                    <span>تحميل السكريبت (.jsx)</span>
                  </button>
 

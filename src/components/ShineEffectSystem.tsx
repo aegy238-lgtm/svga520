@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { motion } from 'motion/react';
 import { Sparkles, Upload, X, Play, Pause, RefreshCw, Settings, FileImage } from 'lucide-react';
 
 export const ShineEffectSystem: React.FC<{ onCancel: () => void }> = ({ onCancel }) => {

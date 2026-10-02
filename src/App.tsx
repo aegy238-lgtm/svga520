@@ -89,6 +89,7 @@ const Store = lazyWithRetry(() => import('./components/Store').then(m => ({ defa
 const VapHub = lazyWithRetry(() => import('./components/VapHub').then(m => ({ default: m.VapHub })));
 const EmbeddedPortalViewer = lazyWithRetry(() => import('./components/EmbeddedPortalViewer').then(m => ({ default: m.EmbeddedPortalViewer })));
 const UniversalMultiFormatPlayerModal = lazyWithRetry(() => import('./components/UniversalMultiFormatPlayerModal').then(m => ({ default: m.UniversalMultiFormatPlayerModal || m.default })));
+const AfterEffectsStudio = lazyWithRetry(() => import('./components/AfterEffectsStudio').then(m => ({ default: m.AfterEffectsStudio || m.default })));
 
 import { LanguageTranslatorWidget } from './components/LanguageTranslatorWidget';
 
@@ -119,8 +120,9 @@ import { PWAFloatingInstallButton } from './components/PWAFloatingInstallButton'
 declare var SVGA: any;
 
 import { OnboardingModal } from './components/OnboardingModal';
-import { HelpCircle, BookOpen, Wrench, AlertTriangle, ShieldAlert, ShoppingBag } from 'lucide-react';
+import { HelpCircle, BookOpen, Wrench, AlertTriangle, ShieldAlert, ShoppingBag, Film, Layers } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { ImageDimensionModal, ImageDimensionsResult } from './components/ImageDimensionModal';
 
 const videoWidth = 1334;
 const videoHeight = 750;
@@ -143,6 +145,10 @@ const App: React.FC = () => {
   const [uploadedPagFile, setUploadedPagFile] = useState<File | null>(null);
   const [universalPlayerFile, setUniversalPlayerFile] = useState<File | null>(null);
   const [layerEditorInitialFile, setLayerEditorInitialFile] = useState<File | null>(null);
+  const [aeStudioInitialFile, setAeStudioInitialFile] = useState<File | null>(null);
+  const [aeStudioInitialDimensions, setAeStudioInitialDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
+  const [showImageDimensionModal, setShowImageDimensionModal] = useState<boolean>(false);
   const [layerEditorInitialProject, setLayerEditorInitialProject] = useState<any>(null);
   const [layerEditorInitialLayers, setLayerEditorInitialLayers] = useState<any[] | null>(null);
   const [globalQuality, setGlobalQuality] = useState<'low' | 'medium' | 'high'>('high');
@@ -151,6 +157,7 @@ const App: React.FC = () => {
   const [initialVideoFiles, setInitialVideoFiles] = useState<File[]>([]);
   const [initialSvgaFiles, setInitialSvgaFiles] = useState<File[]>([]);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showDurationSpeedModal, setShowDurationSpeedModal] = useState(false);
@@ -589,6 +596,15 @@ const App: React.FC = () => {
       logActivity(currentUser, 'upload', `Uploaded file: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`);
     }
 
+    const isImageFile = (file?.type || '').startsWith('image/') || 
+                         /\.(png|jpe?g|webp|svg)$/i.test(file?.name || '');
+
+    if (isImageFile) {
+      setPendingImageFile(file);
+      setShowImageDimensionModal(true);
+      return;
+    }
+
     const isVapOrVideo = (file?.name || '').toLowerCase().endsWith('.vap') || 
                          (file?.name || '').toLowerCase().endsWith('.mp4') || 
                          (file?.name || '').toLowerCase().endsWith('.webm') || 
@@ -668,7 +684,19 @@ const App: React.FC = () => {
     setInitialVapFile(null);
     setInitialVideoFiles([]);
     setInitialSvgaFiles([]);
+    setAeStudioInitialFile(null);
+    setAeStudioInitialDimensions(null);
+    setPendingImageFile(null);
+    setShowImageDimensionModal(false);
   }, [fileMetadata]);
+
+  const handleImageDimensionsConfirm = (result: ImageDimensionsResult) => {
+    if (!pendingImageFile) return;
+    setAeStudioInitialDimensions({ width: result.width, height: result.height });
+    setAeStudioInitialFile(pendingImageFile);
+    setShowImageDimensionModal(false);
+    handleFeatureAccess(AppState.AFTER_EFFECTS_STUDIO, 'استوديو ومحرر After Effects الاحترافي');
+  };
 
   if (loading) {
     return <Loading />;
@@ -692,23 +720,17 @@ const App: React.FC = () => {
     );
   }
 
-  if (!currentUser) {
-    return (
-      <div className="min-h-screen bg-[#020617] flex items-center justify-center p-4 relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0">
-          <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-500/10 blur-[120px] rounded-full"></div>
-          <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-600/10 blur-[120px] rounded-full"></div>
-        </div>
-        <div className="relative z-10 w-full max-w-md">
-          {authMode === 'login' ? (
-            <Login onToggle={() => setAuthMode('signup')} />
-          ) : (
-            <Signup onToggle={() => setAuthMode('login')} />
-          )}
-        </div>
-      </div>
-    );
-  }
+  // Guest fallback if user is not signed in
+  const guestUser: UserRecord = {
+    id: 'guest_visitor',
+    name: 'زائر المنصة',
+    email: 'guest@svga.app',
+    role: 'user',
+    isVIP: false,
+    points: 999,
+    createdAt: new Date().toISOString()
+  };
+  const activeUser = currentUser || guestUser;
 
   const defaultBgUrl = 'https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?q=80&w=2070&auto=format&fit=crop';
   const bgUrl = settings?.backgroundUrl || defaultBgUrl;
@@ -844,6 +866,7 @@ const App: React.FC = () => {
         onAnimationManagerOpen={() => handleFeatureAccess(AppState.ANIMATION_MANAGER, 'Animation File Manager')}
         onVideoDurationSpeedOpen={handleVideoDurationSpeedOpen}
         onStoreOpen={() => handleFeatureAccess(AppState.STORE, 'SVGA Store & Library')}
+        onAfterEffectsStudioOpen={() => handleFeatureAccess(AppState.AFTER_EFFECTS_STUDIO, 'استوديو ومحرر After Effects الاحترافي')}
         onVapHubOpen={() => handleFeatureAccess(AppState.VAP_HUB, 'VAP Hub')}
         onSvgaLayerEditorOpen={() => {
           setLayerEditorInitialFile(fileMetadata?.originalFile || null);
@@ -852,9 +875,10 @@ const App: React.FC = () => {
         onBatchSvgaConverterOpen={() => handleFeatureAccess(AppState.BATCH_SVGA_CONVERTER, 'Batch SVGA Converter')}
         onBatchImageOpen={() => setShowBatchImage(true)}
         onOpenFile={(files) => handleFileUpload(files)}
-        onLoginClick={() => {}}
+        onLoginClick={() => setShowAuthModal(true)}
         onProfileClick={() => setShowProfileModal(true)}
         currentTab={
+          state === AppState.AFTER_EFFECTS_STUDIO ? 'after-effects-studio' :
           state === AppState.ANIMATION_MANAGER ? 'animation-manager' :
           state === AppState.IMAGE_COLLAGE_STUDIO ? 'image-collage-studio' :
           state === AppState.AI_VIDEO_MATTING ? 'ai-video-matting' :
@@ -940,6 +964,10 @@ const App: React.FC = () => {
                           break;
                         }
                         case 'videoDurationSpeed': handleVideoDurationSpeedOpen(); break;
+                        case 'afterEffectsStudio':
+                        case 'onAfterEffectsStudioOpen':
+                          handleFeatureAccess(AppState.AFTER_EFFECTS_STUDIO, 'استوديو ومحرر After Effects الاحترافي');
+                          break;
                         case 'animationManager': handleFeatureAccess(AppState.ANIMATION_MANAGER, 'Animation File Manager'); break;
                         case 'aiVideoMatting': handleFeatureAccess(AppState.AI_VIDEO_MATTING, 'AI Video Matting Studio'); break;
                         case 'imageCollageStudio': handleFeatureAccess(AppState.IMAGE_COLLAGE_STUDIO, 'Image Collage & Watermark Studio'); break;
@@ -1185,6 +1213,22 @@ const App: React.FC = () => {
             {state === AppState.VAP_HUB && (
               <VapHub />
             )}
+            {state === AppState.AFTER_EFFECTS_STUDIO && (
+              <ErrorBoundary fallbackTitle="حدث خطأ في تحميل استوديو ومحرر After Effects" onReset={handleReset}>
+                <AfterEffectsStudio 
+                  initialFile={aeStudioInitialFile || fileMetadata?.originalFile || null}
+                  initialMetadata={fileMetadata || null}
+                  initialDimensions={aeStudioInitialDimensions}
+                  onCancel={handleReset}
+                  onClose={handleReset}
+                  onOpenInViewer={(file) => {
+                    if (file?.originalFile) {
+                      handleFileUpload([file.originalFile]);
+                    }
+                  }}
+                />
+              </ErrorBoundary>
+            )}
             {state === AppState.ADMIN_PANEL && (currentUser?.role === 'admin' || currentUser?.role === 'moderator') && (
               <AdminPanel currentUser={currentUser} onCancel={handleReset} />
             )}
@@ -1194,7 +1238,7 @@ const App: React.FC = () => {
       </div>
 
       <div className="fixed bottom-6 left-6 z-[100] flex flex-col-reverse gap-3">
-        {state !== AppState.SVGA_LAYER_EDITOR && (
+        {state !== AppState.SVGA_LAYER_EDITOR && state !== AppState.AFTER_EFFECTS_STUDIO && (
           <>
             {/* Language Translator Globe Widget */}
             <LanguageTranslatorWidget />
@@ -1351,6 +1395,38 @@ const App: React.FC = () => {
               setVersionBlockedState(prev => ({ ...prev, isBlocked: false }));
             }
           }}
+        />
+      )}
+
+      {/* Auth Modal Overlay */}
+      {showAuthModal && (
+        <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="relative w-full max-w-md bg-slate-900 border border-white/10 rounded-3xl p-6 shadow-2xl">
+            <button 
+              onClick={() => setShowAuthModal(false)}
+              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-full transition-all"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            {authMode === 'login' ? (
+              <Login onToggle={() => setAuthMode('signup')} />
+            ) : (
+              <Signup onToggle={() => setAuthMode('login')} />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Image Dimension Setup Modal */}
+      {showImageDimensionModal && pendingImageFile && (
+        <ImageDimensionModal
+          isOpen={showImageDimensionModal}
+          file={pendingImageFile}
+          onClose={() => {
+            setShowImageDimensionModal(false);
+            setPendingImageFile(null);
+          }}
+          onConfirm={handleImageDimensionsConfirm}
         />
       )}
 

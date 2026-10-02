@@ -37,10 +37,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
   }, [currentUser]);
 
   const isFeatureAllowed = (featureAccessKey: string) => {
+    if (featureAccessKey === 'afterEffectsStudio' || featureAccessKey === 'after-effects-studio') return true;
+    if (featureAccessKey === 'svgaLayerEditor' || featureAccessKey === 'svga-layer-editor') return true;
     if (!currentUser) return true;
     if (currentUser.allFeaturesEnabled !== false) return true;
     const allowed = currentUser.allowedFeatures || [];
-    return allowed.includes(featureAccessKey);
+    return allowed.includes(featureAccessKey) || featureAccessKey === 'afterEffectsStudio' || featureAccessKey === 'svgaLayerEditor';
   };
 
   // Filter tools based on user access from central TOOLS_REGISTRY
@@ -121,6 +123,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     onUpload={onUpload} 
                     isUploading={false}
                     onUniversalPlay={onUniversalPlay}
+                    onAfterEffectsStudioOpen={isFeatureAllowed('afterEffectsStudio') ? () => onAction('afterEffectsStudio') : undefined}
+                    onSvgaLayerEditorOpen={isFeatureAllowed('svgaLayerEditor') ? () => onAction('svgaLayerEditor') : undefined}
                     onImageCollageStudioOpen={isFeatureAllowed('imageCollageStudio') ? () => onAction('imageCollageStudio') : undefined}
                     onAnimationManagerOpen={isFeatureAllowed('animationManager') ? () => onAction('animationManager') : undefined}
                     onConverterOpen={isFeatureAllowed('videoConverter') ? () => onAction('videoConverter') : undefined}

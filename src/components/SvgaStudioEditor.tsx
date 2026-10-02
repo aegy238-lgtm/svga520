@@ -786,6 +786,16 @@ export const SvgaStudioEditor: React.FC<SvgaStudioEditorProps> = ({
           <button 
             onClick={() => setIsAeModalOpen(true)}
             disabled={!isLoaded}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black rounded-lg transition-all disabled:opacity-40 ml-2 shadow-md shadow-amber-500/20 active:scale-95"
+            title="إضافة طبقة لمعة الإطار المدمجة مع نقاط التحكم"
+          >
+            <Sparkles className="w-4 h-4 text-slate-950" />
+            <span>✨ طبقة لمعة الإطار</span>
+          </button>
+
+          <button 
+            onClick={() => setIsAeModalOpen(true)}
+            disabled={!isLoaded}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded font-bold transition-all disabled:opacity-40 ml-2 shadow-sm"
             title="Export to Adobe After Effects"
           >

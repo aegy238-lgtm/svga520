@@ -1238,9 +1238,6 @@ export async function exportAsMp4(
           scratchCtx.fillStyle = bgColor || '#000000';
           scratchCtx.fillRect(0, 0, evenWidth, evenHeight);
           scratchCtx.drawImage(srcCanvas, 0, 0, evenWidth, evenHeight);
-
-          // Bake watermark on MP4 video frame
-          drawUniversalWatermarkOnCanvas(scratchCtx, evenWidth, evenHeight, i, getSavedWatermarkSettings());
         }
 
         const frameSource = scratchCanvas || srcCanvas;

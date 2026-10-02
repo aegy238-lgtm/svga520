@@ -697,6 +697,39 @@ export async function renderAllProjectFrames(
         }
       }
 
+      // ⭐️ Alpha Matte Child Layers Rendering (دمج وقص القطع المدمجة داخل الطبقة الأم) ⭐️
+      const childPieces = layers.filter(c => c.clipToLayerId === layerItem.id && c.visible);
+      if (childPieces.length > 0 && offCtx) {
+        offCtx.clearRect(0, 0, width, height);
+        renderLeafSprite(offCtx, layerItem, currentTotalMatrix, currentAlpha, false);
+
+        for (const child of childPieces) {
+          const childAnim = getLayerAnimatedTransform(child, f);
+          const childAlpha = Math.max(0, Math.min(1, (childAnim.opacity !== undefined ? childAnim.opacity : child.transform.opacity) / 100));
+          const childInitial = child.initialBounds || { x: 0, y: 0, width: 100, height: 100 };
+          const cRad = (childAnim.rotation * Math.PI) / 180;
+          const cCos = Math.cos(cRad);
+          const cSin = Math.sin(cRad);
+          const cPivotX = childInitial.x + childInitial.width / 2;
+          const cPivotY = childInitial.y + childInitial.height / 2;
+          const cA = childAnim.scaleX * cCos;
+          const cB = childAnim.scaleX * cSin;
+          const cC = -childAnim.scaleY * cSin;
+          const cD = childAnim.scaleY * cCos;
+          const cTx = (cPivotX + childAnim.x - childInitial.x) - (cA * cPivotX + cC * cPivotY);
+          const cTy = (cPivotY + childAnim.y - childInitial.y) - (cB * cPivotX + cD * cPivotY);
+          const mUserChild: [number, number, number, number, number, number] = [cA, cB, cC, cD, cTx, cTy];
+
+          offCtx.save();
+          offCtx.globalCompositeOperation = (child.blendMode as any) || 'source-atop';
+          renderLeafSprite(offCtx, child, mUserChild, childAlpha, false);
+          offCtx.restore();
+        }
+
+        ctx.drawImage(offCanvas, 0, 0);
+        return;
+      }
+
       renderLeafSprite(ctx, layerItem, currentTotalMatrix, currentAlpha, false);
     };
 
@@ -704,6 +737,7 @@ export async function renderAllProjectFrames(
     const layersToRender = [...layers].reverse();
     for (const l of layersToRender) {
       if (isLayerMatteTemplate(l)) continue;
+      if (l.clipToLayerId && layers.some(p => p.id === l.clipToLayerId)) continue;
       renderLayerRecursive(l, null, 1.0);
     }
 
@@ -985,12 +1019,53 @@ export function renderSingleProjectFrameDirect(
       return;
     }
 
+    // ⭐️ Alpha Matte Child Layers Rendering (دمج وقص القطع المدمجة داخل الطبقة الأم) ⭐️
+    const childPieces = layers.filter(c => c.clipToLayerId === layerItem.id && c.visible);
+    if (childPieces.length > 0) {
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = width;
+      tempCanvas.height = height;
+      const tempCtx = tempCanvas.getContext('2d');
+      if (tempCtx) {
+        tempCtx.imageSmoothingEnabled = true;
+        tempCtx.imageSmoothingQuality = 'high';
+        renderLeafSprite(tempCtx, layerItem, currentTotalMatrix, currentAlpha);
+
+        for (const child of childPieces) {
+          const childAnim = getLayerAnimatedTransform(child, f);
+          const childAlpha = Math.max(0, Math.min(1, (childAnim.opacity !== undefined ? childAnim.opacity : child.transform.opacity) / 100));
+          const childInitial = child.initialBounds || { x: 0, y: 0, width: 100, height: 100 };
+          const cRad = (childAnim.rotation * Math.PI) / 180;
+          const cCos = Math.cos(cRad);
+          const cSin = Math.sin(cRad);
+          const cPivotX = childInitial.x + childInitial.width / 2;
+          const cPivotY = childInitial.y + childInitial.height / 2;
+          const cA = childAnim.scaleX * cCos;
+          const cB = childAnim.scaleX * cSin;
+          const cC = -childAnim.scaleY * cSin;
+          const cD = childAnim.scaleY * cCos;
+          const cTx = (cPivotX + childAnim.x - childInitial.x) - (cA * cPivotX + cC * cPivotY);
+          const cTy = (cPivotY + childAnim.y - childInitial.y) - (cB * cPivotX + cD * cPivotY);
+          const mUserChild: [number, number, number, number, number, number] = [cA, cB, cC, cD, cTx, cTy];
+
+          tempCtx.save();
+          tempCtx.globalCompositeOperation = (child.blendMode as any) || 'source-atop';
+          renderLeafSprite(tempCtx, child, mUserChild, childAlpha);
+          tempCtx.restore();
+        }
+
+        ctx.drawImage(tempCanvas, 0, 0);
+        return;
+      }
+    }
+
     renderLeafSprite(ctx, layerItem, currentTotalMatrix, currentAlpha);
   };
 
   const layersToRender = [...layers].reverse();
   for (const l of layersToRender) {
     if (l.isMatteMask) continue;
+    if (l.clipToLayerId && layers.some(p => p.id === l.clipToLayerId)) continue;
     renderLayerRecursive(l, null, 1.0);
   }
 

@@ -971,9 +971,9 @@ export const convertVapToMp4 = async (options: VapExportOptions): Promise<{ mp4B
       }
     }
 
-    // Watermark (Professional Multi-Pattern Animated & Static Watermark)
-    if (wmSettings || watermark || wmImgEl) {
-      const activeSettings = wmSettings || (watermark ? { enabled: true, logoUrl: watermark, type: 'image' } : getSavedWatermarkSettings());
+    // Watermark: only if explicitly enabled by user
+    if ((wmSettings && wmSettings.enabled) || watermark) {
+      const activeSettings = wmSettings || { enabled: true, logoUrl: watermark, type: 'image' };
       drawUniversalWatermarkOnCanvas(ctx, outW, outH, i, activeSettings, wmImgEl);
     }
 

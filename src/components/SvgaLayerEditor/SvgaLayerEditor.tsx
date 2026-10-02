@@ -38,6 +38,7 @@ import { SvgaMultiProjectOverview } from './SvgaMultiProjectOverview';
 import { SvgaMultiCanvasStage } from './SvgaMultiCanvasStage';
 import { SvgaBatchExportModal } from './SvgaBatchExportModal';
 import { SvgaBackgroundLibraryModal, downloadImageUrl } from './SvgaBackgroundLibraryModal';
+import { AfterEffectsMaskedLayerStudio } from './AfterEffectsMaskedLayerStudio';
 import { ChromaTargetColor, identifyColorType, applySmartChromaToSingleImage, isAudioSource } from './svgaSmartChromaEngine';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { 
@@ -222,6 +223,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const [showMergeCanvasModal, setShowMergeCanvasModal] = useState<boolean>(false);
   const [showMp4ImportModal, setShowMp4ImportModal] = useState<boolean>(false);
   const [showBgLibraryModal, setShowBgLibraryModal] = useState<boolean>(false);
+  const [showAeMaskedStudioModal, setShowAeMaskedStudioModal] = useState<boolean>(false);
   const [mp4InitialFiles, setMp4InitialFiles] = useState<File[]>([]);
   const [newProjectConfig, setNewProjectConfig] = useState({
     name: 'مشروع SVGA جديد',
@@ -1280,7 +1282,8 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
           };
           const newShine = {
             ...currentShine,
-            ...shineDelta
+            ...shineDelta,
+            enabled: shineDelta.enabled !== undefined ? shineDelta.enabled : (shineDelta.color ? true : currentShine.enabled)
           };
           return {
             ...l,
@@ -2800,6 +2803,91 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     }
   }, [project, layers, selectedLayerId, pushHistory]);
 
+  // ⭐️ إضافة قطعة مدمجة كقناع (Alpha Matte) داخل طبقة محددة ⭐️
+  const handleAddMaskedChildLayer = useCallback(async (parentLayerId: string, file: File) => {
+    if (!project) return;
+    try {
+      const parentLayer = layers.find(l => l.id === parentLayerId);
+      if (!parentLayer) return;
+
+      const { dataUrl, bytes, width, height } = await fileToImageBuffer(file);
+      const imageKey = `img_custom_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const layerName = `${parentLayer.name} - ${file.name.replace(/\.[^/.]+$/, '')}`;
+
+      setProject(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          rawImages: {
+            ...prev.rawImages,
+            [imageKey]: bytes
+          },
+          imagesMap: {
+            ...prev.imagesMap,
+            [imageKey]: dataUrl
+          }
+        };
+      });
+
+      // Create new layer with parent motion copied or linked
+      const newLayer = createImageLayer(
+        imageKey,
+        layerName,
+        dataUrl,
+        width,
+        height,
+        project.width,
+        project.height,
+        project.totalFrames
+      );
+
+      // Set Alpha Matte parent relation
+      newLayer.clipToLayerId = parentLayer.id;
+      newLayer.sourceLayerId = parentLayer.id;
+      newLayer.blendMode = 'source-atop';
+
+      // Inherit transform & motion keyframes from parent layer so it matches the parent position
+      newLayer.transform = {
+        ...parentLayer.transform,
+        width: Math.min(parentLayer.transform.width, width),
+        height: Math.min(parentLayer.transform.height, height)
+      };
+
+      if (parentLayer.keyframes && parentLayer.keyframes.length > 0) {
+        newLayer.keyframes = JSON.parse(JSON.stringify(parentLayer.keyframes));
+      }
+
+      setLayers(prev => {
+        const pIdx = prev.findIndex(l => l.id === parentLayer.id);
+        const updated = [...prev];
+        if (pIdx >= 0) {
+          updated.splice(pIdx, 0, newLayer); // place directly in front of parent
+        } else {
+          updated.unshift(newLayer);
+        }
+        pushHistory(updated);
+        return updated;
+      });
+
+      setSelectedLayerId(newLayer.id);
+      setSelectedLayerIds([newLayer.id]);
+      setSuccessToast(`تمت إضافة ودمج القطعة (Alpha Matte) بنجاح: ${layerName}`);
+    } catch (err: any) {
+      console.error("Failed to add masked child layer:", err);
+      alert(`فشل دمج القطعة: ${err.message || 'خطأ غير متوقع'}`);
+    }
+  }, [project, layers, pushHistory]);
+
+  // فك ارتباط طبقة مدمجة كقناع (Alpha Matte)
+  const handleUnlinkMaskedChildLayer = useCallback((layerId: string) => {
+    setLayers(prev => {
+      const updated = prev.map(l => l.id === layerId ? { ...l, clipToLayerId: undefined, sourceLayerId: undefined, blendMode: 'source-over' } : l);
+      pushHistory(updated);
+      return updated;
+    });
+    setSuccessToast('تم فك ارتباط الطبقة المدمجة وجعلها طبقة حرة');
+  }, [pushHistory]);
+
   // Add New Shape / Text Layer
   const handleAddShapeLayer = useCallback(async (shapeType: 'rect' | 'circle' | 'star' | 'badge' | 'text', customText?: string) => {
     if (!project) return;
@@ -4119,6 +4207,10 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               onToggleAutoSyncMirrored={handleToggleAutoSyncMirrored}
               onToggleAutoFlipMirrored={handleToggleAutoFlipMirrored}
               onDuplicateLayer={handleDuplicateLayer}
+              onAddMaskedChildLayer={handleAddMaskedChildLayer}
+              onUnlinkMaskedChildLayer={handleUnlinkMaskedChildLayer}
+              onSelectLayer={setSelectedLayerId}
+              onOpenAeMaskedStudio={() => setShowAeMaskedStudioModal(true)}
             />
           </aside>
         </div>
@@ -4515,6 +4607,19 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             onSelectBackground={handleSelectBackground}
             projectsCount={projects.length}
           />
+        </ErrorBoundary>
+      )}
+
+      {/* After Effects Alpha Matte Studio Modal */}
+      {showAeMaskedStudioModal && (
+        <ErrorBoundary fallbackTitle="حدث خطأ في استوديو الطبقات المدمجة" onReset={() => setShowAeMaskedStudioModal(false)}>
+          <div className="fixed inset-0 z-[120] bg-black/90 backdrop-blur-xl flex items-center justify-center p-2 sm:p-6 overflow-y-auto animate-in fade-in duration-200">
+            <div className="w-full max-w-7xl bg-slate-950 border border-violet-500/40 rounded-3xl p-4 sm:p-6 shadow-2xl relative my-auto">
+              <AfterEffectsMaskedLayerStudio
+                onClose={() => setShowAeMaskedStudioModal(false)}
+              />
+            </div>
+          </div>
         </ErrorBoundary>
       )}
 
