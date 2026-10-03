@@ -976,3 +976,5 @@ export const VideoDurationSpeedModal: React.FC<VideoDurationSpeedModalProps> = (
     </AnimatePresence>
   );
 };
+
+export default VideoDurationSpeedModal;

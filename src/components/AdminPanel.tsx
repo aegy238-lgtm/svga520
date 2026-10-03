@@ -18,6 +18,7 @@ import { MaintenanceScreen } from './MaintenanceScreen';
 import { TOOLS_REGISTRY } from '../config/toolsRegistry';
 import { useStarredTools } from '../utils/starredTools';
 import { Star } from 'lucide-react';
+import { FeaturePreviewModal } from './FeaturePreviewModal';
 
 // Secondary app for creating users without logging out admin
 const secondaryApp = initializeApp(firebaseConfig, 'SecondaryApp');
@@ -33,6 +34,7 @@ const EXPORT_FORMATS = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Image Sequence
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, onOpenFeature }) => {
   const { starredToolIds, isStarred, toggleStar } = useStarredTools();
+  const [activePreviewTool, setActivePreviewTool] = useState<any | null>(null);
   const [activeTab, setActiveTab] = useState<'users' | 'store' | 'keys' | 'assets' | 'settings' | 'records' | 'account_versions' | 'features_access' | 'server_outage' | 'external_links' | 'vib_features' | 'security_protection'>('users');
   const [dropdownState, setDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
   const [subDropdownState, setSubDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
@@ -1072,21 +1074,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, o
                             </div>
                           </div>
 
-                          <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                           <div className="flex items-center justify-between pt-2 border-t border-white/5">
                             <button
                               type="button"
-                              onClick={() => {
-                                // Close admin and open the feature!
-                                onCancel();
-                                // We can trigger the action via props
-                                const action = (window as any).triggerAppAction;
-                                if (action) action(tool.actionKey);
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setActivePreviewTool(tool);
                               }}
-                              className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
+                              className="text-xs font-black text-indigo-400 hover:text-indigo-200 flex items-center gap-1.5 cursor-pointer bg-indigo-500/15 hover:bg-indigo-500/25 px-3 py-2 rounded-xl border border-indigo-500/30 hover:border-indigo-500/50 transition-all shadow-sm active:scale-95"
                               title="معاينة وتجربة الأداة 👁️"
                             >
-                              <Eye className="w-3.5 h-3.5 text-indigo-400" />
-                              <span>معاينة وتجربة</span>
+                              <Eye className="w-4 h-4 text-indigo-400" />
+                              <span>معاينة وتجربة 👁️</span>
                             </button>
 
                             <button
@@ -3183,6 +3183,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, o
           currentAdminEmail={currentUser?.email || 'admin'}
         />
       )}
+
+      {/* Feature Preview & Management Modal */}
+      <FeaturePreviewModal
+        tool={activePreviewTool}
+        isOpen={!!activePreviewTool}
+        onClose={() => setActivePreviewTool(null)}
+        currentUser={currentUser}
+        settings={settings}
+        onUpdateSettings={(newSettings) => setSettings(newSettings)}
+        onLaunchFeature={(tool) => {
+          const actionKey = tool.actionKey || tool.dashboardActionKey || tool.id;
+          setActivePreviewTool(null);
+          if (onOpenFeature) {
+            onOpenFeature(actionKey);
+          }
+          const action = (window as any).triggerAppAction;
+          if (action) {
+            action(actionKey);
+          }
+        }}
+      />
     </div>
   );
 };

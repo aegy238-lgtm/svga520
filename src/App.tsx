@@ -182,6 +182,61 @@ const App: React.FC = () => {
     setShowDurationSpeedModal(true);
   }, [currentUser]);
 
+  // Global action dispatcher to seamlessly open any feature from Dashboard or Modals
+  useEffect(() => {
+    (window as any).triggerAppAction = (actionKey: string) => {
+      const keyToState: Record<string, AppState> = {
+        onAfterEffectsStudioOpen: AppState.AFTER_EFFECTS_STUDIO,
+        afterEffectsStudio: AppState.AFTER_EFFECTS_STUDIO,
+        onVideoDurationSpeedOpen: AppState.VIDEO_DURATION_SPEED,
+        videoDurationSpeed: AppState.VIDEO_DURATION_SPEED,
+        onSvgaLayerEditorOpen: AppState.SVGA_LAYER_EDITOR,
+        svgaLayerEditor: AppState.SVGA_LAYER_EDITOR,
+        onUniversalConverterOpen: AppState.UNIVERSAL_CONVERTER,
+        universalConverter: AppState.UNIVERSAL_CONVERTER,
+        onSvgaBatchCompressorOpen: AppState.SVGA_BATCH_COMPRESSOR,
+        svgaBatchCompressor: AppState.SVGA_BATCH_COMPRESSOR,
+        onBatchSvgaConverterOpen: AppState.BATCH_SVGA_CONVERTER,
+        batchSvgaConverter: AppState.BATCH_SVGA_CONVERTER,
+        onSvgaExOpen: AppState.SVGA_EDITOR_EX,
+        svgaEx: AppState.SVGA_EDITOR_EX,
+        onMultiSvgaOpen: AppState.MULTI_SVGA_VIEWER,
+        multiSvga: AppState.MULTI_SVGA_VIEWER,
+        onImageConverterOpen: AppState.IMAGE_CONVERTER,
+        imageConverter: AppState.IMAGE_CONVERTER,
+        onImageProcessorOpen: AppState.IMAGE_PROCESSOR,
+        imageProcessor: AppState.IMAGE_PROCESSOR,
+        onImageEnhancerOpen: AppState.IMAGE_ENHANCER,
+        imageEnhancer: AppState.IMAGE_ENHANCER,
+        onBatchImageProcessorOpen: AppState.BATCH_IMAGE_PROCESSOR,
+        batchImageProcessor: AppState.BATCH_IMAGE_PROCESSOR,
+        onImageEditorOpen: AppState.IMAGE_EDITOR,
+        imageEditor: AppState.IMAGE_EDITOR,
+        onImageMatcherOpen: AppState.IMAGE_MATCHER,
+        imageMatcher: AppState.IMAGE_MATCHER,
+        onCropperOpen: AppState.BATCH_CROPPER,
+        batchCropper: AppState.BATCH_CROPPER,
+        onName3DEditorOpen: AppState.NAME_3D_EDITOR,
+        name3DEditor: AppState.NAME_3D_EDITOR,
+        onAudioExtractorOpen: AppState.AUDIO_EXTRACTOR,
+        audioExtractor: AppState.AUDIO_EXTRACTOR,
+        onAiVideoMattingOpen: AppState.AI_VIDEO_MATTING,
+        aiVideoMatting: AppState.AI_VIDEO_MATTING,
+        onImageCollageStudioOpen: AppState.IMAGE_COLLAGE_STUDIO,
+        imageCollageStudio: AppState.IMAGE_COLLAGE_STUDIO,
+        onStoreOpen: AppState.STORE,
+        store: AppState.STORE,
+      };
+      const targetState = keyToState[actionKey];
+      if (targetState !== undefined) {
+        setState(targetState);
+      }
+    };
+    return () => {
+      delete (window as any).triggerAppAction;
+    };
+  }, []);
+
   // Prefetch lazy-loaded components and heavy engines silently in the background
   useEffect(() => {
     // Immediately prefetch core parser libraries in the background
@@ -1343,25 +1398,95 @@ const App: React.FC = () => {
                 onOpenFeature={(actionKey) => {
                   const keyToState: Record<string, AppState> = {
                     onAfterEffectsStudioOpen: AppState.AFTER_EFFECTS_STUDIO,
+                    afterEffectsStudio: AppState.AFTER_EFFECTS_STUDIO,
+                    'after-effects-studio': AppState.AFTER_EFFECTS_STUDIO,
+
                     onVideoDurationSpeedOpen: AppState.VIDEO_DURATION_SPEED,
+                    videoDurationSpeed: AppState.VIDEO_DURATION_SPEED,
+                    'video-duration-speed': AppState.VIDEO_DURATION_SPEED,
+
                     onSvgaLayerEditorOpen: AppState.SVGA_LAYER_EDITOR,
+                    svgaLayerEditor: AppState.SVGA_LAYER_EDITOR,
+                    'svga-layer-editor': AppState.SVGA_LAYER_EDITOR,
+
                     onUniversalConverterOpen: AppState.UNIVERSAL_CONVERTER,
+                    universalConverter: AppState.UNIVERSAL_CONVERTER,
+                    universal: AppState.UNIVERSAL_CONVERTER,
+
                     onSvgaBatchCompressorOpen: AppState.SVGA_BATCH_COMPRESSOR,
+                    svgaBatchCompressor: AppState.SVGA_BATCH_COMPRESSOR,
+                    'svga-compressor': AppState.SVGA_BATCH_COMPRESSOR,
+
                     onBatchSvgaConverterOpen: AppState.BATCH_SVGA_CONVERTER,
+                    batchSvgaConverter: AppState.BATCH_SVGA_CONVERTER,
+                    'batch-svga': AppState.BATCH_SVGA_CONVERTER,
+
                     onSvgaExOpen: AppState.SVGA_EDITOR_EX,
+                    svgaEx: AppState.SVGA_EDITOR_EX,
+                    'svga-ex': AppState.SVGA_EDITOR_EX,
+
                     onMultiSvgaOpen: AppState.MULTI_SVGA_VIEWER,
+                    multiSvga: AppState.MULTI_SVGA_VIEWER,
+                    'multi-svga': AppState.MULTI_SVGA_VIEWER,
+
                     onImageConverterOpen: AppState.IMAGE_CONVERTER,
+                    imageConverter: AppState.IMAGE_CONVERTER,
+                    'image-converter': AppState.IMAGE_CONVERTER,
+
                     onImageProcessorOpen: AppState.IMAGE_PROCESSOR,
+                    imageProcessor: AppState.IMAGE_PROCESSOR,
+                    'image-processor': AppState.IMAGE_PROCESSOR,
+
                     onImageEnhancerOpen: AppState.IMAGE_ENHANCER,
+                    imageEnhancer: AppState.IMAGE_ENHANCER,
+                    'image-enhancer': AppState.IMAGE_ENHANCER,
+
                     onBatchImageProcessorOpen: AppState.BATCH_IMAGE_PROCESSOR,
+                    batchImageProcessor: AppState.BATCH_IMAGE_PROCESSOR,
+                    'batch-image-processor': AppState.BATCH_IMAGE_PROCESSOR,
+
                     onImageEditorOpen: AppState.IMAGE_EDITOR,
+                    imageEditor: AppState.IMAGE_EDITOR,
+                    'image-editor': AppState.IMAGE_EDITOR,
+
                     onImageMatcherOpen: AppState.IMAGE_MATCHER,
+                    imageMatcher: AppState.IMAGE_MATCHER,
+                    'image-matcher': AppState.IMAGE_MATCHER,
+
                     onCropperOpen: AppState.BATCH_CROPPER,
+                    batchCropper: AppState.BATCH_CROPPER,
+                    cropper: AppState.BATCH_CROPPER,
+
                     onName3DEditorOpen: AppState.NAME_3D_EDITOR,
+                    name3DEditor: AppState.NAME_3D_EDITOR,
+                    'name-3d-editor': AppState.NAME_3D_EDITOR,
+
                     onAudioExtractorOpen: AppState.AUDIO_EXTRACTOR,
+                    audioExtractor: AppState.AUDIO_EXTRACTOR,
+                    'audio-extractor': AppState.AUDIO_EXTRACTOR,
+
                     onAiVideoMattingOpen: AppState.AI_VIDEO_MATTING,
+                    aiVideoMatting: AppState.AI_VIDEO_MATTING,
+                    'ai-video-matting': AppState.AI_VIDEO_MATTING,
+
                     onImageCollageStudioOpen: AppState.IMAGE_COLLAGE_STUDIO,
+                    imageCollageStudio: AppState.IMAGE_COLLAGE_STUDIO,
+                    'image-collage-studio': AppState.IMAGE_COLLAGE_STUDIO,
+
                     onStoreOpen: AppState.STORE,
+                    store: AppState.STORE,
+
+                    onVapHubOpen: AppState.VAP_HUB,
+                    vapHub: AppState.VAP_HUB,
+                    'vap-hub': AppState.VAP_HUB,
+
+                    onAnimationManagerOpen: AppState.ANIMATION_MANAGER,
+                    animationManager: AppState.ANIMATION_MANAGER,
+                    'animation-manager': AppState.ANIMATION_MANAGER,
+
+                    onConverterOpen: AppState.VIDEO_CONVERTER,
+                    videoConverter: AppState.VIDEO_CONVERTER,
+                    converter: AppState.VIDEO_CONVERTER,
                   };
                   const targetState = keyToState[actionKey];
                   if (targetState !== undefined) {

@@ -4830,3 +4830,5 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     </div>
   );
 };
+
+export default SvgaLayerEditor;

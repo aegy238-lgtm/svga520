@@ -1,12 +1,13 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, Star, Crown, ExternalLink, ShoppingBag, Layers, Globe, Sparkles, Calendar, Clock, AlertTriangle, AlertCircle, ShieldCheck, User, LayoutGrid, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Star, Crown, ExternalLink, ShoppingBag, Layers, Globe, Sparkles, Calendar, Clock, AlertTriangle, AlertCircle, ShieldCheck, User, LayoutGrid, Image as ImageIcon, Eye } from 'lucide-react';
 import { Uploader, UploadMode } from './Uploader';
 import { UserRecord, AppSettings, CustomExternalLink } from '../types';
-import { TOOLS_REGISTRY, CATEGORIES_CONFIG, ToolCategory } from '../config/toolsRegistry';
+import { TOOLS_REGISTRY, CATEGORIES_CONFIG, ToolCategory, ToolRegistryItem } from '../config/toolsRegistry';
 import { useStarredTools } from '../utils/starredTools';
 import { useLanguage } from '../contexts/LanguageContext';
 import { calculateSubscriptionInfo } from '../utils/subscriptionUtils';
+import { FeaturePreviewModal } from './FeaturePreviewModal';
 
 interface DashboardProps {
   onUpload: (files: File[], mode?: UploadMode) => void;
@@ -31,6 +32,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 }) => {
   const { isStarred, toggleStar } = useStarredTools();
   const { language, dir } = useLanguage();
+  const [previewTool, setPreviewTool] = useState<ToolRegistryItem | null>(null);
 
   const subInfo = useMemo(() => {
     return currentUser ? calculateSubscriptionInfo(currentUser) : null;
@@ -408,6 +410,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           >
                             <Star className={`w-3.5 h-3.5 ${starred ? 'fill-amber-400 text-amber-400' : ''}`} />
                           </button>
+
+                          {/* Eye Quick Preview Button */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setPreviewTool(tool);
+                            }}
+                            className="absolute top-3.5 left-12 p-1.5 rounded-lg transition-all z-20 cursor-pointer bg-white/[0.06] hover:bg-indigo-600/30 text-slate-400 hover:text-indigo-300 border border-white/[0.08] hover:border-indigo-500/40 shadow-sm opacity-90 group-hover:opacity-100 hover:scale-105"
+                            title="معاينة شكل الأداة وإدارتها 👁️"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-indigo-400" />
+                          </button>
                           
                           {/* Icon Container */}
                           <div className={`p-2.5 rounded-xl transition-transform duration-300 group-hover:scale-105 border ${
@@ -427,9 +443,25 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                 {language === 'en' ? tool.descEn : tool.descAr}
                              </p>
 
-                             <div className="mt-auto pt-2.5 border-t border-white/[0.06] flex items-center justify-between text-xs text-indigo-400 font-semibold group-hover:text-indigo-300">
-                                <span>فتح الأداة</span>
-                                <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-1 transition-transform" />
+                             <div className="mt-auto pt-2.5 border-t border-white/[0.06] flex items-center justify-between text-xs font-semibold">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setPreviewTool(tool);
+                                  }}
+                                  className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer hover:underline text-[11px]"
+                                  title="معاينة شكل الأداة 👁️"
+                                >
+                                  <Eye className="w-3.5 h-3.5 text-indigo-400" />
+                                  <span>معاينة 👁️</span>
+                                </button>
+
+                                <div className="flex items-center gap-1 text-slate-300 group-hover:text-white transition-colors text-[11px]">
+                                  <span>فتح الأداة</span>
+                                  <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-1 transition-transform" />
+                                </div>
                              </div>
                           </div>
                        </div>
@@ -440,6 +472,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
            ))}
         </section>
       </div>
+
+      {/* Feature Preview Modal */}
+      <FeaturePreviewModal
+        tool={previewTool}
+        isOpen={!!previewTool}
+        onClose={() => setPreviewTool(null)}
+        currentUser={currentUser}
+        settings={settings}
+        onLaunchFeature={(t) => {
+          setPreviewTool(null);
+          onAction((t as any).dashboardActionKey || (t as any).actionKey || t.id);
+        }}
+      />
     </div>
   );
 };

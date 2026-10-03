@@ -69,7 +69,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
             <p className="text-xs text-slate-400 font-medium">
               {isChunkError 
                 ? 'تم تحديث أجزاء من المنصة في الخلفية. يرجى النقر على الزر أدناه لتحديث الصفحة واستعادة العمل فوراً.' 
-                : (this.state.error?.message || 'تم تفادي توقف التطبيق، يمكنك المحاولة مجدداً.')}
+                : (typeof this.state.error?.message === 'string' ? this.state.error.message : 'تم تفادي توقف التطبيق، يمكنك المحاولة مجدداً.')}
             </p>
           </div>
           <div className="flex items-center gap-3">
