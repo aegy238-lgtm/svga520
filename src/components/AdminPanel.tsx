@@ -32,6 +32,36 @@ interface AdminPanelProps {
 
 const EXPORT_FORMATS = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP 1.0.5', 'VAP (MP4)', 'SVGA → YYEVA'];
 
+export const isVideoUrl = (url?: string | null): boolean => {
+  if (!url) return false;
+  const cleanUrl = url.trim().toLowerCase();
+  
+  // Explicit non-video image extensions
+  const isImageExt = cleanUrl.match(/\.(png|jpe?g|svg|ico|webp)(\?.*)?$/) !== null;
+  if (isImageExt && !cleanUrl.includes('.mp4') && !cleanUrl.includes('m_')) {
+    return false;
+  }
+
+  return (
+    cleanUrl.includes('.mp4') ||
+    cleanUrl.includes('.webm') ||
+    cleanUrl.includes('.mov') ||
+    cleanUrl.includes('.ogg') ||
+    cleanUrl.includes('.m4v') ||
+    cleanUrl.includes('.mkv') ||
+    cleanUrl.includes('.avi') ||
+    cleanUrl.includes('.3gp') ||
+    cleanUrl.includes('/m_') ||
+    cleanUrl.includes('top4top') ||
+    cleanUrl.includes('catbox') ||
+    cleanUrl.includes('video') ||
+    cleanUrl.includes('media') ||
+    cleanUrl.includes('stream') ||
+    cleanUrl.startsWith('data:video') ||
+    cleanUrl.startsWith('blob:')
+  );
+};
+
 export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, onOpenFeature }) => {
   const { starredToolIds, isStarred, toggleStar } = useStarredTools();
   const [activePreviewTool, setActivePreviewTool] = useState<any | null>(null);
@@ -229,13 +259,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, o
         if (!isNaN(d.getTime())) {
           finalExpiry = Timestamp.fromDate(d);
           finalType = (newUser.subscriptionType as SubscriptionType) || 'month';
-          hasActiveVip = d > new Date();
+          hasActiveVip = (newUser.subscriptionType === 'vip');
         }
       } else if (newUser.subscriptionType && newUser.subscriptionType !== 'none') {
         const d = calculateExtendedExpiry(null, newUser.subscriptionType as any);
         finalExpiry = Timestamp.fromDate(d);
         finalType = newUser.subscriptionType as SubscriptionType;
-        hasActiveVip = true;
+        hasActiveVip = (newUser.subscriptionType === 'vip');
       }
 
       const userData: UserRecord = {
@@ -757,11 +787,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, o
   const handleSaveAssetUrl = async (type: 'logo' | 'background') => {
       try {
           if (type === 'logo') {
-              await setDoc(doc(db, 'settings', 'global'), { logoUrl: logoUrlInput }, { merge: true });
-              setSettings(prev => prev ? { ...prev, logoUrl: logoUrlInput } : null);
+              const cleanUrl = logoUrlInput.trim();
+              await setDoc(doc(db, 'settings', 'global'), { logoUrl: cleanUrl }, { merge: true });
+              setSettings(prev => prev ? { ...prev, logoUrl: cleanUrl } : null);
           } else {
-              await setDoc(doc(db, 'settings', 'global'), { backgroundUrl: bgUrlInput }, { merge: true });
-              setSettings(prev => prev ? { ...prev, backgroundUrl: bgUrlInput } : null);
+              const cleanUrl = bgUrlInput.trim();
+              await setDoc(doc(db, 'settings', 'global'), { backgroundUrl: cleanUrl }, { merge: true });
+              setSettings(prev => prev ? { ...prev, backgroundUrl: cleanUrl } : null);
           }
           alert("تم حفظ الرابط بنجاح");
       } catch (error) {
@@ -771,11 +803,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, o
   };
 
   const handleAddPresetUrl = async () => {
-      if (!presetUrlInput) return;
+      const cleanUrl = presetUrlInput.trim();
+      if (!cleanUrl) return;
       try {
           await addDoc(collection(db, 'presetBackgrounds'), {
-              label: 'External URL',
-              url: presetUrlInput,
+              label: isVideoUrl(cleanUrl) ? 'MP4 Video BG' : 'External Image BG',
+              url: cleanUrl,
               createdAt: Timestamp.now()
           });
           setPresetUrlInput('');
@@ -1031,7 +1064,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, o
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {TOOLS_REGISTRY.map((tool) => {
-                      const isVib = settings.vibFeatures?.includes(tool.id) || tool.id === 'svga-layer-editor' || tool.id === 'after-effects-studio';
+                      const isVib = 
+                        tool.isVip ||
+                        tool.id === 'svga-layer-editor' || 
+                        tool.id === 'after-effects-studio' ||
+                        settings.vibFeatures?.includes(tool.id) ||
+                        (tool.dashboardActionKey && settings.vibFeatures?.includes(tool.dashboardActionKey)) ||
+                        (tool.featureAccessKey && settings.vibFeatures?.includes(tool.featureAccessKey));
                       const starred = isStarred(tool.id);
                       
                       return (
@@ -1094,8 +1133,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, o
                               disabled={tool.id === 'svga-layer-editor' || tool.id === 'after-effects-studio'} // Always VIB/Locked by default
                               onClick={async () => {
                                 const currentVibs = settings.vibFeatures || [];
-                                const newVibs = currentVibs.includes(tool.id)
-                                  ? currentVibs.filter(id => id !== tool.id)
+                                const currentlyVip = 
+                                  currentVibs.includes(tool.id) ||
+                                  (tool.dashboardActionKey && currentVibs.includes(tool.dashboardActionKey)) ||
+                                  (tool.featureAccessKey && currentVibs.includes(tool.featureAccessKey));
+
+                                const newVibs = currentlyVip
+                                  ? currentVibs.filter(id => id !== tool.id && id !== tool.dashboardActionKey && id !== tool.featureAccessKey)
                                   : [...currentVibs, tool.id];
                                 
                                 const updatedSettings = {
@@ -1852,19 +1896,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, o
                     <div className="bg-slate-950/30 border border-white/10 rounded-xl p-6">
                       <h4 className="font-bold mb-4 flex items-center gap-2">
                         <ImageIcon className="w-4 h-4 text-purple-400" />
-                        خلفية الموقع
+                        خلفية الموقع (يدعم الصور وصيغ MP4 للفيديو)
                       </h4>
                       <div className="flex flex-col gap-4">
                         <div className="flex items-center gap-4">
                             {settings?.backgroundUrl && (
-                            <img src={settings.backgroundUrl} alt="Background" className="w-24 h-16 rounded-lg object-cover bg-black/20" />
+                              isVideoUrl(settings.backgroundUrl) ? (
+                                <div className="relative w-28 h-18 rounded-lg overflow-hidden border border-purple-500/40 bg-black/40 shrink-0 shadow-md">
+                                  <video 
+                                    src={settings.backgroundUrl} 
+                                    autoPlay 
+                                    loop 
+                                    muted 
+                                    playsInline 
+                                    className="w-full h-full object-cover" 
+                                  />
+                                  <span className="absolute bottom-1 right-1 text-[9px] bg-purple-600/90 text-white font-bold px-1.5 py-0.5 rounded shadow">
+                                    MP4 فيديو
+                                  </span>
+                                </div>
+                              ) : (
+                                <img src={settings.backgroundUrl} alt="Background" className="w-24 h-16 rounded-lg object-cover bg-black/20 shrink-0" />
+                              )
                             )}
                             <label className="flex-1 cursor-pointer">
                             <div className="border-2 border-dashed border-white/10 hover:border-purple-500/50 rounded-lg p-4 text-center transition-colors">
                                 <Upload className="w-6 h-6 mx-auto mb-2 text-slate-400" />
-                                <span className="text-sm text-slate-400">اختر ملف الخلفية</span>
+                                <span className="text-sm text-slate-400">اختر ملف الخلفية (صورة أو فيديو MP4)</span>
                             </div>
-                            <input type="file" className="hidden" accept="image/*" onChange={(e) => e.target.files?.[0] && handleUploadAsset(e.target.files[0], 'background')} />
+                            <input type="file" className="hidden" accept="image/*,video/*,video/mp4,video/webm" onChange={(e) => e.target.files?.[0] && handleUploadAsset(e.target.files[0], 'background')} />
                             </label>
                         </div>
                         <div className="flex gap-2">
@@ -1872,8 +1932,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, o
                                 type="text" 
                                 value={bgUrlInput} 
                                 onChange={(e) => setBgUrlInput(e.target.value)}
-                                placeholder="أو أدخل رابط الخلفية مباشرة"
+                                placeholder="أو أدخل رابط الخلفية مباشرة (صورة أو فيديو MP4/WebM)"
                                 className="flex-1 bg-slate-950/50 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500/50"
+                                dir="ltr"
                             />
                             <button onClick={() => handleSaveAssetUrl('background')} className="p-2 bg-purple-500/20 text-purple-400 rounded-lg hover:bg-purple-500/30">
                                 <LinkIcon className="w-4 h-4" />
@@ -1886,15 +1947,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, o
                   {/* Preset Backgrounds */}
                   <div>
                     <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
-                      <h4 className="font-bold">خلفيات الاستوديو الجاهزة</h4>
+                      <h4 className="font-bold">خلفيات الاستوديو الجاهزة (صور وفيديو MP4)</h4>
                       <div className="flex gap-2 w-full md:w-auto">
                         <div className="flex gap-2 flex-1">
                             <input 
                                 type="text" 
                                 value={presetUrlInput} 
                                 onChange={(e) => setPresetUrlInput(e.target.value)}
-                                placeholder="رابط خلفية جديدة"
+                                placeholder="رابط خلفية جديدة (صورة أو فيديو)"
                                 className="flex-1 bg-slate-950/50 border border-white/10 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-indigo-500/50"
+                                dir="ltr"
                             />
                             <button onClick={handleAddPresetUrl} className="px-3 py-1.5 bg-indigo-500/20 text-indigo-400 rounded-lg text-sm hover:bg-indigo-500/30">
                                 إضافة
@@ -1903,28 +1965,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, o
                         <label className="cursor-pointer px-3 py-1.5 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-400 rounded-lg text-sm transition-colors border border-indigo-500/30 flex items-center gap-2 whitespace-nowrap">
                             <Upload className="w-4 h-4" />
                             <span>رفع ملف</span>
-                            <input type="file" className="hidden" accept="image/*" onChange={(e) => e.target.files?.[0] && handleUploadAsset(e.target.files[0], 'preset')} />
+                            <input type="file" className="hidden" accept="image/*,video/*,video/mp4" onChange={(e) => e.target.files?.[0] && handleUploadAsset(e.target.files[0], 'preset')} />
                         </label>
                       </div>
                     </div>
                     
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                      {backgrounds.map(bg => (
-                        <div key={bg.id} className="group relative aspect-video rounded-lg overflow-hidden border border-white/10">
-                          <img src={bg.url} alt={bg.label} className="w-full h-full object-cover" />
-                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                            <button 
-                              onClick={() => handleDeletePreset(bg.id, bg.url)}
-                              className="p-2 bg-red-500/20 text-red-400 rounded-full hover:bg-red-500/40 transition-colors"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                      {backgrounds.map(bg => {
+                        const isVid = isVideoUrl(bg.url);
+                        return (
+                          <div key={bg.id} className="group relative aspect-video rounded-lg overflow-hidden border border-white/10">
+                            {isVid ? (
+                              <video src={bg.url} className="w-full h-full object-cover" autoPlay loop muted playsInline />
+                            ) : (
+                              <img src={bg.url} alt={bg.label} className="w-full h-full object-cover" />
+                            )}
+                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <button 
+                                onClick={() => handleDeletePreset(bg.id, bg.url)}
+                                className="p-2 bg-red-500/20 text-red-400 rounded-full hover:bg-red-500/40 transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                            <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent text-xs text-white truncate flex items-center justify-between">
+                              <span className="truncate">{bg.label}</span>
+                              {isVid && <span className="text-[8px] bg-purple-600 px-1 rounded font-bold shrink-0">MP4</span>}
+                            </div>
                           </div>
-                          <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent text-xs text-white truncate">
-                            {bg.label}
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </div>

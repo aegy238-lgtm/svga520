@@ -52,9 +52,9 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
       if (keyData.duration === 'month') expiry.setMonth(expiry.getMonth() + 1);
       if (keyData.duration === 'year') expiry.setFullYear(expiry.getFullYear() + 1);
 
-      // 3. Update User
+      // 3. Update User (Standard Subscription - NOT VIP)
       await updateDoc(doc(db, 'users', currentUser.id), {
-        isVIP: true,
+        isVIP: false,
         subscriptionType: keyData.duration,
         subscriptionExpiry: Timestamp.fromDate(expiry),
         activatedKey: keyData.key

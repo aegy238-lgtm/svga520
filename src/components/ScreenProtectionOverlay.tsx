@@ -92,11 +92,6 @@ export const ScreenProtectionOverlay: React.FC<ScreenProtectionOverlayProps> = (
     };
   }, [recordingProtected]);
 
-  // Generate Repeating Watermark text
-  const watermarkText = currentUser 
-    ? `${currentUser.name || 'مستخدم'} • ${currentUser.email || ''} • ID: ${currentUser.numericId || currentUser.id?.slice(0, 8)}`
-    : 'SVGA AHMED STUDIO';
-
   return (
     <>
       {/* Print protection styles */}
@@ -129,22 +124,6 @@ export const ScreenProtectionOverlay: React.FC<ScreenProtectionOverlayProps> = (
           <p className="text-slate-400 text-xs max-w-sm leading-relaxed">
             تفعيل حماية تسجيل الشاشة يمنع استعراض المحتوى الحساس عند عدم التفاعل المباشر مع واجهة الموقع.
           </p>
-        </div>
-      )}
-
-      {/* Watermark Grid Layer */}
-      {screenshotProtected && currentUser && (
-        <div className="fixed inset-0 pointer-events-none z-[9999] overflow-hidden select-none opacity-[0.04]">
-          <div className="absolute inset-0 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-y-24 gap-x-12 rotate-[-15deg] scale-125">
-            {Array.from({ length: 40 }).map((_, idx) => (
-              <div 
-                key={idx}
-                className="text-[10px] sm:text-xs font-bold text-white font-mono whitespace-nowrap text-center select-none"
-              >
-                {watermarkText}
-              </div>
-            ))}
-          </div>
         </div>
       )}
     </>

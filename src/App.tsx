@@ -4,6 +4,7 @@ import { Header } from './components/Header';
 import { FeaturesGuideModal } from './components/FeaturesGuideModal';
 import { Uploader } from './components/Uploader';
 import { Dashboard } from './components/Dashboard';
+import { calculateSubscriptionInfo } from './utils/subscriptionUtils';
 
 // Resilient lazy-loader with auto-retry and chunk failure recovery
 function lazyWithRetry<T extends React.ComponentType<any>>(
@@ -128,6 +129,36 @@ import { ImageDimensionModal, ImageDimensionsResult } from './components/ImageDi
 const videoWidth = 1334;
 const videoHeight = 750;
 
+const isVideoUrl = (url?: string | null): boolean => {
+  if (!url) return false;
+  const cleanUrl = url.trim().toLowerCase();
+  
+  // Explicit non-video image extensions
+  const isImageExt = cleanUrl.match(/\.(png|jpe?g|svg|ico|webp)(\?.*)?$/) !== null;
+  if (isImageExt && !cleanUrl.includes('.mp4') && !cleanUrl.includes('m_')) {
+    return false;
+  }
+
+  return (
+    cleanUrl.includes('.mp4') ||
+    cleanUrl.includes('.webm') ||
+    cleanUrl.includes('.mov') ||
+    cleanUrl.includes('.ogg') ||
+    cleanUrl.includes('.m4v') ||
+    cleanUrl.includes('.mkv') ||
+    cleanUrl.includes('.avi') ||
+    cleanUrl.includes('.3gp') ||
+    cleanUrl.includes('/m_') ||
+    cleanUrl.includes('top4top') ||
+    cleanUrl.includes('catbox') ||
+    cleanUrl.includes('video') ||
+    cleanUrl.includes('media') ||
+    cleanUrl.includes('stream') ||
+    cleanUrl.startsWith('data:video') ||
+    cleanUrl.startsWith('blob:')
+  );
+};
+
 const App: React.FC = () => {
   const { currentUser, loading, logout } = useAuth();
   const { checkAccess } = useAccessControl();
@@ -166,6 +197,11 @@ const App: React.FC = () => {
   const [vipFeatureName, setVipFeatureName] = useState<string>('تحرير طبقات SVGA');
   const [showSplash, setShowSplash] = useState(true);
   const [embeddedPortalTab, setEmbeddedPortalTab] = useState<'first' | 'second' | string>('first');
+  const [videoBgError, setVideoBgError] = useState(false);
+
+  useEffect(() => {
+    setVideoBgError(false);
+  }, [settings?.backgroundUrl]);
 
   const handleOpenEmbeddedPortal = useCallback((tabId: 'first' | 'second' | string = 'first') => {
     setEmbeddedPortalTab(tabId);
@@ -472,39 +508,51 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  // Fail-safe VIB (VIP) authorization check to prevent state-hijacking
+  // Fail-safe VIB (VIP) authorization check to prevent direct state navigation
   useEffect(() => {
-    if (state !== AppState.HOME && state !== AppState.ADMIN_PANEL) {
-      const stateToFeatureId: Record<string, string> = {
-        [AppState.AI_VIDEO_MATTING]: 'aiVideoMatting',
-        [AppState.NAME_3D_EDITOR]: 'name3DEditor',
-        [AppState.IMAGE_ENHANCER]: 'imageEnhancer',
-        [AppState.IMAGE_PROCESSOR]: 'imageProcessor',
-        [AppState.IMAGE_EDITOR]: 'imageEditor',
-        [AppState.IMAGE_MATCHER]: 'imageMatcher',
-        [AppState.SVGA_LAYER_EDITOR]: 'svgaLayerEditor',
-        [AppState.SVGA_BATCH_COMPRESSOR]: 'svgaBatchCompressor',
-        [AppState.SVGA_EDITOR_EX]: 'svgaEx',
-        [AppState.MULTI_SVGA_VIEWER]: 'multiSvga',
-        [AppState.IMAGE_CONVERTER]: 'imageConverter',
-        [AppState.AUDIO_EXTRACTOR]: 'audioExtractor',
-        [AppState.BATCH_IMAGE_PROCESSOR]: 'batchImageProcessor',
-        [AppState.BATCH_COMPRESSOR]: 'batchCompress',
-        [AppState.BATCH_CROPPER]: 'batchCropper',
-        [AppState.UNIVERSAL_CONVERTER]: 'universalConverter',
-        [AppState.VIDEO_CONVERTER]: 'videoConverter',
-        [AppState.STORE]: 'store',
+    if (state !== AppState.HOME && state !== AppState.ADMIN_PANEL && state !== AppState.LOGIN && state !== AppState.IDLE) {
+      const stateToFeatureAliases: Partial<Record<AppState, string[]>> = {
+        [AppState.AFTER_EFFECTS_STUDIO]: ['after-effects-studio', 'afterEffectsStudio', 'after_effects_studio'],
+        [AppState.SVGA_LAYER_EDITOR]: ['svga-layer-editor', 'svgaLayerEditor', 'svga_layer_editor'],
+        [AppState.VIDEO_DURATION_SPEED]: ['video-duration-speed', 'videoDurationSpeed', 'video_duration_speed'],
+        [AppState.UNIVERSAL_CONVERTER]: ['universal', 'universalConverter', 'universal_converter'],
+        [AppState.SVGA_BATCH_COMPRESSOR]: ['svga-compressor', 'svgaBatchCompressor', 'svga_compressor'],
+        [AppState.BATCH_SVGA_CONVERTER]: ['batch-svga-converter', 'batchSvgaConverter'],
+        [AppState.SVGA_EDITOR_EX]: ['svga-ex', 'svgaEx', 'svga_ex'],
+        [AppState.MULTI_SVGA_VIEWER]: ['multi-svga', 'multiSvga', 'multi_svga'],
+        [AppState.IMAGE_CONVERTER]: ['image-converter', 'imageConverter'],
+        [AppState.IMAGE_COLLAGE_STUDIO]: ['image-collage-studio', 'imageCollageStudio'],
+        [AppState.AI_VIDEO_MATTING]: ['ai-video-matting', 'aiVideoMatting'],
+        [AppState.NAME_3D_EDITOR]: ['name-3d', 'name3DEditor'],
+        [AppState.IMAGE_ENHANCER]: ['image-enhancer', 'imageEnhancer'],
+        [AppState.IMAGE_PROCESSOR]: ['image-processor', 'imageProcessor'],
+        [AppState.IMAGE_EDITOR]: ['image-editor', 'imageEditor'],
+        [AppState.IMAGE_MATCHER]: ['imageMatcher', 'image-matcher'],
+        [AppState.AUDIO_EXTRACTOR]: ['audioExtractor', 'audio-extractor'],
+        [AppState.BATCH_IMAGE_PROCESSOR]: ['batchImageProcessor', 'batch-image-processor'],
+        [AppState.BATCH_COMPRESSOR]: ['batch', 'batchCompress', 'batchCompressor'],
+        [AppState.BATCH_CROPPER]: ['cropper', 'batchCropper'],
+        [AppState.ANIMATION_MANAGER]: ['animationManager', 'animation-manager'],
+        [AppState.VAP_HUB]: ['vapHub', 'vap-hub'],
+        [AppState.STORE]: ['store'],
+        [AppState.VIDEO_CONVERTER]: ['converter', 'videoConverter']
       };
-      const featureId = stateToFeatureId[state];
-      if (featureId) {
-        const isVibFeature = settings?.vibFeatures?.includes(featureId) || (state === AppState.SVGA_LAYER_EDITOR);
-        if (isVibFeature) {
-          const isVIP = !!(currentUser?.isVIP || currentUser?.role === 'admin' || currentUser?.isSuperAdmin);
-          if (!isVIP) {
-            setState(AppState.HOME);
-            setVipFeatureName(featureId);
-            setShowVipModal(true);
-          }
+
+      const aliases = stateToFeatureAliases[state] || [];
+      const currentVibs = settings?.vibFeatures || [];
+      const isVibFeature = 
+        state === AppState.SVGA_LAYER_EDITOR ||
+        state === AppState.AFTER_EFFECTS_STUDIO ||
+        aliases.some(alias => currentVibs.includes(alias));
+
+      if (isVibFeature) {
+        const subInfo = currentUser ? calculateSubscriptionInfo(currentUser) : null;
+        const isSubscriptionActive = subInfo ? (subInfo.isActive || subInfo.isLifetime) : true;
+        const isVIP = !!(currentUser?.role === 'admin' || currentUser?.isSuperAdmin || currentUser?.role === 'moderator' || (currentUser?.isVIP === true && isSubscriptionActive));
+        if (!isVIP) {
+          setState(AppState.HOME);
+          setVipFeatureName(aliases[0] || 'ميزة VIP');
+          setShowVipModal(true);
         }
       }
     }
@@ -512,33 +560,44 @@ const App: React.FC = () => {
 
   const handleFeatureAccess = async (targetState: AppState, featureName: string) => {
     // 0. Check Exclusive VIP Feature Access (ميزة VIP الملكية الحصرية)
-    const stateToFeatureId: Record<string, string> = {
-      [AppState.AI_VIDEO_MATTING]: 'aiVideoMatting',
-      [AppState.NAME_3D_EDITOR]: 'name3DEditor',
-      [AppState.IMAGE_ENHANCER]: 'imageEnhancer',
-      [AppState.IMAGE_PROCESSOR]: 'imageProcessor',
-      [AppState.IMAGE_EDITOR]: 'imageEditor',
-      [AppState.IMAGE_MATCHER]: 'imageMatcher',
-      [AppState.SVGA_LAYER_EDITOR]: 'svgaLayerEditor',
-      [AppState.SVGA_BATCH_COMPRESSOR]: 'svgaBatchCompressor',
-      [AppState.SVGA_EDITOR_EX]: 'svgaEx',
-      [AppState.MULTI_SVGA_VIEWER]: 'multiSvga',
-      [AppState.IMAGE_CONVERTER]: 'imageConverter',
-      [AppState.AUDIO_EXTRACTOR]: 'audioExtractor',
-      [AppState.BATCH_IMAGE_PROCESSOR]: 'batchImageProcessor',
-      [AppState.BATCH_COMPRESSOR]: 'batchCompress',
-      [AppState.BATCH_CROPPER]: 'batchCropper',
-      [AppState.UNIVERSAL_CONVERTER]: 'universalConverter',
-      [AppState.VIDEO_CONVERTER]: 'videoConverter',
-      [AppState.STORE]: 'store',
-      [AppState.VIDEO_DURATION_SPEED]: 'videoDurationSpeed',
+    const stateToFeatureAliases: Partial<Record<AppState, string[]>> = {
+      [AppState.AFTER_EFFECTS_STUDIO]: ['after-effects-studio', 'afterEffectsStudio', 'after_effects_studio'],
+      [AppState.SVGA_LAYER_EDITOR]: ['svga-layer-editor', 'svgaLayerEditor', 'svga_layer_editor'],
+      [AppState.VIDEO_DURATION_SPEED]: ['video-duration-speed', 'videoDurationSpeed', 'video_duration_speed'],
+      [AppState.UNIVERSAL_CONVERTER]: ['universal', 'universalConverter', 'universal_converter'],
+      [AppState.SVGA_BATCH_COMPRESSOR]: ['svga-compressor', 'svgaBatchCompressor', 'svga_compressor'],
+      [AppState.BATCH_SVGA_CONVERTER]: ['batch-svga-converter', 'batchSvgaConverter'],
+      [AppState.SVGA_EDITOR_EX]: ['svga-ex', 'svgaEx', 'svga_ex'],
+      [AppState.MULTI_SVGA_VIEWER]: ['multi-svga', 'multiSvga', 'multi_svga'],
+      [AppState.IMAGE_CONVERTER]: ['image-converter', 'imageConverter'],
+      [AppState.IMAGE_COLLAGE_STUDIO]: ['image-collage-studio', 'imageCollageStudio'],
+      [AppState.AI_VIDEO_MATTING]: ['ai-video-matting', 'aiVideoMatting'],
+      [AppState.NAME_3D_EDITOR]: ['name-3d', 'name3DEditor'],
+      [AppState.IMAGE_ENHANCER]: ['image-enhancer', 'imageEnhancer'],
+      [AppState.IMAGE_PROCESSOR]: ['image-processor', 'imageProcessor'],
+      [AppState.IMAGE_EDITOR]: ['image-editor', 'imageEditor'],
+      [AppState.IMAGE_MATCHER]: ['imageMatcher', 'image-matcher'],
+      [AppState.AUDIO_EXTRACTOR]: ['audioExtractor', 'audio-extractor'],
+      [AppState.BATCH_IMAGE_PROCESSOR]: ['batchImageProcessor', 'batch-image-processor'],
+      [AppState.BATCH_COMPRESSOR]: ['batch', 'batchCompress', 'batchCompressor'],
+      [AppState.BATCH_CROPPER]: ['cropper', 'batchCropper'],
+      [AppState.ANIMATION_MANAGER]: ['animationManager', 'animation-manager'],
+      [AppState.VAP_HUB]: ['vapHub', 'vap-hub'],
+      [AppState.STORE]: ['store'],
+      [AppState.VIDEO_CONVERTER]: ['converter', 'videoConverter']
     };
 
-    const currentFeatureId = stateToFeatureId[targetState];
-    const isVibFeature = settings?.vibFeatures?.includes(currentFeatureId) || (targetState === AppState.SVGA_LAYER_EDITOR);
+    const aliases = stateToFeatureAliases[targetState] || [];
+    const currentVibs = settings?.vibFeatures || [];
+    const isVibFeature = 
+      targetState === AppState.SVGA_LAYER_EDITOR ||
+      targetState === AppState.AFTER_EFFECTS_STUDIO ||
+      aliases.some(alias => currentVibs.includes(alias));
 
     if (isVibFeature) {
-      const isVIP = !!(currentUser?.isVIP || currentUser?.role === 'admin' || currentUser?.isSuperAdmin);
+      const subInfo = currentUser ? calculateSubscriptionInfo(currentUser) : null;
+      const isSubscriptionActive = subInfo ? (subInfo.isActive || subInfo.isLifetime) : true;
+      const isVIP = !!(currentUser?.role === 'admin' || currentUser?.isSuperAdmin || currentUser?.role === 'moderator' || (currentUser?.isVIP === true && isSubscriptionActive));
       if (!isVIP) {
         setVipFeatureName(featureName || 'ميزة VIP');
         setShowVipModal(true);
@@ -841,16 +900,19 @@ const App: React.FC = () => {
 
   // 🔒 Dedicated Fullscreen Authentication Gateway
   if (!currentUser) {
-    const defaultBgUrl = 'https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?q=80&w=2070&auto=format&fit=crop';
-    const bgUrl = settings?.backgroundUrl || defaultBgUrl;
+    const hasCustomBg = settings?.backgroundUrl && !settings.backgroundUrl.includes('unsplash');
     return (
-      <div className="min-h-screen text-slate-200 overflow-x-hidden relative flex items-center justify-center p-4 bg-[#020617]" style={{
-        backgroundImage: `linear-gradient(rgba(7, 10, 18, 0.85), rgba(7, 10, 18, 0.95)), url(${bgUrl})`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundAttachment: 'fixed'
-      }}>
-        <div className="absolute inset-0 bg-[#020617]/30 backdrop-blur-[4px] -z-10 pointer-events-none" />
+      <div 
+        className="min-h-screen text-slate-200 overflow-x-hidden relative flex items-center justify-center p-4 bg-[#020617]" 
+        style={hasCustomBg ? {
+          backgroundImage: `linear-gradient(rgba(7, 10, 18, 0.85), rgba(7, 10, 18, 0.95)), url(${settings.backgroundUrl})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundAttachment: 'fixed'
+        } : {
+          backgroundColor: '#020617'
+        }}
+      >
         <div className="w-full max-w-md my-8 animate-in zoom-in-95 duration-300">
           <div className="flex flex-col items-center mb-6">
             {settings?.logoUrl ? (
@@ -892,20 +954,47 @@ const App: React.FC = () => {
   };
   const activeUser = currentUser || guestUser;
 
-  const defaultBgUrl = 'https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?q=80&w=2070&auto=format&fit=crop';
-  const bgUrl = settings?.backgroundUrl || defaultBgUrl;
+  const rawBgUrl = settings?.backgroundUrl ? settings.backgroundUrl.trim() : '';
+  const isVideoBg = !!(rawBgUrl && isVideoUrl(rawBgUrl) && !videoBgError);
+  const hasCustomBg = !!(rawBgUrl && !rawBgUrl.includes('unsplash') && !isVideoBg);
 
-  const dynamicBgStyle: React.CSSProperties = {
-    backgroundImage: `linear-gradient(rgba(7, 10, 18, 0.85), rgba(7, 10, 18, 0.95)), url(${bgUrl})`,
+  const dynamicBgStyle: React.CSSProperties = hasCustomBg ? {
+    backgroundImage: `linear-gradient(rgba(7, 10, 18, 0.85), rgba(7, 10, 18, 0.95)), url(${rawBgUrl})`,
     backgroundSize: 'cover',
     backgroundPosition: 'center',
     backgroundAttachment: 'fixed'
+  } : {
+    backgroundColor: '#020617'
   };
 
   return (
-    <div className="min-h-screen text-slate-200 overflow-x-hidden relative" style={dynamicBgStyle}>
+    <div className="min-h-screen text-slate-200 overflow-x-hidden relative bg-[#020617]" style={dynamicBgStyle}>
+      {isVideoBg && rawBgUrl && (
+        <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden select-none">
+          <video 
+            key={rawBgUrl}
+            autoPlay 
+            loop 
+            muted 
+            playsInline 
+            preload="auto"
+            onError={(e) => {
+              console.warn("Background video error, attempting retry/fallback:", rawBgUrl);
+              const target = e.currentTarget;
+              if (target.getAttribute('crossorigin')) {
+                target.removeAttribute('crossorigin');
+                target.load();
+              } else {
+                setVideoBgError(true);
+              }
+            }}
+            src={rawBgUrl} 
+            className="w-full h-full object-cover opacity-45 filter brightness-90 contrast-105"
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-[#020617]/75 via-[#020617]/50 to-[#020617]/85" />
+        </div>
+      )}
       <ScreenProtectionOverlay currentUser={currentUser} settings={settings} />
-      <div className="fixed inset-0 bg-[#020617]/30 backdrop-blur-[4px] -z-10 pointer-events-none" />
       
       {/* 3D Splash Screen */}
       
@@ -923,7 +1012,7 @@ const App: React.FC = () => {
           className="fixed inset-0 z-[2000] bg-[#020617] flex flex-col items-center justify-center cursor-pointer select-none animate-in fade-in duration-500"
           title="انقر لتخطي الإعلان والدخول فوراً"
         >
-          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20 mix-blend-overlay"></div>
+          <div className="absolute inset-0 bg-gradient-to-b from-[#020617] via-[#090d1f]/60 to-[#020617] pointer-events-none"></div>
           
           <div className="relative z-10 flex flex-col items-center animate-in zoom-in-95 duration-700">
              {settings?.logoUrl ? (

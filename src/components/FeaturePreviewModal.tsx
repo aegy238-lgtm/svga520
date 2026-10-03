@@ -5,6 +5,7 @@ import {
 import { ToolRegistryItem } from '../config/toolsRegistry';
 import { UserRecord, AppSettings } from '../types';
 import { useStarredTools } from '../utils/starredTools';
+import { calculateSubscriptionInfo } from '../utils/subscriptionUtils';
 import { db } from '../lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -73,15 +74,29 @@ export const FeaturePreviewModal: React.FC<FeaturePreviewModalProps> = ({
 
   if (!isOpen || !tool) return null;
 
-  const isAdminOrMod = currentUser?.role === 'admin' || currentUser?.role === 'moderator';
-  const isVib = settings?.vibFeatures?.includes(tool.id) || tool.id === 'svga-layer-editor' || tool.id === 'after-effects-studio';
+  const isAdminOrMod = currentUser?.role === 'admin' || currentUser?.role === 'moderator' || currentUser?.isSuperAdmin;
+  const subInfo = currentUser ? calculateSubscriptionInfo(currentUser) : null;
+  const isSubscriptionActive = subInfo ? (subInfo.isActive || subInfo.isLifetime) : true;
+  const isUserVip = !!(isAdminOrMod || (currentUser?.isVIP === true && isSubscriptionActive));
+  const isVib = 
+    tool.isVip ||
+    tool.id === 'svga-layer-editor' || 
+    tool.id === 'after-effects-studio' ||
+    settings?.vibFeatures?.includes(tool.id) ||
+    (tool.dashboardActionKey && settings?.vibFeatures?.includes(tool.dashboardActionKey)) ||
+    (tool.featureAccessKey && settings?.vibFeatures?.includes(tool.featureAccessKey));
   const starred = isStarred(tool.id);
 
   const handleToggleVib = async () => {
     if (!settings) return;
     const currentVibs = settings.vibFeatures || [];
-    const newVibs = currentVibs.includes(tool.id)
-      ? currentVibs.filter(id => id !== tool.id)
+    const currentlyVip = 
+      currentVibs.includes(tool.id) ||
+      (tool.dashboardActionKey && currentVibs.includes(tool.dashboardActionKey)) ||
+      (tool.featureAccessKey && currentVibs.includes(tool.featureAccessKey));
+
+    const newVibs = currentlyVip
+      ? currentVibs.filter(id => id !== tool.id && id !== tool.dashboardActionKey && id !== tool.featureAccessKey)
       : [...currentVibs, tool.id];
 
     const updatedSettings: AppSettings = {
@@ -396,18 +411,37 @@ export const FeaturePreviewModal: React.FC<FeaturePreviewModalProps> = ({
 
       {/* Main Workspace Body - Rendering The Real Tool Interface */}
       <div className="flex-1 w-full h-full overflow-y-auto custom-scrollbar bg-[#050811] relative">
-        <ErrorBoundary fallbackTitle="حدث خطأ في تحميل الواجهة الحقيقية للأداة" onReset={onClose}>
-          <Suspense fallback={
-            <div className="w-full h-[60vh] flex flex-col items-center justify-center gap-3 text-indigo-400">
-              <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
-              <span className="text-sm font-bold text-slate-300">جاري تحميل واجهة {tool.label} الحقيقية بالكامل...</span>
+        {isVib && !isUserVip ? (
+          <div className="w-full h-[65vh] flex flex-col items-center justify-center p-6 text-center animate-fade-in">
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 mb-4 shadow-xl shadow-amber-500/20">
+              <Crown className="w-8 h-8" />
             </div>
-          }>
-            <div className="w-full min-h-full">
-              {renderRealFeature()}
-            </div>
-          </Suspense>
-        </ErrorBoundary>
+            <h3 className="text-xl font-black text-white mb-2">ميزة VIP حصرية 👑</h3>
+            <p className="text-sm text-slate-300 max-w-md leading-relaxed mb-6">
+              تم تحديد أداة &quot;{tool.label}&quot; كميزة حصرية لمشتركي VIP فقط. يرجى تفعيل اشتراك VIP للوصول إلى كافة إمكانياتها واستخدامها.
+            </p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all shadow-lg shadow-amber-500/25 cursor-pointer"
+            >
+              إغلاق المعاينة
+            </button>
+          </div>
+        ) : (
+          <ErrorBoundary fallbackTitle="حدث خطأ في تحميل الواجهة الحقيقية للأداة" onReset={onClose}>
+            <Suspense fallback={
+              <div className="w-full h-[60vh] flex flex-col items-center justify-center gap-3 text-indigo-400">
+                <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
+                <span className="text-sm font-bold text-slate-300">جاري تحميل واجهة {tool.label} الحقيقية بالكامل...</span>
+              </div>
+            }>
+              <div className="w-full min-h-full">
+                {renderRealFeature()}
+              </div>
+            </Suspense>
+          </ErrorBoundary>
+        )}
       </div>
     </div>
   );

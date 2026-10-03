@@ -38,6 +38,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
     return currentUser ? calculateSubscriptionInfo(currentUser) : null;
   }, [currentUser]);
 
+  const isUserVip = useMemo(() => {
+    if (!currentUser) return false;
+    const isAdminOrMod = currentUser.role === 'admin' || currentUser.role === 'moderator' || currentUser.isSuperAdmin;
+    if (isAdminOrMod) return true;
+    
+    // Strictly require currentUser.isVIP === true AND active/lifetime subscription status
+    const isSubscriptionActive = subInfo ? (subInfo.isActive || subInfo.isLifetime) : true;
+    return currentUser.isVIP === true && isSubscriptionActive;
+  }, [currentUser, subInfo]);
+
+  const isToolVip = (tool: ToolRegistryItem) => {
+    const vibs = settings?.vibFeatures || [];
+    return (
+      tool.isVip ||
+      tool.id === 'svga-layer-editor' ||
+      tool.id === 'after-effects-studio' ||
+      vibs.includes(tool.id) ||
+      (tool.featureAccessKey && vibs.includes(tool.featureAccessKey)) ||
+      (tool.dashboardActionKey && vibs.includes(tool.dashboardActionKey))
+    );
+  };
+
   const isFeatureAllowed = (featureAccessKey: string) => {
     if (featureAccessKey === 'afterEffectsStudio' || featureAccessKey === 'after-effects-studio') return true;
     if (featureAccessKey === 'svgaLayerEditor' || featureAccessKey === 'svga-layer-editor') return true;
@@ -98,14 +120,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
             
             <div className="text-center mt-6 sm:mt-9 mb-7 flex flex-col items-center gap-3 relative z-10 w-full px-4">
               {/* Official Site Logo Emblem */}
-              <div className="relative flex items-center justify-center group cursor-pointer mb-1">
-                <div className="absolute inset-0 bg-gradient-to-r from-amber-500/20 via-sky-500/20 to-indigo-500/20 rounded-full blur-2xl pointer-events-none scale-125 group-hover:scale-150 transition-transform duration-500" />
-                <img 
-                  src="/logo.png" 
-                  alt="SVGA AHMED Logo" 
-                  className="w-24 h-24 sm:w-28 sm:h-28 object-contain drop-shadow-[0_12px_30px_rgba(234,179,8,0.3)] group-hover:scale-105 group-hover:rotate-1 transition-all duration-300 relative z-10" 
-                />
-              </div>
+              {settings?.logoUrl ? (
+                <div className="relative flex items-center justify-center group cursor-pointer mb-1">
+                  <div className="absolute inset-0 bg-gradient-to-r from-amber-500/20 via-sky-500/20 to-indigo-500/20 rounded-full blur-2xl pointer-events-none scale-125 group-hover:scale-150 transition-transform duration-500" />
+                  <img 
+                    src={settings.logoUrl} 
+                    alt={settings?.appName || "Logo"} 
+                    className="w-24 h-24 sm:w-28 sm:h-28 object-contain drop-shadow-[0_12px_30px_rgba(234,179,8,0.3)] group-hover:scale-105 group-hover:rotate-1 transition-all duration-300 relative z-10" 
+                  />
+                </div>
+              ) : (
+                <div className="relative flex items-center justify-center mb-1">
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-amber-500 via-indigo-600 to-purple-700 rounded-2xl flex items-center justify-center shadow-lg border border-white/20 drop-shadow-[0_0_20px_rgba(245,158,11,0.3)]">
+                    <span className="text-white font-black text-3xl sm:text-4xl">S</span>
+                  </div>
+                </div>
+              )}
 
               <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/25 text-indigo-300 text-xs font-bold shadow-sm">
                 <Sparkles className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
@@ -344,15 +374,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     </div>
                  </div>
 
-                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3.5 px-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3.5 px-1">
                     {cat.tools.map(tool => {
                        const starred = isStarred(tool.id);
+                       const isVip = isToolVip(tool);
                        return (
                        <div
                           key={tool.id}
                           role="button"
                           tabIndex={0}
                           onClick={() => {
+                             if (isVip && !isUserVip) {
+                               if (onOpenVipModal) {
+                                 onOpenVipModal();
+                               }
+                               return;
+                             }
                              if (tool.id === 'store' && storeLink?.enabled && storeLink?.url) {
                                handleOpenExternalUrl(storeLink.url, storeLink.openInNewTab !== false);
                                return;
@@ -365,6 +402,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           }}
                           onKeyDown={(e) => {
                              if (e.key === 'Enter' || e.key === ' ') {
+                               if (isVip && !isUserVip) {
+                                 if (onOpenVipModal) {
+                                   onOpenVipModal();
+                                 }
+                                 return;
+                               }
                                if (tool.id === 'store' && storeLink?.enabled && storeLink?.url) {
                                  handleOpenExternalUrl(storeLink.url, storeLink.openInNewTab !== false);
                                  return;
@@ -377,8 +420,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
                              }
                           }}
                           className={`group relative text-start flex flex-col items-start gap-3.5 p-5 rounded-2xl transition-all duration-300 cursor-pointer overflow-hidden border ${
-                             tool.isVip
-                              ? 'border-amber-500/40 hover:border-amber-400 bg-gradient-to-b from-[#181105]/85 to-[#090f1d]/95 shadow-[0_4px_24px_rgba(245,158,11,0.12)] hover:-translate-y-1'
+                             isVip
+                              ? 'border-amber-500/50 hover:border-amber-400 bg-gradient-to-b from-[#1c1305]/90 via-[#101420]/95 to-[#090f1d]/95 shadow-[0_4px_24px_rgba(245,158,11,0.18)] hover:-translate-y-1'
                               : tool.highlight 
                                 ? 'border-indigo-500/30 hover:border-indigo-400/60 bg-[#090f1e]/90 shadow-[0_4px_20px_rgba(99,102,241,0.12)] hover:-translate-y-1' 
                                 : starred
@@ -387,9 +430,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           }`}
                        >
                           {/* VIP Badge on Tool Card */}
-                          {tool.isVip && (
-                            <span className="absolute top-3.5 right-3.5 px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-black flex items-center gap-1 z-20">
-                              <Crown className="w-3 h-3 text-amber-400" />
+                          {isVip && (
+                            <span className="absolute top-3.5 right-3.5 px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500/30 to-amber-600/20 text-amber-300 border border-amber-500/50 text-[11px] font-black flex items-center gap-1.5 z-20 shadow-md shadow-amber-500/20">
+                              <Crown className="w-3.5 h-3.5 text-amber-400 fill-amber-400/40" />
                               <span>VIP</span>
                             </span>
                           )}
@@ -427,14 +470,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           
                           {/* Icon Container */}
                           <div className={`p-2.5 rounded-xl transition-transform duration-300 group-hover:scale-105 border ${
-                             tool.highlight ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/25' : 'bg-white/[0.05] text-slate-300 border-white/[0.08]'
+                             isVip ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' : tool.highlight ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/25' : 'bg-white/[0.05] text-slate-300 border-white/[0.08]'
                           }`}>
                             {React.cloneElement(tool.icon as React.ReactElement<any>, { className: 'w-5 h-5' })}
                           </div>
 
                           <div className="flex flex-col gap-1.5 w-full h-full flex-grow">
                              <div className="flex items-center justify-between gap-2">
-                               <h3 className={`text-sm sm:text-base font-bold transition-colors ${tool.highlight ? 'text-white group-hover:text-indigo-300' : 'text-slate-100 group-hover:text-white'}`}>
+                               <h3 className={`text-sm sm:text-base font-bold transition-colors ${isVip ? 'text-white group-hover:text-amber-300' : tool.highlight ? 'text-white group-hover:text-indigo-300' : 'text-slate-100 group-hover:text-white'}`}>
                                   {tool.label}
                                 </h3>
                              </div>
@@ -458,10 +501,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                   <span>معاينة 👁️</span>
                                 </button>
 
-                                <div className="flex items-center gap-1 text-slate-300 group-hover:text-white transition-colors text-[11px]">
-                                  <span>فتح الأداة</span>
-                                  <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-1 transition-transform" />
-                                </div>
+                                {isVip && !isUserVip ? (
+                                  <div className="flex items-center gap-1 text-amber-400 hover:text-amber-300 transition-colors text-[11px] font-bold">
+                                    <Crown className="w-3.5 h-3.5 text-amber-400" />
+                                    <span>ميزة VIP 👑</span>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1 text-slate-300 group-hover:text-white transition-colors text-[11px]">
+                                    <span>فتح الأداة</span>
+                                    <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-1 transition-transform" />
+                                  </div>
+                                )}
                              </div>
                           </div>
                        </div>

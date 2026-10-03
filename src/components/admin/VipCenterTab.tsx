@@ -479,7 +479,7 @@ export const VipCenterTab: React.FC<VipCenterTabProps> = ({
                 </tr>
               ) : (
                 filteredUsers.map((u) => {
-                  const isUserVip = !!(u.isVIP || u.subscriptionType);
+                  const isUserVip = !!(u.isVIP || u.subscriptionType === 'vip');
                   const isActionLoading = actionLoadingUserId === u.id;
                   
                   let expiryDateStr = '—';
