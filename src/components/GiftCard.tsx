@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Play, Eye, ShoppingCart, CheckCircle2, Sparkles, Flame, MessageCircle } from 'lucide-react';
+import { Play, Eye, ShoppingCart, CheckCircle2, Sparkles, Flame, MessageCircle, Crown } from 'lucide-react';
 import { GiftItem, Language } from '../types';
 import { translations } from '../utils/translations';
 
@@ -40,55 +40,65 @@ export const GiftCard: React.FC<GiftCardProps> = ({
   };
 
   const displayTitle = lang === 'ar' && gift.titleAr ? gift.titleAr : lang === 'en' && gift.titleEn ? gift.titleEn : gift.title;
+  const isVipGift = !!(gift.isVip || (gift.vipPrice && gift.vipPrice > 0));
 
   return (
     <div
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onClick={() => onSelectGift(gift)}
-      className="group relative flex flex-col rounded-2xl bg-[#131722] border border-slate-800/90 hover:border-cyan-500/60 transition-all duration-300 hover:shadow-xl hover:shadow-cyan-950/20 overflow-hidden cursor-pointer"
+      className="group relative flex flex-col rounded-3xl bg-[#131722] border border-slate-800/90 hover:border-cyan-500/60 transition-all duration-300 hover:shadow-2xl hover:shadow-cyan-950/30 overflow-hidden cursor-pointer"
     >
-      {/* Visual Container (Video on hover, Poster when idle) */}
-      <div className="relative aspect-[4/5] w-full overflow-hidden bg-slate-950">
-        {/* Background Poster Image */}
+      {/* Visual Container - Square (1:1), Spacious & Comfortable on the eye matching exact gift dimensions */}
+      <div className="relative aspect-square w-full overflow-hidden bg-slate-950 flex items-center justify-center">
+        {/* Ambient background glow for high aesthetic comfort */}
+        <div className="absolute inset-0 bg-gradient-to-b from-indigo-950/20 via-transparent to-slate-950/40 pointer-events-none" />
+
+        {/* Background Poster Image - Centered and nicely proportioned */}
         <img
           src={gift.posterUrl}
           alt={displayTitle}
-          className={`w-full h-full object-cover transition-opacity duration-300 ${
-            isHovered ? 'opacity-20' : 'opacity-100'
+          className={`w-full h-full object-contain p-2 transition-all duration-300 ${
+            isHovered ? 'opacity-20 scale-95' : 'opacity-100 scale-100'
           }`}
           loading="lazy"
         />
 
-        {/* Hovering Live Video Stream Preview (External Video URL - 0 server load!) */}
+        {/* Hovering Live Video Stream Preview */}
         <video
           ref={videoRef}
           src={gift.videoUrl}
           loop
           muted
           playsInline
-          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+          className={`absolute inset-0 w-full h-full object-contain p-2 transition-opacity duration-300 ${
             isHovered ? 'opacity-100' : 'opacity-0 pointer-events-none'
           }`}
         />
 
-        {/* Top Badges */}
-        <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between pointer-events-none z-10">
-          <div className="flex items-center gap-1.5">
-            <span className="px-2 py-0.5 rounded-md bg-gradient-to-r from-red-600 to-pink-600 text-white text-[10px] font-bold shadow-md uppercase tracking-wider flex items-center gap-1">
-              <Flame className="w-2.5 h-2.5 fill-current" />
-              {gift.isNew ? (lang === 'ar' ? 'جديد' : '新秀') : (lang === 'ar' ? 'أصلي' : '原创')}
+        {/* Top Badges Row: Status on start, VIP & Format on end - completely separated with ample spacing */}
+        <div className="absolute top-3 inset-x-3 flex items-center justify-between pointer-events-none z-10 gap-3">
+          {/* Status Badge (Flame / New / Original) */}
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-red-600 to-pink-600 text-white text-[10px] font-black shadow-md uppercase tracking-wider flex items-center gap-1.5 shrink-0 border border-red-400/40">
+              <Flame className="w-3 h-3 fill-current" />
+              <span>{gift.isNew ? (lang === 'ar' ? 'جديد' : '新秀') : (lang === 'ar' ? 'أصلي' : '原创')}</span>
             </span>
-            {gift.isVip && (
-              <span className="px-1.5 py-0.5 rounded-md bg-amber-500/90 text-slate-950 text-[10px] font-black">
-                VIP
-              </span>
-            )}
           </div>
 
-          <span className="px-2 py-0.5 rounded-md bg-slate-900/80 backdrop-blur-md text-cyan-300 text-[10px] font-mono font-semibold border border-slate-700/60">
-            {gift.formats[0]?.name.split('带')[0] || 'SVGA'}
-          </span>
+          {/* VIP Badge & Format Badge - Positioned far apart from the status badge */}
+          <div className="flex items-center gap-2 shrink-0">
+            {isVipGift && (
+              <span className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 text-[10px] font-black shadow-lg shadow-amber-500/20 border border-amber-300 flex items-center gap-1.5 shrink-0">
+                <Crown className="w-3 h-3 fill-current text-slate-950" />
+                <span>VIP</span>
+              </span>
+            )}
+
+            <span className="px-2.5 py-1 rounded-lg bg-slate-900/90 backdrop-blur-md text-cyan-300 text-[10px] font-mono font-bold border border-slate-700/80 shadow-md shrink-0">
+              {gift.formats?.[0]?.name?.split('带')?.[0] || 'SVGA'}
+            </span>
+          </div>
         </div>
 
         {/* Overlay Hover Actions */}

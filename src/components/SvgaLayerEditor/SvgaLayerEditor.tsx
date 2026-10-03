@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { 
   EditableLayer, SVGAProjectData, CanvasTool, LayerKeyframe,
   FadeConfig, CropConfig, CropFeather, ShineEffectConfig, SVGAAudioTrack,
@@ -39,7 +39,7 @@ import { SvgaMultiCanvasStage } from './SvgaMultiCanvasStage';
 import { SvgaBatchExportModal } from './SvgaBatchExportModal';
 import { SvgaBackgroundLibraryModal, downloadImageUrl } from './SvgaBackgroundLibraryModal';
 import { AfterEffectsMaskedLayerStudio } from './AfterEffectsMaskedLayerStudio';
-import { ChromaTargetColor, identifyColorType, applySmartChromaToSingleImage, isAudioSource } from './svgaSmartChromaEngine';
+import { ChromaTargetColor, identifyColorType, applySmartChromaToSingleImage, applyCustomPenMaskToSingleImage, PenMaskStroke, isAudioSource } from './svgaSmartChromaEngine';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { 
   Upload, Layers, Download, ArrowLeft, RotateCcw, 
@@ -191,6 +191,9 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([]);
 
+  // Computed selectedLayer available to all hooks
+  const selectedLayer = useMemo(() => layers.find(l => l.id === selectedLayerId) || null, [layers, selectedLayerId]);
+
   // Persistent reference map for full layer objects (sprites & thumbnails) so history only stores lightweight metadata
   const masterLayersMapRef = useRef<Map<string, EditableLayer>>(new Map());
 
@@ -269,14 +272,36 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const [isChromaProcessing, setIsChromaProcessing] = useState<boolean>(false);
   const [chromaProgress, setChromaProgress] = useState<number>(0);
   const [chromaStatus, setChromaStatus] = useState<string>('');
+  const [chromaSubMode, setChromaSubMode] = useState<ChromaPenSubMode>('pen-mask');
+  const [chromaPenTool, setChromaPenTool] = useState<PenMaskToolType>('brush');
+  const [chromaMaskMode, setChromaMaskMode] = useState<'erase' | 'keep'>('erase');
+  const [chromaBrushSize, setChromaBrushSize] = useState<number>(30);
+  const [chromaPenFeather, setChromaPenFeather] = useState<number>(8);
+  const [chromaPenOpacity, setChromaPenOpacity] = useState<number>(100);
+  const [penStrokes, setPenStrokes] = useState<PenMaskStroke[]>([]);
   const [chromaUndoStack, setChromaUndoStack] = useState<Array<{
     imagesMap: Record<string, string>;
     rawImages: Record<string, Uint8Array>;
   }>>([]);
 
-  const handleToggleChromaPen = useCallback(() => {
+  const handleAddPenStroke = useCallback((stroke: PenMaskStroke) => {
+    setPenStrokes(prev => [...prev, stroke]);
+  }, []);
+
+  const handleClearPenStrokes = useCallback(() => {
+    setPenStrokes([]);
+  }, []);
+
+  const handleUndoPenStroke = useCallback(() => {
+    setPenStrokes(prev => prev.slice(0, Math.max(0, prev.length - 1)));
+  }, []);
+
+  const handleToggleChromaPen = useCallback((mode?: ChromaPenSubMode) => {
+    if (mode) {
+      setChromaSubMode(mode);
+    }
     setIsChromaPenActive(prev => {
-      const next = !prev;
+      const next = mode !== undefined ? true : !prev;
       if (next) {
         setActiveTool('chroma-pen');
         setIsPlaying(false);
@@ -370,7 +395,6 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       if (chromaScope === 'all') {
         targetKeys = Object.keys(project.imagesMap || {});
       } else if (chromaScope === 'selected') {
-        const selectedLayer = layers.find(l => l.id === selectedLayerId);
         if (selectedLayer && selectedLayer.imageKey) {
           targetKeys = [selectedLayer.imageKey];
         } else {
@@ -466,7 +490,111 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       setIsChromaProcessing(false);
       setChromaStatus('');
     }
-  }, [project, layers, selectedLayerId, currentFrame, chromaTargetColors, chromaTolerance, chromaSmoothness, chromaDespill, chromaScope]);
+  }, [project, layers, selectedLayerId, selectedLayer, currentFrame, chromaTargetColors, chromaTolerance, chromaSmoothness, chromaDespill, chromaScope]);
+
+  const handleApplyPenMask = useCallback(async () => {
+    if (!project || penStrokes.length === 0) return;
+
+    setIsChromaProcessing(true);
+    setChromaProgress(10);
+    setChromaStatus('جاري تطبيق القص والتفريغ بالقلم...');
+
+    try {
+      const currentImagesMapSnapshot = { ...(project.imagesMap || {}) };
+      const currentRawImagesSnapshot: Record<string, Uint8Array> = {};
+      if (project.rawImages) {
+        for (const [k, v] of Object.entries(project.rawImages)) {
+          if (v instanceof Uint8Array) {
+            currentRawImagesSnapshot[k] = new Uint8Array(v);
+          }
+        }
+      }
+      setChromaUndoStack(prev => [...prev.slice(-4), {
+        imagesMap: currentImagesMapSnapshot,
+        rawImages: currentRawImagesSnapshot
+      }]);
+
+      let targetKeys: string[] = [];
+      if (chromaScope === 'all') {
+        targetKeys = Object.keys(project.imagesMap || {});
+      } else if (selectedLayer && selectedLayer.imageKey) {
+        targetKeys = [selectedLayer.imageKey];
+      } else if (selectedLayer) {
+        targetKeys = [selectedLayer.id];
+      } else {
+        targetKeys = Object.keys(project.imagesMap || {});
+      }
+
+      const updatedImagesMap = { ...project.imagesMap };
+      const updatedRawImages = { ...(project.rawImages || {}) };
+      const total = targetKeys.length;
+
+      for (let i = 0; i < total; i++) {
+        const key = targetKeys[i];
+        const primarySource = updatedImagesMap[key] || updatedRawImages[key];
+        const fallbackSource = updatedRawImages[key] || updatedImagesMap[key];
+        let processed = false;
+
+        if (primarySource) {
+          try {
+            const result = await applyCustomPenMaskToSingleImage(
+              primarySource,
+              penStrokes,
+              project.width,
+              project.height
+            );
+            updatedImagesMap[key] = result.dataUrl;
+            updatedRawImages[key] = result.bytes;
+            processed = true;
+          } catch (err) {
+            console.warn(`Primary source failed for ${key}, trying fallback:`, err);
+          }
+        }
+
+        if (!processed && fallbackSource && fallbackSource !== primarySource) {
+          try {
+            const result = await applyCustomPenMaskToSingleImage(
+              fallbackSource,
+              penStrokes,
+              project.width,
+              project.height
+            );
+            updatedImagesMap[key] = result.dataUrl;
+            updatedRawImages[key] = result.bytes;
+            processed = true;
+          } catch (err) {
+            console.error(`Fallback source also failed for ${key}:`, err);
+          }
+        }
+        setChromaProgress(Math.round(((i + 1) / total) * 90) + 10);
+      }
+
+      setProject(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          imagesMap: updatedImagesMap,
+          rawImages: updatedRawImages
+        };
+      });
+
+      setPenStrokes([]);
+      setChromaStatus('تم تطبيق القص والتفريغ بنجاح ✨');
+      setChromaProgress(100);
+      setSuccessToast('تم قـص وتفريغ المنطقة بالقلم بنجاح ✨');
+
+      setTimeout(() => {
+        setIsChromaProcessing(false);
+        setChromaStatus('');
+        setChromaProgress(0);
+      }, 1200);
+
+    } catch (err: any) {
+      console.error('Error applying pen mask:', err);
+      setChromaStatus('حدث خطأ أثناء تطبيق القلم');
+      setIsChromaProcessing(false);
+    }
+  }, [project, penStrokes, chromaScope, selectedLayer]);
 
   const handleBackgroundUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -3541,8 +3669,6 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [project, isExporting, showExportModal, showBatchExportModal, showNewProjectModal, showMergeCanvasModal, handleExport]);
 
-  const selectedLayer = layers.find(l => l.id === selectedLayerId) || null;
-
   // Background Swatches
   const bgSwatches = [
     { label: 'Transparent', value: 'transparent', isChecker: true },
@@ -4073,6 +4199,18 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                     shinePointStep={shinePointStep}
                     onShinePointStepChange={setShinePointStep}
                     onDragEnd={() => pushHistory(layers)}
+                    isChromaPenActive={isChromaPenActive}
+                    chromaSubMode={chromaSubMode}
+                    chromaPenTool={chromaPenTool}
+                    chromaMaskMode={chromaMaskMode}
+                    chromaBrushSize={chromaBrushSize}
+                    chromaPenFeather={chromaPenFeather}
+                    chromaPenOpacity={chromaPenOpacity}
+                    penStrokes={penStrokes}
+                    onAddPenStroke={handleAddPenStroke}
+                    onClearPenStrokes={handleClearPenStrokes}
+                    onUndoPenStroke={handleUndoPenStroke}
+                    onApplyPenMask={handleApplyPenMask}
                   />
 
                   {/* Floating Timeline Toggle on Mobile */}
@@ -4089,7 +4227,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               )}
             </div>
 
-            {/* Smart Chroma Key Pen Studio Control Panel */}
+            {/* Smart Chroma & Freehand Transparency Pen Studio Control Panel */}
             <SvgaChromaPenStudio
               isActive={isChromaPenActive}
               activeColor={chromaActiveColor}
@@ -4111,6 +4249,21 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               isProcessing={isChromaProcessing}
               processingProgress={chromaProgress}
               processingStatus={chromaStatus}
+              subMode={chromaSubMode}
+              onSubModeChange={setChromaSubMode}
+              penTool={chromaPenTool}
+              onPenToolChange={setChromaPenTool}
+              maskMode={chromaMaskMode}
+              onMaskModeChange={setChromaMaskMode}
+              brushSize={chromaBrushSize}
+              onBrushSizeChange={setChromaBrushSize}
+              penFeather={chromaPenFeather}
+              onPenFeatherChange={setChromaPenFeather}
+              penOpacity={chromaPenOpacity}
+              onPenOpacityChange={setChromaPenOpacity}
+              pendingStrokesCount={penStrokes.length}
+              onApplyPenMask={handleApplyPenMask}
+              onClearStrokes={handleClearPenStrokes}
               onClose={() => {
                 setIsChromaPenActive(false);
                 setActiveTool('select');
@@ -4211,6 +4364,23 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               onUnlinkMaskedChildLayer={handleUnlinkMaskedChildLayer}
               onSelectLayer={setSelectedLayerId}
               onOpenAeMaskedStudio={() => setShowAeMaskedStudioModal(true)}
+              onToggleChromaPen={handleToggleChromaPen}
+              isChromaPenActive={isChromaPenActive}
+              penStrokes={penStrokes}
+              onAddPenStroke={handleAddPenStroke}
+              onClearPenStrokes={handleClearPenStrokes}
+              onUndoPenStroke={handleUndoPenStroke}
+              onApplyPenMask={handleApplyPenMask}
+              chromaPenTool={chromaPenTool}
+              onPenToolChange={setChromaPenTool}
+              chromaMaskMode={chromaMaskMode}
+              onMaskModeChange={setChromaMaskMode}
+              chromaBrushSize={chromaBrushSize}
+              onBrushSizeChange={setChromaBrushSize}
+              chromaPenFeather={chromaPenFeather}
+              onPenFeatherChange={setChromaPenFeather}
+              chromaPenOpacity={chromaPenOpacity}
+              onPenOpacityChange={setChromaPenOpacity}
             />
           </aside>
         </div>

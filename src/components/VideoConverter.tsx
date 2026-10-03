@@ -30,6 +30,8 @@ import {
   RefreshCw,
   ArrowLeft,
   CheckCircle2,
+  PenTool,
+  Brush,
 } from "lucide-react";
 import { logActivity } from "../utils/logger";
 import { ChromaStudioModal, ChromaSettings } from "./ChromaStudioModal";
@@ -338,13 +340,37 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     const imageData = ctx.getImageData(0, 0, width, height);
     const data = imageData.data;
 
-    // Helper for Protection Masks
+    // Point in Polygon helper
+    const isPointInPoly = (px: number, py: number, points: { x: number; y: number }[]): boolean => {
+      let inside = false;
+      const n = points.length;
+      for (let i = 0, j = n - 1; i < n; j = i++) {
+        const xi = points[i].x * width;
+        const yi = points[i].y * height;
+        const xj = points[j].x * width;
+        const yj = points[j].y * height;
+        const intersect = yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi + 0.00001) + xi;
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    };
+
+    // Helper for Protection & Transparency Cutout & Shading Masks
     const masks = customChroma.protectionMasks || [];
-    const getProtectionFactor = (px: number, py: number): number => {
-      if (!masks || masks.length === 0) return 0;
-      let maxProtection = 0;
+    const evaluateMasks = (px: number, py: number) => {
+      let protectFactor = 0;
+      let eraseFactor = 0;
+      let shadeFactor = 0;
+      let targetShadeOpacity = 0.5;
+
+      if (!masks || masks.length === 0) {
+        return { protectFactor, eraseFactor, shadeFactor, targetShadeOpacity };
+      }
 
       for (const m of masks) {
+        let f = 0;
+        const mode = m.mode || "protect";
+
         if (m.type === "circle") {
           const cx = m.x * width;
           const cy = m.y * height;
@@ -357,11 +383,9 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
           const dist = Math.sqrt(dx * dx + dy * dy);
 
           if (dist <= r) {
-            maxProtection = 1;
-            break;
+            f = 1;
           } else if (m.feather > 0 && dist <= r + m.feather) {
-            const f = 1 - (dist - r) / m.feather;
-            if (f > maxProtection) maxProtection = f;
+            f = 1 - (dist - r) / m.feather;
           }
         } else if (m.type === "rect") {
           const cx = m.x * width;
@@ -374,15 +398,13 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
           const bottom = cy + h / 2;
 
           if (px >= left && px <= right && py >= top && py <= bottom) {
-            maxProtection = 1;
-            break;
+            f = 1;
           } else if (m.feather > 0) {
             const dx = Math.max(left - px, 0, px - right);
             const dy = Math.max(top - py, 0, py - bottom);
             const dist = Math.sqrt(dx * dx + dy * dy);
             if (dist <= m.feather) {
-              const f = 1 - dist / m.feather;
-              if (f > maxProtection) maxProtection = f;
+              f = 1 - dist / m.feather;
             }
           }
         } else if (m.type === "brush" && m.points && m.points.length > 0) {
@@ -395,18 +417,46 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
             const dist = Math.sqrt(dx * dx + dy * dy);
 
             if (dist <= bRadius) {
-              maxProtection = 1;
+              f = 1;
               break;
             } else if (m.feather > 0 && dist <= bRadius + m.feather) {
-              const f = 1 - (dist - bRadius) / m.feather;
-              if (f > maxProtection) maxProtection = f;
+              const curF = 1 - (dist - bRadius) / m.feather;
+              if (curF > f) f = curF;
             }
           }
-          if (maxProtection >= 1) break;
+        } else if ((m.type === "lasso" || m.type === "polygon") && m.points && m.points.length > 2) {
+          const inside = isPointInPoly(px, py, m.points);
+          if (inside) {
+            f = 1;
+          } else if (m.feather > 0) {
+            for (let k = 0; k < m.points.length; k++) {
+              const pt = m.points[k];
+              const bx = pt.x * width;
+              const by = pt.y * height;
+              const dist = Math.sqrt((px - bx) ** 2 + (py - by) ** 2);
+              if (dist <= m.feather) {
+                const curF = 1 - dist / m.feather;
+                if (curF > f) f = curF;
+              }
+            }
+          }
+        }
+
+        if (f > 0) {
+          if (mode === "erase") {
+            if (f > eraseFactor) eraseFactor = f;
+          } else if (mode === "shade") {
+            if (f > shadeFactor) {
+              shadeFactor = f;
+              targetShadeOpacity = m.opacity !== undefined ? m.opacity : 0.5;
+            }
+          } else {
+            if (f > protectFactor) protectFactor = f;
+          }
         }
       }
 
-      return maxProtection;
+      return { protectFactor, eraseFactor, shadeFactor, targetShadeOpacity };
     };
 
     const fadeTopLimit = (height * currentFade.top) / 100;
@@ -530,10 +580,22 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
           }
         }
 
-        // Apply Protection Mask to custom chroma
-        const protectFactor = getProtectionFactor(x, y);
+        // Evaluate all custom transparency & protection masks
+        const { protectFactor, eraseFactor, shadeFactor, targetShadeOpacity } = evaluateMasks(x, y);
+
+        // 1. Protection Mask: restore alpha towards 1.0
         if (protectFactor > 0) {
           minFactor = minFactor + (1.0 - minFactor) * protectFactor;
+        }
+
+        // 2. Erase / Transparency Cutout Mask: force alpha towards 0.0
+        if (eraseFactor > 0) {
+          minFactor = minFactor * (1.0 - eraseFactor);
+        }
+
+        // 3. Shading Pen: smooth blending towards target alpha
+        if (shadeFactor > 0) {
+          minFactor = minFactor * (1.0 - shadeFactor) + targetShadeOpacity * shadeFactor;
         }
 
         if (customChroma.despill && minFactor < 1.0 && protectFactor < 0.8) {
@@ -552,10 +614,16 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
 
         a = Math.min(a, 255 * minFactor);
       } else {
-        // If other background removal is active (like black or white), also respect protection masks
-        const protectFactor = getProtectionFactor(x, y);
+        // If no custom chroma but masks or other removal is active, evaluate masks
+        const { protectFactor, eraseFactor, shadeFactor, targetShadeOpacity } = evaluateMasks(x, y);
         if (protectFactor > 0 && a < 255) {
           a = a + (255 - a) * protectFactor;
+        }
+        if (eraseFactor > 0) {
+          a = Math.round(a * (1.0 - eraseFactor));
+        }
+        if (shadeFactor > 0) {
+          a = Math.round(a * (1.0 - shadeFactor) + (targetShadeOpacity * 255) * shadeFactor);
         }
       }
 
@@ -2889,6 +2957,46 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
               )}
             </div>
 
+            {/* Quick Action Banner for Transparency & Shading Pen */}
+            {file && (
+              <div className="p-4 rounded-3xl bg-gradient-to-r from-emerald-500/20 via-teal-500/15 to-cyan-500/20 border-2 border-emerald-500/50 shadow-2xl shadow-emerald-500/10 space-y-3 relative overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-cyan-400 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-emerald-500/20 shrink-0">
+                      <PenTool className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <div className="text-white font-black text-sm flex items-center gap-2">
+                        قلم الشفافية والتظليل والتفريغ الحر
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/30 text-emerald-300 font-bold border border-emerald-500/40">
+                          PRO 🖊️
+                        </span>
+                      </div>
+                      <p className="text-slate-300 text-xs mt-0.5">
+                        ارسم بالقلم أو حدد بالحبل لتفريغ أي جزء كشفافية، أو تظليل وتدريج الشفافية بدقة
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowChromaStudio(true)}
+                    className="w-full sm:w-auto px-5 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs transition-all shadow-xl shadow-emerald-500/25 flex items-center justify-center gap-2 cursor-pointer active:scale-95 shrink-0"
+                  >
+                    <PenTool className="w-4 h-4" />
+                    <span>فتح قلم الشفافية والتظليل 🖊️</span>
+                  </button>
+                </div>
+
+                {customChroma?.protectionMasks && customChroma.protectionMasks.length > 0 && (
+                  <div className="flex items-center gap-2 pt-2 border-t border-white/10 text-xs text-emerald-300 font-bold">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>تم تطبيق ({customChroma.protectionMasks.length}) أقنعة وتظليلات شفافة على الفيديو الحالي ✓</span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {files.length > 0 && (
               <div className="bg-slate-950/40 p-6 rounded-[2.5rem] border border-white/5 space-y-4">
                 <div className="flex items-center justify-between">
@@ -3680,24 +3788,24 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
                 </div>
               </div>
 
-              {/* Custom Chroma Eyedropper Studio Card */}
+              {/* Custom Chroma & Transparency Pen Studio Card */}
               <div className="p-5 rounded-3xl bg-gradient-to-br from-emerald-500/10 via-slate-900 to-teal-500/10 border border-emerald-500/30 relative overflow-hidden shadow-xl">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="flex items-center gap-3.5">
                     <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-slate-950 shadow-lg shadow-emerald-500/20">
-                      <Pipette className="w-6 h-6" />
+                      <PenTool className="w-6 h-6" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-white font-black text-sm">
-                          قلم وقطارة تحديد لون الكروما من الفيديو
+                          استوديو وقلم الشفافية والتظليل والتفريغ الحر
                         </span>
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                          PRO
+                          PRO 🖊️
                         </span>
                       </div>
                       <p className="text-slate-400 text-xs mt-0.5">
-                        افتح الفيديو وحدد أي درجة لون بدقة لعزل الخلفية وتفريغها لأي صيغة
+                        رسم حر بالقلم لتفريغ الشفافية، تظليل وتدريج الشفافية، حماية العناصر، وقطارة سحب ألوان الكروما
                       </p>
                     </div>
                   </div>
@@ -3708,8 +3816,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
                       onClick={() => setShowChromaStudio(true)}
                       className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2 cursor-pointer active:scale-95"
                     >
-                      <Pipette className="w-4 h-4" />
-                      فتح قلم سحب اللون 🎯
+                      <PenTool className="w-4 h-4" />
+                      فتح استوديو القلم والشفافية 🖊️
                     </button>
 
                     <button

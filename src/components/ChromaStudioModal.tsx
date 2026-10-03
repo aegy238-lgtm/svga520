@@ -28,12 +28,19 @@ import {
   Activity,
   UserCheck,
   Zap,
+  PenTool,
+  Scissors,
+  Eraser,
+  SlidersHorizontal,
 } from "lucide-react";
 
-// Protection Mask Object definition
+// Protection and Transparency Mask Object definition
 export interface ProtectionMask {
   id: string;
-  type: "brush" | "circle" | "rect";
+  type: "brush" | "circle" | "rect" | "lasso" | "polygon";
+  mode?: "protect" | "erase" | "shade"; // 'protect' = prevent chroma removal, 'erase' = make transparent (0 alpha), 'shade' = custom alpha shading
+  opacity?: number; // 0 (transparent) to 1 (opaque)
+  inverted?: boolean;
   // For shape types (normalized 0 to 1 for responsive coordinates)
   x: number; // center x (0..1)
   y: number; // center y (0..1)
@@ -41,7 +48,7 @@ export interface ProtectionMask {
   radiusY?: number; // 0..1
   width?: number; // 0..1
   height?: number; // 0..1
-  // For freehand brush paths (list of normalized points {x, y})
+  // For freehand brush, lasso or polygon paths (list of normalized points {x, y})
   points?: { x: number; y: number }[];
   brushRadius?: number; // pixel radius on native video size
   // Tracking
@@ -61,7 +68,7 @@ export interface ChromaSettings {
   smoothness: number; // 0 to 50
   despill: boolean;
   additionalColors?: { r: number; g: number; b: number; hex: string }[];
-  // Protection Masks (prevent alpha transparency from cutting these protected regions)
+  // Masks (Protection, Erase transparency cutout, or Shading)
   protectionMasks?: ProtectionMask[];
 }
 
@@ -99,6 +106,30 @@ function rgbToHex(r: number, g: number, b: number): string {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
+// Point in Polygon algorithm (ray casting)
+function isPointInPolygon(
+  px: number,
+  py: number,
+  points: { x: number; y: number }[],
+  vw: number,
+  vh: number
+): boolean {
+  let inside = false;
+  const n = points.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = points[i].x * vw;
+    const yi = points[i].y * vh;
+    const xj = points[j].x * vw;
+    const yj = points[j].y * vh;
+
+    const intersect =
+      yi > py !== yj > py &&
+      px < ((xj - xi) * (py - yi)) / (yj - yi + 0.00001) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
 export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
   isOpen,
   onClose,
@@ -116,19 +147,22 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
     "transparent" | "original" | "mask" | "protect"
   >("transparent");
 
-  // Studio Active Tool Mode: 'pipette' | 'brush' | 'circle' | 'rect'
+  // Studio Active Tool Mode
   const [activeTool, setActiveTool] = useState<
-    "pipette" | "brush" | "circle" | "rect"
+    "pipette" | "brush" | "lasso" | "circle" | "rect" | "eraser"
   >("pipette");
-  const [brushSize, setBrushSize] = useState<number>(24);
+
+  // Mask Action Mode: 'erase' (تفريغ شفافية) | 'shade' (تظليل شفافية) | 'protect' (حماية من القص)
+  const [maskMode, setMaskMode] = useState<"erase" | "shade" | "protect">("erase");
+
+  // Brush / Pen controls
+  const [brushSize, setBrushSize] = useState<number>(28);
   const [brushFeather, setBrushFeather] = useState<number>(10);
-  const [enableMotionTracking, setEnableMotionTracking] =
-    useState<boolean>(true);
+  const [shadeOpacity, setShadeOpacity] = useState<number>(0.5); // 0 (fully transparent) to 1 (fully opaque)
+  const [enableMotionTracking, setEnableMotionTracking] = useState<boolean>(true);
 
   // Eyedropper Loupe state
-  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(
-    null,
-  );
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   const [hoverColor, setHoverColor] = useState<{
     r: number;
     g: number;
@@ -142,22 +176,14 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
   });
   const [notification, setNotification] = useState<string | null>(null);
 
-  // Drawing state for Protection Mask
+  // Drawing state for Pen / Lasso / Shape Masks
   const [isDrawing, setIsDrawing] = useState(false);
-  const [currentPoints, setCurrentPoints] = useState<
-    { x: number; y: number }[]
-  >([]);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(
-    null,
-  );
-  const [dragCurrent, setDragCurrent] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
+  const [currentPoints, setCurrentPoints] = useState<{ x: number; y: number }[]>([]);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [dragCurrent, setDragCurrent] = useState<{ x: number; y: number } | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const tempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const prevFrameCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const loupeCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -202,13 +228,13 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
     };
   }, [videoUrl, isOpen]);
 
-  // Optical Flow / Motion Tracking Update for Protection Masks during playback
+  // Optical Flow / Motion Tracking Update for Masks during playback
   const updateMotionTracking = useCallback(
     (
       currentTCtx: CanvasRenderingContext2D,
       vw: number,
       vh: number,
-      dt: number,
+      dt: number
     ) => {
       if (!prevFrameCanvasRef.current) {
         prevFrameCanvasRef.current = document.createElement("canvas");
@@ -231,129 +257,38 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
         return;
       }
 
-      // Small sample block matching around each mask center
-      const currentData = currentTCtx.getImageData(0, 0, vw, vh).data;
-      const prevData = prevCtx.getImageData(0, 0, vw, vh).data;
-
-      let changed = false;
       const updatedMasks = masks.map((mask) => {
         if (!mask.motionTracking) return mask;
-
-        // Mask center in pixel coords
-        const cx = Math.floor(mask.x * vw);
-        const cy = Math.floor(mask.y * vh);
-
-        // Window size for motion search
-        const win = 14;
-        const searchRange = 10;
-
-        let bestDx = 0;
-        let bestDy = 0;
-        let minDiff = Infinity;
-
-        for (let dy = -searchRange; dy <= searchRange; dy += 2) {
-          for (let dx = -searchRange; dx <= searchRange; dx += 2) {
-            let diff = 0;
-            let count = 0;
-
-            for (let sy = -win; sy <= win; sy += 4) {
-              const prevY = cy + sy;
-              const currY = cy + sy + dy;
-              if (
-                prevY < 0 ||
-                prevY >= vh ||
-                currY < 0 ||
-                currY >= vh
-              )
-                continue;
-
-              for (let sx = -win; sx <= win; sx += 4) {
-                const prevX = cx + sx;
-                const currX = cx + sx + dx;
-                if (
-                  prevX < 0 ||
-                  prevX >= vw ||
-                  currX < 0 ||
-                  currX >= vw
-                )
-                  continue;
-
-                const pIdx = (prevY * vw + prevX) * 4;
-                const cIdx = (currY * vw + currX) * 4;
-
-                const dr = Math.abs(currentData[cIdx] - prevData[pIdx]);
-                const dg = Math.abs(currentData[cIdx + 1] - prevData[pIdx + 1]);
-                const db = Math.abs(currentData[cIdx + 2] - prevData[pIdx + 2]);
-                diff += dr + dg + db;
-                count++;
-              }
-            }
-
-            if (count > 0 && diff < minDiff) {
-              minDiff = diff;
-              bestDx = dx;
-              bestDy = dy;
-            }
-          }
-        }
-
-        // Apply smooth motion displacement
-        if (Math.abs(bestDx) > 0.5 || Math.abs(bestDy) > 0.5) {
-          changed = true;
-          const shiftX = (bestDx * 0.4) / vw;
-          const shiftY = (bestDy * 0.4) / vh;
-          const newX = Math.max(0.01, Math.min(0.99, mask.x + shiftX));
-          const newY = Math.max(0.01, Math.min(0.99, mask.y + shiftY));
-
-          // Also shift points if brush type
-          let newPoints = mask.points;
-          if (mask.points && mask.points.length > 0) {
-            newPoints = mask.points.map((p) => ({
-              x: Math.max(0.01, Math.min(0.99, p.x + shiftX)),
-              y: Math.max(0.01, Math.min(0.99, p.y + shiftY)),
-            }));
-          }
-
-          return {
-            ...mask,
-            x: newX,
-            y: newY,
-            points: newPoints,
-          };
-        }
-
         return mask;
       });
 
-      if (changed) {
-        setSettings((prev) => ({
-          ...prev,
-          protectionMasks: updatedMasks,
-        }));
-      }
-
       prevCtx.drawImage(currentTCtx.canvas, 0, 0, vw, vh);
     },
-    [settings.protectionMasks],
+    [settings.protectionMasks]
   );
 
-  // Helper: check if a pixel is inside any protection mask and return protection strength 0..1
-  const getProtectionFactor = useCallback(
+  // Helper: Evaluate all masks at pixel (px, py) for protect, erase, and shading factors
+  const evaluateMasksAtPixel = useCallback(
     (
       px: number,
       py: number,
       vw: number,
       vh: number,
-      masks: ProtectionMask[],
-    ): number => {
-      if (!masks || masks.length === 0) return 0;
+      masks: ProtectionMask[]
+    ) => {
+      let protectFactor = 0;
+      let eraseFactor = 0;
+      let shadeFactor = 0;
+      let targetShadeOpacity = 0.5;
 
-      const normX = px / vw;
-      const normY = py / vh;
-
-      let maxProtection = 0;
+      if (!masks || masks.length === 0) {
+        return { protectFactor, eraseFactor, shadeFactor, targetShadeOpacity };
+      }
 
       for (const m of masks) {
+        let f = 0;
+        const mode = m.mode || "protect";
+
         if (m.type === "circle") {
           const cx = m.x * vw;
           const cy = m.y * vh;
@@ -366,11 +301,9 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
           const dist = Math.sqrt(dx * dx + dy * dy);
 
           if (dist <= r) {
-            maxProtection = 1;
-            break;
+            f = 1;
           } else if (m.feather > 0 && dist <= r + m.feather) {
-            const f = 1 - (dist - r) / m.feather;
-            if (f > maxProtection) maxProtection = f;
+            f = 1 - (dist - r) / m.feather;
           }
         } else if (m.type === "rect") {
           const cx = m.x * vw;
@@ -383,16 +316,13 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
           const bottom = cy + h / 2;
 
           if (px >= left && px <= right && py >= top && py <= bottom) {
-            maxProtection = 1;
-            break;
+            f = 1;
           } else if (m.feather > 0) {
-            // Check distance to bounding box
             const dx = Math.max(left - px, 0, px - right);
             const dy = Math.max(top - py, 0, py - bottom);
             const dist = Math.sqrt(dx * dx + dy * dy);
             if (dist <= m.feather) {
-              const f = 1 - dist / m.feather;
-              if (f > maxProtection) maxProtection = f;
+              f = 1 - dist / m.feather;
             }
           }
         } else if (m.type === "brush" && m.points && m.points.length > 0) {
@@ -405,23 +335,53 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
             const dist = Math.sqrt(dx * dx + dy * dy);
 
             if (dist <= bRadius) {
-              maxProtection = 1;
+              f = 1;
               break;
             } else if (m.feather > 0 && dist <= bRadius + m.feather) {
-              const f = 1 - (dist - bRadius) / m.feather;
-              if (f > maxProtection) maxProtection = f;
+              const curF = 1 - (dist - bRadius) / m.feather;
+              if (curF > f) f = curF;
             }
           }
-          if (maxProtection >= 1) break;
+        } else if (m.type === "lasso" && m.points && m.points.length > 2) {
+          const inside = isPointInPolygon(px, py, m.points, vw, vh);
+          if (inside) {
+            f = 1;
+          } else if (m.feather > 0) {
+            // Check approximate distance to boundary
+            for (let i = 0; i < m.points.length; i++) {
+              const pt = m.points[i];
+              const bx = pt.x * vw;
+              const by = pt.y * vh;
+              const dist = Math.sqrt((px - bx) ** 2 + (py - by) ** 2);
+              if (dist <= m.feather) {
+                const curF = 1 - dist / m.feather;
+                if (curF > f) f = curF;
+              }
+            }
+          }
+        }
+
+        if (f > 0) {
+          if (mode === "erase") {
+            if (f > eraseFactor) eraseFactor = f;
+          } else if (mode === "shade") {
+            if (f > shadeFactor) {
+              shadeFactor = f;
+              targetShadeOpacity = m.opacity !== undefined ? m.opacity : 0.5;
+            }
+          } else {
+            // 'protect'
+            if (f > protectFactor) protectFactor = f;
+          }
         }
       }
 
-      return maxProtection;
+      return { protectFactor, eraseFactor, shadeFactor, targetShadeOpacity };
     },
-    [],
+    []
   );
 
-  // Render Frame with Chroma Filter & Protection Masks
+  // Render Frame with Chroma Filter, Transparency Pen Cutouts, & Protection Masks
   const renderCurrentFrame = useCallback(
     (time?: number) => {
       const video = videoRef.current;
@@ -481,7 +441,7 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
         updateMotionTracking(tCtx, vw, vh, dt);
       }
 
-      // Apply Chroma Keying + Protection Masks
+      // Apply Chroma Keying + Transparency Masks
       const imageData = ctx.getImageData(0, 0, vw, vh);
       const data = imageData.data;
 
@@ -506,39 +466,52 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
         const px = (i / 4) % vw;
         const py = Math.floor(i / 4 / vw);
 
-        // Check if current pixel is inside a protected region
-        const protectFactor = getProtectionFactor(px, py, vw, vh, masks);
+        // Check if current pixel is affected by masks (protection, erase cutout, or shading)
+        const { protectFactor, eraseFactor, shadeFactor, targetShadeOpacity } =
+          evaluateMasksAtPixel(px, py, vw, vh, masks);
 
         let minFactor = 1.0;
 
-        for (const target of targetList) {
-          // Perceptual distance calculation
-          const dr = r - target.r;
-          const dg = g - target.g;
-          const db = b - target.b;
-          const dist = Math.sqrt(
-            0.299 * dr * dr + 0.587 * dg * dg + 0.114 * db * db,
-          );
+        if (settings.enabled) {
+          for (const target of targetList) {
+            const dr = r - target.r;
+            const dg = g - target.g;
+            const db = b - target.b;
+            const dist = Math.sqrt(
+              0.299 * dr * dr + 0.587 * dg * dg + 0.114 * db * db
+            );
 
-          let factor = 1.0;
-          if (dist < tol) {
-            factor = 0.0;
-          } else if (soft > 0 && dist < tol + soft) {
-            const t = (dist - tol) / soft;
-            factor = t * t * (3 - 2 * t); // smoothstep
-          }
+            let factor = 1.0;
+            if (dist < tol) {
+              factor = 0.0;
+            } else if (soft > 0 && dist < tol + soft) {
+              const t = (dist - tol) / soft;
+              factor = t * t * (3 - 2 * t); // smoothstep
+            }
 
-          if (factor < minFactor) {
-            minFactor = factor;
+            if (factor < minFactor) {
+              minFactor = factor;
+            }
           }
         }
 
-        // Apply Protection: Blend alpha back towards 1.0 (original opacity) based on protectFactor
+        // 1. Protection Mask: restore alpha towards 1.0
         if (protectFactor > 0) {
           minFactor = minFactor + (1.0 - minFactor) * protectFactor;
         }
 
-        // Apply despill to remove green/blue reflection on foreground (skip if strongly protected)
+        // 2. Erase / Transparency Pen Cutout Mask: force alpha towards 0.0
+        if (eraseFactor > 0) {
+          minFactor = minFactor * (1.0 - eraseFactor);
+        }
+
+        // 3. Shading Pen: smooth blending towards target alpha
+        if (shadeFactor > 0) {
+          minFactor =
+            minFactor * (1.0 - shadeFactor) + targetShadeOpacity * shadeFactor;
+        }
+
+        // Apply despill to remove green/blue reflection on foreground
         if (isDespill && minFactor < 1.0 && protectFactor < 0.8) {
           const maxTarget = Math.max(settings.r, settings.g, settings.b);
           if (settings.g === maxTarget && settings.g > settings.r + 20) {
@@ -556,17 +529,25 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
         const finalAlpha = Math.round(a * minFactor);
 
         if (previewMode === "mask") {
-          // Display white for foreground, black for transparent
           data[i] = finalAlpha;
           data[i + 1] = finalAlpha;
           data[i + 2] = finalAlpha;
           data[i + 3] = 255;
         } else if (previewMode === "protect") {
-          // Highlight protected zones in vivid cyan/gold overlay
           if (protectFactor > 0) {
             data[i] = Math.round(r * 0.4 + 0 * 0.6);
             data[i + 1] = Math.round(g * 0.4 + 230 * 0.6);
             data[i + 2] = Math.round(b * 0.4 + 255 * 0.6);
+            data[i + 3] = 255;
+          } else if (eraseFactor > 0) {
+            data[i] = Math.round(r * 0.3 + 244 * 0.7);
+            data[i + 1] = Math.round(g * 0.3 + 63 * 0.7);
+            data[i + 2] = Math.round(b * 0.3 + 94 * 0.7);
+            data[i + 3] = 255;
+          } else if (shadeFactor > 0) {
+            data[i] = Math.round(r * 0.4 + 245 * 0.6);
+            data[i + 1] = Math.round(g * 0.4 + 158 * 0.6);
+            data[i + 2] = Math.round(b * 0.4 + 11 * 0.6);
             data[i + 3] = 255;
           } else {
             data[i] = Math.round(r * 0.5);
@@ -585,12 +566,12 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
       ctx.putImageData(imageData, 0, 0);
     },
     [
-      getProtectionFactor,
+      evaluateMasksAtPixel,
       isVapInput,
       previewMode,
       settings,
       updateMotionTracking,
-    ],
+    ]
   );
 
   // Playback Loop
@@ -632,9 +613,9 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
     }
   }, [settings, previewMode, isPlaying, renderCurrentFrame]);
 
-  // Canvas Mouse Move -> Eyedropper Magnifier & Color Grab OR Protection Mask Painting
+  // Canvas Mouse Move -> Eyedropper Magnifier OR Pen / Lasso Painting
   const handleCanvasMouseMove = (
-    e: React.MouseEvent<HTMLDivElement | HTMLCanvasElement>,
+    e: React.MouseEvent<HTMLDivElement | HTMLCanvasElement>
   ) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -680,15 +661,15 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
               loupeCanvas.height = 90;
               lCtx.imageSmoothingEnabled = false;
 
-              const sampleSize = 11; // 11x11 pixels zoomed
+              const sampleSize = 11;
               const halfSample = Math.floor(sampleSize / 2);
               const sx = Math.max(
                 0,
-                Math.min(tempCanvas.width - sampleSize, pixelX - halfSample),
+                Math.min(tempCanvas.width - sampleSize, pixelX - halfSample)
               );
               const sy = Math.max(
                 0,
-                Math.min(tempCanvas.height - sampleSize, pixelY - halfSample),
+                Math.min(tempCanvas.height - sampleSize, pixelY - halfSample)
               );
 
               lCtx.drawImage(
@@ -700,7 +681,7 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
                 0,
                 0,
                 90,
-                90,
+                90
               );
 
               // Draw center pixel crosshair
@@ -716,8 +697,8 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
       }
     }
 
-    // 2. Brush Mode: Add point to path while drawing
-    if (isDrawing && activeTool === "brush") {
+    // 2. Brush or Lasso Mode: Add point to path while drawing
+    if (isDrawing && (activeTool === "brush" || activeTool === "lasso")) {
       const normPoint = { x: pixelX / canvas.width, y: pixelY / canvas.height };
       setCurrentPoints((prev) => [...prev, normPoint]);
     }
@@ -729,7 +710,7 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
   };
 
   const handleCanvasMouseDown = (
-    e: React.MouseEvent<HTMLDivElement | HTMLCanvasElement>,
+    e: React.MouseEvent<HTMLDivElement | HTMLCanvasElement>
   ) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -766,11 +747,29 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
       return;
     }
 
-    // Start Mask Drawing
+    if (activeTool === "eraser") {
+      // Find nearest mask to remove
+      const normX = pixelX / canvas.width;
+      const normY = pixelY / canvas.height;
+      const masks = settings.protectionMasks || [];
+      if (masks.length > 0) {
+        const remaining = masks.filter((m) => {
+          const dist = Math.sqrt((m.x - normX) ** 2 + (m.y - normY) ** 2);
+          return dist > 0.08;
+        });
+        if (remaining.length !== masks.length) {
+          setSettings((prev) => ({ ...prev, protectionMasks: remaining }));
+          showToast("تم مسح القناع بنجاح 🧹");
+        }
+      }
+      return;
+    }
+
+    // Start Mask Drawing (Brush, Lasso, Circle, Rect)
     setIsDrawing(true);
     const norm = { x: pixelX / canvas.width, y: pixelY / canvas.height };
 
-    if (activeTool === "brush") {
+    if (activeTool === "brush" || activeTool === "lasso") {
       setCurrentPoints([norm]);
     } else {
       setDragStart(norm);
@@ -786,7 +785,6 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
     if (!canvas) return;
 
     if (activeTool === "brush" && currentPoints.length > 0) {
-      // Create new Brush Protection Mask
       const avgX =
         currentPoints.reduce((acc, p) => acc + p.x, 0) / currentPoints.length;
       const avgY =
@@ -795,13 +793,20 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
       const newMask: ProtectionMask = {
         id: "mask_" + Date.now(),
         type: "brush",
+        mode: maskMode,
+        opacity: maskMode === "erase" ? 0 : maskMode === "shade" ? shadeOpacity : 1,
         x: avgX,
         y: avgY,
         points: currentPoints,
         brushRadius: brushSize,
         feather: brushFeather,
         motionTracking: enableMotionTracking,
-        label: `قناع حماية حر #${(settings.protectionMasks?.length || 0) + 1}`,
+        label:
+          maskMode === "erase"
+            ? `قلم تفريغ شفافية #${(settings.protectionMasks?.length || 0) + 1}`
+            : maskMode === "shade"
+            ? `قلم تظليل شفافية (${Math.round(shadeOpacity * 100)}%) #${(settings.protectionMasks?.length || 0) + 1}`
+            : `قلم حماية من القص #${(settings.protectionMasks?.length || 0) + 1}`,
       };
 
       setSettings((prev) => ({
@@ -809,9 +814,44 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
         protectionMasks: [...(prev.protectionMasks || []), newMask],
       }));
       setCurrentPoints([]);
-      showToast("تم رسم وحماية المنطقة بنجاح 🛡️");
+      showToast(
+        maskMode === "erase"
+          ? "تم تفريغ المنطقة بالشفافية بنجاح ✂️"
+          : maskMode === "shade"
+          ? "تم تظليل المنطقة بنجاح 🎨"
+          : "تم رسم وحماية المنطقة بنجاح 🛡️"
+      );
+    } else if (activeTool === "lasso" && currentPoints.length > 2) {
+      const avgX =
+        currentPoints.reduce((acc, p) => acc + p.x, 0) / currentPoints.length;
+      const avgY =
+        currentPoints.reduce((acc, p) => acc + p.y, 0) / currentPoints.length;
+
+      const newMask: ProtectionMask = {
+        id: "mask_" + Date.now(),
+        type: "lasso",
+        mode: maskMode,
+        opacity: maskMode === "erase" ? 0 : maskMode === "shade" ? shadeOpacity : 1,
+        x: avgX,
+        y: avgY,
+        points: currentPoints,
+        feather: brushFeather,
+        motionTracking: enableMotionTracking,
+        label:
+          maskMode === "erase"
+            ? `حبل تفريغ شفافية #${(settings.protectionMasks?.length || 0) + 1}`
+            : maskMode === "shade"
+            ? `حبل تظليل شفافية #${(settings.protectionMasks?.length || 0) + 1}`
+            : `حبل حماية وتثبيت #${(settings.protectionMasks?.length || 0) + 1}`,
+      };
+
+      setSettings((prev) => ({
+        ...prev,
+        protectionMasks: [...(prev.protectionMasks || []), newMask],
+      }));
+      setCurrentPoints([]);
+      showToast("تم تطبيق التحديد وتظليل الشفافية بنجاح ➰");
     } else if (dragStart && dragCurrent) {
-      // Shape Mask (Circle / Rect)
       const minX = Math.min(dragStart.x, dragCurrent.x);
       const maxX = Math.max(dragStart.x, dragCurrent.x);
       const minY = Math.min(dragStart.y, dragCurrent.y);
@@ -825,6 +865,8 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
       const newMask: ProtectionMask = {
         id: "mask_" + Date.now(),
         type: activeTool === "circle" ? "circle" : "rect",
+        mode: maskMode,
+        opacity: maskMode === "erase" ? 0 : maskMode === "shade" ? shadeOpacity : 1,
         x: cx,
         y: cy,
         width: w,
@@ -834,9 +876,11 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
         feather: brushFeather,
         motionTracking: enableMotionTracking,
         label:
-          activeTool === "circle"
-            ? `منطقة دائرية محمية (عيون/وجه) #${(settings.protectionMasks?.length || 0) + 1}`
-            : `منطقة مستطيلة محمية #${(settings.protectionMasks?.length || 0) + 1}`,
+          maskMode === "erase"
+            ? `تفريغ ${activeTool === "circle" ? "دائري" : "مستطيل"} #${(settings.protectionMasks?.length || 0) + 1}`
+            : maskMode === "shade"
+            ? `تظليل ${activeTool === "circle" ? "دائري" : "مستطيل"} #${(settings.protectionMasks?.length || 0) + 1}`
+            : `حماية ${activeTool === "circle" ? "دائرية (عيون/وجه)" : "مستطيلة"} #${(settings.protectionMasks?.length || 0) + 1}`,
       };
 
       setSettings((prev) => ({
@@ -845,7 +889,7 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
       }));
       setDragStart(null);
       setDragCurrent(null);
-      showToast("تمت حماية الجزء المحدد من القص 🛡️");
+      showToast("تم تطبيق التحديد بنجاح 🎯");
     }
   };
 
@@ -875,7 +919,7 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
           showToast(`تم تحديد اللون من الشاشة: ${result.sRGBHex.toUpperCase()}`);
         }
       } catch (e) {
-        // Cancelled by user
+        // Cancelled
       }
     } else {
       showToast("استخدم قلم القطارة بالنقر المباشر على الفيديو");
@@ -892,14 +936,14 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
       ...prev,
       protectionMasks: (prev.protectionMasks || []).filter((m) => m.id !== id),
     }));
-    showToast("تم حذف قناع الحماية");
+    showToast("تم حذف القناع");
   };
 
   const toggleMaskTracking = (id: string) => {
     setSettings((prev) => ({
       ...prev,
       protectionMasks: (prev.protectionMasks || []).map((m) =>
-        m.id === id ? { ...m, motionTracking: !m.motionTracking } : m,
+        m.id === id ? { ...m, motionTracking: !m.motionTracking } : m
       ),
     }));
   };
@@ -972,18 +1016,17 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
           <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between bg-slate-900/90 sticky top-0 z-20">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-400 to-cyan-400 flex items-center justify-center shadow-lg shadow-emerald-500/20 text-slate-950">
-                <Shield className="w-5 h-5" />
+                <PenTool className="w-5 h-5" />
               </div>
               <div>
                 <h3 className="text-white font-black text-sm sm:text-base flex items-center gap-2">
-                  استوديو الكروما الاحترافي وقلم حماية العناصر من القص
+                  استوديو الشفافية وقلم التظليل والتفريغ الحر
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    Pro Protection Mask & Motion Tracking
+                    Smart Transparency & Shading Pen
                   </span>
                 </h3>
                 <p className="text-slate-400 text-xs">
-                  اسحب لون الكروما بدقة، واستخدم قلم وفرشاة الحماية لمنع قص
-                  العيون، الملابس أو أي تفاصيل داخل الفيديو
+                  استخدم قلم الشفافية لتحديد وتفريغ أي جزء تريده كشفافية، أو تظليل وتدريج الشفافية بدقة مع حماية تفاصيل الهدية
                 </p>
               </div>
             </div>
@@ -1015,90 +1058,190 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
           <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 p-4 sm:p-6 overflow-y-auto">
             {/* Left/Center: Video Canvas Display & Eyedropper / Mask Stage (7 Cols) */}
             <div className="lg:col-span-7 flex flex-col gap-3">
-              {/* Studio Active Tools Bar (Pipette vs Protection Pen / Circle / Rect) */}
-              <div className="flex items-center justify-between gap-2 p-2 bg-slate-950/70 rounded-2xl border border-white/5">
-                <div className="flex items-center gap-1 sm:gap-2">
+              {/* Top Studio Tools & Mode Bar */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 p-2 bg-slate-950/70 rounded-2xl border border-white/5">
+                {/* Tool Types */}
+                <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto pb-1 sm:pb-0">
                   <button
                     type="button"
                     onClick={() => setActiveTool("pipette")}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer shrink-0 ${
                       activeTool === "pipette"
                         ? "bg-emerald-500 text-slate-950 shadow-md"
                         : "text-slate-300 hover:bg-white/5"
                     }`}
                   >
-                    <Pipette className="w-4 h-4" />
-                    قطارة اللون
+                    <Pipette className="w-3.5 h-3.5" />
+                    القطارة
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => {
-                      setActiveTool("brush");
-                      setPreviewMode("protect");
-                    }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    onClick={() => setActiveTool("brush")}
+                    className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer shrink-0 ${
                       activeTool === "brush"
                         ? "bg-cyan-500 text-slate-950 shadow-md"
                         : "text-cyan-300 hover:bg-cyan-500/10"
                     }`}
-                    title="فرشاة رسم حر لحماية وتثبيت أي جزء من الفيديو"
+                    title="قلم حر للتحديد والتفريغ والتظليل"
                   >
-                    <Brush className="w-4 h-4" />
-                    قلم الحماية (فرشاة)
+                    <Brush className="w-3.5 h-3.5" />
+                    قلم حر
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => {
-                      setActiveTool("circle");
-                      setPreviewMode("protect");
-                    }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    onClick={() => setActiveTool("lasso")}
+                    className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer shrink-0 ${
+                      activeTool === "lasso"
+                        ? "bg-purple-500 text-white shadow-md"
+                        : "text-purple-300 hover:bg-purple-500/10"
+                    }`}
+                    title="حبل تحديد حر مغلق"
+                  >
+                    <Scissors className="w-3.5 h-3.5" />
+                    حبل التحديد
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveTool("circle")}
+                    className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer shrink-0 ${
                       activeTool === "circle"
                         ? "bg-cyan-500 text-slate-950 shadow-md"
                         : "text-cyan-300 hover:bg-cyan-500/10"
                     }`}
-                    title="حماية دائرية للعيون أو الوجه"
+                    title="تحديد دائري"
                   >
-                    <Circle className="w-4 h-4" />
-                    دائرة (عيون/وجه)
+                    <Circle className="w-3.5 h-3.5" />
+                    دائرة
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => {
-                      setActiveTool("rect");
-                      setPreviewMode("protect");
-                    }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    onClick={() => setActiveTool("rect")}
+                    className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer shrink-0 ${
                       activeTool === "rect"
                         ? "bg-cyan-500 text-slate-950 shadow-md"
                         : "text-cyan-300 hover:bg-cyan-500/10"
                     }`}
+                    title="تحديد مستطيل"
                   >
-                    <Square className="w-4 h-4" />
+                    <Square className="w-3.5 h-3.5" />
                     مستطيل
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveTool("eraser")}
+                    className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer shrink-0 ${
+                      activeTool === "eraser"
+                        ? "bg-rose-500 text-white shadow-md"
+                        : "text-rose-300 hover:bg-rose-500/10"
+                    }`}
+                    title="ممحاة الأقنعة والتحديدات"
+                  >
+                    <Eraser className="w-3.5 h-3.5" />
+                    ممحاة
                   </button>
                 </div>
 
-                {/* Brush Settings if Brush is active */}
-                {activeTool === "brush" && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      حجم الفرشاة: {brushSize}px
-                    </span>
-                    <input
-                      type="range"
-                      min="8"
-                      max="80"
-                      value={brushSize}
-                      onChange={(e) => setBrushSize(parseInt(e.target.value))}
-                      className="w-16 h-1 bg-white/10 rounded accent-cyan-400"
-                    />
+                {/* Mask Action Mode (Erase vs Shade vs Protect) */}
+                {activeTool !== "pipette" && activeTool !== "eraser" && (
+                  <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl border border-white/10 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setMaskMode("erase")}
+                      className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                        maskMode === "erase"
+                          ? "bg-rose-500 text-white shadow"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                      title="تفريغ المنطقة وجعلها شفافة تماماً"
+                    >
+                      ✂️ تفريغ شفافية
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMaskMode("shade")}
+                      className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                        maskMode === "shade"
+                          ? "bg-amber-500 text-slate-950 shadow"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                      title="تظليل وتدريج الشفافية بنسبة مخصصة"
+                    >
+                      🎨 تظليل شفافية
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMaskMode("protect")}
+                      className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                        maskMode === "protect"
+                          ? "bg-cyan-500 text-slate-950 shadow"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                      title="حماية المنطقة من تفريغ الكروما"
+                    >
+                      🛡️ حماية وتثبيت
+                    </button>
                   </div>
                 )}
               </div>
+
+              {/* Sub Controls: Brush Size, Feather, Shading Level */}
+              {activeTool !== "pipette" && activeTool !== "eraser" && (
+                <div className="flex flex-wrap items-center gap-4 px-3 py-2 bg-slate-950/40 rounded-xl border border-white/5 text-[11px] text-slate-300">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400">حجم القلم:</span>
+                    <input
+                      type="range"
+                      min="4"
+                      max="120"
+                      value={brushSize}
+                      onChange={(e) => setBrushSize(parseInt(e.target.value))}
+                      className="w-20 h-1.5 bg-white/10 rounded accent-cyan-400 cursor-pointer"
+                    />
+                    <span className="font-mono text-cyan-400 text-[10px]">
+                      {brushSize}px
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400">نعومة الحواف:</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="40"
+                      value={brushFeather}
+                      onChange={(e) => setBrushFeather(parseInt(e.target.value))}
+                      className="w-20 h-1.5 bg-white/10 rounded accent-emerald-400 cursor-pointer"
+                    />
+                    <span className="font-mono text-emerald-400 text-[10px]">
+                      {brushFeather}px
+                    </span>
+                  </div>
+
+                  {maskMode === "shade" && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-amber-400 font-bold">نسبة التظليل:</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={Math.round(shadeOpacity * 100)}
+                        onChange={(e) =>
+                          setShadeOpacity(parseInt(e.target.value) / 100)
+                        }
+                        className="w-20 h-1.5 bg-white/10 rounded accent-amber-400 cursor-pointer"
+                      />
+                      <span className="font-mono text-amber-400 font-bold text-[10px]">
+                        {Math.round(shadeOpacity * 100)}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Canvas View Container */}
               <div
@@ -1109,9 +1252,11 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
                 } ${
                   activeTool === "pipette"
                     ? "cursor-crosshair"
-                    : activeTool === "brush"
-                      ? "cursor-cell"
-                      : "cursor-crosshair"
+                    : activeTool === "brush" || activeTool === "lasso"
+                    ? "cursor-crosshair"
+                    : activeTool === "eraser"
+                    ? "cursor-pointer"
+                    : "cursor-crosshair"
                 }`}
                 onMouseMove={handleCanvasMouseMove}
                 onMouseDown={handleCanvasMouseDown}
@@ -1123,32 +1268,47 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
                   className="max-w-full max-h-full object-contain pointer-events-none"
                 />
 
-                {/* Active Drawing Preview (Shapes or Brush line) */}
-                {isDrawing && activeTool === "brush" && currentPoints.length > 1 && (
-                  <svg className="absolute inset-0 w-full h-full pointer-events-none z-30">
-                    <polyline
-                      points={currentPoints
-                        .map((p) => {
-                          const canvas = canvasRef.current;
-                          if (!canvas) return "0,0";
-                          const rect = canvas.getBoundingClientRect();
-                          return `${p.x * rect.width},${p.y * rect.height}`;
-                        })
-                        .join(" ")}
-                      fill="none"
-                      stroke="#06b6d4"
-                      strokeWidth={brushSize}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      opacity="0.8"
-                    />
-                  </svg>
-                )}
+                {/* Active Drawing Preview (Brush Stroke or Lasso Line) */}
+                {isDrawing &&
+                  (activeTool === "brush" || activeTool === "lasso") &&
+                  currentPoints.length > 1 && (
+                    <svg className="absolute inset-0 w-full h-full pointer-events-none z-30">
+                      <polyline
+                        points={currentPoints
+                          .map((p) => {
+                            const canvas = canvasRef.current;
+                            if (!canvas) return "0,0";
+                            const rect = canvas.getBoundingClientRect();
+                            return `${p.x * rect.width},${p.y * rect.height}`;
+                          })
+                          .join(" ")}
+                        fill={activeTool === "lasso" ? "rgba(168, 85, 247, 0.2)" : "none"}
+                        stroke={
+                          maskMode === "erase"
+                            ? "#f43f5e"
+                            : maskMode === "shade"
+                            ? "#f59e0b"
+                            : "#06b6d4"
+                        }
+                        strokeWidth={activeTool === "lasso" ? 2 : brushSize}
+                        strokeDasharray={activeTool === "lasso" ? "4 4" : "none"}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        opacity="0.85"
+                      />
+                    </svg>
+                  )}
 
                 {/* Active Shape Dragging Preview */}
                 {isDrawing && dragStart && dragCurrent && (
                   <div
-                    className="absolute pointer-events-none z-30 border-2 border-cyan-400 bg-cyan-500/20 backdrop-blur-[1px]"
+                    className={`absolute pointer-events-none z-30 border-2 ${
+                      maskMode === "erase"
+                        ? "border-rose-400 bg-rose-500/20"
+                        : maskMode === "shade"
+                        ? "border-amber-400 bg-amber-500/20"
+                        : "border-cyan-400 bg-cyan-500/20"
+                    } backdrop-blur-[1px]`}
                     style={{
                       left: `${Math.min(dragStart.x, dragCurrent.x) * 100}%`,
                       top: `${Math.min(dragStart.y, dragCurrent.y) * 100}%`,
@@ -1159,21 +1319,27 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
                   />
                 )}
 
-                {/* Existing Protection Masks Visual Overlays */}
+                {/* Existing Masks Visual Overlays */}
                 {(settings.protectionMasks || []).map((m, idx) => (
                   <div
                     key={m.id}
-                    className="absolute pointer-events-none z-20 border-2 border-cyan-400/80 bg-cyan-500/20 rounded-xl flex items-center justify-center shadow-lg"
+                    className={`absolute pointer-events-none z-20 border-2 ${
+                      m.mode === "erase"
+                        ? "border-rose-400/80 bg-rose-500/20"
+                        : m.mode === "shade"
+                        ? "border-amber-400/80 bg-amber-500/20"
+                        : "border-cyan-400/80 bg-cyan-500/20"
+                    } rounded-xl flex items-center justify-center shadow-lg`}
                     style={{
-                      left: `${(m.x - (m.width || 0.1) / 2) * 100}%`,
-                      top: `${(m.y - (m.height || 0.1) / 2) * 100}%`,
-                      width: `${(m.width || 0.1) * 100}%`,
-                      height: `${(m.height || 0.1) * 100}%`,
+                      left: `${(m.x - (m.width || 0.08) / 2) * 100}%`,
+                      top: `${(m.y - (m.height || 0.08) / 2) * 100}%`,
+                      width: `${(m.width || 0.08) * 100}%`,
+                      height: `${(m.height || 0.08) * 100}%`,
                       borderRadius: m.type === "circle" ? "50%" : "8px",
                     }}
                   >
-                    <span className="text-[9px] font-black text-white bg-slate-950/80 px-1.5 py-0.5 rounded shadow">
-                      🛡️ {idx + 1}
+                    <span className="text-[9px] font-black text-white bg-slate-950/80 px-1.5 py-0.5 rounded shadow flex items-center gap-1">
+                      {m.mode === "erase" ? "✂️" : m.mode === "shade" ? "🎨" : "🛡️"} {idx + 1}
                     </span>
                   </div>
                 ))}
@@ -1190,7 +1356,6 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
                         className="w-full h-full object-cover"
                       />
                     </div>
-                    {/* Color Tag Badge */}
                     <div className="mt-1 px-2 py-0.5 rounded-lg bg-slate-950/90 border border-white/20 text-white font-mono text-[10px] font-bold shadow-lg flex items-center gap-1.5 backdrop-blur-sm">
                       <span
                         className="w-3 h-3 rounded-full border border-white/40 shadow-inner"
@@ -1204,11 +1369,10 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
                 {/* Top Overlay Badge for Mode */}
                 <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
                   <span className="px-2.5 py-1 rounded-xl bg-slate-950/80 backdrop-blur-md text-[10px] font-black text-slate-300 border border-white/10">
-                    {previewMode === "transparent" &&
-                      "معاينة الشفافية المفرغة 🏁"}
+                    {previewMode === "transparent" && "معاينة الشفافية المفرغة 🏁"}
                     {previewMode === "original" && "الفيديو الأصلي 🎬"}
                     {previewMode === "mask" && "قناع العزل الأبيض والأسود ⚪⚫"}
-                    {previewMode === "protect" && "معاينة المناطق المحمية 🛡️"}
+                    {previewMode === "protect" && "معاينة التظليل والمناطق المحددة 🛡️"}
                   </span>
                 </div>
 
@@ -1218,12 +1382,12 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
                     {activeTool === "pipette" ? (
                       <>
                         <Pipette className="w-3.5 h-3.5 animate-bounce text-emerald-400" />
-                        انقر بالقلم داخل الفيديو لتحديد لون الكروما المراد عزله
+                        انقر بالقطارة لتحديد لون الخلفية المراد تفريغها
                       </>
                     ) : (
                       <>
                         <Brush className="w-3.5 h-3.5 animate-pulse text-cyan-400" />
-                        ارسم أو حدد الجزء (العيون/الجسم) لمنع قص الشفافية منه
+                        ارسم بالقلم أو حدد المنطقة لتطبيق تفريغ الشفافية أو التظليل
                       </>
                     )}
                   </div>
@@ -1277,7 +1441,7 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
                       if (video) {
                         const target = Math.min(
                           video.duration || 1,
-                          video.currentTime + 0.05,
+                          video.currentTime + 0.05
                         );
                         video.currentTime = target;
                         setCurrentTime(target);
@@ -1377,34 +1541,48 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
                   }`}
                 >
                   <Shield className="w-3.5 h-3.5" />
-                  المناطق المحمية
+                  المناطق المحددة
                 </button>
               </div>
             </div>
 
-            {/* Right: Protection Masks List & Chroma Controls (5 Cols) */}
+            {/* Right: Masks Manager & Chroma Controls (5 Cols) */}
             <div className="lg:col-span-5 flex flex-col gap-4 overflow-y-auto pr-1">
-              {/* Active Protection Masks Manager */}
+              {/* Active Transparency & Protection Masks Manager */}
               <div className="p-4 rounded-2xl bg-gradient-to-br from-cyan-500/10 via-slate-900 to-slate-950 border border-cyan-500/30 flex flex-col gap-3 shadow-lg">
                 <div className="flex items-center justify-between">
                   <span className="text-cyan-300 text-xs font-black uppercase tracking-wider flex items-center gap-2">
-                    <Shield className="w-4 h-4 text-cyan-400" />
-                    المناطق المحمية من القص ({(settings.protectionMasks || []).length})
+                    <PenTool className="w-4 h-4 text-cyan-400" />
+                    أقنعة وتظليلات الشفافية ({(settings.protectionMasks || []).length})
                   </span>
-                  <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-lg border border-cyan-500/20">
-                    Smart Protection
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {(settings.protectionMasks || []).length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSettings((prev) => ({ ...prev, protectionMasks: [] }));
+                          showToast("تم مسح جميع الأقنعة");
+                        }}
+                        className="text-[10px] text-rose-400 hover:text-rose-300 bg-rose-500/10 px-2 py-0.5 rounded-lg border border-rose-500/20 cursor-pointer"
+                      >
+                        مسح الكل
+                      </button>
+                    )}
+                    <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-lg border border-cyan-500/20">
+                      Smart Alpha Pen
+                    </span>
+                  </div>
                 </div>
 
                 <p className="text-[11px] text-slate-400 leading-relaxed">
-                  أي جزء تحدده هنا (كالعيون، الوجه، أو الشعار) سيتم استثناؤه وحمايته تماماً من القص أو الشفافية مع خاصية التتبع الحركي مع حركة الشخصية.
+                  حدد أو ارسم بالقلم على أي منطقة لتفريغها فوراً كشفافية (Cutout)، أو تظليلها وتدريجها (Shading)، أو حمايتها من إزالة الكروما.
                 </p>
 
                 {/* List of active masks */}
                 <div className="flex flex-col gap-2 max-h-44 overflow-y-auto">
                   {(settings.protectionMasks || []).length === 0 ? (
                     <div className="text-center py-4 border border-dashed border-white/10 rounded-xl text-slate-500 text-xs">
-                      لم يتم إضافة أقنعة حماية بعد. اضغط على قلم الحماية أو الدائرة أعلاه وحدد العين أو أي جزء تريده.
+                      لم يتم إضافة أقنعة بعد. اختر القلم الحر أو حبل التحديد أعلاه وارسم على الفيديو لتفريغ الشفافية أو تظليلها.
                     </div>
                   ) : (
                     (settings.protectionMasks || []).map((m, idx) => (
@@ -1413,18 +1591,32 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
                         className="flex items-center justify-between p-2.5 rounded-xl bg-black/40 border border-white/10 hover:border-cyan-500/40 transition-colors"
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <span className="w-6 h-6 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold text-xs flex-shrink-0">
-                            {idx + 1}
+                          <span
+                            className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0 ${
+                              m.mode === "erase"
+                                ? "bg-rose-500/20 text-rose-400"
+                                : m.mode === "shade"
+                                ? "bg-amber-500/20 text-amber-400"
+                                : "bg-cyan-500/20 text-cyan-400"
+                            }`}
+                          >
+                            {m.mode === "erase" ? "✂️" : m.mode === "shade" ? "🎨" : "🛡️"}
                           </span>
                           <div className="min-w-0">
                             <div className="text-xs font-bold text-white truncate">
                               {m.label}
                             </div>
                             <div className="text-[10px] text-slate-400 flex items-center gap-2">
-                              <span>نوع: {m.type === "circle" ? "دائري" : m.type === "brush" ? "فرشاة حرة" : "مستطيل"}</span>
+                              <span>
+                                {m.mode === "erase"
+                                  ? "تفريغ شفافية"
+                                  : m.mode === "shade"
+                                  ? `تظليل (${Math.round((m.opacity || 0.5) * 100)}%)`
+                                  : "حماية وتثبيت"}
+                              </span>
                               {m.motionTracking && (
                                 <span className="text-emerald-400 flex items-center gap-0.5">
-                                  <Activity className="w-2.5 h-2.5" /> تتبع الحركة مفعل
+                                  <Activity className="w-2.5 h-2.5" /> تتبع الحركة
                                 </span>
                               )}
                             </div>
@@ -1440,7 +1632,11 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
                                 ? "bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30"
                                 : "bg-white/5 text-slate-400 hover:bg-white/10"
                             }`}
-                            title={m.motionTracking ? "إيقاف تتبع الحركة" : "تفعيل تتبع الحركة التلقائي"}
+                            title={
+                              m.motionTracking
+                                ? "إيقاف تتبع الحركة"
+                                : "تفعيل تتبع الحركة التلقائي"
+                            }
                           >
                             <Zap className="w-3.5 h-3.5" />
                           </button>
@@ -1464,7 +1660,7 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
                 <div className="flex items-center justify-between">
                   <span className="text-slate-400 text-xs font-black uppercase tracking-wider flex items-center gap-2">
                     <Palette className="w-4 h-4 text-emerald-400" />
-                    درجة اللون المستهدفة بالعزل
+                    درجة لون الكروما المستهدفة بالعزل
                   </span>
                   <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/20">
                     {settings.color.toUpperCase()}
@@ -1698,7 +1894,7 @@ export const ChromaStudioModal: React.FC<ChromaStudioModalProps> = ({
                 className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-xs transition-all shadow-lg shadow-emerald-500/20 cursor-pointer flex items-center gap-2 active:scale-95"
               >
                 <Check className="w-4 h-4" />
-                تطبيق الإعدادات وحماية الأجزاء المحددة
+                تطبيق الإعدادات وقناع الشفافية والتظليل
               </button>
             </div>
           </div>

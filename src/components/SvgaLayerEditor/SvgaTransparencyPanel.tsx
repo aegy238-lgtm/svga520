@@ -29,8 +29,14 @@ import {
   Smartphone,
   Disc,
   Shapes,
-  Cloud
+  Cloud,
+  PenTool,
+  Pipette,
+  Paintbrush
 } from 'lucide-react';
+import { ChromaPenSubMode } from './SvgaChromaPenStudio';
+
+import { PenMaskStroke } from './svgaSmartChromaEngine';
 
 interface SvgaTransparencyPanelProps {
   fadeConfig: FadeConfig;
@@ -40,6 +46,24 @@ interface SvgaTransparencyPanelProps {
   onUpdateCropConfig: (config: CropConfig) => void;
   onUpdateCropFeather: (feather: CropFeather) => void;
   onResetTransparency: () => void;
+  onOpenChromaPen?: (mode?: ChromaPenSubMode) => void;
+  isChromaPenActive?: boolean;
+
+  penStrokes?: PenMaskStroke[];
+  onAddPenStroke?: (stroke: PenMaskStroke) => void;
+  onClearPenStrokes?: () => void;
+  onUndoPenStroke?: () => void;
+  onApplyPenMask?: () => void;
+  chromaPenTool?: 'brush' | 'lasso' | 'rect' | 'circle';
+  onPenToolChange?: (tool: 'brush' | 'lasso' | 'rect' | 'circle') => void;
+  chromaMaskMode?: 'erase' | 'keep';
+  onMaskModeChange?: (mode: 'erase' | 'keep') => void;
+  chromaBrushSize?: number;
+  onBrushSizeChange?: (size: number) => void;
+  chromaPenFeather?: number;
+  onPenFeatherChange?: (feather: number) => void;
+  chromaPenOpacity?: number;
+  onPenOpacityChange?: (opacity: number) => void;
 }
 
 type PresetKey = 
@@ -75,7 +99,24 @@ export const SvgaTransparencyPanel: React.FC<SvgaTransparencyPanelProps> = ({
   onUpdateFadeConfig,
   onUpdateCropConfig,
   onUpdateCropFeather,
-  onResetTransparency
+  onResetTransparency,
+  onOpenChromaPen,
+  isChromaPenActive = false,
+  penStrokes = [],
+  onAddPenStroke,
+  onClearPenStrokes,
+  onUndoPenStroke,
+  onApplyPenMask,
+  chromaPenTool = 'brush',
+  onPenToolChange,
+  chromaMaskMode = 'erase',
+  onMaskModeChange,
+  chromaBrushSize = 30,
+  onBrushSizeChange,
+  chromaPenFeather = 8,
+  onPenFeatherChange,
+  chromaPenOpacity = 100,
+  onPenOpacityChange
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<'all' | 'square' | 'circle' | 'rounded' | 'cinematic' | 'cloud'>('all');
   const isActive = isTransparencyActive(fadeConfig, cropConfig);

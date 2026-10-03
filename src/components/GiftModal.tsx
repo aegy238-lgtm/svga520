@@ -16,7 +16,8 @@ import {
   Info,
   Maximize2,
   MessageCircle,
-  CheckCircle2
+  CheckCircle2,
+  Crown
 } from 'lucide-react';
 import { GiftItem, Language } from '../types';
 import { translations } from '../utils/translations';
@@ -172,9 +173,9 @@ export const GiftModal: React.FC<GiftModalProps> = ({
               </div>
             </div>
 
-            {/* Video Canvas Stage with Phone/Overlay Aspect Ratio */}
+            {/* Video Canvas Stage with Square Aspect Ratio (مربعة ومريحة للعين بنفس مقاسات الهدية) */}
             <div 
-              className={`relative w-full max-w-[340px] aspect-[9/16] rounded-2xl overflow-hidden shadow-2xl border border-slate-800 transition-colors flex items-center justify-center ${
+              className={`relative w-full max-w-[460px] aspect-square rounded-3xl overflow-hidden shadow-2xl border border-slate-800 transition-colors flex items-center justify-center ${
                 streamBg === 'dark' 
                   ? 'bg-black' 
                   : streamBg === 'stage' 
@@ -200,6 +201,14 @@ export const GiftModal: React.FC<GiftModalProps> = ({
                 <span className="font-bold tracking-wider">佳维特效 JIAWEI</span>
               </div>
 
+              {/* VIP Badge - Separated on opposite corner, never overlapping */}
+              {(gift.isVip || (gift.vipPrice && gift.vipPrice > 0)) && (
+                <div className="absolute top-4 right-4 pointer-events-none z-10 flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 text-xs font-black shadow-lg shadow-amber-500/30 border border-amber-300">
+                  <Crown className="w-3.5 h-3.5 fill-current text-slate-950" />
+                  <span>VIP</span>
+                </div>
+              )}
+
               {/* Pause icon overlay when paused */}
               {!isPlaying && (
                 <div 
@@ -214,7 +223,7 @@ export const GiftModal: React.FC<GiftModalProps> = ({
             </div>
 
             {/* Player Controls Bar */}
-            <div className="w-full max-w-[340px] mt-3 space-y-2">
+            <div className="w-full max-w-[460px] mt-4 space-y-2">
               {/* Timeline Scrubber */}
               <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
                 <span>{formatTime(currentTime)}</span>

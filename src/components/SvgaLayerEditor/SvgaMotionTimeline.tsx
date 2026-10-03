@@ -5,7 +5,7 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ChevronRight as ChevronRightIcon,
   Plus, Diamond, Sliders, Trash2, Eye, Move, Maximize2, Minimize2, RotateCw, 
   Sun, Clock, Film, Sparkles, SlidersHorizontal, Settings2, MoreVertical, ZoomIn, ZoomOut, Copy, ClipboardPaste, Music,
-  Layers, Palette, GripVertical, Check, Lock, Unlock, Scissors, Download, Pipette
+  Layers, Palette, GripVertical, Check, Lock, Unlock, Scissors, Download, Pipette, PenTool
 } from 'lucide-react';
 import { KeyframeEasingPanel } from './KeyframeEasingPanel';
 import { 
@@ -918,7 +918,7 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
             </button>
           )}
 
-          {/* User Requested: Replace "دمج" button with Smart Chroma Pen (قلم إزالة الكروما) */}
+          {/* Flagship: Transparency & Chroma Pen Studio */}
           {onToggleChromaPen && (
             <button
               onClick={onToggleChromaPen}
@@ -927,10 +927,10 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
                   ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 border-emerald-300 text-white shadow-emerald-500/40 ring-2 ring-emerald-400/70 animate-pulse'
                   : 'bg-gradient-to-r from-emerald-600/30 via-teal-600/30 to-cyan-600/30 hover:from-emerald-600/50 hover:to-teal-600/50 border-emerald-500/40 hover:border-emerald-300 text-emerald-200 hover:text-white shadow-emerald-500/10'
               }`}
-              title="قلم إزالة الكروما الذكي: انقر بالماوس على أي لون داخل نطاق المشروع لإزالته وتفريغ الخلفية باحترافية وبدون أي بقايا"
+              title="قلم الشفافية والتظليل والكروما: ارسم بالماوس أو القلم لتفريغ الشفافية وتظليلها وحماية عناصر الهدية"
             >
-              <Pipette size={13} className={isChromaPenActive ? 'text-white animate-bounce' : 'text-emerald-300'} />
-              <span>{isChromaPenActive ? 'قلم الكروما (نشط)' : 'قلم الكروما'}</span>
+              <PenTool size={13} className={isChromaPenActive ? 'text-white animate-bounce' : 'text-emerald-300'} />
+              <span>{isChromaPenActive ? 'قلم الشفافية (نشط) 🖊️' : 'قلم الشفافية والكروما 🖊️'}</span>
             </button>
           )}
 

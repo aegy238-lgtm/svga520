@@ -7,9 +7,10 @@ import {
   ZoomIn, ZoomOut, RefreshCw, Maximize2, 
   Grid, Compass, Eye, Shield, RotateCcw,
   Focus, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Move, Crosshair, Scaling, Check, Lock, Unlock, X, Sliders, Pipette
+  Move, Crosshair, Scaling, Check, Lock, Unlock, X, Sliders, Pipette,
+  PenTool, Brush, Lasso, Square, Circle, Eraser, Scissors, Trash2
 } from 'lucide-react';
-import { ChromaTargetColor, rgbToHex, identifyColorType } from './svgaSmartChromaEngine';
+import { ChromaTargetColor, rgbToHex, identifyColorType, PenMaskStroke } from './svgaSmartChromaEngine';
 
 interface SvgaDesignCanvasProps {
   project: SVGAProjectData;
@@ -41,6 +42,23 @@ interface SvgaDesignCanvasProps {
   shinePointStep?: 'idle' | 'place-start' | 'place-end';
   onShinePointStepChange?: (step: 'idle' | 'place-start' | 'place-end') => void;
   onDragEnd?: () => void;
+
+  // Freehand Pen Mask & Cutout Props
+  isChromaPenActive?: boolean;
+  chromaSubMode?: 'picker' | 'pen-mask' | 'mask-draw';
+  chromaPenTool?: 'brush' | 'lasso' | 'rect' | 'circle';
+  chromaMaskMode?: 'erase' | 'keep';
+  chromaBrushSize?: number;
+  chromaPenFeather?: number;
+  chromaPenOpacity?: number;
+  penStrokes?: PenMaskStroke[];
+  onAddPenStroke?: (stroke: PenMaskStroke) => void;
+  onClearPenStrokes?: () => void;
+  onUndoPenStroke?: () => void;
+  onApplyPenMask?: () => void;
+  onPenToolChange?: (tool: 'brush' | 'lasso' | 'rect' | 'circle') => void;
+  onMaskModeChange?: (mode: 'erase' | 'keep') => void;
+  onBrushSizeChange?: (size: number) => void;
 }
 
 type DragHandleType = 'move' | 'nw' | 'ne' | 'se' | 'sw' | 'n' | 's' | 'e' | 'w' | 'rot' | 'pan' | 'shine-start' | 'shine-end' | 'shine-mid';
@@ -465,7 +483,22 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
   bgImageUrl,
   shinePointStep: externalShinePointStep,
   onShinePointStepChange,
-  onDragEnd
+  onDragEnd,
+  isChromaPenActive = false,
+  chromaSubMode = 'pen-mask',
+  chromaPenTool = 'brush',
+  chromaMaskMode = 'erase',
+  chromaBrushSize = 30,
+  chromaPenFeather = 8,
+  chromaPenOpacity = 100,
+  penStrokes = [],
+  onAddPenStroke,
+  onClearPenStrokes,
+  onUndoPenStroke,
+  onApplyPenMask,
+  onPenToolChange,
+  onMaskModeChange,
+  onBrushSizeChange
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -474,6 +507,12 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
   const patternCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const bgImageRef = useRef<HTMLImageElement | null>(null);
   const imagesCache = useRef<Record<string, HTMLImageElement>>({});
+
+  // Freehand Pen Mask Drawing State
+  const [isDrawingPen, setIsDrawingPen] = useState<boolean>(false);
+  const [currentDrawingPoints, setCurrentDrawingPoints] = useState<Point[]>([]);
+  const isDrawingPenRef = useRef<boolean>(false);
+  const currentDrawingPointsRef = useRef<Point[]>([]);
 
   // Smart Chroma Pen Magnifier Loupe State
   const [chromaLoupe, setChromaLoupe] = useState<{
@@ -1357,6 +1396,128 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     // 3.6 Draw the rendered & faded gift layers directly on top of the pristine background!
     ctx.drawImage(layersCanvas, 0, 0);
 
+    // 3.7 Draw Pending & Live Freehand Pen Mask Cutout Overlay
+    if (penStrokes && penStrokes.length > 0) {
+      ctx.save();
+      for (const stroke of penStrokes) {
+        if (!stroke.points || stroke.points.length === 0) continue;
+        ctx.save();
+        const strokeColor = stroke.mode === 'erase' ? 'rgba(244, 63, 94, 0.5)' : 'rgba(16, 185, 129, 0.5)';
+        const strokeBorder = stroke.mode === 'erase' ? '#f43f5e' : '#10b981';
+
+        ctx.fillStyle = strokeColor;
+        ctx.strokeStyle = strokeBorder;
+        ctx.lineWidth = stroke.brushSize;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        if (stroke.type === 'brush') {
+          if (stroke.points.length === 1) {
+            ctx.beginPath();
+            ctx.arc(stroke.points[0].x, stroke.points[0].y, stroke.brushSize / 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          } else {
+            ctx.beginPath();
+            ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+            for (let i = 1; i < stroke.points.length; i++) {
+              ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+            }
+            ctx.stroke();
+          }
+        } else if (stroke.type === 'lasso') {
+          ctx.beginPath();
+          ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+          for (let i = 1; i < stroke.points.length; i++) {
+            ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        } else if (stroke.type === 'rect' && stroke.points.length >= 2) {
+          const p1 = stroke.points[0];
+          const p2 = stroke.points[stroke.points.length - 1];
+          const rx = Math.min(p1.x, p2.x);
+          const ry = Math.min(p1.y, p2.y);
+          const rw = Math.abs(p2.x - p1.x);
+          const rh = Math.abs(p2.y - p1.y);
+          ctx.fillRect(rx, ry, rw, rh);
+          ctx.strokeRect(rx, ry, rw, rh);
+        } else if (stroke.type === 'circle' && stroke.points.length >= 2) {
+          const p1 = stroke.points[0];
+          const p2 = stroke.points[stroke.points.length - 1];
+          const cx = (p1.x + p2.x) / 2;
+          const cy = (p1.y + p2.y) / 2;
+          const radius = Math.hypot(p2.x - p1.x, p2.y - p1.y) / 2;
+          ctx.beginPath();
+          ctx.arc(cx, cy, Math.max(1, radius), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+
+    if (currentDrawingPoints && currentDrawingPoints.length > 0) {
+      ctx.save();
+      const activeMode = chromaMaskMode || 'erase';
+      const strokeColor = activeMode === 'erase' ? 'rgba(244, 63, 94, 0.65)' : 'rgba(16, 185, 129, 0.65)';
+      const strokeBorder = activeMode === 'erase' ? '#ffe4e6' : '#d1fae5';
+
+      ctx.fillStyle = strokeColor;
+      ctx.strokeStyle = strokeBorder;
+      ctx.lineWidth = chromaBrushSize || 30;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      const tool = chromaPenTool || 'brush';
+      if (tool === 'brush') {
+        if (currentDrawingPoints.length === 1) {
+          ctx.beginPath();
+          ctx.arc(currentDrawingPoints[0].x, currentDrawingPoints[0].y, (chromaBrushSize || 30) / 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(currentDrawingPoints[0].x, currentDrawingPoints[0].y);
+          for (let i = 1; i < currentDrawingPoints.length; i++) {
+            ctx.lineTo(currentDrawingPoints[i].x, currentDrawingPoints[i].y);
+          }
+          ctx.stroke();
+        }
+      } else if (tool === 'lasso') {
+        ctx.beginPath();
+        ctx.moveTo(currentDrawingPoints[0].x, currentDrawingPoints[0].y);
+        for (let i = 1; i < currentDrawingPoints.length; i++) {
+          ctx.lineTo(currentDrawingPoints[i].x, currentDrawingPoints[i].y);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      } else if (tool === 'rect' && currentDrawingPoints.length >= 2) {
+        const p1 = currentDrawingPoints[0];
+        const p2 = currentDrawingPoints[currentDrawingPoints.length - 1];
+        const rx = Math.min(p1.x, p2.x);
+        const ry = Math.min(p1.y, p2.y);
+        const rw = Math.abs(p2.x - p1.x);
+        const rh = Math.abs(p2.y - p1.y);
+        ctx.fillRect(rx, ry, rw, rh);
+        ctx.strokeRect(rx, ry, rw, rh);
+      } else if (tool === 'circle' && currentDrawingPoints.length >= 2) {
+        const p1 = currentDrawingPoints[0];
+        const p2 = currentDrawingPoints[currentDrawingPoints.length - 1];
+        const cx = (p1.x + p2.x) / 2;
+        const cy = (p1.y + p2.y) / 2;
+        const radius = Math.hypot(p2.x - p1.x, p2.y - p1.y) / 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, Math.max(1, radius), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     // 4. Draw Active Smart Alignment Guides
     if (showGuides && activeGuides.length > 0) {
       ctx.save();
@@ -1693,33 +1854,71 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     return null;
   }, [selectedLayer, currentFrame, computeLayerMatrix, getLayerFrameState]);
 
+  // Global Window MouseUp Listener for Freehand Pen Drawing
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      if (isDrawingPenRef.current) {
+        isDrawingPenRef.current = false;
+        setIsDrawingPen(false);
+        const points = currentDrawingPointsRef.current;
+        if (points && points.length > 0) {
+          const stroke: PenMaskStroke = {
+            type: chromaPenTool || 'brush',
+            points: [...points],
+            brushSize: chromaBrushSize || 30,
+            mode: chromaMaskMode || 'erase',
+            feather: chromaPenFeather || 8,
+            opacity: chromaPenOpacity || 100
+          };
+          onAddPenStroke?.(stroke);
+        }
+        currentDrawingPointsRef.current = [];
+        setCurrentDrawingPoints([]);
+      }
+    };
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, [chromaPenTool, chromaBrushSize, chromaMaskMode, chromaPenFeather, chromaPenOpacity, onAddPenStroke]);
+
   // Dynamic Hover Cursor
   const [canvasCursor, setCanvasCursor] = useState<string>('default');
 
   // Mouse Down Event Handler
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (activeTool === 'chroma-pen') {
-      if (canvasRef.current && onChromaPickColor) {
-        const rect = canvasRef.current.getBoundingClientRect();
-        const scaleX = project.width / rect.width;
-        const scaleY = project.height / rect.height;
-        const cx = Math.round((e.clientX - rect.left) * scaleX);
-        const cy = Math.round((e.clientY - rect.top) * scaleY);
-        if (cx >= 0 && cx < project.width && cy >= 0 && cy < project.height) {
-          const ctx = canvasRef.current.getContext('2d');
-          if (ctx) {
-            const p = ctx.getImageData(cx, cy, 1, 1).data;
-            const color: ChromaTargetColor = {
-              r: p[0],
-              g: p[1],
-              b: p[2],
-              hex: rgbToHex(p[0], p[1], p[2])
-            };
-            onChromaPickColor(color);
+    if (activeTool === 'chroma-pen' || isChromaPenActive) {
+      if (chromaSubMode === 'picker') {
+        if (canvasRef.current && onChromaPickColor) {
+          const rect = canvasRef.current.getBoundingClientRect();
+          const scaleX = project.width / rect.width;
+          const scaleY = project.height / rect.height;
+          const cx = Math.round((e.clientX - rect.left) * scaleX);
+          const cy = Math.round((e.clientY - rect.top) * scaleY);
+          if (cx >= 0 && cx < project.width && cy >= 0 && cy < project.height) {
+            const ctx = canvasRef.current.getContext('2d');
+            if (ctx) {
+              const p = ctx.getImageData(cx, cy, 1, 1).data;
+              const color: ChromaTargetColor = {
+                r: p[0],
+                g: p[1],
+                b: p[2],
+                hex: rgbToHex(p[0], p[1], p[2])
+              };
+              onChromaPickColor(color);
+            }
           }
         }
+        return;
       }
-      return;
+
+      // Freehand Pen Mask Cutout Drawing
+      if (e.button === 0) {
+        const coords = clientToCanvasCoords(e.clientX, e.clientY);
+        setIsDrawingPen(true);
+        isDrawingPenRef.current = true;
+        currentDrawingPointsRef.current = [coords];
+        setCurrentDrawingPoints([coords]);
+        return;
+      }
     }
 
     if (e.button === 1 || activeTool === 'hand') {
@@ -1789,6 +1988,23 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
   // Mouse Move Event Handler
   const handleMouseMove = (e: React.MouseEvent) => {
+    if (isDrawingPenRef.current) {
+      const coords = clientToCanvasCoords(e.clientX, e.clientY);
+      const prev = currentDrawingPointsRef.current;
+      if (prev.length === 0) {
+        currentDrawingPointsRef.current = [coords];
+        setCurrentDrawingPoints([coords]);
+      } else {
+        const last = prev[prev.length - 1];
+        if (Math.hypot(coords.x - last.x, coords.y - last.y) >= 2) {
+          const updated = [...prev, coords];
+          currentDrawingPointsRef.current = updated;
+          setCurrentDrawingPoints(updated);
+        }
+      }
+      return;
+    }
+
     if (!isInteracting) {
       if (activeTool === 'chroma-pen') {
         setCanvasCursor('crosshair');
@@ -2564,6 +2780,143 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
               {identifyColorType(chromaLoupe.color.r, chromaLoupe.color.g, chromaLoupe.color.b).label}
             </span>
             <span className="text-[9px] text-slate-300 font-medium">انقر بالماوس لحذف هذا اللون</span>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Canvas Top Stage Controls Bar for Freehand Pen Cutout Tool */}
+      {(isChromaPenActive || activeTool === 'chroma-pen') && chromaSubMode !== 'picker' && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-slate-950/95 border border-emerald-500/50 backdrop-blur-2xl rounded-2xl px-3.5 py-2 flex items-center gap-2.5 text-white shadow-2xl text-xs select-none animate-in fade-in slide-in-from-top-4 duration-150 flex-wrap justify-center ring-1 ring-emerald-400/30" dir="rtl">
+          <div className="flex items-center gap-1.5 font-black text-emerald-300">
+            <PenTool size={15} />
+            <span className="text-xs">قلم القص والتفريغ المباشر</span>
+          </div>
+
+          <div className="h-4 w-px bg-white/20 hidden sm:block" />
+
+          {/* SubTool Buttons */}
+          <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-white/10">
+            <button
+              type="button"
+              onClick={() => onPenToolChange?.('brush')}
+              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] flex items-center gap-1 transition-all cursor-pointer ${
+                chromaPenTool === 'brush' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+              }`}
+              title="فرشاة رسم حر"
+            >
+              <Brush size={13} />
+              <span>فرشاة</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onPenToolChange?.('lasso')}
+              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] flex items-center gap-1 transition-all cursor-pointer ${
+                chromaPenTool === 'lasso' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+              }`}
+              title="تحديد لاسو حر"
+            >
+              <Lasso size={13} />
+              <span>لاسو</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onPenToolChange?.('rect')}
+              className={`px-2 py-1 rounded-lg font-bold text-[11px] flex items-center gap-1 transition-all cursor-pointer ${
+                chromaPenTool === 'rect' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+              }`}
+              title="تحديد مستطيل"
+            >
+              <Square size={12} />
+              <span>مستطيل</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onPenToolChange?.('circle')}
+              className={`px-2 py-1 rounded-lg font-bold text-[11px] flex items-center gap-1 transition-all cursor-pointer ${
+                chromaPenTool === 'circle' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+              }`}
+              title="تحديد دائري"
+            >
+              <Circle size={12} />
+              <span>دائري</span>
+            </button>
+          </div>
+
+          <div className="h-4 w-px bg-white/20 hidden sm:block" />
+
+          {/* Mask Mode: Erase vs Keep */}
+          <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-white/10">
+            <button
+              type="button"
+              onClick={() => onMaskModeChange?.('erase')}
+              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] flex items-center gap-1 transition-all cursor-pointer ${
+                chromaMaskMode === 'erase' ? 'bg-rose-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Eraser size={13} />
+              <span>تفريغ (قص)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onMaskModeChange?.('keep')}
+              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] flex items-center gap-1 transition-all cursor-pointer ${
+                chromaMaskMode === 'keep' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Scissors size={13} />
+              <span>عزل (إبقاء)</span>
+            </button>
+          </div>
+
+          <div className="h-4 w-px bg-white/20 hidden sm:block" />
+
+          {/* Size Slider */}
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <span className="text-slate-300 font-bold">الحجم:</span>
+            <input
+              type="range"
+              min={5}
+              max={120}
+              value={chromaBrushSize || 30}
+              onChange={(e) => onBrushSizeChange?.(Number(e.target.value))}
+              className="w-20 accent-emerald-400 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+            />
+            <span className="font-mono text-emerald-300 font-bold text-[10px]">{chromaBrushSize || 30}px</span>
+          </div>
+
+          <div className="h-4 w-px bg-white/20 hidden sm:block" />
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-1.5">
+            {penStrokes && penStrokes.length > 0 && (
+              <button
+                type="button"
+                onClick={onUndoPenStroke}
+                className="p-1 rounded-lg bg-white/10 hover:bg-white/20 text-slate-200 cursor-pointer"
+                title="تراجع عن آخر خطوة"
+              >
+                <RotateCcw size={14} />
+              </button>
+            )}
+            {penStrokes && penStrokes.length > 0 && (
+              <button
+                type="button"
+                onClick={onClearPenStrokes}
+                className="p-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 cursor-pointer"
+                title="مسح كافة التحديدات"
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onApplyPenMask}
+              disabled={!penStrokes || penStrokes.length === 0}
+              className="px-3 py-1 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-black text-xs transition-all shadow-md shadow-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1 active:scale-95"
+            >
+              <Check size={14} />
+              <span>تطبيق القص المباشر ({penStrokes?.length || 0})</span>
+            </button>
           </div>
         </div>
       )}

@@ -249,6 +249,119 @@ export async function transferVideoEditsToLayerEditor(
     const fadeLeft = (hasFade && fadeConfig?.left) || 0;
     const fadeRight = (hasFade && fadeConfig?.right) || 0;
 
+    const masks = (hasCustom && customChroma?.protectionMasks) || [];
+    const isPointInPoly = (px: number, py: number, points: { x: number; y: number }[]): boolean => {
+      let inside = false;
+      const n = points.length;
+      for (let i = 0, j = n - 1; i < n; j = i++) {
+        const xi = points[i].x * w;
+        const yi = points[i].y * h;
+        const xj = points[j].x * w;
+        const yj = points[j].y * h;
+        const intersect = yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi + 0.00001) + xi;
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    };
+
+    const evaluateMasks = (px: number, py: number) => {
+      let protectFactor = 0;
+      let eraseFactor = 0;
+      let shadeFactor = 0;
+      let targetShadeOpacity = 0.5;
+
+      if (!masks || masks.length === 0) {
+        return { protectFactor, eraseFactor, shadeFactor, targetShadeOpacity };
+      }
+
+      for (const m of masks) {
+        let f = 0;
+        const mode = m.mode || "protect";
+
+        if (m.type === "circle") {
+          const cx = m.x * w;
+          const cy = m.y * h;
+          const rx = (m.radiusX || 0.05) * w;
+          const ry = (m.radiusY || 0.05) * h;
+          const r = Math.max(rx, ry);
+          const dx = px - cx;
+          const dy = py - cy;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist <= r) {
+            f = 1;
+          } else if (m.feather > 0 && dist <= r + m.feather) {
+            f = 1 - (dist - r) / m.feather;
+          }
+        } else if (m.type === "rect") {
+          const cx = m.x * w;
+          const cy = m.y * h;
+          const width = (m.width || 0.1) * w;
+          const height = (m.height || 0.1) * h;
+          const left = cx - width / 2;
+          const top = cy - height / 2;
+          const right = cx + width / 2;
+          const bottom = cy + height / 2;
+          if (px >= left && px <= right && py >= top && py <= bottom) {
+            f = 1;
+          } else if (m.feather > 0) {
+            const dx = Math.max(left - px, 0, px - right);
+            const dy = Math.max(top - py, 0, py - bottom);
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist <= m.feather) {
+              f = 1 - dist / m.feather;
+            }
+          }
+        } else if (m.type === "brush" && m.points && m.points.length > 0) {
+          const bRadius = m.brushRadius || 24;
+          for (const pt of m.points) {
+            const bx = pt.x * w;
+            const by = pt.y * h;
+            const dx = px - bx;
+            const dy = py - by;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist <= bRadius) {
+              f = 1;
+              break;
+            } else if (m.feather > 0 && dist <= bRadius + m.feather) {
+              const curF = 1 - (dist - bRadius) / m.feather;
+              if (curF > f) f = curF;
+            }
+          }
+        } else if ((m.type === "lasso" || m.type === "polygon") && m.points && m.points.length > 2) {
+          const inside = isPointInPoly(px, py, m.points);
+          if (inside) {
+            f = 1;
+          } else if (m.feather > 0) {
+            for (let k = 0; k < m.points.length; k++) {
+              const pt = m.points[k];
+              const bx = pt.x * w;
+              const by = pt.y * h;
+              const dist = Math.sqrt((px - bx) ** 2 + (py - by) ** 2);
+              if (dist <= m.feather) {
+                const curF = 1 - dist / m.feather;
+                if (curF > f) f = curF;
+              }
+            }
+          }
+        }
+
+        if (f > 0) {
+          if (mode === "erase") {
+            if (f > eraseFactor) eraseFactor = f;
+          } else if (mode === "shade") {
+            if (f > shadeFactor) {
+              shadeFactor = f;
+              targetShadeOpacity = m.opacity !== undefined ? m.opacity : 0.5;
+            }
+          } else {
+            if (f > protectFactor) protectFactor = f;
+          }
+        }
+      }
+
+      return { protectFactor, eraseFactor, shadeFactor, targetShadeOpacity };
+    };
+
     for (let i = 0; i < len; i += 4) {
       let r = data[i];
       let g = data[i + 1];
@@ -358,6 +471,20 @@ export async function transferVideoEditsToLayerEditor(
         }
         const newA = 255 * minFactor;
         if (newA < a) a = newA;
+      }
+
+      // Evaluate custom transparency, protect, and shading masks
+      if (masks.length > 0) {
+        const { protectFactor, eraseFactor, shadeFactor, targetShadeOpacity } = evaluateMasks(px, py);
+        if (protectFactor > 0 && a < 255) {
+          a = a + (255 - a) * protectFactor;
+        }
+        if (eraseFactor > 0) {
+          a = Math.round(a * (1.0 - eraseFactor));
+        }
+        if (shadeFactor > 0) {
+          a = Math.round(a * (1.0 - shadeFactor) + (targetShadeOpacity * 255) * shadeFactor);
+        }
       }
 
       const finalAlpha = (a / 255) * edgeAlpha;

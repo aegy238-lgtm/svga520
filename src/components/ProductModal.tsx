@@ -22,27 +22,38 @@ export const ProductModal: React.FC<ProductModalProps> = ({ product, whatsappNum
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full"><X className="w-5 h-5" /></button>
         </div>
         <div className="p-6 space-y-6">
-          {product.videoUrl && (
-            <div className="bg-black rounded-lg overflow-hidden flex items-center justify-center" style={{ maxHeight: '400px' }}>
-              {(product.videoUrl.includes('youtube.com') || product.videoUrl.includes('youtu.be')) ? (
+          {/* Square, eye-friendly, spacious preview stage matching gift proportions */}
+          <div className="w-full max-w-[420px] mx-auto aspect-square bg-slate-950 rounded-2xl border border-white/10 overflow-hidden flex items-center justify-center p-3 relative shadow-2xl">
+            {product.videoUrl ? (
+              (product.videoUrl.includes('youtube.com') || product.videoUrl.includes('youtu.be')) ? (
                 <iframe 
                   src={product.videoUrl.replace('watch?v=', 'embed/')} 
-                  className="w-full aspect-video"
+                  className="w-full h-full rounded-xl"
                   title={product.name}
                   allowFullScreen
                 />
               ) : (
                 <video 
                   controls 
-                  className="max-h-[400px] w-auto"
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className="w-full h-full object-contain rounded-xl"
                   preload="metadata"
                   src={product.videoUrl}
                 >
                   متصفحك لا يدعم تشغيل الفيديو.
                 </video>
-              )}
-            </div>
-          )}
+              )
+            ) : product.imageUrl ? (
+              <img 
+                src={product.imageUrl} 
+                alt={product.name} 
+                className="w-full h-full object-contain p-2"
+              />
+            ) : null}
+          </div>
           {product.supportedFormats && product.supportedFormats.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {product.supportedFormats.map(format => (

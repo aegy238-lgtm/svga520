@@ -198,7 +198,7 @@ async function loadImageSource(
 ): Promise<{ width: number; height: number; draw: (ctx: CanvasRenderingContext2D) => void; close?: () => void }> {
   // 1. If Uint8Array or Blob, try createImageBitmap
   if (source instanceof Uint8Array || source instanceof Blob) {
-    const blob = source instanceof Blob ? source : new Blob([source], { type: 'image/png' });
+    const blob = source instanceof Blob ? source : new Blob([source]);
     if (typeof createImageBitmap === 'function') {
       try {
         const bmp = await createImageBitmap(blob);
@@ -213,22 +213,34 @@ async function loadImageSource(
       }
     }
     const blobUrl = URL.createObjectURL(blob);
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        resolve({
-          width: img.naturalWidth || img.width,
-          height: img.naturalHeight || img.height,
-          draw: (ctx) => ctx.drawImage(img, 0, 0),
-          close: () => URL.revokeObjectURL(blobUrl)
-        });
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(blobUrl);
-        reject(new Error('Failed to load image from binary blob'));
-      };
-      img.src = blobUrl;
-    });
+    try {
+      return await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          resolve({
+            width: img.naturalWidth || img.width,
+            height: img.naturalHeight || img.height,
+            draw: (ctx) => ctx.drawImage(img, 0, 0),
+            close: () => URL.revokeObjectURL(blobUrl)
+          });
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(blobUrl);
+          reject(new Error('Failed to load image from binary blob'));
+        };
+        img.src = blobUrl;
+      });
+    } catch (err) {
+      if (source instanceof Uint8Array) {
+        try {
+          const text = new TextDecoder('utf-8').decode(source);
+          if (text.startsWith('data:') || text.startsWith('blob:') || text.startsWith('http:') || text.startsWith('https:')) {
+            return await loadImageSource(text);
+          }
+        } catch {}
+      }
+      throw err;
+    }
   }
 
   // 2. Source is string (data URL, blob URL, or http URL)
@@ -320,3 +332,127 @@ export async function applySmartChromaToSingleImage(
     loaded.close?.();
   }
 }
+
+export interface PenMaskPoint {
+  x: number;
+  y: number;
+}
+
+export interface PenMaskStroke {
+  type: 'brush' | 'lasso' | 'rect' | 'circle';
+  points: PenMaskPoint[];
+  brushSize: number;
+  mode: 'erase' | 'keep';
+  feather: number;
+  opacity: number;
+}
+
+/**
+ * Applies custom pen / brush mask transparency to a single image
+ */
+export async function applyCustomPenMaskToSingleImage(
+  imageSource: string | Uint8Array | Blob,
+  strokes: PenMaskStroke[],
+  canvasWidth?: number,
+  canvasHeight?: number
+): Promise<{ dataUrl: string; bytes: Uint8Array; width: number; height: number }> {
+  const loaded = await loadImageSource(imageSource);
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = loaded.width;
+    canvas.height = loaded.height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) {
+      throw new Error('Canvas 2D context not available');
+    }
+
+    loaded.draw(ctx);
+
+    const scaleX = canvasWidth ? loaded.width / canvasWidth : 1;
+    const scaleY = canvasHeight ? loaded.height / canvasHeight : 1;
+
+    for (const stroke of strokes) {
+      if (!stroke.points || stroke.points.length === 0) continue;
+
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, stroke.opacity / 100));
+      ctx.shadowBlur = stroke.feather * ((scaleX + scaleY) / 2);
+      ctx.shadowColor = 'black';
+
+      if (stroke.mode === 'erase') {
+        ctx.globalCompositeOperation = 'destination-out';
+      } else {
+        ctx.globalCompositeOperation = 'destination-in';
+      }
+
+      ctx.fillStyle = 'black';
+      ctx.strokeStyle = 'black';
+      ctx.lineWidth = Math.max(1, stroke.brushSize * ((scaleX + scaleY) / 2));
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      if (stroke.type === 'brush') {
+        if (stroke.points.length === 1) {
+          ctx.beginPath();
+          ctx.arc(stroke.points[0].x * scaleX, stroke.points[0].y * scaleY, stroke.brushSize * scaleX / 2, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(stroke.points[0].x * scaleX, stroke.points[0].y * scaleY);
+          for (let i = 1; i < stroke.points.length; i++) {
+            ctx.lineTo(stroke.points[i].x * scaleX, stroke.points[i].y * scaleY);
+          }
+          ctx.stroke();
+        }
+      } else if (stroke.type === 'lasso') {
+        ctx.beginPath();
+        ctx.moveTo(stroke.points[0].x * scaleX, stroke.points[0].y * scaleY);
+        for (let i = 1; i < stroke.points.length; i++) {
+          ctx.lineTo(stroke.points[i].x * scaleX, stroke.points[i].y * scaleY);
+        }
+        ctx.closePath();
+        ctx.fill();
+      } else if (stroke.type === 'rect' && stroke.points.length >= 2) {
+        const p1 = stroke.points[0];
+        const p2 = stroke.points[stroke.points.length - 1];
+        const rx = Math.min(p1.x, p2.x) * scaleX;
+        const ry = Math.min(p1.y, p2.y) * scaleY;
+        const rw = Math.abs(p2.x - p1.x) * scaleX;
+        const rh = Math.abs(p2.y - p1.y) * scaleY;
+        ctx.fillRect(rx, ry, rw, rh);
+      } else if (stroke.type === 'circle' && stroke.points.length >= 2) {
+        const p1 = stroke.points[0];
+        const p2 = stroke.points[stroke.points.length - 1];
+        const cx = ((p1.x + p2.x) / 2) * scaleX;
+        const cy = ((p1.y + p2.y) / 2) * scaleY;
+        const radius = Math.hypot(p2.x - p1.x, p2.y - p1.y) * (scaleX / 2);
+        ctx.beginPath();
+        ctx.arc(cx, cy, Math.max(1, radius), 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+
+    return new Promise((resolve) => {
+      canvas.toBlob(
+        async (blob) => {
+          if (!blob) {
+            const dUrl = canvas.toDataURL('image/png');
+            const bytes = base64ToUint8(dUrl);
+            resolve({ dataUrl: dUrl, bytes, width: canvas.width, height: canvas.height });
+            return;
+          }
+          const buf = await blob.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          const objUrl = URL.createObjectURL(blob);
+          resolve({ dataUrl: objUrl, bytes, width: canvas.width, height: canvas.height });
+        },
+        'image/png'
+      );
+    });
+  } finally {
+    loaded.close?.();
+  }
+}
+

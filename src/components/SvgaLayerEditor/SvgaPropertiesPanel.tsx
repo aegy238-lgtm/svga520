@@ -86,6 +86,23 @@ interface SvgaPropertiesPanelProps {
   onUnlinkMaskedChildLayer?: (layerId: string) => void;
   onSelectLayer?: (layerId: string) => void;
   onOpenAeMaskedStudio?: () => void;
+  onToggleChromaPen?: (mode?: any) => void;
+  isChromaPenActive?: boolean;
+  penStrokes?: any[];
+  onAddPenStroke?: (stroke: any) => void;
+  onClearPenStrokes?: () => void;
+  onUndoPenStroke?: () => void;
+  onApplyPenMask?: () => void;
+  chromaPenTool?: 'brush' | 'lasso' | 'rect' | 'circle';
+  onPenToolChange?: (tool: 'brush' | 'lasso' | 'rect' | 'circle') => void;
+  chromaMaskMode?: 'erase' | 'keep';
+  onMaskModeChange?: (mode: 'erase' | 'keep') => void;
+  chromaBrushSize?: number;
+  onBrushSizeChange?: (size: number) => void;
+  chromaPenFeather?: number;
+  onPenFeatherChange?: (feather: number) => void;
+  chromaPenOpacity?: number;
+  onPenOpacityChange?: (opacity: number) => void;
 }
 
 export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
@@ -138,7 +155,24 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
   onAddMaskedChildLayer,
   onUnlinkMaskedChildLayer,
   onSelectLayer,
-  onOpenAeMaskedStudio
+  onOpenAeMaskedStudio,
+  onToggleChromaPen,
+  isChromaPenActive = false,
+  penStrokes = [],
+  onAddPenStroke,
+  onClearPenStrokes,
+  onUndoPenStroke,
+  onApplyPenMask,
+  chromaPenTool,
+  onPenToolChange,
+  chromaMaskMode,
+  onMaskModeChange,
+  chromaBrushSize,
+  onBrushSizeChange,
+  chromaPenFeather,
+  onPenFeatherChange,
+  chromaPenOpacity,
+  onPenOpacityChange
 }) => {
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const maskedChildInputRef = useRef<HTMLInputElement>(null);
@@ -971,6 +1005,23 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
             onUpdateCropConfig={onUpdateCropConfig}
             onUpdateCropFeather={onUpdateCropFeather}
             onResetTransparency={onResetTransparency}
+            onOpenChromaPen={onToggleChromaPen}
+            isChromaPenActive={isChromaPenActive}
+            penStrokes={penStrokes}
+            onAddPenStroke={onAddPenStroke}
+            onClearPenStrokes={onClearPenStrokes}
+            onUndoPenStroke={onUndoPenStroke}
+            onApplyPenMask={onApplyPenMask}
+            chromaPenTool={chromaPenTool}
+            onPenToolChange={onPenToolChange}
+            chromaMaskMode={chromaMaskMode}
+            onMaskModeChange={onMaskModeChange}
+            chromaBrushSize={chromaBrushSize}
+            onBrushSizeChange={onBrushSizeChange}
+            chromaPenFeather={chromaPenFeather}
+            onPenFeatherChange={onPenFeatherChange}
+            chromaPenOpacity={chromaPenOpacity}
+            onPenOpacityChange={onPenOpacityChange}
           />
         )}
 
@@ -1151,6 +1202,23 @@ export const SvgaPropertiesPanel: React.FC<SvgaPropertiesPanelProps> = ({
               onUpdateCropConfig={onUpdateCropConfig}
               onUpdateCropFeather={onUpdateCropFeather}
               onResetTransparency={onResetTransparency}
+              onOpenChromaPen={onToggleChromaPen}
+              isChromaPenActive={isChromaPenActive}
+              penStrokes={penStrokes}
+              onAddPenStroke={onAddPenStroke}
+              onClearPenStrokes={onClearPenStrokes}
+              onUndoPenStroke={onUndoPenStroke}
+              onApplyPenMask={onApplyPenMask}
+              chromaPenTool={chromaPenTool}
+              onPenToolChange={onPenToolChange}
+              chromaMaskMode={chromaMaskMode}
+              onMaskModeChange={onMaskModeChange}
+              chromaBrushSize={chromaBrushSize}
+              onBrushSizeChange={onBrushSizeChange}
+              chromaPenFeather={chromaPenFeather}
+              onPenFeatherChange={onPenFeatherChange}
+              chromaPenOpacity={chromaPenOpacity}
+              onPenOpacityChange={onPenOpacityChange}
             />
           )}
         </div>

@@ -270,9 +270,9 @@ export const AnimationCard: React.FC<AnimationCardProps> = ({
         </div>
       </div>
 
-      {/* Animation Preview Stage */}
+      {/* Animation Preview Stage - Square, spacious & eye-friendly matching gift proportions */}
       <div
-        className={`relative w-full h-56 flex items-center justify-center overflow-hidden transition-colors duration-300 ${
+        className={`relative w-full aspect-square flex items-center justify-center overflow-hidden transition-colors duration-300 ${
           background === 'checkerboard'
             ? 'bg-[linear-gradient(45deg,#161d2f_25%,transparent_25%),linear-gradient(-45deg,#161d2f_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#161d2f_75%),linear-gradient(-45deg,transparent_75%,#161d2f_75%)] bg-[size:16px_16px] bg-[#0c1220]'
             : background === 'dark'

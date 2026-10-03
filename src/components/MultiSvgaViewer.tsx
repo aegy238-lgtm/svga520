@@ -6470,9 +6470,17 @@ const SvgaCard: React.FC<{
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasAudio, setHasAudio] = useState(false);
     
+  const [cardDimensions, setCardDimensions] = useState<{ width: number; height: number } | null>(item.dimensions || null);
+
+  useEffect(() => {
+    if (item.dimensions && (item.dimensions.width !== cardDimensions?.width || item.dimensions.height !== cardDimensions?.height)) {
+      setCardDimensions(item.dimensions);
+    }
+  }, [item.dimensions?.width, item.dimensions?.height]);
+
   // Derived properties
-  const itemWidth = item.dimensions?.width || 500;
-  const itemHeight = item.dimensions?.height || 500;
+  const itemWidth = cardDimensions?.width || item.dimensions?.width || 500;
+  const itemHeight = cardDimensions?.height || item.dimensions?.height || 500;
   const itemFrames = item.frames || 1;
   const itemFps = item.fps || 30;
   const isPortrait = itemHeight > itemWidth;
@@ -6556,11 +6564,12 @@ const SvgaCard: React.FC<{
             let cfgW = rgbRect[2];
             let cfgH = rgbRect[3];
 
-            if (!item.dimensions) {
-              item.dimensions = { width: cfgW, height: cfgH };
-              item.fps = vapConfig?.info?.f || 24;
-              item.frames = Math.floor((video.duration || 3) * item.fps);
-            }
+            const newDims = { width: cfgW, height: cfgH };
+            item.dimensions = newDims;
+            item.fps = vapConfig?.info?.f || 24;
+            item.frames = Math.floor((video.duration || 3) * item.fps);
+            setCardDimensions(newDims);
+            onUpdateItem?.({ dimensions: newDims, fps: item.fps, frames: item.frames });
             if (!isCanceled) setIsLoaded(true);
 
             try {
@@ -6626,11 +6635,12 @@ const SvgaCard: React.FC<{
             const PAG = await getPAG();
             pagFile = await PAG.PAGFile.load(await item.file.arrayBuffer());
             item.pagFile = pagFile;
-            if (!item.dimensions) {
-              item.dimensions = { width: pagFile.width(), height: pagFile.height() };
-              item.fps = pagFile.frameRate() || 30;
-              item.frames = Math.floor((pagFile.duration() / 1000000) * item.fps);
-            }
+            const newDims = { width: pagFile.width(), height: pagFile.height() };
+            item.dimensions = newDims;
+            item.fps = pagFile.frameRate() || 30;
+            item.frames = Math.floor((pagFile.duration() / 1000000) * item.fps);
+            setCardDimensions(newDims);
+            onUpdateItem?.({ dimensions: newDims, fps: item.fps, frames: item.frames });
             if (!isCanceled) setIsLoaded(true);
           } catch (e) {
             console.error("PAG load error", e);
@@ -6704,11 +6714,12 @@ const SvgaCard: React.FC<{
             }, reject);
           });
           item.videoItem = videoItem;
-          if (!item.dimensions) {
-            item.dimensions = { width: videoItem.videoSize?.width || 500, height: videoItem.videoSize?.height || 500 };
-            item.fps = videoItem.FPS || videoItem.fps || 30;
-            item.frames = videoItem.frames || 1;
-          }
+          const newDims = { width: videoItem.videoSize?.width || 500, height: videoItem.videoSize?.height || 500 };
+          item.dimensions = newDims;
+          item.fps = videoItem.FPS || videoItem.fps || 30;
+          item.frames = videoItem.frames || 1;
+          setCardDimensions(newDims);
+          onUpdateItem?.({ dimensions: newDims, fps: item.fps, frames: item.frames });
           if (videoItem && (videoItem.audios?.length > 0 || extractAudioData({ ...item, videoItem }) !== null)) {
             setHasAudio(true);
           }
@@ -6767,15 +6778,15 @@ const SvgaCard: React.FC<{
 
     // Separate effect for Zoom and Preset style updates - much faster and smoother
     useEffect(() => {
-    const updateCanvasStyles = () => {
+      const updateCanvasStyles = () => {
         if (!wrapperRef.current || !containerRef.current) return;
         
         const wrapperWidth = wrapperRef.current.clientWidth;
         const wrapperHeight = wrapperRef.current.clientHeight;
-        const svgaWidth = item.dimensions?.width || 500;
-        const svgaHeight = item.dimensions?.height || 500;
+        const svgaWidth = cardDimensions?.width || item.dimensions?.width || 500;
+        const svgaHeight = cardDimensions?.height || item.dimensions?.height || 500;
   
-        // Fixed container dimensions as requested
+        // Fixed container dimensions matching preset, custom, or native file
         const containerWidth = (customDimensions && customDimensions.width > 0) ? customDimensions.width : (selectedPreset ? selectedPreset.width : svgaWidth);
         const containerHeight = (customDimensions && customDimensions.height > 0) ? customDimensions.height : (selectedPreset ? selectedPreset.height : svgaHeight);
   
@@ -6787,31 +6798,35 @@ const SvgaCard: React.FC<{
         // 2. Scale the container to fit inside the card wrapper
         const wrapperScale = Math.min(wrapperWidth / containerWidth, wrapperHeight / containerHeight);
   
+        const userScale = item.scale !== undefined ? item.scale : 1;
+        const userPosX = item.posX || 0;
+        const userPosY = item.posY || 0;
+
         // Size the inner container to exactly match the scaled SVGA dimensions
-        // and scale it down to fit the wrapper
+        // and scale it down to fit the wrapper with zero empty spaces
         Object.assign(containerRef.current.style, {
           width: `${finalSvgaWidth}px`,
           height: `${finalSvgaHeight}px`,
           position: 'absolute',
           top: '50%',
           left: '50%',
-          // Combine the wrapper scale and the user zoom
-          transform: `translate(-50%, -50%) scale(${wrapperScale * zoom})`,
+          transform: `translate(calc(-50% + ${userPosX}px), calc(-50% + ${userPosY}px)) scale(${wrapperScale * zoom * userScale})`,
           transformOrigin: 'center center',
-          zIndex: '1'
+          zIndex: '1',
+          opacity: item.opacity !== undefined ? String(item.opacity) : '1'
         });
   
-        const canvas = containerRef.current.querySelector('canvas');
+        const canvas = containerRef.current.querySelector('canvas, video');
         if (canvas) {
-          Object.assign(canvas.style, {
+          Object.assign((canvas as HTMLElement).style, {
             width: '100%',
             height: '100%',
             display: 'block',
-            objectFit: 'fill'
+            objectFit: 'contain'
           });
         }
       };
-  
+
       const resizeObserver = new ResizeObserver(() => {
         updateCanvasStyles();
       });
@@ -6837,7 +6852,7 @@ const SvgaCard: React.FC<{
         mutationObserver.disconnect();
         clearTimeout(timer);
       };
-    }, [selectedPreset, zoom, item.dimensions, customDimensions]);
+    }, [selectedPreset, zoom, item.dimensions, cardDimensions, customDimensions, item.scale, item.posX, item.posY, item.opacity]);
 
   const togglePlay = () => {
     if (item.type === 'pag') {
@@ -6885,10 +6900,6 @@ const SvgaCard: React.FC<{
     ? (selectedPreset.height / selectedPreset.width) 
     : (itemHeight / (itemWidth || 1));
 
-  const cols = gridCols || 3;
-  const baseH = cols <= 1 ? 640 : cols === 2 ? 560 : cols === 3 ? 480 : cols === 4 ? 420 : 360;
-  const cardPreviewHeight = Math.min(800, Math.max(320, Math.round(effectiveRatio * baseH)));
-
   const [isCardHovered, setIsCardHovered] = useState(false);
 
   return (
@@ -6901,21 +6912,23 @@ const SvgaCard: React.FC<{
       exit={{ opacity: 0, scale: 0.95, y: 10 }}
       className="group relative bg-[#0b1022]/90 hover:bg-[#0e142a] rounded-3xl border-2 border-white/10 hover:border-indigo-500/70 transition-all duration-300 hover:shadow-[0_10px_40px_rgba(99,102,241,0.2)] flex flex-col w-full min-w-0 overflow-hidden shadow-2xl"
     >
-      {/* Preview Area - Spacious, Crisp & Eye-Friendly */}
+      {/* Preview Area - Matches uploaded dimensions with zero empty margin spaces */}
       <div 
         ref={wrapperRef}
         className="relative bg-slate-950/90 flex items-center justify-center overflow-hidden w-full transition-all"
-        style={{ height: `${cardPreviewHeight}px` }}
+        style={{ 
+          aspectRatio: selectedPreset 
+            ? `${selectedPreset.width} / ${selectedPreset.height}` 
+            : (customDimensions && customDimensions.width > 0 && customDimensions.height > 0)
+            ? `${customDimensions.width} / ${customDimensions.height}`
+            : `${itemWidth} / ${itemHeight}`,
+          width: '100%'
+        }}
       >
         {previewBg && <img src={previewBg} alt="Background" className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none" referrerPolicy="no-referrer" />}
         <div 
           ref={containerRef} 
-          className="relative z-10 transition-transform duration-100"
-          style={{
-            opacity: item.opacity !== undefined ? item.opacity : 1,
-            transform: `scale(${item.scale !== undefined ? item.scale : 1}) translate(${item.posX || 0}px, ${item.posY || 0}px)`,
-            transformOrigin: 'center center'
-          }}
+          className="z-10 pointer-events-none"
         />
 
         {/* Watermark */}
@@ -6954,7 +6967,7 @@ const SvgaCard: React.FC<{
 
         {/* Info Badge */}
         <div className={`absolute bottom-3.5 left-3.5 flex flex-col gap-1.5 z-20 transition-opacity duration-300 ${isCardHovered ? 'opacity-100' : 'opacity-40'}`}>
-          <div className="px-3 py-1.5 bg-black/80 backdrop-blur-md border border-white/20 rounded-xl flex items-center gap-2 shadow-xl">
+          <div className="px-3 py-1.5 bg-black/80 backdrop-blur-md border border-white/20 rounded-xl flex items-center gap-2 shadow-xl" dir="ltr">
             <span className="text-[11px] font-black text-white font-mono tracking-wide">
               {selectedPreset ? `${selectedPreset.width} × ${selectedPreset.height}` : `${itemWidth} × ${itemHeight}`}
             </span>

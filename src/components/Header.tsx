@@ -468,7 +468,7 @@ export const Header: React.FC<HeaderProps> = (props) => {
               PRO 🎬
             </span>
           ) : (tool.isVip || isLayerEditor || props.settings?.vibFeatures?.includes(tool.id)) ? (
-            <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-yellow-300 text-black shadow-[0_0_10px_rgba(251,191,36,0.6)] shrink-0 leading-none">
+            <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-yellow-300 text-black shadow-[0_0_10px_rgba(251,191,36,0.6)] shrink-0 leading-none select-none">
               VIP 👑
             </span>
           ) : null}
@@ -477,12 +477,12 @@ export const Header: React.FC<HeaderProps> = (props) => {
             <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse shrink-0"></span>
           )}
 
-          {/* Star Icon Toggle */}
+          {/* Star Icon Toggle - Dedicated spacing so it is completely separated and never collides with VIP badge */}
           {!isAfterEffects && !isLayerEditor && (
             <span
               data-interactive="true"
               onClick={(e) => handleToggleStar(tool, e)}
-              className={`p-0.5 rounded-full transition-all duration-200 cursor-pointer flex items-center justify-center shrink-0 ${
+              className={`p-1 rounded-full transition-all duration-200 cursor-pointer flex items-center justify-center shrink-0 ms-2 ${
                 isItemStarred
                   ? 'opacity-100 hover:scale-125'
                   : 'opacity-0 group-hover:opacity-100 hover:scale-125 text-slate-500 hover:text-amber-400'

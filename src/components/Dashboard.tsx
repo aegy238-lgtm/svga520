@@ -429,50 +429,59 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                   : 'border-white/[0.07] hover:border-indigo-500/40 bg-[#090e1c]/85 hover:bg-[#0d152a] hover:-translate-y-1 shadow-[0_4px_16px_rgba(0,0,0,0.45)]'
                           }`}
                        >
-                          {/* VIP Badge on Tool Card */}
-                          {isVip && (
-                            <span className="absolute top-3.5 right-3.5 px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500/30 to-amber-600/20 text-amber-300 border border-amber-500/50 text-[11px] font-black flex items-center gap-1.5 z-20 shadow-md shadow-amber-500/20">
-                              <Crown className="w-3.5 h-3.5 text-amber-400 fill-amber-400/40" />
-                              <span>VIP</span>
-                            </span>
-                          )}
+                          {/* Top Header Row: Icon on start, VIP badge & Actions on end - completely separated, never overlapping */}
+                          <div className="flex items-center justify-between w-full mb-3 z-10">
+                            {/* Tool Icon Container */}
+                            <div className={`p-2.5 rounded-xl transition-transform duration-300 group-hover:scale-105 border shrink-0 ${
+                              isVip ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' : tool.highlight ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/25' : 'bg-white/[0.05] text-slate-300 border-white/[0.08]'
+                            }`}>
+                              {React.cloneElement(tool.icon as React.ReactElement<any>, { className: 'w-5 h-5' })}
+                            </div>
 
-                          {/* Star Pin Button */}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleStar(tool.id);
-                            }}
-                            className={`absolute top-3.5 left-3.5 p-1.5 rounded-lg transition-all z-20 cursor-pointer ${
-                              starred
-                                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 opacity-100'
-                                : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-500 hover:text-amber-400 border border-white/[0.06] opacity-0 group-hover:opacity-100'
-                            }`}
-                            title={starred ? 'مثبتة بنجمة في البداية ⭐ (اضغط لإلغاء التثبيت)' : 'تثبيت الأداة بنجمة في البداية ⭐'}
-                          >
-                            <Star className={`w-3.5 h-3.5 ${starred ? 'fill-amber-400 text-amber-400' : ''}`} />
-                          </button>
+                            {/* Action Buttons & VIP Badge Group (Separated with generous gap, never overlapping) */}
+                            <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
+                              {/* VIP Badge on Tool Card */}
+                              {isVip && (
+                                <span className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500/30 to-amber-600/20 text-amber-300 border border-amber-500/50 text-[11px] font-black flex items-center gap-1.5 shadow-md shadow-amber-500/20 shrink-0 select-none">
+                                  <Crown className="w-3.5 h-3.5 text-amber-400 fill-amber-400/40" />
+                                  <span>VIP</span>
+                                </span>
+                              )}
 
-                          {/* Eye Quick Preview Button */}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setPreviewTool(tool);
-                            }}
-                            className="absolute top-3.5 left-12 p-1.5 rounded-lg transition-all z-20 cursor-pointer bg-white/[0.06] hover:bg-indigo-600/30 text-slate-400 hover:text-indigo-300 border border-white/[0.08] hover:border-indigo-500/40 shadow-sm opacity-90 group-hover:opacity-100 hover:scale-105"
-                            title="معاينة شكل الأداة وإدارتها 👁️"
-                          >
-                            <Eye className="w-3.5 h-3.5 text-indigo-400" />
-                          </button>
-                          
-                          {/* Icon Container */}
-                          <div className={`p-2.5 rounded-xl transition-transform duration-300 group-hover:scale-105 border ${
-                             isVip ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' : tool.highlight ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/25' : 'bg-white/[0.05] text-slate-300 border-white/[0.08]'
-                          }`}>
-                            {React.cloneElement(tool.icon as React.ReactElement<any>, { className: 'w-5 h-5' })}
+                              {/* Separate Actions Container for Eye and Star */}
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {/* Eye Quick Preview Button */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setPreviewTool(tool);
+                                  }}
+                                  className="p-1.5 rounded-lg transition-all cursor-pointer bg-white/[0.06] hover:bg-indigo-600/30 text-slate-400 hover:text-indigo-300 border border-white/[0.08] hover:border-indigo-500/40 shadow-sm opacity-90 group-hover:opacity-100 hover:scale-105 shrink-0"
+                                  title="معاينة شكل الأداة وإدارتها 👁️"
+                                >
+                                  <Eye className="w-3.5 h-3.5 text-indigo-400" />
+                                </button>
+
+                                {/* Star Pin Button */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleStar(tool.id);
+                                  }}
+                                  className={`p-1.5 rounded-lg transition-all cursor-pointer shrink-0 ${
+                                    starred
+                                      ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 opacity-100'
+                                      : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-500 hover:text-amber-400 border border-white/[0.06] opacity-0 group-hover:opacity-100'
+                                  }`}
+                                  title={starred ? 'مثبتة بنجمة في البداية ⭐ (اضغط لإلغاء التثبيت)' : 'تثبيت الأداة بنجمة في البداية ⭐'}
+                                >
+                                  <Star className={`w-3.5 h-3.5 ${starred ? 'fill-amber-400 text-amber-400' : ''}`} />
+                                </button>
+                              </div>
+                            </div>
                           </div>
 
                           <div className="flex flex-col gap-1.5 w-full h-full flex-grow">
