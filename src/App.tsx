@@ -121,7 +121,7 @@ import { PWAFloatingInstallButton } from './components/PWAFloatingInstallButton'
 declare var SVGA: any;
 
 import { OnboardingModal } from './components/OnboardingModal';
-import { HelpCircle, BookOpen, Wrench, AlertTriangle, ShieldAlert, ShoppingBag, Film, Layers } from 'lucide-react';
+import { HelpCircle, BookOpen, Wrench, AlertTriangle, ShieldAlert, ShoppingBag, Film, Layers, X } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ImageDimensionModal, ImageDimensionsResult } from './components/ImageDimensionModal';
 
@@ -784,6 +784,47 @@ const App: React.FC = () => {
     );
   }
 
+  // 🔒 Dedicated Fullscreen Authentication Gateway
+  if (!currentUser) {
+    const defaultBgUrl = 'https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?q=80&w=2070&auto=format&fit=crop';
+    const bgUrl = settings?.backgroundUrl || defaultBgUrl;
+    return (
+      <div className="min-h-screen text-slate-200 overflow-x-hidden relative flex items-center justify-center p-4 bg-[#020617]" style={{
+        backgroundImage: `linear-gradient(rgba(7, 10, 18, 0.85), rgba(7, 10, 18, 0.95)), url(${bgUrl})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundAttachment: 'fixed'
+      }}>
+        <div className="absolute inset-0 bg-[#020617]/30 backdrop-blur-[4px] -z-10 pointer-events-none" />
+        <div className="w-full max-w-md my-8 animate-in zoom-in-95 duration-300">
+          <div className="flex flex-col items-center mb-6">
+            {settings?.logoUrl ? (
+              <img 
+                src={settings.logoUrl} 
+                alt="Logo" 
+                className="w-20 h-20 object-cover rounded-2xl mb-4 shadow-2xl drop-shadow-[0_0_15px_rgba(99,102,241,0.4)]" 
+              />
+            ) : (
+              <div className="w-20 h-20 bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-900 rounded-2xl flex items-center justify-center shadow-lg border border-white/20 mb-4 drop-shadow-[0_0_15px_rgba(99,102,241,0.4)]">
+                <span className="text-white font-black text-4xl">S</span>
+              </div>
+            )}
+            <h1 className="text-2xl font-black text-white uppercase tracking-wider">
+              {settings?.appName?.trim() ? settings.appName : 'SVGA Studio'}
+            </h1>
+            <p className="text-xs text-indigo-400 font-bold tracking-widest mt-1">المنصة الاحترافية المتكاملة</p>
+          </div>
+          
+          {authMode === 'login' ? (
+            <Login onToggle={() => setAuthMode('signup')} />
+          ) : (
+            <Signup onToggle={() => setAuthMode('login')} />
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // Guest fallback if user is not signed in
   const guestUser: UserRecord = {
     id: 'guest_visitor',
@@ -1296,7 +1337,38 @@ const App: React.FC = () => {
               </ErrorBoundary>
             )}
             {state === AppState.ADMIN_PANEL && (currentUser?.role === 'admin' || currentUser?.role === 'moderator') && (
-              <AdminPanel currentUser={currentUser} onCancel={handleReset} />
+              <AdminPanel 
+                currentUser={currentUser} 
+                onCancel={handleReset} 
+                onOpenFeature={(actionKey) => {
+                  const keyToState: Record<string, AppState> = {
+                    onAfterEffectsStudioOpen: AppState.AFTER_EFFECTS_STUDIO,
+                    onVideoDurationSpeedOpen: AppState.VIDEO_DURATION_SPEED,
+                    onSvgaLayerEditorOpen: AppState.SVGA_LAYER_EDITOR,
+                    onUniversalConverterOpen: AppState.UNIVERSAL_CONVERTER,
+                    onSvgaBatchCompressorOpen: AppState.SVGA_BATCH_COMPRESSOR,
+                    onBatchSvgaConverterOpen: AppState.BATCH_SVGA_CONVERTER,
+                    onSvgaExOpen: AppState.SVGA_EDITOR_EX,
+                    onMultiSvgaOpen: AppState.MULTI_SVGA_VIEWER,
+                    onImageConverterOpen: AppState.IMAGE_CONVERTER,
+                    onImageProcessorOpen: AppState.IMAGE_PROCESSOR,
+                    onImageEnhancerOpen: AppState.IMAGE_ENHANCER,
+                    onBatchImageProcessorOpen: AppState.BATCH_IMAGE_PROCESSOR,
+                    onImageEditorOpen: AppState.IMAGE_EDITOR,
+                    onImageMatcherOpen: AppState.IMAGE_MATCHER,
+                    onCropperOpen: AppState.BATCH_CROPPER,
+                    onName3DEditorOpen: AppState.NAME_3D_EDITOR,
+                    onAudioExtractorOpen: AppState.AUDIO_EXTRACTOR,
+                    onAiVideoMattingOpen: AppState.AI_VIDEO_MATTING,
+                    onImageCollageStudioOpen: AppState.IMAGE_COLLAGE_STUDIO,
+                    onStoreOpen: AppState.STORE,
+                  };
+                  const targetState = keyToState[actionKey];
+                  if (targetState !== undefined) {
+                    setState(targetState);
+                  }
+                }}
+              />
             )}
             </Suspense>
           </div>

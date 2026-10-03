@@ -141,10 +141,20 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser,
           {/* User Info Header Card */}
           <div className="flex items-center justify-between bg-slate-900/60 border border-white/10 rounded-2xl p-4">
             <div className="flex items-center gap-3.5">
-              <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center text-2xl font-bold text-white relative shadow-lg shadow-indigo-600/20">
-                {currentUser.name.charAt(0).toUpperCase()}
+              <div className="w-14 h-14 rounded-2xl relative shadow-lg shadow-indigo-600/20 overflow-visible shrink-0">
+                {currentUser.photoURL ? (
+                  <img 
+                    src={currentUser.photoURL} 
+                    alt={currentUser.name} 
+                    className="w-14 h-14 rounded-2xl object-cover border border-white/20"
+                  />
+                ) : (
+                  <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center text-2xl font-bold text-white border border-white/10">
+                    {currentUser.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
                 {subInfo.isActive && (
-                  <div className="absolute -bottom-1 -right-1 bg-slate-950 rounded-full p-0.5">
+                  <div className="absolute -bottom-1 -right-1 bg-slate-950 rounded-full p-0.5 z-10">
                     <BadgeCheck className="w-5 h-5 text-amber-400 fill-amber-400/20" />
                   </div>
                 )}

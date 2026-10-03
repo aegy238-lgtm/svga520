@@ -16,6 +16,8 @@ import { FeatureAccessControlTab } from './admin/FeatureAccessControlTab';
 import { ExternalLinksManagerTab } from './admin/ExternalLinksManagerTab';
 import { MaintenanceScreen } from './MaintenanceScreen';
 import { TOOLS_REGISTRY } from '../config/toolsRegistry';
+import { useStarredTools } from '../utils/starredTools';
+import { Star } from 'lucide-react';
 
 // Secondary app for creating users without logging out admin
 const secondaryApp = initializeApp(firebaseConfig, 'SecondaryApp');
@@ -24,11 +26,13 @@ const secondaryAuth = getAuth(secondaryApp);
 interface AdminPanelProps {
   currentUser: UserRecord | null;
   onCancel: () => void;
+  onOpenFeature?: (actionKey: string) => void;
 }
 
 const EXPORT_FORMATS = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP 1.0.5', 'VAP (MP4)', 'SVGA → YYEVA'];
 
-export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel }) => {
+export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, onOpenFeature }) => {
+  const { starredToolIds, isStarred, toggleStar } = useStarredTools();
   const [activeTab, setActiveTab] = useState<'users' | 'store' | 'keys' | 'assets' | 'settings' | 'records' | 'account_versions' | 'features_access' | 'server_outage' | 'external_links' | 'vib_features' | 'security_protection'>('users');
   const [dropdownState, setDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
   const [subDropdownState, setSubDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
@@ -1026,6 +1030,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {TOOLS_REGISTRY.map((tool) => {
                       const isVib = settings.vibFeatures?.includes(tool.id) || tool.id === 'svga-layer-editor' || tool.id === 'after-effects-studio';
+                      const starred = isStarred(tool.id);
                       
                       return (
                         <div 
@@ -1041,11 +1046,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                               <span className="p-2 rounded-xl bg-slate-900 border border-white/5 text-amber-400">
                                 {React.cloneElement(tool.icon as React.ReactElement, { className: 'w-5 h-5 text-amber-400' })}
                               </span>
-                              {isVib && (
-                                <span className="text-[10px] font-black px-2 py-0.5 bg-amber-400 text-slate-950 rounded-full">
-                                  ميزة VIB حصرية 👑
-                                </span>
-                              )}
+                              <div className="flex items-center gap-1.5">
+                                {isVib && (
+                                  <span className="text-[10px] font-black px-2 py-1 bg-amber-400 text-slate-950 rounded-full">
+                                    ميزة VIB حصرية 👑
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => toggleStar(tool.id)}
+                                  className={`p-1.5 rounded-xl transition-all border cursor-pointer flex items-center justify-center ${
+                                    starred
+                                      ? 'bg-amber-400/20 text-amber-400 border-amber-400/30'
+                                      : 'bg-white/5 text-slate-400 hover:text-white border-white/5'
+                                  }`}
+                                  title={starred ? 'إلغاء التثبيت بنجمة ⭐' : 'تثبيت بنجمة ⭐'}
+                                >
+                                  <Star className={`w-3.5 h-3.5 ${starred ? 'fill-amber-400 text-amber-400' : 'text-slate-400'}`} />
+                                </button>
+                              </div>
                             </div>
                             <div>
                               <h4 className="font-bold text-white text-sm">{tool.label}</h4>
@@ -1064,12 +1083,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                                 if (action) action(tool.actionKey);
                               }}
                               className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
+                              title="معاينة وتجربة الأداة 👁️"
                             >
+                              <Eye className="w-3.5 h-3.5 text-indigo-400" />
                               <span>معاينة وتجربة</span>
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                              </svg>
                             </button>
 
                             <button
