@@ -122,7 +122,7 @@ export const MultiSvgaWatermarkModal: React.FC<MultiSvgaWatermarkModalProps> = (
         ...settings 
       });
     }
-  }, [isOpen, settings]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

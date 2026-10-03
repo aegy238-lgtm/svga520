@@ -1110,6 +1110,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   };
 
   const [isWatermarkModalOpen, setIsWatermarkModalOpen] = useState(false);
+  const [groupFolders, setGroupFolders] = useState<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bgInputRef = useRef<HTMLInputElement>(null);
@@ -4887,6 +4888,25 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                   </button>
                 </div>
               </div>
+
+              {/* Group Folders Toggle Switch */}
+              <div className="flex items-center justify-between gap-2 text-xs font-bold text-slate-400 mt-1 pt-1.5 border-t border-white/5">
+                <span className="flex items-center gap-1.5 text-indigo-300">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                  </svg>
+                  عرض مجلدات منفصلة:
+                </span>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={groupFolders}
+                    onChange={(e) => setGroupFolders(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:right-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-500 shadow-inner"></div>
+                </label>
+              </div>
             </div>
 
             {/* Box 2: Custom Dimensions, Presets & Aspect Ratio Lock (أبعاد العرض والمقاسات) */}
@@ -5685,67 +5705,103 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           </div>
         ) : (
           <div className="p-8 overflow-y-auto max-h-[calc(100vh-320px)] custom-scrollbar flex flex-col gap-12">
-            {Object.entries(
-              items.reduce((acc, item) => {
-                const folder = item.folderPath || 'الملفات العامة';
-                if (!acc[folder]) acc[folder] = [];
-                acc[folder].push(item);
-                return acc;
-              }, {} as Record<string, MultiSvgaItem[]>)
-            ).map(([folderPath, folderItems]) => (
-              <div key={folderPath} className="flex flex-col gap-4">
-                {folderPath !== 'الملفات العامة' && (
-                  <div className="flex items-center gap-3 border-b border-white/5 pb-2">
-                    <div className="p-2 bg-indigo-500/20 text-indigo-400 rounded-lg">
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                      </svg>
+            {false ? (
+              Object.entries(
+                items.reduce((acc, item) => {
+                  const folder = item.folderPath || 'الملفات العامة';
+                  if (!acc[folder]) acc[folder] = [];
+                  acc[folder].push(item);
+                  return acc;
+                }, {} as Record<string, MultiSvgaItem[]>)
+              ).map(([folderPath, folderItems]) => (
+                <div key={folderPath} className="flex flex-col gap-4">
+                  {folderPath !== 'الملفات العامة' && (
+                    <div className="flex items-center gap-3 border-b border-white/5 pb-2">
+                      <div className="p-2 bg-indigo-500/20 text-indigo-400 rounded-lg">
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                        </svg>
+                      </div>
+                      <h3 className="text-xl font-bold text-white">{folderPath.split('/').pop()}</h3>
+                      <span className="text-xs text-slate-400 font-bold bg-white/5 px-2 py-1 rounded-md">{(folderItems as any[]).length} ملفات</span>
                     </div>
-                    <h3 className="text-xl font-bold text-white">{folderPath.split('/').pop()}</h3>
-                    <span className="text-xs text-slate-400 font-bold bg-white/5 px-2 py-1 rounded-md">{(folderItems as any[]).length} ملفات</span>
+                  )}
+                  <div 
+                    className={`grid gap-6 w-full transition-all ${
+                      (folderItems as any[]).length === 1 
+                        ? 'max-w-2xl sm:max-w-3xl mx-auto grid-cols-1' 
+                        : (folderItems as any[]).length === 2
+                        ? 'max-w-5xl mx-auto grid-cols-1 sm:grid-cols-2'
+                        : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3'
+                    }`}
+                    style={
+                      (folderItems as any[]).length > 2 
+                        ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${gridCols <= 2 ? '440px' : gridCols === 3 ? '360px' : '300px'}), 1fr))` }
+                        : undefined
+                    }
+                  >
+                    <AnimatePresence mode="popLayout">
+                      {(folderItems as any[]).map((item) => (
+                        <SvgaCard 
+                          key={`${item.id}-${item.presetId}-${customWidth}-${customHeight}-${gridCols}`} 
+                          item={item} 
+                          gridCols={gridCols}
+                          customDimensions={isCustomDimensionsActive && customWidth && customHeight ? { width: customWidth, height: customHeight } : null}
+                          onRemove={() => removeItem(item.id)} 
+                          onMaximize={() => setSelectedItemId(item.id)}
+                          onDownload={() => handleDownloadSingleImage(item)}
+                          onDownloadSvga={() => handleDownloadSvga(item)}
+                          onDownloadGiftBundle={() => handleDownloadSingleGiftBundle(item)}
+                          onExportVideo={() => handleExportIndividualVideos([item])}
+                          previewBg={previewBg}
+                          watermark={watermark}
+                          wmSettings={wmSettings}
+                          onUpdatePreset={(presetId) => setItems(prev => prev.map(i => i.id === item.id ? { ...i, presetId } : i))}
+                          isSelected={selectedItemIds.has(item.id)}
+                          onToggleSelect={() => handleToggleSelect(item.id)}
+                          onUpdateItem={(updates) => setItems(prev => prev.map(i => i.id === item.id ? { ...i, ...updates } : i))}
+                          updateAndSaveWmSettings={updateAndSaveWmSettings}
+                          globalPausedRef={globalPausedRef}
+                        />
+                      ))}
+                    </AnimatePresence>
                   </div>
-                )}
-                <div 
-                  className={`grid gap-6 w-full transition-all ${
-                    (folderItems as any[]).length === 1 
-                      ? 'max-w-2xl sm:max-w-3xl mx-auto grid-cols-1' 
-                      : (folderItems as any[]).length === 2
-                      ? 'max-w-5xl mx-auto grid-cols-1 sm:grid-cols-2'
-                      : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3'
-                  }`}
-                  style={
-                    (folderItems as any[]).length > 2 
-                      ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${gridCols <= 2 ? '440px' : gridCols === 3 ? '360px' : '300px'}), 1fr))` }
-                      : undefined
-                  }
-                >
-                  <AnimatePresence mode="popLayout">
-                    {(folderItems as any[]).map((item) => (
-                      <SvgaCard 
-                        key={`${item.id}-${item.presetId}-${customWidth}-${customHeight}-${gridCols}`} 
-                        item={item} 
-                        gridCols={gridCols}
-                        customDimensions={isCustomDimensionsActive && customWidth && customHeight ? { width: customWidth, height: customHeight } : null}
-                        onRemove={() => removeItem(item.id)} 
-                        onMaximize={() => setSelectedItemId(item.id)}
-                        onDownload={() => handleDownloadSingleImage(item)}
-                        onDownloadSvga={() => handleDownloadSvga(item)}
-                        onDownloadGiftBundle={() => handleDownloadSingleGiftBundle(item)}
-                        onExportVideo={() => handleExportIndividualVideos([item])}
-                        previewBg={previewBg}
-                        watermark={watermark}
-                        wmSettings={wmSettings}
-                        onUpdatePreset={(presetId) => setItems(prev => prev.map(i => i.id === item.id ? { ...i, presetId } : i))}
-                        isSelected={selectedItemIds.has(item.id)}
-                        onToggleSelect={() => handleToggleSelect(item.id)}
-                        onUpdateItem={(updates) => setItems(prev => prev.map(i => i.id === item.id ? { ...i, ...updates } : i))}
-                        globalPausedRef={globalPausedRef}
-                      />
-                    ))}
-                  </AnimatePresence>
                 </div>
+              ))
+            ) : (
+              <div 
+                className="grid gap-6 w-full transition-all"
+                style={{
+                  gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`
+                }}
+              >
+                <AnimatePresence mode="popLayout">
+                  {(items as any[]).map((item) => (
+                    <SvgaCard 
+                      key={`${item.id}-${item.presetId}-${customWidth}-${customHeight}-${gridCols}`} 
+                      item={item} 
+                      gridCols={gridCols}
+                      customDimensions={isCustomDimensionsActive && customWidth && customHeight ? { width: customWidth, height: customHeight } : null}
+                      onRemove={() => removeItem(item.id)} 
+                      onMaximize={() => setSelectedItemId(item.id)}
+                      onDownload={() => handleDownloadSingleImage(item)}
+                      onDownloadSvga={() => handleDownloadSvga(item)}
+                      onDownloadGiftBundle={() => handleDownloadSingleGiftBundle(item)}
+                      onExportVideo={() => handleExportIndividualVideos([item])}
+                      previewBg={previewBg}
+                      watermark={watermark}
+                      wmSettings={wmSettings}
+                      onUpdatePreset={(presetId) => setItems(prev => prev.map(i => i.id === item.id ? { ...i, presetId } : i))}
+                      isSelected={selectedItemIds.has(item.id)}
+                      onToggleSelect={() => handleToggleSelect(item.id)}
+                      onUpdateItem={(updates) => setItems(prev => prev.map(i => i.id === item.id ? { ...i, ...updates } : i))}
+                      updateAndSaveWmSettings={updateAndSaveWmSettings}
+                      globalPausedRef={globalPausedRef}
+                    />
+                  ))}
+                </AnimatePresence>
               </div>
-            ))}
+            )}
           </div>
         )}
       </div>
@@ -5805,7 +5861,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                     <WatermarkOverlay 
                       watermark={watermark} 
                       settings={wmSettings} 
-                      onUpdateSettings={updateAndSaveWmSettings}
+                      onUpdateSettings={(newSettings) => updateAndSaveWmSettings(prev => ({ ...prev, ...newSettings }))}
                       onOpenModal={() => setIsWatermarkModalOpen(true)}
                     />
                   )}
@@ -6401,8 +6457,9 @@ const SvgaCard: React.FC<{
   isSelected?: boolean;
   onToggleSelect?: () => void;
   onUpdateItem?: (updates: Partial<MultiSvgaItem>) => void;
+  updateAndSaveWmSettings: (updater: any) => void;
   globalPausedRef: React.MutableRefObject<boolean>;
-}> = ({ item, customDimensions, gridCols, onRemove, onMaximize, onDownload, onDownloadSvga, onDownloadGiftBundle, onExportVideo, previewBg, watermark, wmSettings, onUpdatePreset, isSelected, onToggleSelect, onUpdateItem, globalPausedRef }) => {
+}> = ({ item, customDimensions, gridCols, onRemove, onMaximize, onDownload, onDownloadSvga, onDownloadGiftBundle, onExportVideo, previewBg, watermark, wmSettings, onUpdatePreset, isSelected, onToggleSelect, onUpdateItem, updateAndSaveWmSettings, globalPausedRef }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
@@ -6866,7 +6923,7 @@ const SvgaCard: React.FC<{
           <WatermarkOverlay 
             watermark={watermark} 
             settings={wmSettings} 
-            onUpdateSettings={updateAndSaveWmSettings}
+            onUpdateSettings={(newSettings) => updateAndSaveWmSettings(prev => ({ ...prev, ...newSettings }))}
             onOpenModal={() => setIsWatermarkModalOpen(true)}
           />
         )}

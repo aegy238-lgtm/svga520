@@ -1083,16 +1083,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, o
                           }`}
                         >
                           <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <span className="p-2 rounded-xl bg-slate-900 border border-white/5 text-amber-400">
+                            <div className="flex items-start gap-3 flex-wrap">
+                              <span className="p-2 rounded-xl bg-slate-900 border border-white/5 text-amber-400 shrink-0">
                                 {React.cloneElement(tool.icon as React.ReactElement, { className: 'w-5 h-5 text-amber-400' })}
                               </span>
-                              <div className="flex items-center gap-1.5">
-                                {isVib && (
-                                  <span className="text-[10px] font-black px-2 py-1 bg-amber-400 text-slate-950 rounded-full">
-                                    ميزة VIB حصرية 👑
-                                  </span>
-                                )}
+                              
+                              <div className="flex-1 flex justify-end">
                                 <button
                                   type="button"
                                   onClick={() => toggleStar(tool.id)}
@@ -1107,6 +1103,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, o
                                 </button>
                               </div>
                             </div>
+                            {isVib && (
+                              <div className="flex pt-2">
+                                <span className="text-[10px] font-black px-2 py-1 bg-amber-400 text-slate-950 rounded-full whitespace-nowrap">
+                                  ميزة VIB حصرية 👑
+                                </span>
+                              </div>
+                            )}
                             <div>
                               <h4 className="font-bold text-white text-sm">{tool.label}</h4>
                               <p className="text-xs text-slate-400 leading-relaxed mt-1 line-clamp-2">{tool.descAr}</p>
