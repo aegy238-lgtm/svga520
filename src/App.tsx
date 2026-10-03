@@ -101,6 +101,7 @@ import { UserProfileModal } from './components/UserProfileModal';
 import { SubscriptionModal } from './components/SubscriptionModal';
 import { VideoDurationSpeedModal } from './components/VideoDurationSpeedModal';
 import { VipSubscriptionModal } from './components/VipSubscriptionModal';
+import { ScreenProtectionOverlay } from './components/ScreenProtectionOverlay';
 import { useAuth } from './contexts/AuthContext';
 import { AppState, FileMetadata, AppSettings } from './types';
 import { useAccessControl } from './hooks/useAccessControl';
@@ -416,12 +417,75 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
+  // Fail-safe VIB (VIP) authorization check to prevent state-hijacking
+  useEffect(() => {
+    if (state !== AppState.HOME && state !== AppState.ADMIN_PANEL) {
+      const stateToFeatureId: Record<string, string> = {
+        [AppState.AI_VIDEO_MATTING]: 'aiVideoMatting',
+        [AppState.NAME_3D_EDITOR]: 'name3DEditor',
+        [AppState.IMAGE_ENHANCER]: 'imageEnhancer',
+        [AppState.IMAGE_PROCESSOR]: 'imageProcessor',
+        [AppState.IMAGE_EDITOR]: 'imageEditor',
+        [AppState.IMAGE_MATCHER]: 'imageMatcher',
+        [AppState.SVGA_LAYER_EDITOR]: 'svgaLayerEditor',
+        [AppState.SVGA_BATCH_COMPRESSOR]: 'svgaBatchCompressor',
+        [AppState.SVGA_EDITOR_EX]: 'svgaEx',
+        [AppState.MULTI_SVGA_VIEWER]: 'multiSvga',
+        [AppState.IMAGE_CONVERTER]: 'imageConverter',
+        [AppState.AUDIO_EXTRACTOR]: 'audioExtractor',
+        [AppState.BATCH_IMAGE_PROCESSOR]: 'batchImageProcessor',
+        [AppState.BATCH_COMPRESSOR]: 'batchCompress',
+        [AppState.BATCH_CROPPER]: 'batchCropper',
+        [AppState.UNIVERSAL_CONVERTER]: 'universalConverter',
+        [AppState.VIDEO_CONVERTER]: 'videoConverter',
+        [AppState.STORE]: 'store',
+      };
+      const featureId = stateToFeatureId[state];
+      if (featureId) {
+        const isVibFeature = settings?.vibFeatures?.includes(featureId) || (state === AppState.SVGA_LAYER_EDITOR);
+        if (isVibFeature) {
+          const isVIP = !!(currentUser?.isVIP || currentUser?.role === 'admin' || currentUser?.isSuperAdmin);
+          if (!isVIP) {
+            setState(AppState.HOME);
+            setVipFeatureName(featureId);
+            setShowVipModal(true);
+          }
+        }
+      }
+    }
+  }, [state, currentUser, settings]);
+
   const handleFeatureAccess = async (targetState: AppState, featureName: string) => {
     // 0. Check Exclusive VIP Feature Access (ميزة VIP الملكية الحصرية)
-    if (targetState === AppState.SVGA_LAYER_EDITOR) {
+    const stateToFeatureId: Record<string, string> = {
+      [AppState.AI_VIDEO_MATTING]: 'aiVideoMatting',
+      [AppState.NAME_3D_EDITOR]: 'name3DEditor',
+      [AppState.IMAGE_ENHANCER]: 'imageEnhancer',
+      [AppState.IMAGE_PROCESSOR]: 'imageProcessor',
+      [AppState.IMAGE_EDITOR]: 'imageEditor',
+      [AppState.IMAGE_MATCHER]: 'imageMatcher',
+      [AppState.SVGA_LAYER_EDITOR]: 'svgaLayerEditor',
+      [AppState.SVGA_BATCH_COMPRESSOR]: 'svgaBatchCompressor',
+      [AppState.SVGA_EDITOR_EX]: 'svgaEx',
+      [AppState.MULTI_SVGA_VIEWER]: 'multiSvga',
+      [AppState.IMAGE_CONVERTER]: 'imageConverter',
+      [AppState.AUDIO_EXTRACTOR]: 'audioExtractor',
+      [AppState.BATCH_IMAGE_PROCESSOR]: 'batchImageProcessor',
+      [AppState.BATCH_COMPRESSOR]: 'batchCompress',
+      [AppState.BATCH_CROPPER]: 'batchCropper',
+      [AppState.UNIVERSAL_CONVERTER]: 'universalConverter',
+      [AppState.VIDEO_CONVERTER]: 'videoConverter',
+      [AppState.STORE]: 'store',
+      [AppState.VIDEO_DURATION_SPEED]: 'videoDurationSpeed',
+    };
+
+    const currentFeatureId = stateToFeatureId[targetState];
+    const isVibFeature = settings?.vibFeatures?.includes(currentFeatureId) || (targetState === AppState.SVGA_LAYER_EDITOR);
+
+    if (isVibFeature) {
       const isVIP = !!(currentUser?.isVIP || currentUser?.role === 'admin' || currentUser?.isSuperAdmin);
       if (!isVIP) {
-        setVipFeatureName('تحرير طبقات SVGA');
+        setVipFeatureName(featureName || 'ميزة VIP');
         setShowVipModal(true);
         return;
       }
@@ -744,6 +808,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen text-slate-200 overflow-x-hidden relative" style={dynamicBgStyle}>
+      <ScreenProtectionOverlay currentUser={currentUser} settings={settings} />
       <div className="fixed inset-0 bg-[#020617]/30 backdrop-blur-[4px] -z-10 pointer-events-none" />
       
       {/* 3D Splash Screen */}
@@ -877,6 +942,7 @@ const App: React.FC = () => {
         onOpenFile={(files) => handleFileUpload(files)}
         onLoginClick={() => setShowAuthModal(true)}
         onProfileClick={() => setShowProfileModal(true)}
+        onVipClick={() => setShowVipModal(true)}
         currentTab={
           state === AppState.AFTER_EFFECTS_STUDIO ? 'after-effects-studio' :
           state === AppState.ANIMATION_MANAGER ? 'animation-manager' :

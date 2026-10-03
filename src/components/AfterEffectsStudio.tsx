@@ -471,6 +471,17 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
   const [layers, setLayers] = useState<AELayer[]>([]);
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
 
+  // Image Import modal state for configuring custom/original size upon upload
+  const [imageImportPending, setImageImportPending] = useState<{
+    file: File;
+    url: string;
+    naturalWidth: number;
+    naturalHeight: number;
+    img: HTMLImageElement;
+  } | null>(null);
+  const [imageImportWidth, setImageImportWidth] = useState<string>('');
+  const [imageImportHeight, setImageImportHeight] = useState<string>('');
+
   // Drag and Drop Layer Stacking / Reorder State
   const [draggedLayerIdx, setDraggedLayerIdx] = useState<number | null>(null);
   const [dropTargetIdx, setDropTargetIdx] = useState<number | null>(null);
@@ -2087,34 +2098,15 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
       const img = new Image();
       img.src = url;
       img.onload = () => {
-        const newId = `layer-${Date.now()}`;
-        const newLayer: AELayer = {
-          id: newId,
-          name: file.name.replace(/\.[^/.]+$/, ''),
-          kind: 'image',
-          visible: true,
-          locked: false,
-          colorLabel: 'orange',
-          expanded: false,
-          position: { x: 0, y: 0 },
-          scale: 100,
-          rotation: 0,
-          opacity: 100,
-          animatingPosition: false,
-          positionKeyframes: [],
-          animatingScale: false,
-          scaleKeyframes: [],
-          animatingRotation: false,
-          rotationKeyframes: [],
-          animatingOpacity: false,
-          opacityKeyframes: [],
-          width: img.width,
-          height: img.height,
-          imageSrc: url,
-          imageElement: img
-        };
-        setLayers(prev => [newLayer, ...prev]);
-        setSelectedLayerId(newId);
+        setImageImportPending({
+          file,
+          url,
+          naturalWidth: img.naturalWidth || img.width,
+          naturalHeight: img.naturalHeight || img.height,
+          img
+        });
+        setImageImportWidth(String(img.naturalWidth || img.width));
+        setImageImportHeight(String(img.naturalHeight || img.height));
       };
     }
   };
@@ -3640,7 +3632,7 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
 
           {/* Layer List (Quick Selection & Drag Reorder) */}
           <div 
-            className="flex-1 overflow-y-auto p-1.5 flex flex-col gap-1"
+            className="flex-1 overflow-y-auto p-1.5 flex flex-col gap-1 layers-panel-container"
             onDragOver={(e) => {
               e.preventDefault();
               e.dataTransfer.dropEffect = 'move';
@@ -4974,6 +4966,120 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 🔴 Image Custom Dimensions Import Selector Modal */}
+      {imageImportPending && (
+        <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-[#020617]/90 backdrop-blur-md" onClick={() => setImageImportPending(null)} />
+          <div className="relative w-full max-w-md bg-[#090e1c] border border-white/10 rounded-3xl shadow-2xl overflow-hidden p-6 text-right" dir="rtl">
+            <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2 mb-2">
+              <Sparkles className="w-5 h-5 text-amber-400" />
+              <span>تهيئة أبعاد الصورة المستوردة</span>
+            </h3>
+            <p className="text-xs text-slate-300 mb-4">
+              يمكنك استيراد الصورة بمقاساتها الأساسية الأصلية مباشرة أو تحديد المقاس الذي تريده.
+            </p>
+
+            <div className="flex justify-center mb-4 p-2 bg-slate-900/40 rounded-2xl border border-white/5">
+              <img src={imageImportPending.url} alt="Preview" className="max-h-36 object-contain rounded-lg shadow-inner" />
+            </div>
+
+            <div className="space-y-4">
+              <div className="p-3 bg-violet-600/10 border border-violet-500/20 rounded-2xl flex items-center justify-between">
+                <span className="text-slate-300 font-bold text-xs">الأبعاد الأصلية الأساسية:</span>
+                <span className="font-mono text-emerald-400 font-black text-sm">
+                  {imageImportPending.naturalWidth} × {imageImportPending.naturalHeight} px
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-400 block text-xs mb-1 font-bold">العرض (px):</label>
+                  <input
+                    type="number"
+                    value={imageImportWidth}
+                    onChange={(e) => setImageImportWidth(e.target.value)}
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-white font-mono font-bold text-xs focus:outline-none focus:border-violet-500 text-center"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400 block text-xs mb-1 font-bold">الارتفاع (px):</label>
+                  <input
+                    type="number"
+                    value={imageImportHeight}
+                    onChange={(e) => setImageImportHeight(e.target.value)}
+                    className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-white font-mono font-bold text-xs focus:outline-none focus:border-violet-500 text-center"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 justify-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImageImportWidth(String(imageImportPending.naturalWidth));
+                    setImageImportHeight(String(imageImportPending.naturalHeight));
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 text-xs font-bold transition-all"
+                >
+                  استعادة المقاس الأصلي
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10 mt-6">
+              <button
+                type="button"
+                onClick={() => setImageImportPending(null)}
+                className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 text-xs font-bold transition-all"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const finalWidth = Number(imageImportWidth) || imageImportPending.naturalWidth;
+                  const finalHeight = Number(imageImportHeight) || imageImportPending.naturalHeight;
+                  
+                  const newId = `layer-${Date.now()}`;
+                  const newLayer: AELayer = {
+                    id: newId,
+                    name: imageImportPending.file.name.replace(/\.[^/.]+$/, ''),
+                    kind: 'image',
+                    visible: true,
+                    locked: false,
+                    colorLabel: 'orange',
+                    expanded: false,
+                    position: { x: 0, y: 0 },
+                    scale: 100,
+                    rotation: 0,
+                    opacity: 100,
+                    animatingPosition: false,
+                    positionKeyframes: [],
+                    animatingScale: false,
+                    scaleKeyframes: [],
+                    animatingRotation: false,
+                    rotationKeyframes: [],
+                    animatingOpacity: false,
+                    opacityKeyframes: [],
+                    width: finalWidth,
+                    height: finalHeight,
+                    imageSrc: imageImportPending.url,
+                    imageElement: imageImportPending.img
+                  };
+                  setLayers(prev => [newLayer, ...prev]);
+                  setSelectedLayerId(newId);
+                  setImageImportPending(null);
+                }}
+                className="px-5 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-xs font-black transition-all shadow-lg active:scale-95 flex items-center gap-1.5"
+              >
+                <Check size={14} className="text-emerald-300" />
+                <span>إتمام الاستدعاء وإدراج الطبقة</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

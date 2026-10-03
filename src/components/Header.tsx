@@ -68,6 +68,7 @@ export interface HeaderProps {
   onBatchImageOpen: () => void;
   onLoginClick: () => void;
   onProfileClick: () => void;
+  onVipClick?: () => void;
   currentTab: string;
   onOpenFile?: (files: File[]) => void;
 }
@@ -466,7 +467,7 @@ export const Header: React.FC<HeaderProps> = (props) => {
             <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-red-600 text-white shadow-[0_0_10px_rgba(239,68,68,0.9)] shrink-0 border border-red-300 leading-none">
               PRO 🎬
             </span>
-          ) : (tool.isVip || isLayerEditor) ? (
+          ) : (tool.isVip || isLayerEditor || props.settings?.vibFeatures?.includes(tool.id)) ? (
             <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-yellow-300 text-black shadow-[0_0_10px_rgba(251,191,36,0.6)] shrink-0 leading-none">
               VIP 👑
             </span>
@@ -515,8 +516,8 @@ export const Header: React.FC<HeaderProps> = (props) => {
         </div>
       )}
 
-      {/* 2. Scrollable Secondary Tools Track (الأدوات الإضافية) */}
-      <div className="flex items-center flex-1 min-w-0 overflow-hidden relative">
+      {/* 2. Scrollable Secondary Tools Track (الأدوات الإضافية) - Hidden on medium laptops/tablets */}
+      <div className="hidden xl:flex items-center flex-1 min-w-0 overflow-hidden relative mx-1">
         {/* Previous Scroll Step Button */}
         <button
           type="button"
@@ -554,73 +555,74 @@ export const Header: React.FC<HeaderProps> = (props) => {
         >
           <ChevronLeft className="w-4 h-4 shrink-0" />
         </button>
+      </div>
 
-        {/* Quick More Tools Dropdown */}
-        <div className="relative shrink-0 mr-0.5" ref={moreToolsMenuRef}>
-          <button
-            type="button"
-            onClick={() => setIsMoreToolsOpen(prev => !prev)}
-            className={`h-8 md:h-9 px-2 sm:px-2.5 rounded-xl border flex items-center gap-1 text-xs font-bold transition-all cursor-pointer shrink-0 ${
-              isMoreToolsOpen
-                ? 'bg-indigo-600/30 text-white border-indigo-400 shadow-[0_0_12px_rgba(99,102,241,0.3)]'
-                : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border-white/[0.08] hover:border-white/[0.15]'
-            }`}
-            title="قائمة الأدوات الإضافية / More Tools"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-            <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${isMoreToolsOpen ? 'rotate-180' : ''}`} />
-          </button>
+      {/* Quick More Tools Dropdown - Always visible to ensure quick access */}
+      <div className="relative shrink-0 mr-1" ref={moreToolsMenuRef}>
+        <button
+          type="button"
+          onClick={() => setIsMoreToolsOpen(prev => !prev)}
+          className={`h-8 md:h-9 px-2.5 sm:px-3 rounded-xl border flex items-center gap-1.5 text-xs font-bold transition-all cursor-pointer shrink-0 ${
+            isMoreToolsOpen
+              ? 'bg-indigo-600/30 text-white border-indigo-400 shadow-[0_0_12px_rgba(99,102,241,0.3)]'
+              : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border-white/[0.08] hover:border-white/[0.15]'
+          }`}
+          title="قائمة الأدوات الإضافية / More Tools"
+        >
+          <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+          <span className="hidden sm:inline-block text-[11px] text-slate-300 font-bold shrink-0">المزيد</span>
+          <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${isMoreToolsOpen ? 'rotate-180' : ''}`} />
+        </button>
 
-          <AnimatePresence>
-            {isMoreToolsOpen && (
-              <motion.div
-                initial={{ opacity: 0, y: 8, scale: 0.96 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                transition={{ duration: 0.15 }}
-                className="absolute top-full mt-2 end-0 w-72 bg-[#0c1222]/98 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl p-2 z-[1100] flex flex-col gap-1 max-h-[460px] overflow-y-auto custom-scrollbar"
-                dir="rtl"
-              >
-                <div className="px-3 py-1.5 text-[11px] font-black text-indigo-300 border-b border-white/10 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>كافة الأدوات الإضافية</span>
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    {unstarredNavTools.length} أداة
-                  </span>
-                </div>
-                {unstarredNavTools.map(tool => {
-                  const isCurrent = props.currentTab === tool.id;
-                  return (
-                    <button
-                      key={tool.id}
-                      onClick={() => {
-                        handleToolClick(tool);
-                        setIsMoreToolsOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-right ${
-                        isCurrent
-                          ? 'bg-indigo-600 text-white shadow-md'
-                          : 'text-slate-300 hover:text-white hover:bg-white/10'
-                      }`}
-                    >
-                      <span className="flex items-center gap-2 truncate">
-                        {React.cloneElement(tool.icon as React.ReactElement<any>, { className: 'w-4 h-4 shrink-0 text-indigo-400' })}
-                        <span className="truncate">{tool.label}</span>
+        <AnimatePresence>
+          {isMoreToolsOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: 8, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.96 }}
+              transition={{ duration: 0.15 }}
+              className="absolute top-full mt-2 end-0 w-72 bg-[#0c1222]/98 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl p-2 z-[1100] flex flex-col gap-1 max-h-[460px] overflow-y-auto custom-scrollbar"
+              dir="rtl"
+            >
+              <div className="px-3 py-1.5 text-[11px] font-black text-indigo-300 border-b border-white/10 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>كافة الأدوات الإضافية</span>
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  {unstarredNavTools.length} أداة
+                </span>
+              </div>
+              {unstarredNavTools.map(tool => {
+                const isCurrent = props.currentTab === tool.id;
+                return (
+                  <button
+                    key={tool.id}
+                    onClick={() => {
+                      handleToolClick(tool);
+                      setIsMoreToolsOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-right ${
+                      isCurrent
+                        ? 'bg-indigo-600 text-white shadow-md'
+                        : 'text-slate-300 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2 truncate">
+                      {React.cloneElement(tool.icon as React.ReactElement<any>, { className: 'w-4 h-4 shrink-0 text-indigo-400' })}
+                      <span className="truncate">{tool.label}</span>
+                    </span>
+                    {(tool.isVip || props.settings?.vibFeatures?.includes(tool.id)) && (
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0">
+                        VIP 👑
                       </span>
-                      {tool.isVip && (
-                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0">
-                          VIP 👑
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+                    )}
+                  </button>
+                );
+              })}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -811,16 +813,20 @@ export const Header: React.FC<HeaderProps> = (props) => {
             </AnimatePresence>
           </div>
 
-          {/* VIP Member Badge */}
-          {(props.currentUser?.isVIP || props.currentUser?.role === 'admin' || props.currentUser?.isSuperAdmin) && (
-            <div 
-              className="hidden 2xl:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 via-yellow-500/25 to-amber-500/20 border border-amber-400/40 shadow-[0_0_15px_rgba(245,158,11,0.2)] text-amber-300 text-xs font-black select-none shrink-0"
-              title="عضوية VIP مفعلة - كافة الميزات الملكية متاحة 👑"
-            >
-              <Crown className="w-4 h-4 text-amber-400 animate-pulse" />
-              <span>VIP 👑</span>
-            </div>
-          )}
+          {/* VIB/VIP Section Independent Icon/Button */}
+          <button 
+            type="button"
+            onClick={props.onVipClick}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border select-none shrink-0 transition-all duration-300 font-bold text-xs cursor-pointer ${
+              (props.currentUser?.isVIP || props.currentUser?.role === 'admin' || props.currentUser?.isSuperAdmin)
+                ? 'bg-gradient-to-r from-amber-500/20 via-yellow-500/25 to-amber-500/20 border-amber-400/40 shadow-[0_0_15px_rgba(245,158,11,0.2)] text-amber-300'
+                : 'bg-gradient-to-r from-amber-500/10 via-yellow-400/5 to-amber-500/10 border-amber-500/30 hover:border-amber-400 text-amber-200 hover:text-white shadow-[0_0_12px_rgba(245,158,11,0.1)] hover:scale-[1.03]'
+            }`}
+            title="باقة VIB الملكية - الميزات والاشتراك 👑"
+          >
+            <Crown className="w-4 h-4 text-amber-400 animate-pulse" />
+            <span>باقة VIB 👑</span>
+          </button>
 
           {/* Expiring Soon Alert Badge in Header */}
           {headerSubInfo?.isExpiringSoon && (

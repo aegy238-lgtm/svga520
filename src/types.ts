@@ -184,6 +184,9 @@ export interface AppSettings {
   designerInfoType?: string;
   designerInfoDesc?: string;
   externalLinks?: DashboardExternalLinks; // نظام الروابط الخارجية للداشبورد (المتجر، محرر svga، وغيرها)
+  vibFeatures?: string[]; // قائمة معرّفات الميزات الحصرية للـ VIP
+  screenshotProtectionEnabled?: boolean; // حماية لقطات الشاشة
+  screenRecordingProtectionEnabled?: boolean; // حماية تسجيل الشاشة
   costs: {
     svgaProcess: number;
     batchCompress: number;

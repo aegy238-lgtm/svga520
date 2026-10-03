@@ -15,6 +15,7 @@ import { AccountVersionsTab } from './admin/AccountVersionsTab';
 import { FeatureAccessControlTab } from './admin/FeatureAccessControlTab';
 import { ExternalLinksManagerTab } from './admin/ExternalLinksManagerTab';
 import { MaintenanceScreen } from './MaintenanceScreen';
+import { TOOLS_REGISTRY } from '../config/toolsRegistry';
 
 // Secondary app for creating users without logging out admin
 const secondaryApp = initializeApp(firebaseConfig, 'SecondaryApp');
@@ -28,7 +29,7 @@ interface AdminPanelProps {
 const EXPORT_FORMATS = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP 1.0.5', 'VAP (MP4)', 'SVGA → YYEVA'];
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'store' | 'keys' | 'assets' | 'settings' | 'records' | 'account_versions' | 'features_access' | 'server_outage' | 'external_links'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'store' | 'keys' | 'assets' | 'settings' | 'records' | 'account_versions' | 'features_access' | 'server_outage' | 'external_links' | 'vib_features' | 'security_protection'>('users');
   const [dropdownState, setDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
   const [subDropdownState, setSubDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -96,6 +97,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
 
   const TABS = [
     { id: 'users', label: 'المستخدمين', icon: <Users /> },
+    { id: 'vib_features', label: 'إدارة ميزات VIB 👑', icon: <Crown className="text-amber-400" /> },
+    { id: 'security_protection', label: 'الأمن وحماية الشاشة 🛡️', icon: <Shield className="text-blue-400" /> },
     { id: 'features_access', label: 'تحديد الوظائف', icon: <ShieldCheck /> },
     { id: 'external_links', label: 'روابط الداشبورد', icon: <Link2 className="text-cyan-400" /> },
     { id: 'server_outage', label: 'تعطيل سيرفر التطبيق', icon: <PowerOff className="text-rose-400" /> },
@@ -1010,6 +1013,176 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
             </div>
           ) : (
             <>
+              {activeTab === 'vib_features' && (
+                <div className="space-y-6" dir="rtl">
+                  <div className="flex items-center gap-3 pb-4 border-b border-white/10">
+                    <Crown className="w-6 h-6 text-amber-400" />
+                    <div>
+                      <h3 className="text-lg font-bold text-white">إدارة ميزات باقة VIB الملكية</h3>
+                      <p className="text-xs text-slate-400">حدد الوظائف الحصرية المتاحة فقط لأعضاء VIP المشتركين.</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {TOOLS_REGISTRY.map((tool) => {
+                      const isVib = settings.vibFeatures?.includes(tool.id) || tool.id === 'svga-layer-editor' || tool.id === 'after-effects-studio';
+                      
+                      return (
+                        <div 
+                          key={tool.id} 
+                          className={`p-4 rounded-2xl border transition-all duration-300 flex flex-col justify-between gap-4 ${
+                            isVib 
+                              ? 'bg-amber-500/10 border-amber-500/40 shadow-[0_0_15px_rgba(245,158,11,0.1)]' 
+                              : 'bg-slate-950/40 border-white/5 hover:border-white/15'
+                          }`}
+                        >
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="p-2 rounded-xl bg-slate-900 border border-white/5 text-amber-400">
+                                {React.cloneElement(tool.icon as React.ReactElement, { className: 'w-5 h-5 text-amber-400' })}
+                              </span>
+                              {isVib && (
+                                <span className="text-[10px] font-black px-2 py-0.5 bg-amber-400 text-slate-950 rounded-full">
+                                  ميزة VIB حصرية 👑
+                                </span>
+                              )}
+                            </div>
+                            <div>
+                              <h4 className="font-bold text-white text-sm">{tool.label}</h4>
+                              <p className="text-xs text-slate-400 leading-relaxed mt-1 line-clamp-2">{tool.descAr}</p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                // Close admin and open the feature!
+                                onCancel();
+                                // We can trigger the action via props
+                                const action = (window as any).triggerAppAction;
+                                if (action) action(tool.actionKey);
+                              }}
+                              className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
+                            >
+                              <span>معاينة وتجربة</span>
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                              </svg>
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={tool.id === 'svga-layer-editor' || tool.id === 'after-effects-studio'} // Always VIB/Locked by default
+                              onClick={async () => {
+                                const currentVibs = settings.vibFeatures || [];
+                                const newVibs = currentVibs.includes(tool.id)
+                                  ? currentVibs.filter(id => id !== tool.id)
+                                  : [...currentVibs, tool.id];
+                                
+                                const updatedSettings = {
+                                  ...settings,
+                                  vibFeatures: newVibs
+                                };
+                                setSettings(updatedSettings);
+
+                                // Save to Firestore global doc
+                                try {
+                                  await setDoc(doc(db, 'settings', 'global'), {
+                                    vibFeatures: newVibs
+                                  }, { merge: true });
+                                } catch (err) {
+                                  console.error("Error toggling VIB feature:", err);
+                                }
+                              }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                                isVib 
+                                  ? 'bg-amber-400 text-black hover:bg-amber-300' 
+                                  : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10'
+                              }`}
+                            >
+                              {isVib ? 'تفعيل عام (إلغاء حصرية VIP)' : 'قصر للمشتركين فقط (VIB)'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'security_protection' && (
+                <div className="space-y-6 max-w-2xl mx-auto text-right" dir="rtl">
+                  <div className="flex items-center gap-3 pb-4 border-b border-white/10">
+                    <Shield className="w-6 h-6 text-blue-400" />
+                    <div>
+                      <h3 className="text-lg font-bold text-white">إعدادات الأمن وحماية الشاشة</h3>
+                      <p className="text-xs text-slate-400">تفعيل جدران حماية ضد لقطات الشاشة وتسجيل الشاشة ونسخ المحتوى.</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    {/* Screenshot Protection Toggle */}
+                    <div className="bg-slate-900/40 border border-white/10 rounded-2xl p-5 flex items-start justify-between gap-4">
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                          <span>تفعيل حماية لقطات الشاشة (Screenshot Protection)</span>
+                        </h4>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          يمنع لقطات الشاشة والطباعة (Ctrl+P)، ويعطل زر الماوس الأيمن لمنع نسخ وحفظ الصور، ويقوم بإدراج علامة مائية (Watermark) شفافة تحتوي على بيانات حساب المستخدم ومُعرّفه الرقمي لحماية ملكية الفيديوهات والتصميمات والملفات من التسريب.
+                        </p>
+                      </div>
+                      <button 
+                        type="button"
+                        onClick={async () => {
+                          const nextVal = !settings.screenshotProtectionEnabled;
+                          const updated = { ...settings, screenshotProtectionEnabled: nextVal };
+                          setSettings(updated);
+                          await setDoc(doc(db, 'settings', 'global'), { screenshotProtectionEnabled: nextVal }, { merge: true });
+                        }}
+                        className={`w-12 h-6 rounded-full transition-all relative shrink-0 ${settings.screenshotProtectionEnabled ? 'bg-blue-500' : 'bg-slate-700'}`}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings.screenshotProtectionEnabled ? 'right-7' : 'right-1'}`}></div>
+                      </button>
+                    </div>
+
+                    {/* Screen Recording Protection Toggle */}
+                    <div className="bg-slate-900/40 border border-white/10 rounded-2xl p-5 flex items-start justify-between gap-4">
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                          <span>تفعيل حماية تسجيل الشاشة (Screen Recording Protection)</span>
+                        </h4>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          يقوم باكتشاف محاولات تفعيل أدوات البث أو تسجيل الشاشة، ويعمل على حجب وطمس (Blur/طمس ذكي) كامل منطقة العمل والملفات الحساسة تلقائياً بمجرد إلغاء التركيز عن نافذة التطبيق أو ترك التصفح النشط.
+                        </p>
+                      </div>
+                      <button 
+                        type="button"
+                        onClick={async () => {
+                          const nextVal = !settings.screenRecordingProtectionEnabled;
+                          const updated = { ...settings, screenRecordingProtectionEnabled: nextVal };
+                          setSettings(updated);
+                          await setDoc(doc(db, 'settings', 'global'), { screenRecordingProtectionEnabled: nextVal }, { merge: true });
+                        }}
+                        className={`w-12 h-6 rounded-full transition-all relative shrink-0 ${settings.screenRecordingProtectionEnabled ? 'bg-blue-500' : 'bg-slate-700'}`}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings.screenRecordingProtectionEnabled ? 'right-7' : 'right-1'}`}></div>
+                      </button>
+                    </div>
+
+                    {/* Status Box */}
+                    <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-200 leading-relaxed flex gap-3">
+                      <ShieldCheck className="w-5 h-5 text-blue-400 shrink-0" />
+                      <div>
+                        <strong className="block mb-1">تنبيه حماية الملكية الفكرية:</strong>
+                        هذه الآليات تعمل بكفاءة عالية على متصفحات الويب الحديثة لحماية البيانات والمحتوى الملكي للمنصة لمنع تسريب صور أو تصميمات المستخدمين العاديين، بينما حسابات المديرين والمشرفين مستثنائون تلقائياً من هذه القيود لتسهيل العمل وتحديث الموقع.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {activeTab === 'features_access' && <FeatureAccessControlTab />}
               {activeTab === 'external_links' && (
                 <ExternalLinksManagerTab 
