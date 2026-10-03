@@ -82,7 +82,28 @@ const decodeDataToBytes = (data: any): Uint8Array | null => {
   return null;
 };
 
-export type ViewerWatermarkPattern = 'diagonal_repeat' | 'horizontal_bands' | 'floating' | 'pulse' | 'single_position';
+export type ViewerWatermarkPattern = 
+  | 'smooth_right_glide' 
+  | 'wave_3d' 
+  | 'diagonal_repeat' 
+  | 'horizontal_bands' 
+  | 'floating' 
+  | 'circular_orbit' 
+  | 'cube_rotation' 
+  | 'pulse' 
+  | 'single_position' 
+  | 'custom_drag';
+
+export type ViewerWatermarkShape = 
+  | 'pill' 
+  | 'glass_card' 
+  | 'neon_glow' 
+  | 'futuristic_hud' 
+  | 'stamp_seal' 
+  | 'ribbon_badge' 
+  | 'golden_vip' 
+  | 'minimal_clean';
+
 export type ViewerWatermarkType = 'text' | 'image' | 'both';
 export type ViewerWatermarkPosition = 
   | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center' 
@@ -94,7 +115,10 @@ export interface ViewerWatermarkSettings {
   text: string;
   logoUrl?: string | null;
   pattern: ViewerWatermarkPattern;
+  shape?: ViewerWatermarkShape;
   position: ViewerWatermarkPosition;
+  customX?: number; // 0 to 100 percentage
+  customY?: number; // 0 to 100 percentage
   opacity: number;
   fontSize: number;
   color: string;
@@ -104,32 +128,90 @@ export interface ViewerWatermarkSettings {
   shadow: boolean;
   isAnimated?: boolean;
   animationSpeed?: number;
-  animationType?: 'drift' | 'floating' | 'marquee' | 'pulse' | 'orbit';
+  speed?: number;
+  animationType?: 'drift' | 'floating' | 'marquee' | 'pulse' | 'orbit' | 'wave_3d' | 'smooth_right_glide';
+  [key: string]: any;
 }
 
 const WatermarkOverlay: React.FC<{
   watermark?: string | null;
   settings: any;
-}> = ({ watermark, settings }) => {
+  onUpdateSettings?: (newSettings: Partial<ViewerWatermarkSettings>) => void;
+  onOpenModal?: () => void;
+}> = ({ watermark, settings, onUpdateSettings, onOpenModal }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const badgeRef = useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [showControls, setShowControls] = useState(false);
 
   const isEnabled = settings?.enabled !== false && (settings?.enabled || watermark || (settings?.text && settings.text.trim().length > 0));
   if (!isEnabled) return null;
 
-  const pattern: ViewerWatermarkPattern = settings?.pattern || (settings?.mode === 'grid' ? 'diagonal_repeat' : settings?.isAnimated ? 'floating' : settings?.mode || 'diagonal_repeat');
+  const pattern: ViewerWatermarkPattern = settings?.pattern || 'smooth_right_glide';
+  const shape: ViewerWatermarkShape = settings?.shape || 'pill';
   const type: ViewerWatermarkType = settings?.type || (watermark ? (settings?.text ? 'both' : 'image') : 'text');
   const color = settings?.color || '#ffffff';
   const text = settings?.text || 'Ahmed SVGA • Ahmed SVGA';
-  const opacity = settings?.opacity !== undefined ? settings.opacity : 0.35;
+  const opacity = settings?.opacity !== undefined ? settings.opacity : 0.45;
   const angle = settings?.angle !== undefined ? settings.angle : -25;
   const logoSrc = settings?.logoUrl || watermark || null;
   const hasText = (type === 'text' || type === 'both') && !!text.trim();
   const hasLogo = (type === 'image' || type === 'both') && !!logoSrc;
   const isAnimated = settings?.isAnimated !== false;
-  const animSpeed = settings?.animationSpeed || 5;
-  const driftDuration = Math.max(2, 14 - animSpeed * 1.1);
+  const animSpeed = settings?.animationSpeed || settings?.speed || 4;
+  const driftDuration = Math.max(1.8, 16 - animSpeed * 1.3);
 
+  // Drag and Drop support
+  const handleDragStart = (clientX: number, clientY: number) => {
+    if (!containerRef.current) return;
+    setIsDragging(true);
+
+    const onMove = (moveEvent: MouseEvent | TouchEvent) => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const curX = 'touches' in moveEvent ? moveEvent.touches[0].clientX : moveEvent.clientX;
+      const curY = 'touches' in moveEvent ? moveEvent.touches[0].clientY : moveEvent.clientY;
+
+      const pctX = Math.max(5, Math.min(95, ((curX - rect.left) / rect.width) * 100));
+      const pctY = Math.max(5, Math.min(95, ((curY - rect.top) / rect.height) * 100));
+
+      if (onUpdateSettings) {
+        onUpdateSettings({
+          pattern: 'custom_drag',
+          customX: Math.round(pctX),
+          customY: Math.round(pctY)
+        });
+      }
+    };
+
+    const onEnd = () => {
+      setIsDragging(false);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onEnd);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onEnd);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onEnd);
+    window.addEventListener('touchmove', onMove);
+    window.addEventListener('touchend', onEnd);
+  };
+
+  // Speed Adjustment
+  const adjustSpeed = (delta: number) => {
+    if (!onUpdateSettings) return;
+    const current = settings?.animationSpeed || 4;
+    const next = Math.max(1, Math.min(10, current + delta));
+    onUpdateSettings({ animationSpeed: next, speed: next });
+  };
+
+  const setSpeedPreset = (val: number) => {
+    if (!onUpdateSettings) return;
+    onUpdateSettings({ animationSpeed: val, speed: val });
+  };
+
+  // Floating bounce animation loop
   useEffect(() => {
     if (pattern !== 'floating' || !containerRef.current || !badgeRef.current || !isAnimated) return;
 
@@ -147,8 +229,8 @@ const WatermarkOverlay: React.FC<{
 
       const badgeW = badge.offsetWidth || 140;
       const badgeH = badge.offsetHeight || 34;
-      const speed = settings?.animationSpeed || 5;
-      const pxPerFrame = speed * 0.95;
+      const speed = settings?.animationSpeed || 4;
+      const pxPerFrame = speed * 1.1;
 
       const maxX = Math.max(1, container.clientWidth - badgeW);
       const maxY = Math.max(1, container.clientHeight - badgeH);
@@ -173,6 +255,92 @@ const WatermarkOverlay: React.FC<{
     return () => cancelAnimationFrame(animationFrameId);
   }, [isEnabled, pattern, isAnimated, settings?.animationSpeed]);
 
+  const getShapeStyle = (): { className: string; style?: React.CSSProperties } => {
+    switch (shape) {
+      case 'glass_card':
+        return {
+          className: 'px-4 py-2 rounded-2xl backdrop-blur-xl border font-black text-xs shadow-2xl transition-all',
+          style: {
+            backgroundColor: 'rgba(6, 10, 24, 0.82)',
+            borderColor: 'rgba(255, 255, 255, 0.22)',
+            color,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.6)'
+          }
+        };
+      case 'neon_glow':
+        return {
+          className: 'px-4 py-2 rounded-2xl border-2 font-black text-xs transition-all',
+          style: {
+            backgroundColor: 'rgba(3, 7, 18, 0.92)',
+            borderColor: color,
+            color,
+            boxShadow: `0 0 25px ${color}80, inset 0 0 10px ${color}30`
+          }
+        };
+      case 'futuristic_hud':
+        return {
+          className: 'px-4 py-2 rounded-lg border-x-4 border-y font-mono font-black text-xs tracking-widest transition-all',
+          style: {
+            backgroundColor: 'rgba(5, 8, 20, 0.92)',
+            borderColor: color,
+            color,
+            boxShadow: `0 0 20px ${color}40`
+          }
+        };
+      case 'stamp_seal':
+        return {
+          className: 'px-4 py-2 rounded-full border-2 border-dashed font-black text-xs -rotate-3 transition-all',
+          style: {
+            backgroundColor: 'rgba(20, 10, 5, 0.92)',
+            borderColor: color,
+            color,
+            boxShadow: `0 0 20px ${color}40`
+          }
+        };
+      case 'ribbon_badge':
+        return {
+          className: 'px-4 py-2 rounded-lg border-r-4 border-l border-y font-black text-xs transition-all',
+          style: {
+            backgroundColor: 'rgba(15, 10, 30, 0.92)',
+            borderColor: color,
+            color,
+            boxShadow: `0 0 20px ${color}40`
+          }
+        };
+      case 'golden_vip':
+        return {
+          className: 'px-4 py-2 rounded-2xl border font-black text-xs transition-all',
+          style: {
+            background: 'linear-gradient(135deg, rgba(30,20,5,0.95), rgba(10,5,0,0.95))',
+            borderColor: '#f59e0b',
+            color: '#fef08a',
+            boxShadow: '0 0 25px rgba(245,158,11,0.45)'
+          }
+        };
+      case 'minimal_clean':
+        return {
+          className: 'p-1 font-black text-xs transition-all',
+          style: {
+            color,
+            textShadow: '0 2px 8px rgba(0,0,0,0.9), 0 0 12px rgba(0,0,0,0.8)'
+          }
+        };
+      case 'pill':
+      default:
+        return {
+          className: 'flex items-center gap-2 px-3.5 py-1.5 rounded-full backdrop-blur-md border shadow-2xl font-black text-xs tracking-wide transition-all',
+          style: {
+            backgroundColor: 'rgba(5, 8, 18, 0.88)',
+            borderColor: `${color}50`,
+            color,
+            boxShadow: `0 0 20px ${color}35`
+          }
+        };
+    }
+  };
+
+  const shapeConfig = getShapeStyle();
+
   const renderBadgeContent = (extraClass = '') => (
     <span className={`inline-flex items-center gap-1.5 select-none ${extraClass}`}>
       {hasLogo && logoSrc && (
@@ -192,7 +360,12 @@ const WatermarkOverlay: React.FC<{
   );
 
   return (
-    <div ref={containerRef} className="absolute inset-0 pointer-events-none overflow-hidden select-none z-40">
+    <div 
+      ref={containerRef} 
+      className="absolute inset-0 pointer-events-none overflow-hidden select-none z-40"
+      onMouseEnter={() => setShowControls(true)}
+      onMouseLeave={() => setShowControls(false)}
+    >
       <style>{`
         @keyframes wmPulseAnim {
           0%, 100% { transform: scale(0.95); opacity: ${Math.max(0.2, opacity * 0.8)}; }
@@ -207,9 +380,222 @@ const WatermarkOverlay: React.FC<{
           0% { transform: translateX(0); }
           100% { transform: translateX(-50%); }
         }
+        @keyframes wmSmoothRightGlide {
+          0% { 
+            transform: translateX(110%) translateY(0px) rotateY(-15deg) rotateZ(-2deg); 
+            opacity: 0.2;
+          }
+          15% {
+            opacity: ${opacity};
+          }
+          50% {
+            transform: translateX(0%) translateY(-15px) rotateY(0deg) rotateZ(0deg);
+            opacity: ${opacity};
+          }
+          85% {
+            opacity: ${opacity};
+          }
+          100% { 
+            transform: translateX(-110%) translateY(10px) rotateY(15deg) rotateZ(2deg); 
+            opacity: 0.2;
+          }
+        }
+        @keyframes wmWave3DLoop {
+          0% { transform: translateX(120%) translateY(20px) scale(0.85) rotate(-4deg); }
+          50% { transform: translateX(0%) translateY(-25px) scale(1.1) rotate(2deg); }
+          100% { transform: translateX(-120%) translateY(20px) scale(0.85) rotate(-4deg); }
+        }
+        @keyframes wmOrbit3DLoop {
+          0% { transform: translate(-50%, -50%) rotate(0deg) translateX(120px) rotate(0deg) scale(0.85); }
+          50% { transform: translate(-50%, -50%) rotate(180deg) translateX(120px) rotate(-180deg) scale(1.15); }
+          100% { transform: translate(-50%, -50%) rotate(360deg) translateX(120px) rotate(-360deg) scale(0.85); }
+        }
+        @keyframes wmCubeRotateLoop {
+          0% { transform: translate(-50%, -50%) rotateY(0deg) rotateX(0deg); }
+          50% { transform: translate(-50%, -50%) rotateY(180deg) rotateX(20deg) scale(1.08); }
+          100% { transform: translate(-50%, -50%) rotateY(360deg) rotateX(0deg); }
+        }
       `}</style>
 
-      {/* 1. Diagonal Repeat Pattern */}
+      {/* Floating Speed & Mode Control Pill on Hover */}
+      {onUpdateSettings && (
+        <div 
+          className={`absolute top-2 right-2 pointer-events-auto z-50 flex items-center gap-1.5 p-1.5 rounded-2xl bg-black/85 backdrop-blur-xl border border-cyan-500/40 shadow-2xl transition-all duration-200 ${
+            showControls ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'
+          }`}
+          dir="rtl"
+        >
+          <span className="text-[10px] font-bold text-slate-300 pr-1 flex items-center gap-1">
+            ⚡ السرعة:
+          </span>
+          <button
+            type="button"
+            onClick={() => adjustSpeed(-1)}
+            className="w-5 h-5 flex items-center justify-center rounded-lg bg-white/10 hover:bg-white/20 text-cyan-300 font-bold text-xs transition-all cursor-pointer"
+            title="تبطيء السرعة 🐢"
+          >
+            -
+          </button>
+          <span className="text-[10px] font-mono font-black text-cyan-400 px-1">
+            {animSpeed}x
+          </span>
+          <button
+            type="button"
+            onClick={() => adjustSpeed(1)}
+            className="w-5 h-5 flex items-center justify-center rounded-lg bg-white/10 hover:bg-white/20 text-cyan-300 font-bold text-xs transition-all cursor-pointer"
+            title="تسريع السرعة 🚀"
+          >
+            +
+          </button>
+
+          <div className="w-[1px] h-4 bg-white/20 mx-0.5" />
+
+          {/* Quick Speed Presets */}
+          <button
+            type="button"
+            onClick={() => setSpeedPreset(2)}
+            className={`px-1.5 py-0.5 rounded-lg text-[9px] font-bold transition-all ${animSpeed <= 2 ? 'bg-cyan-500 text-slate-950 font-black' : 'text-slate-400 hover:text-white'}`}
+          >
+            بطيء 🐢
+          </button>
+          <button
+            type="button"
+            onClick={() => setSpeedPreset(4)}
+            className={`px-1.5 py-0.5 rounded-lg text-[9px] font-bold transition-all ${animSpeed > 2 && animSpeed <= 5 ? 'bg-cyan-500 text-slate-950 font-black' : 'text-slate-400 hover:text-white'}`}
+          >
+            عادي ⚡
+          </button>
+          <button
+            type="button"
+            onClick={() => setSpeedPreset(8)}
+            className={`px-1.5 py-0.5 rounded-lg text-[9px] font-bold transition-all ${animSpeed > 5 ? 'bg-cyan-500 text-slate-950 font-black' : 'text-slate-400 hover:text-white'}`}
+          >
+            سريع 🚀
+          </button>
+
+          {onOpenModal && (
+            <button
+              type="button"
+              onClick={onOpenModal}
+              className="p-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-[9px] font-bold ml-0.5"
+              title="تخصيص كامل للأشكال والأنماط"
+            >
+              ⚙️
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 1. Smooth Right 3D Glide Pattern (حركة انسيابية ثلاثية الأبعاد من اليمين) */}
+      {pattern === 'smooth_right_glide' && (
+        <div 
+          className="absolute inset-0 flex items-center justify-center pointer-events-none"
+          style={{ opacity }}
+        >
+          <div 
+            className="will-change-transform pointer-events-auto cursor-grab active:cursor-grabbing"
+            style={{
+              animation: isAnimated ? `wmSmoothRightGlide ${driftDuration}s ease-in-out infinite` : 'none',
+              perspective: '800px'
+            }}
+            onMouseDown={(e) => handleDragStart(e.clientX, e.clientY)}
+            onTouchStart={(e) => handleDragStart(e.touches[0].clientX, e.touches[0].clientY)}
+            title="انزلاق سلس ثلاثي الأبعاد من اليمين • يمكنك السحب والإفلات لتحديد موضع مخصص"
+          >
+            <div className={shapeConfig.className} style={shapeConfig.style}>
+              {renderBadgeContent()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Wave 3D Sweep Pattern */}
+      {pattern === 'wave_3d' && (
+        <div 
+          className="absolute inset-0 flex items-center justify-center pointer-events-none"
+          style={{ opacity }}
+        >
+          <div 
+            className="will-change-transform pointer-events-auto cursor-grab active:cursor-grabbing"
+            style={{
+              animation: isAnimated ? `wmWave3DLoop ${driftDuration * 1.2}s ease-in-out infinite` : 'none',
+              perspective: '1000px'
+            }}
+            onMouseDown={(e) => handleDragStart(e.clientX, e.clientY)}
+            onTouchStart={(e) => handleDragStart(e.touches[0].clientX, e.touches[0].clientY)}
+          >
+            <div className={shapeConfig.className} style={shapeConfig.style}>
+              {renderBadgeContent()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Circular Orbit 3D Pattern */}
+      {pattern === 'circular_orbit' && (
+        <div 
+          className="absolute inset-0 flex items-center justify-center pointer-events-none"
+          style={{ opacity }}
+        >
+          <div 
+            className="absolute top-1/2 left-1/2 will-change-transform pointer-events-auto cursor-grab active:cursor-grabbing"
+            style={{
+              animation: isAnimated ? `wmOrbit3DLoop ${driftDuration * 1.4}s linear infinite` : 'none',
+            }}
+            onMouseDown={(e) => handleDragStart(e.clientX, e.clientY)}
+            onTouchStart={(e) => handleDragStart(e.touches[0].clientX, e.touches[0].clientY)}
+          >
+            <div className={shapeConfig.className} style={shapeConfig.style}>
+              {renderBadgeContent()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Cube Rotation 3D Pattern */}
+      {pattern === 'cube_rotation' && (
+        <div 
+          className="absolute inset-0 flex items-center justify-center pointer-events-none"
+          style={{ opacity }}
+        >
+          <div 
+            className="absolute top-1/2 left-1/2 will-change-transform pointer-events-auto cursor-grab active:cursor-grabbing"
+            style={{
+              animation: isAnimated ? `wmCubeRotateLoop ${driftDuration * 1.5}s ease-in-out infinite` : 'none',
+              transformStyle: 'preserve-3d',
+              perspective: '800px'
+            }}
+            onMouseDown={(e) => handleDragStart(e.clientX, e.clientY)}
+            onTouchStart={(e) => handleDragStart(e.touches[0].clientX, e.touches[0].clientY)}
+          >
+            <div className={shapeConfig.className} style={shapeConfig.style}>
+              {renderBadgeContent()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Custom Draggable Position (السحب والإفلات الحر) */}
+      {pattern === 'custom_drag' && (
+        <div 
+          className="absolute pointer-events-auto cursor-grab active:cursor-grabbing will-change-transform z-40 transition-transform hover:scale-105"
+          style={{
+            left: `${settings?.customX !== undefined ? settings.customX : 75}%`,
+            top: `${settings?.customY !== undefined ? settings.customY : 80}%`,
+            transform: 'translate(-50%, -50%)',
+            opacity
+          }}
+          onMouseDown={(e) => handleDragStart(e.clientX, e.clientY)}
+          onTouchStart={(e) => handleDragStart(e.touches[0].clientX, e.touches[0].clientY)}
+          title="موضع حر (اسحب للإفلات في أي مكان على الشاشة 🎯)"
+        >
+          <div className={shapeConfig.className} style={shapeConfig.style}>
+            {renderBadgeContent()}
+          </div>
+        </div>
+      )}
+
+      {/* 6. Diagonal Repeat Pattern */}
       {pattern === 'diagonal_repeat' && (
         <div 
           className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden"
@@ -241,7 +627,7 @@ const WatermarkOverlay: React.FC<{
         </div>
       )}
 
-      {/* 2. Horizontal Bands Pattern */}
+      {/* 7. Horizontal Bands Pattern */}
       {pattern === 'horizontal_bands' && (
         <div 
           className="absolute inset-0 flex flex-col justify-around pointer-events-none overflow-hidden py-3"
@@ -265,51 +651,40 @@ const WatermarkOverlay: React.FC<{
         </div>
       )}
 
-      {/* 3. Floating Bouncing Badge */}
+      {/* 8. Floating Bouncing Badge */}
       {pattern === 'floating' && (
         <div
           ref={badgeRef}
-          className="absolute top-2 left-2 pointer-events-none will-change-transform"
+          className="absolute top-2 left-2 pointer-events-auto cursor-grab active:cursor-grabbing will-change-transform"
           style={{ opacity }}
+          onMouseDown={(e) => handleDragStart(e.clientX, e.clientY)}
+          onTouchStart={(e) => handleDragStart(e.touches[0].clientX, e.touches[0].clientY)}
+          title="عائم متحرك (اسحب لتغيير الموضع)"
         >
-          <div 
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-md border shadow-2xl font-black text-xs tracking-wide"
-            style={{
-              backgroundColor: 'rgba(5, 8, 18, 0.85)',
-              borderColor: `${color}45`,
-              color,
-              boxShadow: `0 0 20px ${color}35`
-            }}
-          >
+          <div className={shapeConfig.className} style={shapeConfig.style}>
             {renderBadgeContent()}
           </div>
         </div>
       )}
 
-      {/* 4. Pulsing Corner Badge */}
+      {/* 9. Pulsing Corner Badge */}
       {pattern === 'pulse' && (
         <div 
-          className="absolute bottom-3 right-3 pointer-events-none"
+          className="absolute bottom-3 right-3 pointer-events-auto cursor-grab active:cursor-grabbing"
           style={{ animation: isAnimated ? 'wmPulseAnim 2.2s ease-in-out infinite' : 'none', opacity }}
+          onMouseDown={(e) => handleDragStart(e.clientX, e.clientY)}
+          onTouchStart={(e) => handleDragStart(e.touches[0].clientX, e.touches[0].clientY)}
         >
-          <div 
-            className="flex items-center gap-2 px-3 py-1.5 rounded-2xl backdrop-blur-md border shadow-2xl font-black text-xs"
-            style={{
-              backgroundColor: 'rgba(5, 8, 18, 0.85)',
-              borderColor: `${color}50`,
-              color,
-              boxShadow: `0 0 25px ${color}40`
-            }}
-          >
+          <div className={shapeConfig.className} style={shapeConfig.style}>
             {renderBadgeContent()}
           </div>
         </div>
       )}
 
-      {/* 5. Single Fixed Position */}
+      {/* 10. Single Fixed Position */}
       {pattern === 'single_position' && (
         <div 
-          className={`absolute pointer-events-none p-3 flex ${
+          className={`absolute pointer-events-auto cursor-grab active:cursor-grabbing p-3 flex ${
             settings?.position === 'top-left' ? 'top-2 left-2' :
             settings?.position === 'top-center' ? 'top-2 left-1/2 -translate-x-1/2' :
             settings?.position === 'top-right' ? 'top-2 right-2' :
@@ -321,16 +696,11 @@ const WatermarkOverlay: React.FC<{
             'bottom-2 right-2'
           }`}
           style={{ opacity }}
+          onMouseDown={(e) => handleDragStart(e.clientX, e.clientY)}
+          onTouchStart={(e) => handleDragStart(e.touches[0].clientX, e.touches[0].clientY)}
+          title="موضع ثابت (يمكنك سحب العلامة وإفلاتها لتغيير مكانها بحرية)"
         >
-          <div 
-            className="flex items-center gap-2 px-3 py-1.5 rounded-2xl backdrop-blur-md border shadow-xl font-black text-xs"
-            style={{
-              backgroundColor: 'rgba(5, 8, 18, 0.85)',
-              borderColor: `${color}40`,
-              color,
-              boxShadow: `0 0 20px ${color}30`
-            }}
-          >
+          <div className={shapeConfig.className} style={shapeConfig.style}>
             {renderBadgeContent()}
           </div>
         </div>
@@ -5431,7 +5801,14 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 >
                   {previewBg && <img src={previewBg} alt="Background" className="absolute inset-0 w-full h-full object-cover z-0" referrerPolicy="no-referrer" />}
                   <SvgaPlayer item={selectedItem} />
-                  {(wmSettings?.enabled || watermark) && <WatermarkOverlay watermark={watermark} settings={wmSettings} />}
+                  {(wmSettings?.enabled || watermark) && (
+                    <WatermarkOverlay 
+                      watermark={watermark} 
+                      settings={wmSettings} 
+                      onUpdateSettings={updateAndSaveWmSettings}
+                      onOpenModal={() => setIsWatermarkModalOpen(true)}
+                    />
+                  )}
                 </div>
               </div>
 
@@ -6485,7 +6862,14 @@ const SvgaCard: React.FC<{
         />
 
         {/* Watermark */}
-        {(wmSettings?.enabled || watermark) && <WatermarkOverlay watermark={watermark} settings={wmSettings} />}
+        {(wmSettings?.enabled || watermark) && (
+          <WatermarkOverlay 
+            watermark={watermark} 
+            settings={wmSettings} 
+            onUpdateSettings={updateAndSaveWmSettings}
+            onOpenModal={() => setIsWatermarkModalOpen(true)}
+          />
+        )}
         
         {/* Selection Checkbox */}
         {onToggleSelect && (

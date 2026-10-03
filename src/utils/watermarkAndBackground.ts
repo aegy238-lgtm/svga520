@@ -8,8 +8,9 @@ export interface WatermarkConfig {
   opacity: number; // 0.1 to 1.0
   fontSize: number; // 14 to 48
   color: string;
-  style: 'bouncing' | 'diagonal_scroll' | 'tiled' | 'corner_pulse';
+  style: 'bouncing' | 'diagonal_scroll' | 'tiled' | 'corner_pulse' | 'wave_3d' | 'orbit_3d' | 'waterfall' | 'cube_3d' | 'perimeter_frame' | 'matrix';
   textColor: string;
+  speed?: number; // 0.1 to 10 (e.g. 0.5x, 1x, 2.5x, 5x, 8x)
   showTimestamp?: boolean;
 }
 
@@ -28,10 +29,14 @@ export interface UniversalWatermarkSettings {
   color?: string;
   opacity?: number;
   fontSize?: number;
-  pattern?: 'diagonal_repeat' | 'horizontal_bands' | 'floating' | 'pulse' | 'orbit' | 'single';
+  shape?: 'pill' | 'glass_card' | 'neon_glow' | 'futuristic_hud' | 'stamp_seal' | 'ribbon_badge' | 'golden_vip' | 'minimal_clean';
+  pattern?: 'smooth_right_glide' | 'wave_3d' | 'diagonal_repeat' | 'horizontal_bands' | 'floating' | 'pulse' | 'orbit' | 'circular_orbit' | 'cube_rotation' | 'single' | 'custom_drag' | 'waterfall' | 'perimeter_frame' | 'matrix_stream';
   position?: string;
+  customX?: number; // 0 to 100 percentage
+  customY?: number; // 0 to 100 percentage
   isAnimated?: boolean;
   animationSpeed?: number;
+  speed?: number; // Speed factor (0.1x to 10x)
   angle?: number;
   shadow?: boolean;
   logoUrl?: string | null;
@@ -52,9 +57,10 @@ export function getSavedWatermarkSettings(): UniversalWatermarkSettings {
         text: 'Ahmed SVGA • Ahmed SVGA',
         color: '#ffffff',
         opacity: 0.45,
-        pattern: 'diagonal_repeat',
+        pattern: 'wave_3d',
         isAnimated: true,
-        animationSpeed: 5,
+        animationSpeed: 2.5,
+        speed: 2.5,
         angle: -25,
       };
     }
@@ -74,9 +80,10 @@ export function getSavedWatermarkSettings(): UniversalWatermarkSettings {
       text: pinnedText,
       color: '#ffffff',
       opacity: 0.45,
-      pattern: 'diagonal_repeat',
+      pattern: 'wave_3d',
       isAnimated: true,
-      animationSpeed: 5,
+      animationSpeed: 2.5,
+      speed: 2.5,
       angle: -25,
     };
   } catch {
@@ -86,9 +93,10 @@ export function getSavedWatermarkSettings(): UniversalWatermarkSettings {
       text: 'Ahmed SVGA • Ahmed SVGA',
       color: '#ffffff',
       opacity: 0.45,
-      pattern: 'diagonal_repeat',
+      pattern: 'wave_3d',
       isAnimated: true,
-      animationSpeed: 5,
+      animationSpeed: 2.5,
+      speed: 2.5,
       angle: -25,
     };
   }
@@ -141,7 +149,7 @@ export function drawCustomBackground(
 
 /**
  * Universal Watermark Drawer for Canvas
- * Draws text, image, compound badges, diagonal repeat, horizontal bands, floating, and pulse animations.
+ * Ultra-Smooth 3D Motion Physics Engine with speed control, 3D sine sweeps, perspective transforms, and fluid easing.
  */
 export function drawUniversalWatermarkOnCanvas(
   ctx: CanvasRenderingContext2D,
@@ -158,7 +166,7 @@ export function drawUniversalWatermarkOnCanvas(
   const color = activeSettings.color || '#ffffff';
   const rawText = activeSettings.text || (typeof window !== 'undefined' ? localStorage.getItem('svga_permanent_watermark_text') : null) || 'Ahmed SVGA • Ahmed SVGA';
   const text = rawText.trim();
-  const pattern = activeSettings.pattern || (activeSettings.isAnimated ? 'floating' : 'diagonal_repeat');
+  const pattern = activeSettings.pattern || (activeSettings.isAnimated ? 'wave_3d' : 'diagonal_repeat');
   const type = activeSettings.type || (wmImg ? (text ? 'both' : 'image') : 'text');
   const angle = activeSettings.angle !== undefined ? activeSettings.angle : -25;
   let hasText = (type === 'text' || type === 'both' || !wmImg) && !!text;
@@ -170,17 +178,21 @@ export function drawUniversalWatermarkOnCanvas(
 
   if (!hasText && !hasImage) return;
 
+  // Speed physics calculation (supports speed values like 0.2x, 0.5x, 1x, 2.5x, 5x, 8x)
+  const rawSpeed = activeSettings.speed ?? activeSettings.animationSpeed ?? 2.5;
+  const speedFactor = rawSpeed > 10 ? rawSpeed / 5 : (rawSpeed < 0.05 ? 0.5 : rawSpeed);
+
   ctx.save();
   ctx.globalAlpha = Math.max(0.05, Math.min(1.0, opacity));
 
   const fontSize = Math.max(12, activeSettings.fontSize || Math.round(Math.min(width, height) * 0.038));
-  ctx.font = `900 ${fontSize}px "Noto Sans Arabic", "Segoe UI", system-ui, -apple-system, sans-serif`;
+  ctx.font = `900 ${fontSize}px "Noto Sans Arabic", "Tajawal", "Segoe UI", system-ui, -apple-system, sans-serif`;
   ctx.fillStyle = color;
   ctx.textBaseline = 'middle';
 
   if (activeSettings.shadow !== false) {
     ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
-    ctx.shadowBlur = 6;
+    ctx.shadowBlur = 8;
     ctx.shadowOffsetX = 2;
     ctx.shadowOffsetY = 2;
   } else {
@@ -204,10 +216,188 @@ export function drawUniversalWatermarkOnCanvas(
   };
 
   const isAnimated = activeSettings.isAnimated !== false;
-  const animSpeed = activeSettings.animationSpeed || 5;
-  const animOffset = isAnimated ? (frame * animSpeed * 1.2) : 0;
+  const animOffset = isAnimated ? (frame * speedFactor * 4) : 0;
 
-  if (pattern === 'diagonal_repeat') {
+  if (pattern === 'smooth_right_glide') {
+    // Ultra-Smooth 3D Fluid Glide starting from the Right side across the canvas with 3D tilt
+    ctx.save();
+    const widthMargin = compoundW + 100;
+    const totalDist = width + widthMargin * 2;
+    const progress = (frame * speedFactor * 3.5) % totalDist;
+    
+    // Smooth Right-to-Left sweep
+    const baseX = width + widthMargin - progress;
+    const cycle = (frame * speedFactor * 0.025) % (Math.PI * 2);
+    const waveY = height * 0.5 + Math.sin(baseX * 0.005 + cycle) * (height * 0.22);
+    
+    // 3D Perspective Tilt & Depth Factor
+    const zDepth = Math.cos(baseX * 0.006 + cycle);
+    const scale = 0.82 + (zDepth + 1) * 0.18; // 0.82x to 1.18x
+    const alpha3D = 0.5 + (zDepth + 1) * 0.25;
+
+    ctx.translate(baseX, waveY);
+    ctx.scale(scale, scale);
+    ctx.rotate(zDepth * 0.15); // Fluid 3D Tilt angle
+    ctx.globalAlpha = Math.max(0.1, Math.min(1.0, opacity * alpha3D));
+
+    // Render Badge Box
+    const badgeW = compoundW + 32;
+    const badgeH = Math.max(fontSize, imgSize) + 18;
+    ctx.fillStyle = 'rgba(6, 10, 24, 0.9)';
+    ctx.strokeStyle = `${color}70`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(-badgeW / 2, -badgeH / 2, badgeW, badgeH, 20);
+    else ctx.rect(-badgeW / 2, -badgeH / 2, badgeW, badgeH);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = color;
+    drawCompoundBadge(-badgeW / 2 + 16, 0);
+    ctx.restore();
+  } else if (pattern === 'wave_3d' || pattern === 'wave_sine') {
+    // Ultra-Fluid 3D Wave Sweep from Right to Left with Perspective Depth & Tilt
+    ctx.save();
+    const cycle = (frame * speedFactor * 0.03) % (Math.PI * 2);
+    const widthMargin = compoundW + 120;
+    const totalDist = width + widthMargin * 2;
+    const progress = (frame * speedFactor * 3.8) % totalDist;
+    
+    // Smooth Right-to-Left sweep
+    const baseX = width + widthMargin - progress;
+    const waveY = height / 2 + Math.sin(baseX * 0.007 + cycle) * (height * 0.28);
+    
+    // 3D Perspective Depth Factor (-1 to +1)
+    const zDepth = Math.cos(baseX * 0.007 + cycle);
+    const scale = 0.75 + (zDepth + 1) * 0.25; // 0.75x (far) to 1.25x (near)
+    const alpha3D = 0.4 + (zDepth + 1) * 0.3; // Depth fading
+
+    ctx.translate(baseX, waveY);
+    ctx.scale(scale, scale);
+    ctx.rotate(zDepth * 0.18); // 3D Perspective Rotation
+    ctx.globalAlpha = Math.max(0.08, Math.min(1.0, opacity * alpha3D));
+
+    // Glass Badge Container
+    const badgeW = compoundW + 30;
+    const badgeH = Math.max(fontSize, imgSize) + 18;
+    ctx.fillStyle = 'rgba(6, 10, 24, 0.88)';
+    ctx.strokeStyle = `${color}60`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(-badgeW / 2, -badgeH / 2, badgeW, badgeH, 16);
+    else ctx.rect(-badgeW / 2, -badgeH / 2, badgeW, badgeH);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = color;
+    drawCompoundBadge(-badgeW / 2 + 15, 0);
+    ctx.restore();
+  } else if (pattern === 'circular_orbit' || pattern === 'orbit') {
+    // 3D Elliptical Perspective Orbit
+    ctx.save();
+    const angleRad = (frame * speedFactor * 0.04) % (Math.PI * 2);
+    const rx = width * 0.38;
+    const ry = height * 0.22;
+    const cx = width / 2;
+    const cy = height / 2;
+
+    const x = cx + Math.cos(angleRad) * rx;
+    const y = cy + Math.sin(angleRad) * ry;
+
+    // 3D Z-Depth Scaling
+    const z = Math.sin(angleRad);
+    const scale = 0.7 + (z + 1) * 0.3;
+    const depthAlpha = 0.35 + (z + 1) * 0.32;
+
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.rotate(z * 0.12);
+    ctx.globalAlpha = Math.max(0.08, Math.min(1.0, opacity * depthAlpha));
+
+    const badgeW = compoundW + 30;
+    const badgeH = Math.max(fontSize, imgSize) + 18;
+    ctx.fillStyle = 'rgba(6, 10, 24, 0.88)';
+    ctx.strokeStyle = `${color}60`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(-badgeW / 2, -badgeH / 2, badgeW, badgeH, 16);
+    else ctx.rect(-badgeW / 2, -badgeH / 2, badgeW, badgeH);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = color;
+    drawCompoundBadge(-badgeW / 2 + 15, 0);
+    ctx.restore();
+  } else if (pattern === 'cube_rotation' || pattern === 'cube_3d') {
+    // 3D Floating Glass Cube Shield with Transform Matrix
+    ctx.save();
+    const progress = (frame * speedFactor * 0.035) % (Math.PI * 2);
+    const cx = width / 2 + Math.sin(progress) * (width * 0.3);
+    const cy = height / 2 + Math.cos(progress * 1.4) * (height * 0.22);
+
+    const skewX = Math.sin(progress * 2) * 0.18;
+    const scaleY = 0.82 + Math.cos(progress) * 0.18;
+
+    ctx.translate(cx, cy);
+    ctx.transform(1, skewX, 0, scaleY, 0, 0);
+    ctx.globalAlpha = Math.max(0.1, Math.min(1.0, opacity));
+
+    const badgeW = compoundW + 32;
+    const badgeH = Math.max(fontSize, imgSize) + 20;
+    ctx.fillStyle = 'rgba(8, 12, 28, 0.9)';
+    ctx.strokeStyle = `${color}80`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(-badgeW / 2, -badgeH / 2, badgeW, badgeH, 16);
+    else ctx.rect(-badgeW / 2, -badgeH / 2, badgeW, badgeH);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = color;
+    drawCompoundBadge(-badgeW / 2 + 16, 0);
+    ctx.restore();
+  } else if (pattern === 'waterfall') {
+    // Vertical Cascading Waterfall
+    ctx.save();
+    const stepX = Math.max(140, (activeSettings.spacingX || 220) + compoundW);
+    const stepY = Math.max(60, activeSettings.spacingY || 130);
+    const driftY = isAnimated ? ((frame * speedFactor * 3) % stepY) : 0;
+    for (let x = 60; x < width + stepX; x += stepX) {
+      for (let y = -stepY; y < height + stepY; y += stepY) {
+        drawCompoundBadge(x, y + driftY);
+      }
+    }
+    ctx.restore();
+  } else if (pattern === 'perimeter_frame') {
+    // Clockwise Perimeter Loop
+    ctx.save();
+    const perimeter = (width + height) * 2;
+    const progress = (frame * speedFactor * 5) % perimeter;
+    let x = 20, y = 20;
+    if (progress < width) {
+      x = progress; y = 20;
+    } else if (progress < width + height) {
+      x = width - compoundW - 20; y = progress - width;
+    } else if (progress < width * 2 + height) {
+      x = width - (progress - (width + height)) - compoundW; y = height - fontSize - 20;
+    } else {
+      x = 20; y = height - (progress - (width * 2 + height)) - fontSize;
+    }
+    drawCompoundBadge(Math.max(10, Math.min(width - compoundW - 10, x)), Math.max(20, Math.min(height - 20, y)));
+    ctx.restore();
+  } else if (pattern === 'matrix_stream') {
+    // Falling Digital Matrix Columns
+    ctx.save();
+    const cols = Math.floor(width / (compoundW + 60)) || 1;
+    const stepX = width / cols;
+    for (let i = 0; i < cols; i++) {
+      const colSpeed = (1 + (i % 3) * 0.4) * speedFactor * 2.5;
+      const y = ((frame * colSpeed + i * 140) % (height + 120)) - 60;
+      const x = i * stepX + 20;
+      drawCompoundBadge(x, y);
+    }
+    ctx.restore();
+  } else if (pattern === 'diagonal_repeat' || pattern === 'diagonal_scroll' || pattern === 'tiled') {
     ctx.save();
     ctx.translate(width / 2, height / 2);
     ctx.rotate((angle * Math.PI) / 180);
@@ -239,9 +429,8 @@ export function drawUniversalWatermarkOnCanvas(
       }
     }
     ctx.restore();
-  } else if (pattern === 'floating') {
-    const speed = activeSettings.animationSpeed || 5;
-    const pxPerFrame = speed * 1.5;
+  } else if (pattern === 'floating' || pattern === 'bouncing') {
+    const pxPerFrame = speedFactor * 3.5;
     const badgeW = compoundW + 28;
     const badgeH = Math.max(fontSize, imgSize) + 16;
     const maxX = Math.max(1, width - badgeW);
@@ -254,8 +443,8 @@ export function drawUniversalWatermarkOnCanvas(
     const wy = modY > maxY ? (maxY * 2) - modY : modY;
 
     ctx.save();
-    ctx.fillStyle = 'rgba(5, 8, 18, 0.85)';
-    ctx.strokeStyle = `${color}45`;
+    ctx.fillStyle = 'rgba(5, 8, 18, 0.88)';
+    ctx.strokeStyle = `${color}55`;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(wx, wy, badgeW, badgeH, 14);
@@ -267,14 +456,14 @@ export function drawUniversalWatermarkOnCanvas(
     drawCompoundBadge(wx + 14, wy + badgeH / 2);
     ctx.restore();
   } else if (pattern === 'pulse') {
-    const scale = 1 + Math.sin(frame * 0.1) * 0.05;
+    const scale = 1 + Math.sin(frame * 0.1 * speedFactor) * 0.08;
     const badgeW = (compoundW + 24) * scale;
     const badgeH = (Math.max(fontSize, imgSize) + 16) * scale;
     const wx = width - badgeW - 20;
     const wy = height - badgeH - 20;
 
     ctx.save();
-    ctx.fillStyle = 'rgba(5, 8, 18, 0.85)';
+    ctx.fillStyle = 'rgba(5, 8, 18, 0.88)';
     ctx.strokeStyle = `${color}50`;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -285,6 +474,35 @@ export function drawUniversalWatermarkOnCanvas(
 
     ctx.fillStyle = color;
     drawCompoundBadge(wx + 12, wy + badgeH / 2);
+    ctx.restore();
+  } else if (pattern === 'custom_drag') {
+    // Free Dragged Position (customX and customY in percentage or pixels)
+    const customXPct = activeSettings.customX !== undefined ? activeSettings.customX : 80;
+    const customYPct = activeSettings.customY !== undefined ? activeSettings.customY : 85;
+    const badgeW = compoundW + 28;
+    const badgeH = Math.max(fontSize, imgSize) + 16;
+    
+    // Calculate coordinates with boundary clamping
+    const rawX = (customXPct / 100) * width - badgeW / 2;
+    const rawY = (customYPct / 100) * height - badgeH / 2;
+    const px = Math.max(10, Math.min(width - badgeW - 10, rawX));
+    const py = Math.max(10, Math.min(height - badgeH - 10, rawY));
+
+    // Optional gentle breathing hover float when animated
+    const hoverY = isAnimated ? Math.sin(frame * speedFactor * 0.08) * 4 : 0;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(6, 10, 24, 0.9)';
+    ctx.strokeStyle = `${color}60`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(px, py + hoverY, badgeW, badgeH, 16);
+    else ctx.rect(px, py + hoverY, badgeW, badgeH);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = color;
+    drawCompoundBadge(px + 14, py + hoverY + badgeH / 2);
     ctx.restore();
   } else {
     // Single position
@@ -326,7 +544,13 @@ export function drawAnimatedWatermark(
     'bouncing': 'floating',
     'diagonal_scroll': 'diagonal_repeat',
     'tiled': 'diagonal_repeat',
-    'corner_pulse': 'pulse'
+    'corner_pulse': 'pulse',
+    'wave_3d': 'wave_3d',
+    'orbit_3d': 'circular_orbit',
+    'waterfall': 'waterfall',
+    'cube_3d': 'cube_rotation',
+    'perimeter_frame': 'perimeter_frame',
+    'matrix': 'matrix_stream'
   };
 
   const adaptedSettings: UniversalWatermarkSettings = {
@@ -336,9 +560,10 @@ export function drawAnimatedWatermark(
     color: config.textColor || '#ffffff',
     opacity: config.opacity || 0.45,
     fontSize: config.fontSize,
-    pattern: styleMap[config.style] || 'diagonal_repeat',
+    pattern: styleMap[config.style] || 'wave_3d',
     isAnimated: true,
-    animationSpeed: 5,
+    animationSpeed: config.speed || 2.5,
+    speed: config.speed || 2.5,
   };
 
   drawUniversalWatermarkOnCanvas(ctx, width, height, frameIndex, adaptedSettings, null);

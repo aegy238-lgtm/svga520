@@ -195,8 +195,67 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({
     fontSize: 24,
     color: '#ffffff',
     textColor: '#ffffff',
-    style: 'bouncing'
+    style: 'wave_3d',
+    speed: 2.5
   });
+
+  const [isDragging, setIsDragging] = useState(false);
+
+  const processBatchFiles = async (selectedFiles: File[]) => {
+    if (!selectedFiles || selectedFiles.length === 0) return;
+
+    const newFiles: SvgaFile[] = selectedFiles.map(file => ({
+      file,
+      id: Math.random().toString(36).substring(2, 11) + Date.now() + Math.random().toString(36).substr(2, 4),
+      status: 'pending',
+      progress: 0,
+      targetFormat: exportFormat
+    }));
+    setFiles(prev => [...prev, ...newFiles]);
+
+    // Also populate viewer items so the viewer tab is always ready
+    try {
+      const items = await Promise.all(selectedFiles.map(async file => {
+        const detected = await detectViewerFormat(file);
+        return {
+          id: `viewer_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+          name: file.name,
+          file,
+          url: URL.createObjectURL(file),
+          format: detected,
+          size: file.size
+        } as ViewerItem;
+      }));
+      setViewerItems(prev => [...items, ...prev]);
+    } catch (e) {
+      console.error('Error generating viewer items:', e);
+    }
+
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDragging) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const droppedFiles = Array.from(e.dataTransfer.files) as File[];
+      await processBatchFiles(droppedFiles);
+    }
+  };
 
   const shouldStopRef = useRef(false);
 
@@ -272,32 +331,7 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(e.target.files || []) as File[];
     if (selectedFiles.length === 0) return;
-
-    const newFiles: SvgaFile[] = selectedFiles.map(file => ({
-      file,
-      id: Math.random().toString(36).substring(2, 11) + Date.now() + Math.random().toString(36).substr(2, 4),
-      status: 'pending',
-      progress: 0,
-      targetFormat: exportFormat
-    }));
-    setFiles(prev => [...prev, ...newFiles]);
-
-    // Also populate viewer items so the viewer tab is always ready
-    Promise.all(selectedFiles.map(async file => {
-      const detected = await detectViewerFormat(file);
-      return {
-        id: `viewer_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
-        name: file.name,
-        file,
-        url: URL.createObjectURL(file),
-        format: detected,
-        size: file.size
-      } as ViewerItem;
-    })).then(items => {
-      setViewerItems(prev => [...items, ...prev]);
-    });
-
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    await processBatchFiles(selectedFiles);
   };
 
   const removeFile = (id: string) => {
@@ -1281,22 +1315,91 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 bg-black/40 p-1 rounded-xl border border-white/5">
+                    {/* Patterns Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 bg-black/40 p-1.5 rounded-xl border border-white/5">
                       {[
+                        { id: 'wave_3d', label: 'موجة ثلاثية الأبعاد 🌊' },
                         { id: 'bouncing', label: 'عائمة ومتحركة 🎾' },
                         { id: 'diagonal_scroll', label: 'انسياب قطري 📜' },
                         { id: 'tiled', label: 'شبكة مكررة 🛡️' },
-                        { id: 'corner_pulse', label: 'نبض بالزاوية 💫' }
+                        { id: 'corner_pulse', label: 'نبض بالزاوية 💫' },
+                        { id: 'orbit_3d', label: 'مدار ثلاثي 🪐' },
+                        { id: 'cube_3d', label: 'مكعب وسطي 🧊' },
+                        { id: 'waterfall', label: 'شلال عمودي 💧' },
+                        { id: 'perimeter_frame', label: 'إطار محيطي 🖼️' },
+                        { id: 'matrix', label: 'مصفوفة متساقطة 💻' }
                       ].map(st => (
                         <button
                           key={st.id}
                           type="button"
                           onClick={() => setWatermarkConfig(prev => ({ ...prev, style: st.id as any }))}
-                          className={`py-1.5 px-2 rounded-lg text-[10px] font-black transition-all ${watermarkConfig.style === st.id ? 'bg-pink-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                          className={`py-1.5 px-2 rounded-lg text-[10px] font-black transition-all ${watermarkConfig.style === st.id ? 'bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow-md font-extrabold' : 'text-slate-400 hover:text-white bg-white/5'}`}
                         >
                           {st.label}
                         </button>
                       ))}
+                    </div>
+
+                    {/* Speed Controls (إبطاء / تسريع الحركة) */}
+                    <div className="bg-black/30 p-2.5 rounded-xl border border-white/5 space-y-2">
+                      <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+                        <span className="flex items-center gap-1 text-pink-400 font-extrabold">
+                          ⚡ سرعة الحركة (إبطاء / تسريع):
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setWatermarkConfig(prev => ({ ...prev, speed: Math.max(0.2, (prev.speed || 2.5) - 0.5) }))}
+                            className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded-lg text-xs text-pink-300 font-extrabold border border-white/10 active:scale-95"
+                            title="إبطاء الحركة"
+                          >
+                            🐢 إبطاء (-0.5)
+                          </button>
+                          <span className="text-xs font-black text-amber-300 px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 rounded-md">
+                            {(watermarkConfig.speed || 2.5).toFixed(1)}x
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setWatermarkConfig(prev => ({ ...prev, speed: Math.min(8.0, (prev.speed || 2.5) + 0.5) }))}
+                            className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded-lg text-xs text-indigo-300 font-extrabold border border-white/10 active:scale-95"
+                            title="تسريع الحركة"
+                          >
+                            🚀 تسريع (+0.5)
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Speed Presets */}
+                      <div className="flex items-center gap-1.5 justify-between flex-wrap">
+                        {[
+                          { val: 0.5, label: '0.5x بطيئة جداً 🐢' },
+                          { val: 1.0, label: '1.0x بطيئة 🚶' },
+                          { val: 2.5, label: '2.5x متوازنة 🏃' },
+                          { val: 5.0, label: '5.0x سريعة 🚀' },
+                          { val: 8.0, label: '8.0x فائقة ⚡' }
+                        ].map(sp => (
+                          <button
+                            key={sp.val}
+                            type="button"
+                            onClick={() => setWatermarkConfig(prev => ({ ...prev, speed: sp.val }))}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all ${Math.abs((watermarkConfig.speed || 2.5) - sp.val) < 0.1 ? 'bg-amber-500 text-black shadow font-black' : 'bg-slate-800 text-slate-300 hover:text-white'}`}
+                          >
+                            {sp.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="range"
+                          min={0.2}
+                          max={8.0}
+                          step={0.1}
+                          value={watermarkConfig.speed || 2.5}
+                          onChange={(e) => setWatermarkConfig(prev => ({ ...prev, speed: parseFloat(e.target.value) }))}
+                          className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-400"
+                        />
+                      </div>
                     </div>
 
                     <div className="flex items-center justify-between text-xs text-slate-400">
@@ -1316,18 +1419,24 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({
               </div>
             </div>
 
-            {/* Upload Area */}
+            {/* Upload Drop Zone */}
             <div 
               onClick={() => fileInputRef.current?.click()}
-              className="relative group cursor-pointer mb-8"
+              onDragOver={handleDragOver}
+              onDragEnter={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`relative group cursor-pointer mb-8 transition-all duration-300 ${isDragging ? 'scale-[1.02]' : ''}`}
             >
-              <div className="absolute -inset-1 bg-gradient-to-r from-pink-500 to-indigo-600 rounded-[3rem] blur opacity-20 group-hover:opacity-40 transition duration-1000 group-hover:duration-200"></div>
-              <div className="relative bg-[#0f172a]/80 border-2 border-dashed border-white/10 rounded-[3rem] p-12 flex flex-col items-center justify-center gap-4 hover:border-pink-500/50 transition-all">
-                <div className="w-20 h-20 bg-pink-500/10 rounded-3xl flex items-center justify-center group-hover:scale-110 transition-transform duration-500">
-                  <Upload className="w-10 h-10 text-pink-400" />
+              <div className={`absolute -inset-1 bg-gradient-to-r from-pink-500 via-purple-600 to-indigo-600 rounded-[3rem] blur transition duration-300 ${isDragging ? 'opacity-90 ring-4 ring-pink-400 scale-105' : 'opacity-20 group-hover:opacity-40'}`}></div>
+              <div className={`relative border-2 border-dashed rounded-[3rem] p-12 flex flex-col items-center justify-center gap-4 transition-all ${isDragging ? 'border-pink-400 bg-pink-950/40 text-pink-200 shadow-[0_0_50px_rgba(236,72,153,0.3)]' : 'bg-[#0f172a]/80 border-white/10 hover:border-pink-500/50'}`}>
+                <div className={`w-20 h-20 rounded-3xl flex items-center justify-center transition-transform duration-500 ${isDragging ? 'bg-pink-500/30 scale-125' : 'bg-pink-500/10 group-hover:scale-110'}`}>
+                  <Upload className={`w-10 h-10 ${isDragging ? 'text-white animate-bounce' : 'text-pink-400'}`} />
                 </div>
                 <div className="text-center">
-                  <h3 className="text-xl font-black text-white mb-1">اسحب أو ارفع أي ملفات هنا للتحويل الجماعي (SVGA, YYEVA, VAP, WebM, GIF, ZIP, MP4)</h3>
+                  <h3 className="text-xl font-black text-white mb-1">
+                    {isDragging ? 'افلت الملفات الآن للرفع الفوري 🚀' : 'اسحب أو ارفع أي ملفات هنا للتحويل الجماعي (SVGA, YYEVA, VAP, WebM, GIF, ZIP, MP4)'}
+                  </h3>
                   <p className="text-slate-400 font-bold text-xs mt-1">يدعم رفع وتحويل عدد كبير من الملفات دفعة واحدة إلى فيديو MP4 قياسي مع دمج الصوت والخلفية والعلامة المائية</p>
                 </div>
                 <input
