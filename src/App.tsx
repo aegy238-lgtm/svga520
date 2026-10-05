@@ -91,6 +91,7 @@ const VapHub = lazyWithRetry(() => import('./components/VapHub').then(m => ({ de
 const EmbeddedPortalViewer = lazyWithRetry(() => import('./components/EmbeddedPortalViewer').then(m => ({ default: m.EmbeddedPortalViewer })));
 const UniversalMultiFormatPlayerModal = lazyWithRetry(() => import('./components/UniversalMultiFormatPlayerModal').then(m => ({ default: m.UniversalMultiFormatPlayerModal || m.default })));
 const AfterEffectsStudio = lazyWithRetry(() => import('./components/AfterEffectsStudio').then(m => ({ default: m.AfterEffectsStudio || m.default })));
+const ApkAssetExtractor = lazyWithRetry(() => import('./components/ApkAssetExtractor').then(m => ({ default: m.ApkAssetExtractor || m.default })));
 
 import { LanguageTranslatorWidget } from './components/LanguageTranslatorWidget';
 
@@ -224,6 +225,9 @@ const App: React.FC = () => {
       const keyToState: Record<string, AppState> = {
         onAfterEffectsStudioOpen: AppState.AFTER_EFFECTS_STUDIO,
         afterEffectsStudio: AppState.AFTER_EFFECTS_STUDIO,
+        onApkExtractorOpen: AppState.APK_EXTRACTOR,
+        apkExtractor: AppState.APK_EXTRACTOR,
+        'apk-extractor': AppState.APK_EXTRACTOR,
         onVideoDurationSpeedOpen: AppState.VIDEO_DURATION_SPEED,
         videoDurationSpeed: AppState.VIDEO_DURATION_SPEED,
         onSvgaLayerEditorOpen: AppState.SVGA_LAYER_EDITOR,
@@ -1117,6 +1121,7 @@ const App: React.FC = () => {
         onVideoDurationSpeedOpen={handleVideoDurationSpeedOpen}
         onStoreOpen={() => handleFeatureAccess(AppState.STORE, 'SVGA Store & Library')}
         onAfterEffectsStudioOpen={() => handleFeatureAccess(AppState.AFTER_EFFECTS_STUDIO, 'استوديو ومحرر After Effects الاحترافي')}
+        onApkExtractorOpen={() => handleFeatureAccess(AppState.APK_EXTRACTOR, 'مستخرج أصول التطبيقات ومشاريع السيارات')}
         onVapHubOpen={() => handleFeatureAccess(AppState.VAP_HUB, 'VAP Hub')}
         onSvgaLayerEditorOpen={() => {
           setLayerEditorInitialFile(fileMetadata?.originalFile || null);
@@ -1130,6 +1135,7 @@ const App: React.FC = () => {
         onVipClick={() => setShowVipModal(true)}
         currentTab={
           state === AppState.AFTER_EFFECTS_STUDIO ? 'after-effects-studio' :
+          state === AppState.APK_EXTRACTOR ? 'apk-extractor' :
           state === AppState.ANIMATION_MANAGER ? 'animation-manager' :
           state === AppState.IMAGE_COLLAGE_STUDIO ? 'image-collage-studio' :
           state === AppState.AI_VIDEO_MATTING ? 'ai-video-matting' :
@@ -1218,6 +1224,11 @@ const App: React.FC = () => {
                         case 'afterEffectsStudio':
                         case 'onAfterEffectsStudioOpen':
                           handleFeatureAccess(AppState.AFTER_EFFECTS_STUDIO, 'استوديو ومحرر After Effects الاحترافي');
+                          break;
+                        case 'apkExtractor':
+                        case 'onApkExtractorOpen':
+                        case 'apk-extractor':
+                          handleFeatureAccess(AppState.APK_EXTRACTOR, 'مستخرج أصول التطبيقات ومشاريع السيارات');
                           break;
                         case 'animationManager': handleFeatureAccess(AppState.ANIMATION_MANAGER, 'Animation File Manager'); break;
                         case 'aiVideoMatting': handleFeatureAccess(AppState.AI_VIDEO_MATTING, 'AI Video Matting Studio'); break;
@@ -1480,6 +1491,13 @@ const App: React.FC = () => {
                 />
               </ErrorBoundary>
             )}
+            {state === AppState.APK_EXTRACTOR && (
+              <ErrorBoundary fallbackTitle="حدث خطأ في تحميل مستخرج أصول التطبيقات ومشاريع السيارات" onReset={handleReset}>
+                <Suspense fallback={<Loading message="جارٍ تجهيز مستخرج أصول التطبيقات ومشاريع السيارات..." />}>
+                  <ApkAssetExtractor onClose={handleReset} />
+                </Suspense>
+              </ErrorBoundary>
+            )}
             {state === AppState.ADMIN_PANEL && (currentUser?.role === 'admin' || currentUser?.role === 'moderator') && (
               <AdminPanel 
                 currentUser={currentUser} 
@@ -1489,6 +1507,10 @@ const App: React.FC = () => {
                     onAfterEffectsStudioOpen: AppState.AFTER_EFFECTS_STUDIO,
                     afterEffectsStudio: AppState.AFTER_EFFECTS_STUDIO,
                     'after-effects-studio': AppState.AFTER_EFFECTS_STUDIO,
+
+                    onApkExtractorOpen: AppState.APK_EXTRACTOR,
+                    apkExtractor: AppState.APK_EXTRACTOR,
+                    'apk-extractor': AppState.APK_EXTRACTOR,
 
                     onVideoDurationSpeedOpen: AppState.VIDEO_DURATION_SPEED,
                     videoDurationSpeed: AppState.VIDEO_DURATION_SPEED,

@@ -73,6 +73,67 @@ async function startServer() {
   // Background export & media tasks router (runs heavy exports without freezing client)
   app.use('/api/export-jobs', exportJobsRouter);
 
+  // Direct In-Memory Download Buffer Store for Reliable Downloads
+  const downloadStore = new Map<string, { buffer: Buffer, mime: string, name: string, expires: number }>();
+  setInterval(() => {
+    const now = Date.now();
+    for (const [id, item] of downloadStore.entries()) {
+      if (item.expires < now) downloadStore.delete(id);
+    }
+  }, 60000);
+
+  // Prepare download token from raw stream
+  app.post("/api/download/prepare", express.raw({ type: '*/*', limit: '400mb' }), (req, res) => {
+    try {
+      const token = Math.random().toString(36).substring(2, 12) + '_' + Date.now().toString(36);
+      const filename = (req.headers['x-filename'] as string) || 'download.zip';
+      const mime = (req.headers['x-mime'] as string) || 'application/octet-stream';
+      let decodedName = 'download.zip';
+      try {
+        decodedName = decodeURIComponent(filename);
+      } catch (e) {
+        decodedName = filename;
+      }
+
+      const buf = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '');
+      downloadStore.set(token, {
+        buffer: buf,
+        mime,
+        name: decodedName,
+        expires: Date.now() + 15 * 60 * 1000 // 15 minutes
+      });
+
+      res.json({
+        ok: true,
+        token,
+        downloadUrl: `/api/download/file/${token}/${encodeURIComponent(decodedName)}`,
+        size: buf.length
+      });
+    } catch (err: any) {
+      console.error('Download prepare error:', err);
+      res.status(500).json({ ok: false, error: err?.message || 'Failed to prepare download' });
+    }
+  });
+
+  // Serve direct attachment download by token
+  app.get(["/api/download/file/:token", "/api/download/file/:token/:name"], (req, res) => {
+    const { token } = req.params;
+    const item = downloadStore.get(token);
+    if (!item) {
+      return res.status(404).send('<!DOCTYPE html><html dir="rtl"><body style="font-family:sans-serif;padding:30px;background:#0d1428;color:#fff;text-align:center"><h2>رابط التنزيل منتهي الصلاحية أو غير موجود</h2><p>يرجى إعادة المحاولة من داخل التطبيق.</p></body></html>');
+    }
+
+    const asciiName = item.name.replace(/[^\x20-\x7E]/g, '_') || 'download.zip';
+    const encodedName = encodeURIComponent(item.name);
+
+    res.setHeader('Content-Type', item.mime || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${asciiName}"; filename*=UTF-8''${encodedName}`);
+    res.setHeader('Content-Length', item.buffer.length);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+
+    return res.send(item.buffer);
+  });
+
   // Serve FFmpeg Core locally from node_modules for zero-latency in-browser fallback
   const ffmpegCoreUmdPath = path.join(process.cwd(), 'node_modules', '@ffmpeg', 'core', 'dist', 'umd');
   app.use('/vendor/ffmpeg-core', express.static(ffmpegCoreUmdPath, {
@@ -82,6 +143,14 @@ async function startServer() {
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     }
   }));
+
+  // Serve jsPDF locally from node_modules for zero-latency PDF report generation
+  app.get('/vendor/jspdf.umd.min.js', (req, res) => {
+    const jspdfPath = path.join(process.cwd(), 'node_modules', 'jspdf', 'dist', 'jspdf.umd.min.js');
+    res.setHeader('Content-Type', 'application/javascript');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.sendFile(jspdfPath);
+  });
 
   // Server Version Metadata (Updated on each build / deploy)
   const SERVER_APP_VERSION = 'v3.3.0';

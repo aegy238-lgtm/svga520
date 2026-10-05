@@ -63,6 +63,7 @@ export interface HeaderProps {
   onAnimationManagerOpen?: () => void;
   onStoreOpen?: () => void;
   onAfterEffectsStudioOpen?: () => void;
+  onApkExtractorOpen?: () => void;
   onVapHubOpen?: () => void;
   onVideoDurationSpeedOpen?: () => void;
   onBatchImageOpen: () => void;
@@ -171,11 +172,12 @@ export const Header: React.FC<HeaderProps> = (props) => {
   const isFeatureAllowed = (toolId: string) => {
     if (toolId === 'after-effects-studio' || toolId === 'afterEffectsStudio') return true;
     if (toolId === 'svga-layer-editor' || toolId === 'svgaLayerEditor') return true;
+    if (toolId === 'apk-extractor' || toolId === 'apkExtractor') return true;
     if (!props.currentUser) return true;
     if (props.currentUser.allFeaturesEnabled !== false) return true;
     const allowed = props.currentUser.allowedFeatures || [];
     const featureKey = TOOL_FEATURE_MAP[toolId] || toolId;
-    return allowed.includes(featureKey) || featureKey === 'afterEffectsStudio' || featureKey === 'svgaLayerEditor';
+    return allowed.includes(featureKey) || featureKey === 'afterEffectsStudio' || featureKey === 'svgaLayerEditor' || featureKey === 'apkExtractor';
   };
 
   // Dynamic allowed tools from unified TOOLS_REGISTRY

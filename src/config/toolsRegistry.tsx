@@ -86,6 +86,21 @@ export const CATEGORIES_CONFIG: Record<ToolCategory, CategoryInfo> = {
 
 export const TOOLS_REGISTRY: ToolRegistryItem[] = [
   {
+    id: 'apk-extractor',
+    label: 'مُستخرِج أصول التطبيقات ومشاريع السيارات (APK Extractor)',
+    shortLabel: 'مستخرج APK',
+    icon: <Box className="w-4 h-4 text-emerald-400" />,
+    category: 'batch',
+    categoryNameAr: 'المعالجة الجماعية (Batch)',
+    actionKey: 'onApkExtractorOpen',
+    dashboardActionKey: 'apkExtractor',
+    featureAccessKey: 'apkExtractor',
+    descAr: 'استخراج وتفكيك كامل للأصول والصور وSVG والفيكتور والأنيميشن وتصميمات السيارات من حزم APK وAPKS وXAPK وAAB وZIP ومختبر SVGA 2.0 محلياً بلا سيرفر.',
+    descEn: 'Full in-browser extraction for APK, APKS, XAPK, AAB & ZIP assets: Images, SVG, SVGA 2.0, Car Importer & Inspector.',
+    highlight: true,
+    pinnedTop: true
+  },
+  {
     id: 'after-effects-studio',
     label: 'استوديو After Effects الاحترافي (أفتر افكت)',
     shortLabel: 'After Effects',
