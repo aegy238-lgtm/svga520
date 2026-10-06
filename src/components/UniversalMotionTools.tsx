@@ -3345,7 +3345,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
         muted={isPlaybackMuted}
       />
 
-      <div className="relative w-full max-w-[1580px] h-[94vh] bg-[#0E1017] rounded-[2.5rem] border border-white/10 shadow-2xl flex flex-col overflow-hidden">
+      <div className="relative w-full max-w-[1580px] h-[96vh] sm:h-[94vh] bg-[#0E1017] rounded-2xl sm:rounded-[2.5rem] border border-white/10 shadow-2xl flex flex-col overflow-hidden">
         
         {/* Top Header */}
         {errorMessage && (
@@ -3362,19 +3362,19 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             </button>
           </div>
         )}
-        <div className="flex items-center justify-between px-6 sm:px-8 py-4 sm:py-5 border-b border-white/5 bg-[#141824]/60 shrink-0">
-          <div className="flex items-center gap-4">
-            <div className="w-11 h-11 bg-gradient-to-br from-indigo-500/20 to-purple-500/20 rounded-2xl flex items-center justify-center border border-indigo-500/30 shadow-lg shadow-indigo-500/10">
-              <RefreshCw className="w-5 h-5 text-indigo-400" />
+        <div className="flex items-center justify-between px-4 sm:px-8 py-3 sm:py-5 border-b border-white/5 bg-[#141824]/60 shrink-0 gap-2">
+          <div className="flex items-center gap-2.5 sm:gap-4 min-w-0">
+            <div className="w-9 h-9 sm:w-11 sm:h-11 bg-gradient-to-br from-indigo-500/20 to-purple-500/20 rounded-xl sm:rounded-2xl flex items-center justify-center border border-indigo-500/30 shadow-lg shadow-indigo-500/10 shrink-0">
+              <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-400" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg sm:text-xl font-black text-white tracking-tight">Universal Motion Workspace</h2>
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                <h2 className="text-sm sm:text-xl font-black text-white tracking-tight truncate">Universal Motion Workspace</h2>
+                <span className="hidden xs:inline-block px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-wider bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
                   VAP & SVGA Studio Pro
                 </span>
               </div>
-              <p className="text-slate-400 text-xs font-medium mt-0.5">معاينة فيديو VAP، دمج وإزالة الصوت، وتصدير بصيغة VAP (MP4) أو SVGA 2.0 بدقة متناهية</p>
+              <p className="text-slate-400 text-xs font-medium mt-0.5 hidden sm:block truncate">معاينة فيديو VAP، دمج وإزالة الصوت، وتصدير بصيغة VAP (MP4) أو SVGA 2.0 بدقة متناهية</p>
             </div>
           </div>
 

@@ -502,6 +502,19 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
   const [showTransparencyGrid, setShowTransparencyGrid] = useState<boolean>(true);
   const [activeTool, setActiveTool] = useState<'select' | 'hand' | 'rotate' | 'shape' | 'text'>('select');
 
+  // Mobile Responsiveness State
+  const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' ? window.innerWidth < 1024 : false);
+  const [aeMobileTab, setAeMobileTab] = useState<'viewport' | 'layers' | 'properties' | 'timeline'>('viewport');
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 1024);
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Export State
   const [exportModalOpen, setExportModalOpen] = useState<boolean>(false);
   const [exportCategory, setExportCategory] = useState<'primary' | 'secondary'>('primary');
@@ -3497,31 +3510,31 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
       initial={{ opacity: 0, scale: 0.98 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.25 }}
-      className="w-full max-w-[1360px] mx-auto flex flex-col h-[calc(100vh-84px)] min-h-[720px] max-h-[860px] bg-slate-900/50 border border-slate-800/50 rounded-lg overflow-hidden shadow-2xl text-slate-200 select-none"
+      className="w-full max-w-[1360px] mx-auto flex flex-col min-h-[85vh] lg:h-[calc(100vh-84px)] lg:min-h-[720px] lg:max-h-[860px] bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden shadow-2xl text-slate-200 select-none pb-14 lg:pb-0 relative"
     >
       
       {/* ----------------- TOP AE MENU BAR & TOOLBAR ----------------- */}
-      <div className="h-11 border-b border-slate-800/50 bg-slate-900/50 px-4 flex items-center justify-between gap-3 text-xs">
+      <div className="h-11 border-b border-slate-800/50 bg-slate-900/50 px-2 sm:px-4 flex items-center justify-between gap-2 sm:gap-3 text-xs overflow-x-auto no-scrollbar">
         {/* Left Side: Logo & AE Menu */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           {(onCancel || onClose) && (
             <button
               onClick={onCancel || onClose}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 hover:text-white border border-slate-700/60 text-xs font-bold transition-all cursor-pointer shadow-sm active:scale-95"
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 hover:text-white border border-slate-700/60 text-xs font-bold transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
               title="الرجوع إلى الصفحة الرئيسية للموقع"
             >
               <ArrowLeft size={13} className="text-violet-400" />
-              <span>الرئيسية</span>
+              <span className="hidden sm:inline">الرئيسية</span>
             </button>
           )}
-          <div className="flex items-center gap-2 font-bold text-violet-400">
+          <div className="flex items-center gap-1.5 sm:gap-2 font-bold text-violet-400 shrink-0">
             <span className="bg-violet-600/30 text-violet-300 px-1.5 py-0.5 rounded font-mono text-[11px] border border-violet-500/40">Ae</span>
-            <span className="font-semibold tracking-wide text-slate-200">AFTER EFFECTS STUDIO</span>
+            <span className="font-semibold tracking-wide text-slate-200 text-[11px] sm:text-xs">AFTER EFFECTS STUDIO</span>
           </div>
         </div>
 
         {/* Right Side: Export Action & Layers Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {/* Hidden general layer import input */}
           <input 
             ref={importGeneralLayerInputRef}
@@ -3535,34 +3548,39 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
           <button
             type="button"
             onClick={() => importGeneralLayerInputRef.current?.click()}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-600/30 hover:bg-violet-600/50 text-violet-200 hover:text-white border border-violet-500/40 text-xs font-bold transition-all shadow-sm active:scale-[0.98] cursor-pointer"
+            className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl bg-violet-600/30 hover:bg-violet-600/50 text-violet-200 hover:text-white border border-violet-500/40 text-xs font-bold transition-all shadow-sm active:scale-[0.98] cursor-pointer shrink-0"
             title="استدعاء واستيراد طبقات إضافية إلى المشروع"
           >
             <Upload size={13} className="text-violet-300" />
-            <span>استدعاء طبقات</span>
+            <span className="hidden sm:inline">استدعاء طبقات</span>
           </button>
 
           {/* زر الطبقات */}
           <button
             type="button"
             onClick={() => {
-              const el = document.querySelector('.layers-panel-container');
-              if (el) el.scrollIntoView({ behavior: 'smooth' });
+              if (isMobile) {
+                setAeMobileTab('layers');
+              } else {
+                const el = document.querySelector('.layers-panel-container');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition-all shadow-sm active:scale-[0.98] cursor-pointer"
+            className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition-all shadow-sm active:scale-[0.98] cursor-pointer shrink-0"
             title="إدارة وقائمة الطبقات"
           >
             <Layers size={13} className="text-amber-400" />
-            <span>زر الطبقات ({layers.length})</span>
+            <span>طبقات ({layers.length})</span>
           </button>
 
           <button
             onClick={() => setExportModalOpen(true)}
             disabled={!hasProject}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 border border-violet-500/40 text-xs font-bold transition-all disabled:opacity-40 active:scale-[0.98]"
+            className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 border border-violet-500/40 text-xs font-bold transition-all disabled:opacity-40 active:scale-[0.98] shrink-0"
           >
             <Download size={13} />
-            <span>تصدير (Export)</span>
+            <span className="hidden sm:inline">تصدير (Export)</span>
+            <span className="sm:hidden">تصدير</span>
           </button>
         </div>
       </div>
@@ -3571,7 +3589,7 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
       <div className="flex-1 flex overflow-hidden">
         
         {/* LEFT PANEL: Project & Layer Controls */}
-        <div className="w-64 border-r border-slate-800/50 bg-slate-900/20 flex flex-col text-xs">
+        <div className={`border-r border-slate-800/50 bg-slate-900/20 flex-col text-xs ${isMobile ? (aeMobileTab === 'layers' ? 'flex w-full flex-1 overflow-y-auto' : 'hidden') : 'flex w-64'}`}>
           {/* Panel Header */}
           <div className="p-2.5 border-b border-slate-800/60 flex items-center justify-between text-slate-400 font-bold">
             <div className="flex items-center gap-1.5">
@@ -3812,7 +3830,7 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
         </div>
 
         {/* CENTER VIEWPORT (Composition Monitor) */}
-        <div className="flex-1 flex flex-col bg-transparent relative overflow-hidden">
+        <div className={`bg-transparent relative overflow-hidden ${isMobile ? (aeMobileTab === 'viewport' ? 'flex flex-col flex-1 w-full min-h-[50vh]' : 'hidden') : 'flex flex-col flex-1'}`}>
           {/* Monitor Header Toolbar */}
           <div className="h-9 border-b border-slate-800/50 bg-slate-900/30 px-3 flex items-center justify-between text-xs">
             <div className="flex items-center gap-3">
@@ -3962,7 +3980,7 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
         </div>
 
         {/* RIGHT PANEL: Properties / Transform Inspector */}
-        <div data-interactive="true" className="properties-inspector w-72 border-l border-slate-800/50 bg-slate-900/20 flex flex-col text-xs">
+        <div data-interactive="true" className={`properties-inspector border-l border-slate-800/50 bg-slate-900/20 text-xs overflow-y-auto ${isMobile ? (aeMobileTab === 'properties' ? 'flex flex-col flex-1 w-full' : 'hidden') : 'flex flex-col w-72'}`}>
           <div className="p-2.5 border-b border-slate-800/60 flex items-center justify-between text-slate-400 font-bold">
             <div className="flex items-center gap-1.5">
               <Sliders size={13} className="text-violet-400" />
@@ -4454,7 +4472,7 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
       </div>
 
       {/* ----------------- BOTTOM AE TIMELINE & KEYFRAME SEQUENCER ----------------- */}
-      <div className="h-56 border-t border-slate-800/50 bg-slate-900/30 flex flex-col text-xs">
+      <div className={`border-t border-slate-800/50 bg-slate-900/30 text-xs ${isMobile ? (aeMobileTab === 'timeline' ? 'flex flex-col flex-1 w-full min-h-[55vh]' : 'hidden') : 'flex flex-col h-56'}`}>
         {/* Timeline Header & Transport Controls */}
         <div className="h-9 border-b border-slate-800/60 bg-slate-800/25 px-4 flex items-center justify-between">
           {/* Timecode & Frame counter */}
@@ -5081,6 +5099,55 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Mobile Bottom Dock Bar for Android & Small Screens */}
+      {isMobile && (
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-[#0a0f1d]/95 backdrop-blur-md border-t border-slate-700/60 grid grid-cols-4 z-[45] select-none pb-safe">
+          <button
+            type="button"
+            onClick={() => setAeMobileTab('viewport')}
+            className={`flex flex-col items-center justify-center gap-1 cursor-pointer transition-colors ${
+              aeMobileTab === 'viewport' ? 'text-violet-400 font-black' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Film size={18} />
+            <span className="text-[10px]">الكانفاس</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setAeMobileTab('layers')}
+            className={`flex flex-col items-center justify-center gap-1 cursor-pointer transition-colors ${
+              aeMobileTab === 'layers' ? 'text-violet-400 font-black' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Layers size={18} />
+            <span className="text-[10px]">الطبقات ({layers.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setAeMobileTab('properties')}
+            className={`flex flex-col items-center justify-center gap-1 cursor-pointer transition-colors ${
+              aeMobileTab === 'properties' ? 'text-violet-400 font-black' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Sliders size={18} />
+            <span className="text-[10px]">الخصائص {selectedLayerId ? '✓' : ''}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setAeMobileTab('timeline')}
+            className={`flex flex-col items-center justify-center gap-1 cursor-pointer transition-colors ${
+              aeMobileTab === 'timeline' ? 'text-violet-400 font-black' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Clock size={18} />
+            <span className="text-[10px]">التايم لاين</span>
+          </button>
         </div>
       )}
 

@@ -368,31 +368,31 @@ export const VideoDurationSpeedModal: React.FC<VideoDurationSpeedModalProps> = (
   return (
     <AnimatePresence>
       <div
-        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-xl p-3 md:p-6 overflow-y-auto"
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-xl p-2 sm:p-4 md:p-6 overflow-y-auto"
         dir="rtl"
       >
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="relative w-full max-w-6xl bg-slate-950 border border-amber-500/30 rounded-[2.5rem] shadow-2xl shadow-amber-500/10 flex flex-col max-h-[92vh] overflow-hidden text-right"
+          className="relative w-full max-w-6xl bg-slate-950 border border-amber-500/30 rounded-2xl md:rounded-[2.5rem] shadow-2xl shadow-amber-500/10 flex flex-col max-h-[96vh] md:max-h-[92vh] overflow-hidden text-right"
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-slate-900/60 shrink-0">
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center shadow-lg shadow-amber-500/20">
-                <FastForward className="w-6 h-6" />
+          <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-white/10 bg-slate-900/60 shrink-0 gap-2">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+              <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center shadow-lg shadow-amber-500/20 shrink-0">
+                <FastForward className="w-5 h-5 sm:w-6 sm:h-6" />
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-white font-black text-base md:text-lg">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                  <h3 className="text-white font-black text-xs sm:text-base md:text-lg truncate">
                     التحكم في مدة الفيديو بالسرعة بدون قص أي مشهد
                   </h3>
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                    Zero-Crop Speed Fit
+                  <span className="hidden xs:inline-block px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    Zero-Crop Speed
                   </span>
                 </div>
-                <p className="text-slate-400 text-xs mt-0.5">
+                <p className="text-slate-400 text-[10px] sm:text-xs mt-0.5 truncate hidden sm:block">
                   تغيير المدة الإجمالية للفيديو عبر تسريع/إبطاء العرض بالكامل مع الحفاظ على كافة المشاهد، الإطارات، والصوت
                 </p>
               </div>

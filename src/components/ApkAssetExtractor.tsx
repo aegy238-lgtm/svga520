@@ -247,6 +247,45 @@ export const ApkAssetExtractor: React.FC<ApkAssetExtractorProps> = ({
         </div>
       </header>
 
+      {/* Mobile Sub-Tab Navigation for Android / Phones */}
+      <div className="lg:hidden flex items-center justify-between gap-1.5 px-3 py-2 bg-slate-900/90 border-b border-white/10 overflow-x-auto no-scrollbar shrink-0">
+        <button
+          onClick={() => handleSectionChange('extractor')}
+          className={`flex-1 flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${
+            activeSection === 'extractor'
+              ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-white bg-white/5'
+          }`}
+        >
+          <Package className="w-3.5 h-3.5" />
+          <span>مستخرج الحزم</span>
+        </button>
+
+        <button
+          onClick={() => handleSectionChange('car')}
+          className={`flex-1 flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${
+            activeSection === 'car'
+              ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-white bg-white/5'
+          }`}
+        >
+          <Car className="w-3.5 h-3.5" />
+          <span>محرر السيارات</span>
+        </button>
+
+        <button
+          onClick={() => handleSectionChange('svga')}
+          className={`flex-1 flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${
+            activeSection === 'svga'
+              ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-white bg-white/5'
+          }`}
+        >
+          <Film className="w-3.5 h-3.5" />
+          <span>مختبر SVGA 2.0</span>
+        </button>
+      </div>
+
       {/* Main Workspace Frame */}
       <div className="relative flex-1 w-full h-full bg-[#080d1e] overflow-hidden">
         {/* Loading Spinner overlay */}

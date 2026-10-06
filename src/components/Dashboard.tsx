@@ -475,7 +475,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                   className={`p-1.5 rounded-lg transition-all cursor-pointer shrink-0 ${
                                     starred
                                       ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 opacity-100'
-                                      : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-500 hover:text-amber-400 border border-white/[0.06] opacity-0 group-hover:opacity-100'
+                                      : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-amber-400 border border-white/[0.06] opacity-80 sm:opacity-0 sm:group-hover:opacity-100'
                                   }`}
                                   title={starred ? 'مثبتة بنجمة في البداية ⭐ (اضغط لإلغاء التثبيت)' : 'تثبيت الأداة بنجمة في البداية ⭐'}
                                 >

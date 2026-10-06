@@ -131,10 +131,23 @@ export const Header: React.FC<HeaderProps> = (props) => {
 
   // Auto-hide & Hover Reveal State
   const [isHovered, setIsHovered] = useState<boolean>(false);
+  const [isMobileScreen, setIsMobileScreen] = useState<boolean>(false);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobileScreen(window.innerWidth < 1024);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   const [isPinned, setIsPinned] = useState<boolean>(() => {
-    // Default to auto-hide if in specific heavy workspace tools or user preference
-    const saved = localStorage.getItem('header_pinned');
-    return saved === 'true';
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('header_pinned');
+      if (saved !== null) return saved === 'true';
+    }
+    return true; // Default to pinned so navigation is always visible on all devices
   });
   const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -159,7 +172,7 @@ export const Header: React.FC<HeaderProps> = (props) => {
     localStorage.setItem('header_pinned', String(next));
   };
 
-  const isHeaderVisible = isPinned || isHovered || isSearchOpen || isMobileMenuOpen || isVersionModalOpen || isAllToolsOpen;
+  const isHeaderVisible = isPinned || isHovered || isSearchOpen || isMobileMenuOpen || isVersionModalOpen || isAllToolsOpen || isMobileScreen;
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
