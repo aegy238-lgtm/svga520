@@ -103,7 +103,7 @@ export default function Dashboard() {
               ) : (
                 <div className="space-y-6">
                   {myOrders.map(order => (
-                    <div key={order.id} className="border border-slate-100 rounded-[2rem] overflow-hidden bg-slate-50/30">
+                    <div key={`order-${order.id || ""}-${idx}`} className="border border-slate-100 rounded-[2rem] overflow-hidden bg-slate-50/30">
                       <div className="bg-white p-5 sm:p-6 border-b border-slate-100 flex flex-wrap gap-4 justify-between items-center text-sm">
                         <div className="space-y-0.5">
                           <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">{t('dashboard.orderPlaced')}</p>

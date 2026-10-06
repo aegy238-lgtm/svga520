@@ -206,11 +206,11 @@ export const InternationalPhoneInput: React.FC<InternationalPhoneInputProps> = (
                       <span>{lang === 'ar' ? 'الدول العربية والأكثر استخداماً' : 'Popular Countries'}</span>
                     </div>
 
-                    {priorityCountries.map((c) => {
+                    {priorityCountries.map((c, idx) => {
                       const isSelected = selectedCountry.code === c.code;
                       return (
                         <button
-                          key={c.code}
+                          key={`priority-${c.code}-${idx}`}
                           type="button"
                           onClick={() => handleCountrySelect(c)}
                           className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs transition-colors cursor-pointer text-right ${
@@ -242,11 +242,11 @@ export const InternationalPhoneInput: React.FC<InternationalPhoneInputProps> = (
                 )}
 
                 {/* Other or Filtered Countries */}
-                {(!searchQuery ? otherCountries : filteredCountries).map((c) => {
+                {(!searchQuery ? otherCountries : filteredCountries).map((c, idx) => {
                   const isSelected = selectedCountry.code === c.code;
                   return (
                     <button
-                      key={c.code}
+                      key={`country-${c.code}-${idx}`}
                       type="button"
                       onClick={() => handleCountrySelect(c)}
                       className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs transition-colors cursor-pointer text-right ${

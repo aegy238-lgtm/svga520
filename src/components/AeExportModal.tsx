@@ -61,6 +61,7 @@ export const AeExportModal: React.FC<AeExportModalProps> = ({
 
   // Settings
   const [keyframeMode, setKeyframeMode] = useState<'all_frames' | 'optimized'>('all_frames');
+  const [imageFormat, setImageFormat] = useState<'png' | 'webp' | 'jpeg' | 'auto'>('auto');
   const [activeTab, setActiveTab] = useState<'overview' | 'layers' | 'sync_script' | 'guide'>('overview');
 
   // Composition Settings State (Matching user requirements & screenshot 1236.png)
@@ -293,6 +294,7 @@ export const AeExportModal: React.FC<AeExportModalProps> = ({
         totalFrames: activeFrames,
         durationSec: activeDur,
         importSvgaDirectly: activeSvgaDirect,
+        imageFormat,
         keyframeMode,
         anchorMode: 'svga_origin',
         interpolationMode: 'auto_ease'
@@ -736,6 +738,39 @@ export const AeExportModal: React.FC<AeExportModalProps> = ({
                       حذف الكي فريمز المتكررة في فترات الثبات لتسهيل التعديل على التايم لاين.
                     </span>
                   </button>
+                </div>
+
+                {/* Image Compression Format Selection */}
+                <div className="pt-3 border-t border-white/5 space-y-2">
+                  <label className="text-xs font-bold text-slate-300 block flex items-center justify-between">
+                    <span>صيغة ضغط الصور الثابتة عند التصدير:</span>
+                    <span className="text-[10px] text-purple-400 font-mono font-bold">Image Compression Format</span>
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {[
+                      { id: 'auto', label: 'تلقائي (الأصغر)', desc: 'مقارنة تلقائية' },
+                      { id: 'webp', label: 'WebP (فائق الضغط)', desc: 'تقليل 80% مع الشفافية' },
+                      { id: 'png', label: 'PNG (قياسي)', desc: 'توافق كامل 100%' },
+                      { id: 'jpeg', label: 'JPEG', desc: 'بدون شفافية' },
+                    ].map((fmt) => (
+                      <button
+                        key={fmt.id}
+                        type="button"
+                        onClick={() => setImageFormat(fmt.id as any)}
+                        className={`p-2.5 rounded-xl border text-right transition-all flex flex-col gap-0.5 ${
+                          imageFormat === fmt.id
+                            ? 'bg-purple-600/30 border-purple-500 text-white shadow-glow-indigo'
+                            : 'bg-white/5 border-white/5 text-slate-400 hover:bg-white/10'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-white">{fmt.label}</span>
+                          {imageFormat === fmt.id && <Check className="w-3.5 h-3.5 text-purple-400" />}
+                        </div>
+                        <span className="text-[9px] text-slate-400">{fmt.desc}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 

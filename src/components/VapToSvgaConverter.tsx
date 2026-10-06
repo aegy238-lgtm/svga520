@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Upload, FileVideo, FileCode, Loader2, X } from 'lucide-react';
 import { UserRecord } from '../types';
 import { logActivity } from '../utils/logger';
+import { trackUploadedFile } from '../services/centralUploadService';
 
 interface VapToSvgaConverterProps {
   isOpen: boolean;
@@ -22,6 +23,7 @@ export const VapToSvgaConverter: React.FC<VapToSvgaConverterProps> = ({ isOpen, 
     if (file) {
       setInputPath(file.name);
       setOutputPath(file.name.replace(/\.[^/.]+$/, "") + ".svga");
+      trackUploadedFile(file, 'vap_converter');
     }
   };
 

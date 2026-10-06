@@ -1,9 +1,10 @@
 import JSZip from 'jszip';
+import UPNG from 'upng-js';
 
 /**
- * Professional SVGA 2.0 Native to Adobe After Effects Conversion Engine (v13.0 QUANTUM-NATIVE)
+ * Professional SVGA 2.0 Native to Adobe After Effects Conversion Engine (v14.0 ULTRA-NATIVE)
  * Conforms 100% to SVGA 2.0 Protobuf Specification (MovieEntity / SpriteEntity / FrameEntity / Transform)
- * and Adobe After Effects CC ExtendScript Object Model.
+ * and Adobe After Effects CC ExtendScript Object Model (CC 2018 - CC 2025+).
  */
 
 export interface AEProjectAnalysis {
@@ -44,6 +45,7 @@ export interface AEExportOptions {
     totalFrames?: number;
     durationSec?: number;
     importSvgaDirectly?: boolean;
+    imageFormat?: 'png' | 'webp' | 'jpeg' | 'auto';
     keyframeMode?: 'all_frames' | 'optimized';
     anchorMode?: 'svga_origin' | 'layer_center';
     interpolationMode?: 'auto_ease' | 'linear' | 'preserve';
@@ -639,9 +641,9 @@ export const generateAEProject = async (params: AEExportParams): Promise<AEExpor
     // Adobe After Effects ExtendScript (.jsx)
     const jsxContent = `/**
  * =========================================================================
- * Adobe After Effects - SVGA 2.0 Native Importer & Project Engine (v13.0)
+ * Adobe After Effects - SVGA 2.0 Native Importer & Project Engine (v14.0)
  * Generated automatically from: ${baseFileName}.svga
- * Compatible with Adobe After Effects CC 2018 through CC 2025+
+ * Compatible with Adobe After Effects CC 2018 through CC 2025+ (Win & macOS)
  * =========================================================================
  */
 
@@ -650,42 +652,52 @@ export const generateAEProject = async (params: AEExportParams): Promise<AEExpor
 (function(thisObj) {
     'use strict';
 
-    // ExtendScript JSON Parser
+    // Safe ExtendScript JSON Parser
     var JSONParser = (function() {
-        var cx = /[\\u0000\\u00ad\\u0600-\\u0604\\u070f\\u17b4\\u17b5\\u200c-\\u200f\\u2028-\\u202f\\u2060-\\u206f\\ufeff\\ufff0-\\uffff]/g;
-        function parse(text) {
-            var j; text = String(text); cx.lastIndex = 0;
-            if (cx.test(text)) { text = text.replace(cx, function (a) { return '\\\\u' + ('0000' + a.charCodeAt(0).toString(16)).slice(-4); }); }
-            j = eval('(' + text + ')'); return j;
-        }
-        return { parse: parse };
+        return {
+            parse: function(text) {
+                if (typeof JSON !== 'undefined' && typeof JSON.parse === 'function') {
+                    try { return JSON.parse(text); } catch(e) {}
+                }
+                try {
+                    return eval('(' + text + ')');
+                } catch(err) {
+                    return null;
+                }
+            }
+        };
     })();
 
-    // 1. Locate and Load Project Data
-    var scriptFile = new File($.fileName);
-    var scriptFolder = scriptFile.parent;
+    // 1. Locate and Load Project Data with UTF-8 & URI Safety
+    var scriptFile = (typeof $.fileName !== 'undefined' && $.fileName) ? new File($.fileName) : null;
+    var scriptFolder = (scriptFile && scriptFile.exists) ? scriptFile.parent : Folder.current;
     
+    var scriptFsName = decodeURI(scriptFolder.fsName);
+    var parentFsName = scriptFolder.parent ? decodeURI(scriptFolder.parent.fsName) : scriptFsName;
+
     var candidateDataFiles = [
-        new File(scriptFolder.fsName + "/Data/SVGA2_Project_Data.json"),
-        new File(scriptFolder.fsName + "/manifest.json"),
-        new File(scriptFolder.parent.fsName + "/Data/SVGA2_Project_Data.json"),
-        new File(scriptFolder.parent.fsName + "/manifest.json")
+        new File(scriptFsName + "/Data/SVGA2_Project_Data.json"),
+        new File(scriptFsName + "/manifest.json"),
+        new File(parentFsName + "/Data/SVGA2_Project_Data.json"),
+        new File(parentFsName + "/manifest.json")
     ];
 
     var projectData = null;
     for (var i = 0; i < candidateDataFiles.length; i++) {
         if (candidateDataFiles[i].exists) {
             try {
+                candidateDataFiles[i].encoding = "UTF-8";
                 candidateDataFiles[i].open("r");
-                projectData = JSONParser.parse(candidateDataFiles[i].read());
+                var rawContent = candidateDataFiles[i].read();
                 candidateDataFiles[i].close();
-                break;
+                projectData = JSONParser.parse(rawContent);
+                if (projectData && projectData.composition) break;
             } catch(e) {}
         }
     }
 
     // Fail-safe: Embedded Project Data
-    if (!projectData) {
+    if (!projectData || !projectData.composition) {
         try {
             projectData = ${JSON.stringify(intermediateProjectData)};
         } catch(e) {
@@ -697,11 +709,11 @@ export const generateAEProject = async (params: AEExportParams): Promise<AEExpor
     // 2. Locate Assets Directory
     function getAssetsFolder() {
         var candidates = [
-            new Folder(scriptFolder.fsName + "/Assets/Images"),
-            new Folder(scriptFolder.fsName + "/assets"),
-            new Folder(scriptFolder.fsName + "/Images"),
-            new Folder(scriptFolder.parent.fsName + "/Assets/Images"),
-            new Folder(scriptFolder.parent.fsName + "/assets")
+            new Folder(scriptFsName + "/Assets/Images"),
+            new Folder(scriptFsName + "/assets"),
+            new Folder(scriptFsName + "/Images"),
+            new Folder(parentFsName + "/Assets/Images"),
+            new Folder(parentFsName + "/assets")
         ];
         for (var i = 0; i < candidates.length; i++) {
             if (candidates[i].exists) return candidates[i];
@@ -711,11 +723,11 @@ export const generateAEProject = async (params: AEExportParams): Promise<AEExpor
 
     function getAudioFolder() {
         var candidates = [
-            new Folder(scriptFolder.fsName + "/Assets/Audio"),
-            new Folder(scriptFolder.fsName + "/assets"),
-            new Folder(scriptFolder.fsName + "/Audio"),
-            new Folder(scriptFolder.parent.fsName + "/Assets/Audio"),
-            new Folder(scriptFolder.parent.fsName + "/assets")
+            new Folder(scriptFsName + "/Assets/Audio"),
+            new Folder(scriptFsName + "/assets"),
+            new Folder(scriptFsName + "/Audio"),
+            new Folder(parentFsName + "/Assets/Audio"),
+            new Folder(parentFsName + "/assets")
         ];
         for (var i = 0; i < candidates.length; i++) {
             if (candidates[i].exists) return candidates[i];
@@ -1188,6 +1200,14 @@ export const generateAEProject = async (params: AEExportParams): Promise<AEExpor
             if (sourceFile) {
                 var cleanName = sourceFile.name.replace(/\\.[^\\.]+$/, "");
                 imageKey = cleanName;
+                if (sourceFile.exists) {
+                    exportMovie.images[imageKey] = "Assets/Images/" + sourceFile.name;
+                    try {
+                        var imgDestDir = new Folder(scriptFolder.fsName + "/Assets/Images");
+                        if (!imgDestDir.exists) imgDestDir.create();
+                        sourceFile.copy(imgDestDir.fsName + "/" + sourceFile.name);
+                    } catch(eCopy) {}
+                }
             }
 
             var frames = [];

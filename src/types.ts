@@ -252,13 +252,12 @@ export enum PlayerStatus {
 
 export type Language = 'ar' | 'en';
 
-export type CacheCategory = 'svga' | 'vap' | 'lottie' | 'pag' | 'mp4' | 'gif' | 'image' | 'audio' | 'video' | 'json' | 'animation' | 'other';
+export type CacheCategory = 'svga' | 'vap' | 'lottie' | 'pag' | 'mp4' | 'gif' | 'image' | 'audio' | 'video' | 'json' | 'other';
 
 export interface CacheFileRecord {
   id: string;
   name?: string;
   fileName?: string;
-  originalName?: string;
   category: CacheCategory;
   size: number;
   url: string;
@@ -290,9 +289,7 @@ export interface CacheActivityLog {
   userEmail?: string;
   fileName?: string;
   fileId?: string;
-  fileSize?: number;
   adminId?: string;
-  adminName?: string;
 }
 
 export interface CacheStats {
@@ -301,7 +298,6 @@ export interface CacheStats {
   totalSizeBytes?: number;
   categoriesCount: Record<string, number>;
   activeCacheUsersCount?: number;
-  disabledCacheUsersCount?: number;
 }
 
 export interface CachePermissions {
@@ -313,58 +309,9 @@ export interface CachePermissions {
   delete?: boolean;
   download?: boolean;
   copyLink?: boolean;
-  manage?: boolean;
 }
 
 export type MegaFileCategory = 'svga' | 'vap' | 'yyeva' | 'lottie' | 'pag' | 'mp4' | 'images' | 'image' | 'video' | 'animation' | 'audio' | 'backup' | 'other';
-
-export interface StoredFileRecord {
-  fileId: string;
-  userId: string;
-  userName?: string;
-  userEmail?: string;
-  originalName: string;
-  storedName: string;
-  extension: string;
-  mimeType: string;
-  size: number;
-  storageKey: string;
-  storageProvider: 'firebase_storage' | 'r2_storage' | 'private_storage';
-  uploadContext: string;
-  projectId?: string;
-  status: 'active' | 'trash';
-  hash?: string;
-  createdAt: any;
-  updatedAt: any;
-  deletedAt?: any | null;
-  downloadUrl?: string;
-  downloadCount?: number;
-  lastDownloadedAt?: any | null;
-}
-
-export interface StorageActivityLog {
-  id?: string;
-  adminId: string;
-  adminName: string;
-  adminEmail: string;
-  action: 'download' | 'delete' | 'restore' | 'cleanup' | 'create_secure_link';
-  fileId?: string;
-  fileName?: string;
-  details: string;
-  timestamp: any;
-}
-
-export interface StorageCenterStats {
-  totalFiles: number;
-  totalSize: number;
-  filesToday: number;
-  filesThisWeek: number;
-  filesThisMonth: number;
-  trashCount: number;
-  activeCount: number;
-  categoryCounts: Record<string, number>;
-  provider: string;
-}
 
 export interface MegaStorageRecord {
   id: string;
@@ -416,7 +363,6 @@ export interface MegaSettings {
   folderUrl?: string;
   enabled?: boolean;
   provider?: string;
-  status?: string;
 }
 
 export interface MegaConnectionTestResult {
@@ -424,7 +370,6 @@ export interface MegaConnectionTestResult {
   message: string;
   provider?: string;
   folderUrl?: string;
-  folderName?: string;
   accountEmail?: string;
   quota?: {
     used: number;
@@ -434,12 +379,12 @@ export interface MegaConnectionTestResult {
 
 export interface MegaUploadProgress {
   percentage: number;
-  loaded: number;
-  total: number;
+  loaded?: number;
+  total?: number;
+  fileName?: string;
   statusText?: string;
   stage?: string;
   message?: string;
-  fileName?: string;
 }
 
 export interface EmployeeUser {
@@ -461,9 +406,9 @@ export interface GiftItem {
   price: number;
   imageUrl: string;
   fileUrl?: string;
-  type?: string;
   videoUrl?: string;
   posterUrl?: string;
+  type?: string;
 }
 
 export interface SVGAFileExtended {
@@ -473,5 +418,59 @@ export interface SVGAFileExtended {
   lastModified: number;
   url: string;
   rawFile: File;
+}
+
+export interface StoredFileRecord {
+  fileId: string;
+  userId: string;
+  userName?: string;
+  userEmail?: string;
+  originalName: string;
+  storedName: string;
+  extension: string;
+  mimeType: string;
+  size: number;
+  storageKey: string;
+  storageProvider: 'firebase_storage' | 'private_storage' | 'r2_storage';
+  uploadContext?: string;
+  projectId?: string;
+  status: 'active' | 'trash' | 'permanent_deleted';
+  createdAt: any;
+  updatedAt: any;
+  deletedAt?: any;
+  downloadUrl?: string;
+  downloadCount?: number;
+  lastDownloadedAt?: any;
+}
+
+export interface StorageCenterStats {
+  totalFiles: number;
+  activeCount?: number;
+  totalSize: number;
+  filesToday: number;
+  filesThisWeek: number;
+  filesThisMonth: number;
+  trashCount?: number;
+  trashedFilesCount: number;
+  trashedFilesSize: number;
+  storageUsedBytes: number;
+  storageTotalBytes: number;
+  storagePercentUsed: number;
+  categoryBreakdown: Record<string, { count: number; size: number }>;
+}
+
+export interface StorageActivityLog {
+  id?: string;
+  action: 'upload' | 'download' | 'trash' | 'restore' | 'permanent_delete' | 'cleanup' | 'delete' | 'create_secure_link';
+  fileId?: string;
+  fileName?: string;
+  userId?: string;
+  userName?: string;
+  adminId?: string;
+  adminName?: string;
+  adminEmail?: string;
+  details?: string;
+  timestamp: any;
+  bytesAffected?: number;
 }
 

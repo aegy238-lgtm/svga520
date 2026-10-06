@@ -23,6 +23,12 @@ export interface Mp4ToSvgaOptions {
   targetWidth?: number;
   targetHeight?: number;
   preserveAudio?: boolean;
+  // Manual Trim & Top/Bottom Crop
+  trimStart?: number;
+  trimEnd?: number;
+  isManualTrim?: boolean;
+  cropTop?: number;
+  cropBottom?: number;
   onProgress?: (phase: string, percent: number, currentFrame?: number, totalFrames?: number) => void;
 }
 
@@ -106,15 +112,30 @@ export async function convertMp4ToSvgaProject(
 
   const probe = await probeMp4Video(file);
   const fps = options.fps || 30;
-  const effectiveDuration = options.targetDuration && options.targetDuration > 0
-    ? options.targetDuration
-    : probe.duration;
+
+  // Trim and Duration Calculation
+  const isManualTrim = Boolean(options.isManualTrim || (options.trimStart !== undefined && options.trimEnd !== undefined && options.trimEnd > 0));
+  const trimStart = Math.max(0, options.trimStart || 0);
+  const trimEnd = (options.trimEnd && options.trimEnd > trimStart) ? Math.min(probe.duration, options.trimEnd) : probe.duration;
+  const trimDuration = Math.max(0.05, trimEnd - trimStart);
+
+  const effectiveDuration = isManualTrim
+    ? trimDuration
+    : (options.targetDuration && options.targetDuration > 0
+      ? options.targetDuration
+      : probe.duration);
 
   let totalFrames = Math.max(1, Math.round(effectiveDuration * fps));
   if (options.maxFrames && options.maxFrames > 0 && totalFrames > options.maxFrames) {
     totalFrames = options.maxFrames;
   }
   totalFrames = Math.min(2400, totalFrames);
+
+  // Crop Top & Bottom settings
+  const cropTop = Math.max(0, options.cropTop || 0);
+  const cropBottom = Math.max(0, options.cropBottom || 0);
+  const srcCropY = Math.min(probe.height - 10, cropTop);
+  const srcCropH = Math.max(10, probe.height - srcCropY - cropBottom);
 
   // Extract embedded VAP / YYEVA config if present in the MP4 atoms
   const vapConfig = await extractVapConfigFromBlob(file).catch(() => null);
@@ -331,10 +352,11 @@ export async function convertMp4ToSvgaProject(
         tempCvs.width = baseWidth;
         tempCvs.height = baseHeight;
         tempCvs.getContext('2d')?.putImageData(outImgData, 0, 0);
-        ctx.drawImage(tempCvs, 0, 0, outWidth, outHeight);
+        ctx.drawImage(tempCvs, 0, srcCropY, baseWidth, srcCropH, 0, 0, outWidth, outHeight);
       }
     } else {
-      ctx.drawImage(video, 0, 0, outWidth, outHeight);
+      // Draw with top and bottom crop applied
+      ctx.drawImage(video, 0, srcCropY, probe.width, srcCropH, 0, 0, outWidth, outHeight);
     }
   };
 
@@ -349,11 +371,13 @@ export async function convertMp4ToSvgaProject(
   };
 
   // Guaranteed Non-Blank First Frame: step forward until canvas has real pixels
-  await seekAndDraw(0.001);
+  const initialSeekTime = isManualTrim ? Math.max(0, trimStart) : 0.001;
+  await seekAndDraw(initialSeekTime);
   if (isFrameTransparent()) {
     for (const testOffset of [0.033, 0.066, 0.1, 0.15, 0.25, 0.5]) {
-      if (testOffset < probe.duration) {
-        await seekAndDraw(testOffset);
+      const actualOffset = initialSeekTime + testOffset;
+      if (actualOffset < probe.duration) {
+        await seekAndDraw(actualOffset);
         if (!isFrameTransparent()) break;
       }
     }
@@ -374,7 +398,12 @@ export async function convertMp4ToSvgaProject(
   // Frame Extraction Loop: sequential extraction
   for (let f = 0; f < totalFrames; f++) {
     const progressRatio = totalFrames > 1 ? f / (totalFrames - 1) : 0;
-    const seekTime = Math.min(probe.duration, Math.max(0, progressRatio * maxExtractDuration));
+    let seekTime = 0;
+    if (isManualTrim) {
+      seekTime = Math.min(trimEnd, Math.max(trimStart, trimStart + progressRatio * trimDuration));
+    } else {
+      seekTime = Math.min(probe.duration, Math.max(0, progressRatio * maxExtractDuration));
+    }
 
     if (f > 0) {
       await seekAndDraw(seekTime);
@@ -411,8 +440,9 @@ export async function convertMp4ToSvgaProject(
   if (options.preserveAudio !== false) {
     onProgress('جاري استخراج وضبط المسار الصوتي للفيديو...', 85);
     try {
-      const speedRatio = isCropStart ? 1.0 : (probe.duration / effectiveDuration);
-      const audioResult = await extractAndScaleVideoAudio(file, effectiveDuration, speedRatio, 'mp3');
+      const speedRatio = isManualTrim ? 1.0 : (isCropStart ? 1.0 : (probe.duration / effectiveDuration));
+      const audioStartOffset = isManualTrim ? trimStart : 0;
+      const audioResult = await extractAndScaleVideoAudio(file, effectiveDuration, speedRatio, 'mp3', audioStartOffset);
       if (audioResult && audioResult.audioBytes && audioResult.audioBytes.length > 0) {
         const audioBytesWithId3 = ensureMp3WithId3(audioResult.audioBytes);
         const audioKey = 'audio_0';
@@ -588,12 +618,23 @@ export async function importMp4AsLayerIntoProject(
   const fps = existingProject.fps;
   const projectDuration = existingProject.durationSec || (totalFrames / fps);
 
+  const isLayerManualTrim = Boolean(options.isManualTrim || (options.trimStart !== undefined && options.trimEnd !== undefined && options.trimEnd > 0));
+  const layerTrimStart = Math.max(0, options.trimStart || 0);
+  const layerTrimEnd = (options.trimEnd && options.trimEnd > layerTrimStart) ? Math.min(probe.duration, options.trimEnd) : probe.duration;
+  const layerTrimDuration = Math.max(0.05, layerTrimEnd - layerTrimStart);
+
+  // Crop Top & Bottom settings
+  const layerCropTop = Math.max(0, options.cropTop || 0);
+  const layerCropBottom = Math.max(0, options.cropBottom || 0);
+  const layerSrcCropY = Math.min(probe.height - 10, layerCropTop);
+  const layerSrcCropH = Math.max(10, probe.height - layerSrcCropY - layerCropBottom);
+
   // Determine initial layout size to fit nicely in the current canvas
   const canvasW = existingProject.width;
   const canvasH = existingProject.height;
 
   let layerW = probe.width;
-  let layerH = probe.height;
+  let layerH = layerSrcCropH;
 
   // Scale down if larger than canvas
   if (layerW > canvasW * 0.9 || layerH > canvasH * 0.9) {
@@ -693,7 +734,7 @@ export async function importMp4AsLayerIntoProject(
       await new Promise(r => setTimeout(r, 10));
     }
 
-    ctx.drawImage(video, 0, 0, layerW, layerH);
+    ctx.drawImage(video, 0, layerSrcCropY, probe.width, layerSrcCropH, 0, 0, layerW, layerH);
   };
 
   const isLayerCanvasTransparent = (): boolean => {
@@ -706,11 +747,13 @@ export async function importMp4AsLayerIntoProject(
   };
 
   // Guaranteed Non-Blank First Frame: step forward until canvas has real pixels
-  await seekAndDrawLayer(0.001);
+  const initialLayerSeek = isLayerManualTrim ? layerTrimStart : 0.001;
+  await seekAndDrawLayer(initialLayerSeek);
   if (isLayerCanvasTransparent()) {
     for (const testOffset of [0.033, 0.066, 0.1, 0.15, 0.25, 0.5]) {
-      if (testOffset < probe.duration) {
-        await seekAndDrawLayer(testOffset);
+      const actualOffset = initialLayerSeek + testOffset;
+      if (actualOffset < probe.duration) {
+        await seekAndDrawLayer(actualOffset);
         if (!isLayerCanvasTransparent()) break;
       }
     }
@@ -728,7 +771,12 @@ export async function importMp4AsLayerIntoProject(
   // Extract frames matching existing project's totalFrames
   for (let f = 0; f < totalFrames; f++) {
     const progressRatio = totalFrames > 1 ? f / (totalFrames - 1) : 0;
-    const seekTime = Math.min(probe.duration, Math.max(0, progressRatio * maxLayerExtractDuration));
+    let seekTime = 0;
+    if (isLayerManualTrim) {
+      seekTime = Math.min(layerTrimEnd, Math.max(layerTrimStart, layerTrimStart + progressRatio * layerTrimDuration));
+    } else {
+      seekTime = Math.min(probe.duration, Math.max(0, progressRatio * maxLayerExtractDuration));
+    }
 
     if (f > 0) {
       await seekAndDrawLayer(seekTime);

@@ -141,7 +141,7 @@ export default function HomePage({ onOpenRoom }: { onOpenRoom: (id?: string) => 
         <div className="flex gap-6 overflow-x-auto hide-scrollbar">
           {tabs.map((tab, idx) => (
             <button 
-              key={tab} 
+              key={`home-tab-${tab}-${idx}`} 
               className={`whitespace-nowrap pb-2 text-sm font-semibold border-b-2 transition-colors ${idx === 0 ? 'border-purple-600 text-purple-600' : 'border-transparent text-gray-500'}`}
             >
               {tab}
@@ -156,7 +156,7 @@ export default function HomePage({ onOpenRoom }: { onOpenRoom: (id?: string) => 
           <div className="relative w-full h-32 rounded-xl overflow-hidden shadow-md">
             {banners.map((banner, idx) => (
               <a 
-                key={banner.id} 
+                key={`home-banner-${banner.id || idx}-${idx}`} 
                 href={banner.linkUrl || '#'} 
                 target={banner.linkUrl ? "_blank" : "_self"}
                 rel="noreferrer"
@@ -167,7 +167,7 @@ export default function HomePage({ onOpenRoom }: { onOpenRoom: (id?: string) => 
             ))}
             <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1 z-20">
               {banners.map((_, idx) => (
-                <div key={idx} className={`w-1.5 h-1.5 rounded-full transition-colors ${idx === currentBannerIndex ? 'bg-white' : 'bg-white/50'}`} />
+                <div key={`banner-dot-${idx}`} className={`w-1.5 h-1.5 rounded-full transition-colors ${idx === currentBannerIndex ? 'bg-white' : 'bg-white/50'}`} />
               ))}
             </div>
           </div>
@@ -215,9 +215,9 @@ export default function HomePage({ onOpenRoom }: { onOpenRoom: (id?: string) => 
           <h2 className="text-sm font-bold text-gray-800 mb-3">غرف نشطة الآن</h2>
           {activeRooms.length > 0 ? (
             <div className="grid grid-cols-2 gap-3">
-              {activeRooms.map(room => (
+              {activeRooms.map((room, idx) => (
                 <div 
-                  key={room.id} 
+                  key={`home-room-${room.id || idx}-${idx}`} 
                   onClick={() => onOpenRoom(room.id)}
                   className="bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition-shadow relative"
                 >

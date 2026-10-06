@@ -7,6 +7,8 @@ const DB_NAME = 'jiawei_media_vault';
 const DB_VERSION = 1;
 const STORE_NAME = 'media_blobs';
 
+export const globalMemoryCache = new Map<string, Blob | string>();
+
 // Open IndexedDB database
 function openMediaDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {

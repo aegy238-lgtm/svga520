@@ -84,7 +84,7 @@ export default function AdminPromotions() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredProducts.map(product => (
-            <div key={product.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-shadow">
+            <div key={`product-${product.id || ""}-${idx}`} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex gap-4 mb-4">
                 <img src={product.imageUrl} alt={product.name} className="w-16 h-16 object-cover rounded-xl border border-slate-100" />
                 <div className="flex-1 min-w-0">
@@ -245,7 +245,7 @@ export default function AdminPromotions() {
           </AnimatePresence>
 
           {filteredCodes.map(promo => (
-            <div key={promo.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col group">
+            <div key={`promo-${promo.id || ""}-${idx}`} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col group">
               <div className="flex justify-between items-start mb-4">
                 <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
                   <Gift className="w-5 h-5" />

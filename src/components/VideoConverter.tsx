@@ -32,8 +32,10 @@ import {
   CheckCircle2,
   PenTool,
   Brush,
+  Crop,
 } from "lucide-react";
 import { logActivity } from "../utils/logger";
+import { trackUploadedFile } from "../services/centralUploadService";
 import { ChromaStudioModal, ChromaSettings } from "./ChromaStudioModal";
 import {
   VideoTrimmerModal,
@@ -643,15 +645,20 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     targetHeight: number,
     isVap: boolean = false,
   ) => {
+    const cropTopPct = Math.max(0, Math.min(0.45, (timingSettings?.cropTop || 0) / 100));
+    const cropBottomPct = Math.max(0, Math.min(0.45, (timingSettings?.cropBottom || 0) / 100));
+    const srcY = Math.floor(video.videoHeight * cropTopPct);
+    const srcH = Math.max(1, Math.floor(video.videoHeight * (1 - cropTopPct - cropBottomPct)));
+
     if (isVap) {
       const halfTargetW = targetWidth / 2;
       const halfVideoW = video.videoWidth / 2;
       const scale = Math.max(
         halfTargetW / halfVideoW,
-        targetHeight / video.videoHeight,
+        targetHeight / srcH,
       );
       const drawW = halfVideoW * scale;
-      const drawH = video.videoHeight * scale;
+      const drawH = srcH * scale;
       const drawX = (halfTargetW - drawW) / 2;
       const drawY = (targetHeight - drawH) / 2;
 
@@ -659,9 +666,9 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
       ctx.drawImage(
         video,
         0,
-        0,
+        srcY,
         halfVideoW,
-        video.videoHeight,
+        srcH,
         drawX,
         drawY,
         drawW,
@@ -671,9 +678,9 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
       ctx.drawImage(
         video,
         halfVideoW,
-        0,
+        srcY,
         halfVideoW,
-        video.videoHeight,
+        srcH,
         halfTargetW + drawX,
         drawY,
         drawW,
@@ -682,13 +689,23 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
     } else {
       const scale = Math.max(
         targetWidth / video.videoWidth,
-        targetHeight / video.videoHeight,
+        targetHeight / srcH,
       );
       const drawW = video.videoWidth * scale;
-      const drawH = video.videoHeight * scale;
+      const drawH = srcH * scale;
       const drawX = (targetWidth - drawW) / 2;
       const drawY = (targetHeight - drawH) / 2;
-      ctx.drawImage(video, drawX, drawY, drawW, drawH);
+      ctx.drawImage(
+        video,
+        0,
+        srcY,
+        video.videoWidth,
+        srcH,
+        drawX,
+        drawY,
+        drawW,
+        drawH,
+      );
     }
   };
 
@@ -2893,6 +2910,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
                   const newFiles = Array.from(e.target.files || []);
                   if (newFiles.length > 0) {
                     setFiles((prev) => [...prev, ...newFiles]);
+                    newFiles.forEach((f) => trackUploadedFile(f, 'video_converter'));
                   }
                 }}
               />
@@ -3218,6 +3236,41 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
                       </div>
                       <div className="text-slate-500 text-[10px] font-semibold">
                         مدة التصدير
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setTimingSettings((s) => ({ ...s, mode: "crop_spatial" }));
+                      setShowTrimmer(true);
+                    }}
+                    className="w-full relative group overflow-hidden bg-gradient-to-r from-rose-500/10 via-pink-500/10 to-rose-500/10 hover:from-rose-500/20 hover:via-pink-500/20 hover:to-rose-500/20 border border-rose-500/30 p-4 rounded-2xl transition-all duration-300 flex items-center justify-between shadow-lg shadow-rose-500/5"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-rose-500 to-pink-600 text-white flex items-center justify-center shadow-lg shadow-rose-500/20">
+                        <Crop className="w-5 h-5" />
+                      </div>
+                      <div className="text-right">
+                        <div className="text-white font-black text-sm flex items-center gap-2">
+                          قص وحذف الحواف (من الأعلى ومن الأسفل)
+                          {((timingSettings.cropTop || 0) > 0 || (timingSettings.cropBottom || 0) > 0) && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                              قص نشط: أعلى {timingSettings.cropTop || 0}% / أسفل {timingSettings.cropBottom || 0}%
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider mt-1">
+                          قص الأجزاء العلوية والسفلية غير المرغوبة بدقة بيكسلية مع معاينة حية
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-left bg-slate-900/60 px-3 py-1.5 rounded-xl border border-white/5">
+                      <div className="text-rose-400 font-black text-sm">
+                        {((timingSettings.cropTop || 0) + (timingSettings.cropBottom || 0))}%
+                      </div>
+                      <div className="text-slate-500 text-[10px] font-semibold">
+                        إجمالي القص
                       </div>
                     </div>
                   </button>

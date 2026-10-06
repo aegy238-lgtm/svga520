@@ -8,6 +8,10 @@ export interface MediaAssetItem {
   size: number;
   hash?: string;
   usageCount?: number;
+  lastUsed?: any;
+  mimeType?: string;
+  url?: string;
+  compressedUrl?: string;
 }
 
 export interface OptimizationOptions {
@@ -31,6 +35,7 @@ export interface SvgaStructureInfo {
   width?: number;
   height?: number;
   layersCount?: number;
+  spritesCount?: number;
 }
 
 /**

@@ -69,7 +69,8 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
   const [compressionMode, setCompressionMode] = useState<'high' | 'medium' | 'low' | 'custom'>('high');
   const [customQuality, setCustomQuality] = useState<number>(100); // 10 to 100
   const [zlibLevel, setZlibLevel] = useState<number>(6); // 0 to 9
-  const [compressImages, setCompressImages] = useState<boolean>(false);
+  const [compressImages, setCompressImages] = useState<boolean>(true);
+  const [imageFormat, setImageFormat] = useState<'png' | 'webp' | 'jpeg' | 'auto'>('auto');
 
   // Selected format
   const [selectedFormat, setSelectedFormat] = useState<ExportFormatType>('SVGA 2.0');
@@ -152,7 +153,8 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
         mode: compressionMode,
         quality: compressionMode === 'custom' ? customQuality : compressionMode === 'low' ? 60 : compressionMode === 'medium' ? 80 : 100,
         zlibLevel: compressionMode === 'custom' ? zlibLevel : 9,
-        compressImages: compressionMode === 'custom' ? compressImages : compressionMode === 'low'
+        compressImages: compressionMode === 'custom' ? compressImages : true,
+        imageFormat: imageFormat
       };
 
       // 1. Direct SVGA Downloads: Only encode protobuf & zlib when exporting SVGA format directly
@@ -594,7 +596,43 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
             </button>
           </div>
 
-          {/* Numeric Custom Controls Panel */}
+          {/* Image Compression Format Selector */}
+          <div className="bg-slate-900/90 border border-white/10 rounded-2xl p-3 space-y-2">
+            <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
+              <span className="flex items-center gap-1">
+                <span>🖼️ صيغة ضغط الصور الداخلية (Image Compression Format):</span>
+              </span>
+              <span className="text-[10px] text-purple-400 font-mono">
+                {imageFormat === 'auto' ? 'تلقائي (الأصغر)' : imageFormat === 'webp' ? 'WebP فائق' : imageFormat === 'png' ? 'PNG قياسي' : 'JPEG'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              {[
+                { id: 'auto', label: 'تلقائي (الأصغر)', desc: 'مقارنة WebP و PNG' },
+                { id: 'webp', label: 'WebP (فائق الضغط)', desc: 'تقليل 80% مع الشفافية' },
+                { id: 'png', label: 'PNG (قياسي)', desc: 'جودة الشفافية الأصلية' },
+                { id: 'jpeg', label: 'JPEG', desc: 'بدون قناة شفافية' },
+              ].map((fmt) => (
+                <button
+                  key={fmt.id}
+                  type="button"
+                  onClick={() => setImageFormat(fmt.id as any)}
+                  className={`p-2 rounded-xl border text-right transition-all cursor-pointer flex flex-col gap-0.5 ${
+                    imageFormat === fmt.id
+                      ? 'bg-purple-600/30 border-purple-400 text-white shadow-[0_0_10px_rgba(168,85,247,0.3)]'
+                      : 'bg-slate-950/60 border-white/5 text-slate-400 hover:bg-white/5'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-white">{fmt.label}</span>
+                    {imageFormat === fmt.id && <Check size={12} className="text-purple-400" />}
+                  </div>
+                  <span className="text-[9px] text-slate-400">{fmt.desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
           {compressionMode === 'custom' && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}

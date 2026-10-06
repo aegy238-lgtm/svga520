@@ -22,9 +22,18 @@ import {
   Settings2,
   FileCheck,
   Lock,
-  Unlock
+  Unlock,
+  Scissors,
+  Crop,
+  FastForward,
 } from 'lucide-react';
+import { trackUploadedFile } from '../../services/centralUploadService';
 import { SVGAProjectData, EditableLayer, SVGAAudioTrack } from './types';
+import {
+  VideoTrimmerModal,
+  TimingSettings,
+  DEFAULT_TIMING_SETTINGS
+} from '../VideoTrimmerModal';
 import {
   probeMp4Video,
   convertMp4ToSvgaProject,
@@ -67,9 +76,15 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
 
   // Settings - Defaulted to user's requested 750 × 1334 and original video duration
   const [fps, setFps] = useState<number>(15);
-  const [durationMode, setDurationMode] = useState<'original' | 'custom'>('original');
+  const [durationMode, setDurationMode] = useState<'original' | 'custom' | 'trim'>('original');
   const [durationStrategy, setDurationStrategy] = useState<'crop_start' | 'compress_full'>('crop_start');
   const [customDuration, setCustomDuration] = useState<number>(18.0);
+  const [trimStart, setTrimStart] = useState<number>(0);
+  const [trimEnd, setTrimEnd] = useState<number>(0);
+  const [cropTop, setCropTop] = useState<number>(0);
+  const [cropBottom, setCropBottom] = useState<number>(0);
+  const [symmetricCrop, setSymmetricCrop] = useState<boolean>(true);
+  const [showTrimmerStudio, setShowTrimmerStudio] = useState<boolean>(false);
   const [customWidth, setCustomWidth] = useState<number>(750);
   const [customHeight, setCustomHeight] = useState<number>(1334);
   const [widthStr, setWidthStr] = useState<string>('750');
@@ -273,6 +288,9 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
           const currentFile = files[i];
           const fileProbe = probes[currentFile.name] || await probeMp4Video(currentFile).catch(() => null);
 
+          // Track uploaded file automatically in background
+          trackUploadedFile(currentFile, 'svga_mp4_import_layer');
+
           const conversionOptions = {
             fps,
             targetDuration: durationMode === 'custom' ? customDuration : (fileProbe ? fileProbe.duration : undefined),
@@ -282,6 +300,11 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
             quality: qualityMode,
             maxFrames: maxFramesLimit > 0 ? maxFramesLimit : undefined,
             preserveAudio,
+            trimStart: durationMode === 'trim' ? trimStart : undefined,
+            trimEnd: durationMode === 'trim' && trimEnd > trimStart ? trimEnd : undefined,
+            isManualTrim: durationMode === 'trim',
+            cropTop: cropTop > 0 ? (fileProbe ? Math.round((fileProbe.height * cropTop) / 100) : cropTop) : undefined,
+            cropBottom: cropBottom > 0 ? (fileProbe ? Math.round((fileProbe.height * cropBottom) / 100) : cropBottom) : undefined,
             onProgress: (phase: string, percent: number) => {
               const overallPercent = Math.round(((i + percent / 100) / files.length) * 100);
               setProgressPhase(`[${i + 1}/${files.length}] ${currentFile.name}: ${phase}`);
@@ -317,6 +340,9 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
           const currentFile = files[i];
           const fileProbe = probes[currentFile.name] || await probeMp4Video(currentFile).catch(() => null);
 
+          // Track uploaded file automatically in background
+          trackUploadedFile(currentFile, 'svga_mp4_import_project');
+
           const conversionOptions = {
             fps,
             targetDuration: durationMode === 'custom' ? customDuration : (fileProbe ? fileProbe.duration : undefined),
@@ -326,6 +352,11 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
             quality: qualityMode,
             maxFrames: maxFramesLimit > 0 ? maxFramesLimit : undefined,
             preserveAudio,
+            trimStart: durationMode === 'trim' ? trimStart : undefined,
+            trimEnd: durationMode === 'trim' && trimEnd > trimStart ? trimEnd : undefined,
+            isManualTrim: durationMode === 'trim',
+            cropTop: cropTop > 0 ? (fileProbe ? Math.round((fileProbe.height * cropTop) / 100) : cropTop) : undefined,
+            cropBottom: cropBottom > 0 ? (fileProbe ? Math.round((fileProbe.height * cropBottom) / 100) : cropBottom) : undefined,
             onProgress: (phase: string, percent: number) => {
               const overallPercent = Math.round(((i + percent / 100) / files.length) * 100);
               setProgressPhase(`[${i + 1}/${files.length}] ${currentFile.name}: ${phase}`);
@@ -543,6 +574,30 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
                           muted={isMuted}
                           playsInline
                         />
+                      )}
+
+                      {/* Crop Top Overlay Curtain */}
+                      {cropTop > 0 && (
+                        <div 
+                          className="absolute top-0 left-0 right-0 bg-rose-950/75 border-b-2 border-rose-500/90 pointer-events-none z-10 flex items-center justify-center transition-all shadow-[0_4px_12px_rgba(244,63,94,0.3)]"
+                          style={{ height: `${cropTop}%` }}
+                        >
+                          <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white font-mono text-[9px] font-black shadow-md border border-rose-400/40">
+                            ✂️ قص {cropTop}% من الأعلى
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Crop Bottom Overlay Curtain */}
+                      {cropBottom > 0 && (
+                        <div 
+                          className="absolute bottom-0 left-0 right-0 bg-rose-950/75 border-t-2 border-rose-500/90 pointer-events-none z-10 flex items-center justify-center transition-all shadow-[0_-4px_12px_rgba(244,63,94,0.3)]"
+                          style={{ height: `${cropBottom}%` }}
+                        >
+                          <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white font-mono text-[9px] font-black shadow-md border border-rose-400/40">
+                            ✂️ قص {cropBottom}% من الأسفل
+                          </span>
+                        </div>
                       )}
 
                       {/* Play/Pause Overlay Button */}
@@ -794,14 +849,14 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Duration / Zero-Crop Speed Setting */}
+                    {/* Duration / Zero-Crop Speed / Manual Trim Setting */}
                     <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-white flex items-center gap-1.5">
                           <Clock size={14} className="text-amber-400" />
                           مدة الفيديو وسرعة الحركة:
                         </span>
-                        <div className="flex gap-1">
+                        <div className="flex flex-wrap gap-1">
                           <button
                             type="button"
                             onClick={setOriginalDurationMode}
@@ -811,7 +866,7 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
                                 : 'bg-white/5 text-slate-400 hover:text-white border border-white/5'
                             }`}
                           >
-                            <span>المدة الأصلية كاملة</span>
+                            <span>المدة الأصلية</span>
                             <span className="font-mono bg-amber-400/20 px-1 py-0.2 rounded text-amber-300">
                               {activeProbe ? `${activeProbe.duration.toFixed(1)}ث` : '...'}
                             </span>
@@ -825,10 +880,47 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
                                 : 'bg-white/5 text-slate-400 hover:text-white border border-white/5'
                             }`}
                           >
-                            تخصيص مدة أخرى (رقمياً)
+                            تخصيص مدة
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDurationMode('trim');
+                              if (trimEnd <= 0 && activeProbe) {
+                                setTrimEnd(activeProbe.duration);
+                              }
+                              setShowTrimmerStudio(true);
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                              durationMode === 'trim'
+                                ? 'bg-sky-500/25 text-sky-200 border border-sky-400/50 shadow-sm shadow-sky-500/20 ring-1 ring-sky-400/40'
+                                : 'bg-white/5 text-slate-400 hover:text-white border border-white/5'
+                            }`}
+                          >
+                            <Scissors size={12} />
+                            <span>قص يدوي (Trim)</span>
                           </button>
                         </div>
                       </div>
+
+                      {/* Launch Full Scissors & Timeline Studio Button */}
+                      <button
+                        type="button"
+                        onClick={() => setShowTrimmerStudio(true)}
+                        className="w-full py-2.5 px-3.5 rounded-xl bg-gradient-to-r from-sky-500/15 via-indigo-500/15 to-purple-500/15 hover:from-sky-500/25 hover:via-indigo-500/25 hover:to-purple-500/25 border border-sky-400/40 text-white text-xs font-black flex items-center justify-between transition-all shadow-md cursor-pointer group"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-lg bg-sky-500 text-slate-950 flex items-center justify-center font-bold shadow group-hover:scale-110 transition-transform">
+                            <Scissors size={13} />
+                          </div>
+                          <span className="text-sky-200 font-bold">
+                            استوديو القص وتسريع الفيديو والتايم لاين الاحترافي (PRO RETIMING)
+                          </span>
+                        </div>
+                        <span className="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-[10px] font-bold border border-sky-400/30">
+                          فتح الاستوديو المصور ⚡
+                        </span>
+                      </button>
 
                       {/* When Original Duration Mode is Selected */}
                       {durationMode === 'original' && (
@@ -866,6 +958,71 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
                                   {chip.label}
                                 </button>
                               ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* When Manual Trim (Scissors) Mode is Selected */}
+                      {durationMode === 'trim' && (
+                        <div className="p-3 rounded-xl bg-gradient-to-r from-sky-500/10 via-indigo-500/5 to-transparent border border-sky-400/30 space-y-3 animate-in fade-in">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Scissors size={14} className="text-sky-400" />
+                              <span className="text-xs font-bold text-sky-200">
+                                استوديو قص وتحديد المقطع (Manual Trim)
+                              </span>
+                            </div>
+                            <span className="text-[10px] bg-sky-500/20 text-sky-300 border border-sky-500/30 px-2 py-0.5 rounded-full font-mono font-bold">
+                              المدة الناتجة: {Math.max(0.1, (trimEnd || (activeProbe?.duration || 0)) - trimStart).toFixed(2)} ثانية
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            {/* Start Time */}
+                            <div className="bg-slate-900/80 p-2.5 rounded-xl border border-white/5 space-y-1.5">
+                              <div className="flex justify-between items-center text-[10px]">
+                                <span className="text-slate-400 font-bold">نقطة البداية (ثانية):</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setTrimStart(currentTime)}
+                                  className="text-[9px] text-sky-300 hover:underline cursor-pointer bg-sky-500/10 px-1.5 py-0.5 rounded"
+                                >
+                                  [ ضبط الحالي {currentTime.toFixed(1)}ث
+                                </button>
+                              </div>
+                              <input
+                                type="number"
+                                min="0"
+                                max={trimEnd > 0 ? trimEnd : (activeProbe?.duration || 60)}
+                                step="0.1"
+                                value={trimStart}
+                                onChange={(e) => setTrimStart(Math.max(0, parseFloat(e.target.value) || 0))}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg p-1.5 text-xs text-white font-mono font-bold text-center outline-none focus:border-sky-400"
+                              />
+                            </div>
+
+                            {/* End Time */}
+                            <div className="bg-slate-900/80 p-2.5 rounded-xl border border-white/5 space-y-1.5">
+                              <div className="flex justify-between items-center text-[10px]">
+                                <span className="text-slate-400 font-bold">نقطة النهاية (ثانية):</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setTrimEnd(currentTime)}
+                                  className="text-[9px] text-indigo-300 hover:underline cursor-pointer bg-indigo-500/10 px-1.5 py-0.5 rounded"
+                                >
+                                  ضبط الحالي {currentTime.toFixed(1)}ث ]
+                                </button>
+                              </div>
+                              <input
+                                type="number"
+                                min={trimStart}
+                                max={activeProbe?.duration || 120}
+                                step="0.1"
+                                value={trimEnd || (activeProbe?.duration || 0)}
+                                onChange={(e) => setTrimEnd(Math.max(trimStart + 0.1, parseFloat(e.target.value) || (activeProbe?.duration || 0)))}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg p-1.5 text-xs text-white font-mono font-bold text-center outline-none focus:border-indigo-400"
+                              />
                             </div>
                           </div>
                         </div>
@@ -1016,6 +1173,130 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
                           </div>
                         </div>
                       )}
+                    </div>
+
+                    {/* Dedicated Top & Bottom Cropping Studio (قص وحذف أجزاء الفيديو من الأعلى ومن الأسفل) */}
+                    <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/25 space-y-3 shadow-lg shadow-rose-500/5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-lg bg-rose-500/20 text-rose-400 flex items-center justify-center">
+                            <Crop size={14} />
+                          </div>
+                          <div>
+                            <span className="text-xs font-bold text-white block">
+                              قص وحذف أجزاء الفيديو (من الأعلى ومن الأسفل):
+                            </span>
+                            <span className="text-[10px] text-rose-300/80 block">
+                              إزالة الحواف والشعارات غير المرغوبة بدقة واقتطاعها من الإطارات
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setSymmetricCrop(!symmetricCrop)}
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all ${
+                              symmetricCrop
+                                ? 'bg-rose-500 text-white shadow-sm'
+                                : 'bg-white/5 text-slate-400 hover:text-white border border-white/10'
+                            }`}
+                          >
+                            {symmetricCrop ? <Lock size={10} /> : <Unlock size={10} />}
+                            <span>{symmetricCrop ? 'متماثل' : 'حر'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCropTop(0);
+                              setCropBottom(0);
+                            }}
+                            className="px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-[10px] border border-white/10"
+                          >
+                            إعادة ضبط
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Sliders Grid */}
+                      <div className="grid grid-cols-2 gap-3 bg-black/40 p-3 rounded-xl border border-white/5">
+                        {/* Crop Top */}
+                        <div className="space-y-1">
+                          <div className="flex justify-between items-center text-[10px]">
+                            <span className="text-rose-300 font-bold">✂️ قص من الأعلى:</span>
+                            <span className="font-mono font-bold text-white bg-rose-500/20 px-1.5 py-0.2 rounded">
+                              {cropTop}% {activeProbe ? `(${Math.round((activeProbe.height * cropTop) / 100)}px)` : ''}
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="45"
+                            step="1"
+                            value={cropTop}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 0;
+                              setCropTop(val);
+                              if (symmetricCrop) setCropBottom(val);
+                            }}
+                            className="w-full accent-rose-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                          />
+                        </div>
+
+                        {/* Crop Bottom */}
+                        <div className="space-y-1">
+                          <div className="flex justify-between items-center text-[10px]">
+                            <span className="text-rose-300 font-bold">✂️ قص من الأسفل:</span>
+                            <span className="font-mono font-bold text-white bg-rose-500/20 px-1.5 py-0.2 rounded">
+                              {cropBottom}% {activeProbe ? `(${Math.round((activeProbe.height * cropBottom) / 100)}px)` : ''}
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="45"
+                            step="1"
+                            value={cropBottom}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 0;
+                              setCropBottom(val);
+                              if (symmetricCrop) setCropTop(val);
+                            }}
+                            className="w-full accent-rose-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Presets */}
+                      <div className="flex items-center justify-between pt-0.5">
+                        <span className="text-[10px] text-slate-400">إعدادات سريعة:</span>
+                        <div className="flex gap-1">
+                          {[
+                            { label: '0% (بدون)', val: 0 },
+                            { label: '5% حواف', val: 5 },
+                            { label: '10% شريط', val: 10 },
+                            { label: '15% متوازن', val: 15 },
+                            { label: '20% سينمائي', val: 20 },
+                            { label: '25% عريض', val: 25 },
+                          ].map((p) => (
+                            <button
+                              key={p.val}
+                              type="button"
+                              onClick={() => {
+                                setCropTop(p.val);
+                                setCropBottom(p.val);
+                              }}
+                              className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors cursor-pointer ${
+                                cropTop === p.val && cropBottom === p.val
+                                  ? 'bg-rose-500 text-white shadow-sm'
+                                  : 'bg-white/5 text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              {p.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
 
                     {/* Speed Engine & Frame Rate & Limit */}
@@ -1220,6 +1501,44 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
           </div>
         </motion.div>
       </div>
+
+      {/* Standalone Video Trimmer & Top/Bottom Cropper Studio Modal */}
+      {activeFile && showTrimmerStudio && (
+        <VideoTrimmerModal
+          isOpen={showTrimmerStudio}
+          onClose={() => setShowTrimmerStudio(false)}
+          videoUrl={URL.createObjectURL(activeFile)}
+          videoFile={activeFile}
+          initialDuration={activeProbe?.duration || 10}
+          initialSettings={{
+            mode: durationMode === 'trim' ? 'trim' : durationMode === 'custom' ? 'fit_duration' : (cropTop > 0 || cropBottom > 0) ? 'crop_spatial' : 'full',
+            startTime: trimStart,
+            endTime: trimEnd > 0 ? trimEnd : (activeProbe?.duration || 10),
+            targetDuration: customDuration,
+            speedMultiplier: 1.0,
+            segmentStart: 0,
+            segmentEnd: activeProbe?.duration || 10,
+            segmentSpeedMultiplier: 2.0,
+            cropTop: cropTop || 0,
+            cropBottom: cropBottom || 0,
+          }}
+          fps={fps}
+          onApply={(applied) => {
+            if (applied.mode === 'trim') {
+              setDurationMode('trim');
+              setTrimStart(applied.startTime);
+              setTrimEnd(applied.endTime);
+            } else if (applied.mode === 'fit_duration') {
+              setDurationMode('custom');
+              setCustomDuration(applied.targetDuration);
+            } else if (applied.mode === 'full') {
+              setDurationMode('original');
+            }
+            if (applied.cropTop !== undefined) setCropTop(applied.cropTop);
+            if (applied.cropBottom !== undefined) setCropBottom(applied.cropBottom);
+          }}
+        />
+      )}
     </AnimatePresence>
   );
 };

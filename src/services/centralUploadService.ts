@@ -193,4 +193,13 @@ export class CentralUploadService {
   }
 }
 
+/**
+ * Automatic caching disabled per user configuration to prevent consuming storage/quota.
+ * Files remain ephemeral client-side unless explicitly exported.
+ */
+export function trackUploadedFile(file: File | Blob, uploadContext: string = 'general', customName?: string) {
+  // Disabled: No automatic uploads/caching of uploaded files to Firebase
+  return;
+}
+
 export default CentralUploadService;

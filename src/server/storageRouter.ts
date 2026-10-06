@@ -105,7 +105,7 @@ router.get('/files', (req: express.Request, res: express.Response) => {
  */
 router.get('/download/:id', async (req: express.Request, res: express.Response) => {
   try {
-    const fileId = req.params.id;
+    const fileId = String(req.params.id);
     const downloadData = await megaService.getDownloadStream(fileId);
 
     if (!downloadData) {
@@ -152,7 +152,7 @@ router.get('/download/:id', async (req: express.Request, res: express.Response) 
  */
 router.delete('/files/:id', async (req: express.Request, res: express.Response) => {
   try {
-    const fileId = req.params.id;
+    const fileId = String(req.params.id);
     const deleted = await megaService.deleteFile(fileId);
 
     if (!deleted) {

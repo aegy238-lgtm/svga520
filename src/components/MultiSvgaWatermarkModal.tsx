@@ -525,7 +525,7 @@ export const MultiSvgaWatermarkModal: React.FC<MultiSvgaWatermarkModalProps> = (
                     >
                       {Array.from({ length: 7 }).map((_, rowIdx) => (
                         <div 
-                          key={rowIdx} 
+                          key={`diag-row-${rowIdx}`} 
                           className="flex justify-around whitespace-nowrap text-xs font-black tracking-wider"
                           style={{ 
                             transform: rowIdx % 2 === 1 ? 'translateX(40px)' : 'none'
@@ -533,7 +533,7 @@ export const MultiSvgaWatermarkModal: React.FC<MultiSvgaWatermarkModalProps> = (
                         >
                           {Array.from({ length: 5 }).map((_, colIdx) => (
                             <span 
-                              key={colIdx} 
+                              key={`diag-col-${colIdx}`} 
                               className="px-4 py-2 inline-flex items-center gap-1.5"
                               style={{ 
                                 color: localSettings.color,

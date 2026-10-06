@@ -126,48 +126,6 @@
         "costs": { "type": "object" }
       },
       "required": ["appName", "whatsappNumber"]
-    },
-    "StoredFile": {
-      "title": "StoredFile",
-      "description": "Persistent file record stored in Private Object Storage",
-      "type": "object",
-      "properties": {
-        "fileId": { "type": "string" },
-        "userId": { "type": "string" },
-        "userName": { "type": "string" },
-        "userEmail": { "type": "string" },
-        "originalName": { "type": "string" },
-        "storedName": { "type": "string" },
-        "extension": { "type": "string" },
-        "mimeType": { "type": "string" },
-        "size": { "type": "number" },
-        "storageKey": { "type": "string" },
-        "storageProvider": { "type": "string" },
-        "uploadContext": { "type": "string" },
-        "projectId": { "type": "string" },
-        "status": { "type": "string", "enum": ["active", "trash"] },
-        "createdAt": { "type": "object" },
-        "updatedAt": { "type": "object" },
-        "deletedAt": { "type": "object" },
-        "downloadUrl": { "type": "string" }
-      },
-      "required": ["fileId", "userId", "originalName", "storedName", "extension", "mimeType", "size", "storageKey", "storageProvider", "status", "createdAt"]
-    },
-    "StorageActivityLog": {
-      "title": "StorageActivityLog",
-      "description": "Admin action log on stored files",
-      "type": "object",
-      "properties": {
-        "adminId": { "type": "string" },
-        "adminName": { "type": "string" },
-        "adminEmail": { "type": "string" },
-        "action": { "type": "string" },
-        "fileId": { "type": "string" },
-        "fileName": { "type": "string" },
-        "details": { "type": "string" },
-        "timestamp": { "type": "object" }
-      },
-      "required": ["adminId", "adminName", "action", "timestamp"]
     }
   },
   "firestore": {
@@ -222,14 +180,6 @@
     "/cache_activity_logs/{logId}": {
       "schema": "object",
       "description": "Audit and activity logs for user cache operations"
-    },
-    "/files/{fileId}": {
-      "schema": "StoredFile",
-      "description": "Persistent private object storage file metadata"
-    },
-    "/storageActivityLogs/{logId}": {
-      "schema": "StorageActivityLog",
-      "description": "Admin storage center operations audit trail"
     }
   }
 }

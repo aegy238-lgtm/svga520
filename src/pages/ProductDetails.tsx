@@ -158,14 +158,14 @@ export default function ProductDetails() {
               <div className="mb-10 space-y-4">
                 <h3 className="font-display font-bold text-slate-900 tracking-tight">{t('product.selectPlan')}</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  {product.durationOptions.map(duration => {
+                  {product.durationOptions.map((duration, idx) => {
                     const durationDiscounted = product.discountPercentage 
                       ? duration.price * (1 - product.discountPercentage / 100)
                       : duration.price;
                       
                     return (
                       <button
-                        key={duration.id}
+                        key={`plan-${duration.id || idx}-${idx}`}
                         onClick={() => setSelectedDuration(duration)}
                         className={`p-4 rounded-3xl border-2 transition-all text-left flex flex-col justify-center items-start group ${
                           selectedDuration?.id === duration.id 
@@ -285,8 +285,8 @@ export default function ProductDetails() {
                {productReviews.length === 0 ? (
                  <p className="text-slate-500 italic">{t('product.noReviews')}</p>
                ) : (
-                 productReviews.map(review => (
-                   <div key={review.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                 productReviews.map((review, rIdx) => (
+                   <div key={`review-${review.id || rIdx}-${rIdx}`} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                       <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-3">
                            <div className="w-10 h-10 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-bold">
@@ -317,9 +317,9 @@ export default function ProductDetails() {
                      <div>
                        <label className="block text-sm font-semibold text-slate-700 mb-2">{t('product.rating')}</label>
                        <div className="flex gap-2">
-                          {[1,2,3,4,5].map(num => (
+                          {[1,2,3,4,5].map((num, nIdx) => (
                             <button 
-                              key={num} 
+                              key={`star-${num}-${nIdx}`} 
                               type="button" 
                               onClick={() => setReviewRating(num)}
                               className="focus:outline-none"

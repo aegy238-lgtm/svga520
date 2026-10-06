@@ -39,9 +39,9 @@ export default function Store() {
             />
           </div>
           <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0 scrollbar-hide">
-            {['', ...categories].map(cat => (
+            {['', ...categories].map((cat, idx) => (
               <button
-                key={cat}
+                key={`cat-${cat || 'all'}-${idx}`}
                 onClick={() => setSelectedCategory(cat || null)}
                 className={`flex-shrink-0 px-5 py-3 rounded-2xl text-xs sm:text-sm font-black transition-all border-2 ${
                   (selectedCategory === cat || (cat === '' && !selectedCategory))
@@ -57,8 +57,8 @@ export default function Store() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-12">
-        {filteredProducts.map((product) => (
-          <ProductCard key={product.id} product={product} />
+        {filteredProducts.map((product, idx) => (
+          <ProductCard key={`store-prod-${product.id || idx}-${idx}`} product={product} />
         ))}
       </div>
       

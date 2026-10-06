@@ -26,10 +26,13 @@ import {
   ArrowRight,
   Move,
   Grid,
+  Crop,
+  Lock,
+  Unlock,
 } from "lucide-react";
 
 export interface TimingSettings {
-  mode: "full" | "trim" | "fit_duration" | "speed_multiplier" | "segment_speed";
+  mode: "full" | "trim" | "fit_duration" | "speed_multiplier" | "segment_speed" | "crop_spatial";
   startTime: number;
   endTime: number;
   targetDuration: number;
@@ -37,6 +40,10 @@ export interface TimingSettings {
   segmentStart: number;
   segmentEnd: number;
   segmentSpeedMultiplier: number;
+  cropTop?: number; // 0 to 45% cut from top
+  cropBottom?: number; // 0 to 45% cut from bottom
+  cropLeft?: number;
+  cropRight?: number;
 }
 
 export const DEFAULT_TIMING_SETTINGS: TimingSettings = {
@@ -48,6 +55,10 @@ export const DEFAULT_TIMING_SETTINGS: TimingSettings = {
   segmentStart: 0,
   segmentEnd: 0,
   segmentSpeedMultiplier: 2.0,
+  cropTop: 0,
+  cropBottom: 0,
+  cropLeft: 0,
+  cropRight: 0,
 };
 
 export function calculateOutputDuration(
@@ -193,6 +204,7 @@ export const VideoTrimmerModal: React.FC<VideoTrimmerModalProps> = ({
   const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [showCheckerboard, setShowCheckerboard] = useState<boolean>(false);
   const [showGrid, setShowGrid] = useState<boolean>(false);
+  const [symmetricCrop, setSymmetricCrop] = useState<boolean>(true);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
@@ -481,7 +493,7 @@ export const VideoTrimmerModal: React.FC<VideoTrimmerModalProps> = ({
         {/* Modal Body: Two Columns on large screens */}
         <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar">
           {/* Mode Selector Tabs */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 bg-slate-950/60 p-1.5 rounded-2xl border border-white/5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 bg-slate-950/60 p-1.5 rounded-2xl border border-white/5">
             <button
               onClick={() => setSettings((s) => ({ ...s, mode: "fit_duration" }))}
               className={`p-3 rounded-xl flex flex-col items-center gap-1.5 transition-all text-center ${
@@ -509,10 +521,27 @@ export const VideoTrimmerModal: React.FC<VideoTrimmerModalProps> = ({
             >
               <div className="flex items-center gap-1.5 text-xs">
                 <Scissors className="w-4 h-4" />
-                <span>قص يدوي (تحديد مقطع)</span>
+                <span>قص يدوي للمشهد (Trim)</span>
               </div>
               <span className="text-[10px] opacity-80">
-                قص من البداية إلى النهاية
+                تحديد بداية ونهاية المقطع
+              </span>
+            </button>
+
+            <button
+              onClick={() => setSettings((s) => ({ ...s, mode: "crop_spatial" }))}
+              className={`p-3 rounded-xl flex flex-col items-center gap-1.5 transition-all text-center ${
+                settings.mode === "crop_spatial"
+                  ? "bg-gradient-to-br from-rose-500 to-pink-600 text-white shadow-lg shadow-rose-500/20 font-black"
+                  : "text-slate-400 hover:text-white hover:bg-white/5 font-bold"
+              }`}
+            >
+              <div className="flex items-center gap-1.5 text-xs">
+                <Crop className="w-4 h-4" />
+                <span>قص الأبعاد (أعلى / أسفل)</span>
+              </div>
+              <span className="text-[10px] opacity-80">
+                قص وحذف الحواف العلوية والسفلية
               </span>
             </button>
 
@@ -550,6 +579,152 @@ export const VideoTrimmerModal: React.FC<VideoTrimmerModalProps> = ({
               </span>
             </button>
           </div>
+
+          {/* Mode Configuration Banner */}
+          {settings.mode === "crop_spatial" && (
+            <div className="p-5 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex flex-col gap-4 animate-in fade-in">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0 shadow-lg shadow-rose-500/10">
+                    <Crop className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-white font-black text-sm flex items-center gap-2">
+                      قص وحذف أجزاء الفيديو من الأعلى ومن الأسفل (Top & Bottom Crop)
+                      <span className="px-2 py-0.5 rounded-full text-[10px] bg-rose-500/30 text-rose-300 font-bold">
+                        Pixel-Perfect
+                      </span>
+                    </h4>
+                    <p className="text-slate-300 text-xs mt-0.5">
+                      احذف الأشرطة السوداء، الشعارات، أو المساحات غير المرغوبة من أعلى الفيديو وأسفله مباشرةً.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Symmetrical Lock Button */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSymmetricCrop(!symmetricCrop)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+                      symmetricCrop
+                        ? "bg-rose-500 text-white shadow-md shadow-rose-500/30"
+                        : "bg-white/5 text-slate-400 hover:text-white border border-white/10"
+                    }`}
+                  >
+                    {symmetricCrop ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                    <span>{symmetricCrop ? "قص متماثل (أعلى + أسفل)" : "قص حر منفصل"}</span>
+                  </button>
+
+                  <button
+                    onClick={() => setSettings((s) => ({ ...s, cropTop: 0, cropBottom: 0 }))}
+                    className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-xs font-bold border border-white/10 transition-all"
+                  >
+                    إعادة ضبط الحواف
+                  </button>
+                </div>
+              </div>
+
+              {/* Sliders & Visual Dimensions Card */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-rose-500/20">
+                {/* Crop Top Slider */}
+                <div className="bg-slate-900/70 p-4 rounded-xl border border-white/5 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-black text-rose-300 flex items-center gap-1.5">
+                      <span>✂️ قص من الأعلى (Top Crop)</span>
+                    </span>
+                    <span className="font-mono text-xs font-black text-white px-2 py-0.5 rounded bg-rose-500/20 border border-rose-500/30">
+                      {settings.cropTop || 0}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="45"
+                    step="1"
+                    value={settings.cropTop || 0}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || 0;
+                      setSettings((s) => ({
+                        ...s,
+                        cropTop: val,
+                        cropBottom: symmetricCrop ? val : s.cropBottom,
+                      }));
+                    }}
+                    className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                  />
+                  <div className="flex justify-between text-[10px] text-slate-400 font-mono">
+                    <span>0% (بدون قص)</span>
+                    <span>20% (سينمائي)</span>
+                    <span>45% (أقصى قص)</span>
+                  </div>
+                </div>
+
+                {/* Crop Bottom Slider */}
+                <div className="bg-slate-900/70 p-4 rounded-xl border border-white/5 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-black text-rose-300 flex items-center gap-1.5">
+                      <span>✂️ قص من الأسفل (Bottom Crop)</span>
+                    </span>
+                    <span className="font-mono text-xs font-black text-white px-2 py-0.5 rounded bg-rose-500/20 border border-rose-500/30">
+                      {settings.cropBottom || 0}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="45"
+                    step="1"
+                    value={settings.cropBottom || 0}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || 0;
+                      setSettings((s) => ({
+                        ...s,
+                        cropBottom: val,
+                        cropTop: symmetricCrop ? val : s.cropTop,
+                      }));
+                    }}
+                    className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                  />
+                  <div className="flex justify-between text-[10px] text-slate-400 font-mono">
+                    <span>0% (بدون قص)</span>
+                    <span>20% (سينمائي)</span>
+                    <span>45% (أقصى قص)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Presets Bar */}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <span className="text-[11px] font-bold text-slate-400">إعدادات سريعة لقص الحواف:</span>
+                {[
+                  { label: "افتراضي (0%)", val: 0 },
+                  { label: "حواف دقيقة (5%)", val: 5 },
+                  { label: "شريط خفيف (10%)", val: 10 },
+                  { label: "قص متوازن (15%)", val: 15 },
+                  { label: "قص سينمائي (20%)", val: 20 },
+                  { label: "شاشات عريضة (25%)", val: 25 },
+                ].map((preset) => (
+                  <button
+                    key={preset.val}
+                    onClick={() => {
+                      setSettings((s) => ({
+                        ...s,
+                        cropTop: preset.val,
+                        cropBottom: preset.val,
+                      }));
+                    }}
+                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${
+                      (settings.cropTop || 0) === preset.val && (settings.cropBottom || 0) === preset.val
+                        ? "bg-rose-500 text-white shadow-md shadow-rose-500/30"
+                        : "bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white border border-white/5"
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Mode Configuration Banner */}
           {settings.mode === "fit_duration" && (
@@ -752,6 +927,30 @@ export const VideoTrimmerModal: React.FC<VideoTrimmerModalProps> = ({
                 playsInline
                 muted
               />
+
+              {/* Crop Top Overlay Curtain */}
+              {((settings.cropTop || 0) > 0) && (
+                <div 
+                  className="absolute top-0 left-0 right-0 bg-rose-950/75 border-b-2 border-rose-500/90 pointer-events-none z-10 flex items-center justify-center transition-all shadow-[0_4px_12px_rgba(244,63,94,0.3)]"
+                  style={{ height: `${settings.cropTop}%` }}
+                >
+                  <span className="px-2.5 py-0.5 rounded-full bg-rose-600 text-white font-mono text-[10px] font-black shadow-md border border-rose-400/40">
+                    ✂️ سيتم قص الجزء العلوي ({settings.cropTop}%)
+                  </span>
+                </div>
+              )}
+
+              {/* Crop Bottom Overlay Curtain */}
+              {((settings.cropBottom || 0) > 0) && (
+                <div 
+                  className="absolute bottom-0 left-0 right-0 bg-rose-950/75 border-t-2 border-rose-500/90 pointer-events-none z-10 flex items-center justify-center transition-all shadow-[0_-4px_12px_rgba(244,63,94,0.3)]"
+                  style={{ height: `${settings.cropBottom}%` }}
+                >
+                  <span className="px-2.5 py-0.5 rounded-full bg-rose-600 text-white font-mono text-[10px] font-black shadow-md border border-rose-400/40">
+                    ✂️ سيتم قص الجزء السفلي ({settings.cropBottom}%)
+                  </span>
+                </div>
+              )}
 
               {zoomLevel > 1 && (
                 <div className="absolute bottom-3 left-3 z-10 px-2 py-1 rounded-lg bg-black/70 text-slate-300 text-[10px] font-bold flex items-center gap-1 pointer-events-none backdrop-blur-sm">

@@ -4,7 +4,7 @@ import { db, storage } from '../lib/firebase';
 import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, query, orderBy, Timestamp, setDoc, getDoc, limit, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { StoreManager } from './StoreManager';
-import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, Link2, BadgeCheck, Wifi, Smartphone, Store, UserPlus, Lock, Unlock, Shield, ShieldPlus, ShieldOff, GitBranch, Download, ShieldCheck, PowerOff, Power, AlertTriangle, Eye, EyeOff, Copy, Check, CheckCircle2, Loader2, Server, Clock, UserCheck, Search, Filter, Crown, Send, Calendar, ArrowUpDown, AlertCircle, Edit, Edit2, HardDrive } from 'lucide-react';
+import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, Link2, BadgeCheck, Wifi, Smartphone, Store, UserPlus, Lock, Unlock, Shield, ShieldPlus, ShieldOff, GitBranch, Download, ShieldCheck, PowerOff, Power, AlertTriangle, Eye, EyeOff, Copy, Check, CheckCircle2, Loader2, Server, Clock, UserCheck, Search, Filter, Crown, Send, Calendar, ArrowUpDown, AlertCircle, Edit, Edit2 } from 'lucide-react';
 import { calculateSubscriptionInfo, parseDate, calculateExtendedExpiry, formatInputDate } from '../utils/subscriptionUtils';
 import { UserSubscriptionModal } from './admin/UserSubscriptionModal';
 import { initializeApp } from 'firebase/app';
@@ -12,7 +12,6 @@ import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { logActivity } from '../utils/logger';
 import { AccountVersionsTab } from './admin/AccountVersionsTab';
-import { StorageCenterTab } from './admin/StorageCenterTab';
 import { FeatureAccessControlTab } from './admin/FeatureAccessControlTab';
 import { ExternalLinksManagerTab } from './admin/ExternalLinksManagerTab';
 import { MaintenanceScreen } from './MaintenanceScreen';
@@ -143,7 +142,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, o
     { id: 'keys', label: 'الاشتراكات', icon: <Key /> },
     { id: 'assets', label: 'الوسائط', icon: <ImageIcon /> },
     { id: 'records', label: 'السجلات', icon: <FileText /> },
-    { id: 'storage_center', label: 'مركز تخزين وتنظيف السيرفر ☁️🧹', icon: <HardDrive className="text-emerald-400" /> },
     { id: 'account_versions', label: 'إصدارات الحسابات', icon: <GitBranch /> },
     { id: 'settings', label: 'الإعدادات', icon: <SettingsIcon /> },
   ];
@@ -1257,9 +1255,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, o
                 />
               )}
               {activeTab === 'store' && <StoreManager />}
-              {activeTab === 'storage_center' && (
-                <StorageCenterTab currentUser={currentUser} />
-              )}
               {activeTab === 'account_versions' && (
                 <AccountVersionsTab 
                   currentAdminEmail={currentUser?.email || 'Admin'} 

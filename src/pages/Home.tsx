@@ -28,14 +28,14 @@ export default function Home() {
     const sortedGridBanners = [...gridBanners].sort((a, b) => (a.afterProductCount || 0) - (b.afterProductCount || 0));
 
     featuredProducts.forEach((product, idx) => {
-      items.push(<ProductCard key={product.id} product={product} />);
+      items.push(<ProductCard key={`prod-${product.id || idx}-${idx}`} product={product} />);
       productsCount++;
 
       // Check if any banners should be injected after this product count
       const activeBanners = sortedGridBanners.filter(b => b.afterProductCount === productsCount);
-      activeBanners.forEach(banner => {
+      activeBanners.forEach((banner, bIdx) => {
         items.push(
-          <div key={`banner-gap-${banner.id}`} className="col-span-2 lg:col-span-4 my-4">
+          <div key={`banner-gap-${banner.id || bIdx}-${productsCount}-${bIdx}`} className="col-span-2 lg:col-span-4 my-4">
             <div className="w-full rounded-[2rem] overflow-hidden shadow-xl shadow-slate-200/50 group">
               {banner.linkUrl ? (
                 <Link to={banner.linkUrl} className="block w-full">
@@ -81,7 +81,7 @@ export default function Home() {
           <>
              {topBanners.map((banner, index) => (
                 <motion.div
-                  key={banner.id}
+                  key={`top-banner-${banner.id || index}-${index}`}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: currentSlide === index ? 1 : 0 }}
                   transition={{ duration: 0.8 }}
@@ -147,7 +147,7 @@ export default function Home() {
               <div className="relative aspect-[21/9] sm:aspect-[25/9] overflow-hidden rounded-[2.5rem] shadow-xl shadow-slate-200">
                 {middleSliderBanners.map((banner, index) => (
                   <motion.div
-                    key={banner.id}
+                    key={`mid-slider-banner-${banner.id || index}-${index}`}
                     initial={{ opacity: 0 }}
                     animate={{ opacity: currentMiddleSlide === index ? 1 : 0 }}
                     transition={{ duration: 0.8 }}
@@ -176,7 +176,7 @@ export default function Home() {
                   <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-1.5 z-10">
                     {middleSliderBanners.map((_, idx) => (
                       <button 
-                        key={idx}
+                        key={`mid-dot-${idx}`}
                         onClick={() => setCurrentMiddleSlide(idx)}
                         className={`w-1.5 h-1.5 rounded-full transition-all ${currentMiddleSlide === idx ? 'bg-indigo-500 w-4' : 'bg-white/40'}`}
                       />
@@ -187,8 +187,8 @@ export default function Home() {
             )}
 
             {/* Static Group */}
-            {middleStaticBanners.map((banner) => (
-              <div key={banner.id} className="w-full rounded-[2.5rem] overflow-hidden shadow-xl shadow-slate-200 group relative">
+            {middleStaticBanners.map((banner, index) => (
+              <div key={`mid-static-banner-${banner.id || index}-${index}`} className="w-full rounded-[2.5rem] overflow-hidden shadow-xl shadow-slate-200 group relative">
                 {banner.linkUrl ? (
                   <Link to={banner.linkUrl} className="block w-full">
                     <img 

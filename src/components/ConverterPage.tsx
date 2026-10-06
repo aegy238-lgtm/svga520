@@ -130,10 +130,10 @@ export const ConverterPage: React.FC<ConverterPageProps> = ({ onCancel, currentU
 
       <div className="flex gap-4 mb-6">
         <select value={convertSource} onChange={(e) => setConvertSource(e.target.value)} className="bg-slate-800 text-white p-3 rounded-xl">
-          {availableFormats.map(f => <option key={f} value={f}>{f}</option>)}
+          {availableFormats.map((f, idx) => <option key={`src-fmt-${f}-${idx}`} value={f}>{f}</option>)}
         </select>
         <select value={convertTarget} onChange={(e) => setConvertTarget(e.target.value)} className="bg-slate-800 text-white p-3 rounded-xl">
-          {availableFormats.map(f => <option key={f} value={f}>{f}</option>)}
+          {availableFormats.map((f, idx) => <option key={`tgt-fmt-${f}-${idx}`} value={f}>{f}</option>)}
         </select>
         <button onClick={handleConvert} disabled={isProcessingVideo} className="px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold">
           {isProcessingVideo ? 'جاري التحويل...' : 'بدء التحويل'}

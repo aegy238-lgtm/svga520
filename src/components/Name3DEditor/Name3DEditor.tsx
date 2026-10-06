@@ -375,7 +375,7 @@ const Name3DEditor: React.FC<Name3DEditorProps> = ({ onCancel, currentUser, onSu
                     onClick={() => {
                       updateState({
                         ornaments: [...state.ornaments, {
-                          id: Date.now().toString(),
+                          id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
                           type: 'symbol',
                           char,
                           x: state.canvasWidth / 2,

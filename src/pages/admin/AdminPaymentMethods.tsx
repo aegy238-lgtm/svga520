@@ -52,7 +52,7 @@ export default function AdminPaymentMethods() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {paymentMethods.map((method) => (
-          <div key={method.id} className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow relative group">
+          <div key={`method-${method.id || ""}-${idx}`} className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow relative group">
             <div className="flex justify-between items-start mb-4">
                <div className="flex items-center gap-3">
                   {method.imageUrl && (

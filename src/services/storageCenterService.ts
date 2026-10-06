@@ -71,27 +71,35 @@ export async function fetchStorageCenterStats(): Promise<StorageCenterStats> {
 
     return {
       totalFiles: snapshot.docs.length,
+      activeCount,
       totalSize,
       filesToday,
       filesThisWeek,
       filesThisMonth,
       trashCount,
-      activeCount,
-      categoryCounts,
-      provider: 'Firebase Storage (Google Cloud)'
+      trashedFilesCount: trashCount,
+      trashedFilesSize: 0,
+      storageUsedBytes: totalSize,
+      storageTotalBytes: 100 * 1024 * 1024 * 1024,
+      storagePercentUsed: Math.min(100, Math.round((totalSize / (100 * 1024 * 1024 * 1024)) * 100)),
+      categoryBreakdown: Object.fromEntries(Object.entries(categoryCounts).map(([k, v]) => [k, { count: v, size: 0 }]))
     };
   } catch (error) {
     console.error('Error fetching Storage Center stats:', error);
     return {
       totalFiles: 0,
+      activeCount: 0,
       totalSize: 0,
       filesToday: 0,
       filesThisWeek: 0,
       filesThisMonth: 0,
       trashCount: 0,
-      activeCount: 0,
-      categoryCounts: {},
-      provider: 'Firebase Storage'
+      trashedFilesCount: 0,
+      trashedFilesSize: 0,
+      storageUsedBytes: 0,
+      storageTotalBytes: 100 * 1024 * 1024 * 1024,
+      storagePercentUsed: 0,
+      categoryBreakdown: {}
     };
   }
 }
@@ -472,6 +480,65 @@ export async function executeServerCleanup(adminUser: any): Promise<{
   } catch (err: any) {
     console.error('Server cleanup error:', err);
     throw err;
+  }
+}
+
+/**
+ * Completely purge and delete all files, records, and activity logs from Firestore database
+ */
+export async function purgeAllFirestoreDatabaseFiles(): Promise<{ deletedCount: number; message: string }> {
+  try {
+    const filesSnap = await getDocs(collection(db, 'files'));
+    let deletedCount = 0;
+
+    // Delete in batches of 400
+    let currentBatch = writeBatch(db);
+    let batchOpCount = 0;
+
+    for (const d of filesSnap.docs) {
+      currentBatch.delete(d.ref);
+      deletedCount++;
+      batchOpCount++;
+
+      if (batchOpCount >= 400) {
+        await currentBatch.commit();
+        currentBatch = writeBatch(db);
+        batchOpCount = 0;
+      }
+    }
+
+    if (batchOpCount > 0) {
+      await currentBatch.commit();
+    }
+
+    // Also clear activity logs
+    try {
+      const logsSnap = await getDocs(collection(db, 'storageActivityLogs'));
+      let logsBatch = writeBatch(db);
+      let logOps = 0;
+      for (const logDoc of logsSnap.docs) {
+        logsBatch.delete(logDoc.ref);
+        logOps++;
+        if (logOps >= 400) {
+          await logsBatch.commit();
+          logsBatch = writeBatch(db);
+          logOps = 0;
+        }
+      }
+      if (logOps > 0) {
+        await logsBatch.commit();
+      }
+    } catch (e) {
+      console.warn('Cleared files; logs clean notice:', e);
+    }
+
+    return {
+      deletedCount,
+      message: `تم تنظيف وتفريغ قاعدة بيانات فايربيس بنجاح وحذف ${deletedCount} ملف وسجل بالكامل.`
+    };
+  } catch (error: any) {
+    console.error('Error purging firestore files:', error);
+    throw new Error(error.message || 'فشل تنظيف قاعدة البيانات.');
   }
 }
 

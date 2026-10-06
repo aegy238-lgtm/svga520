@@ -19,7 +19,8 @@ import {
   executeServerCleanup, 
   fetchServerStatus, 
   fetchStorageActivityLogs,
-  logStorageAdminActivity 
+  logStorageAdminActivity,
+  purgeAllFirestoreDatabaseFiles 
 } from '../../services/storageCenterService';
 import CentralUploadService, { getFileCategory } from '../../services/centralUploadService';
 
@@ -56,7 +57,7 @@ export const StorageCenterTab: React.FC<StorageCenterTabProps> = ({ currentUser 
 
   // Server Cleanup modal / state
   const [showCleanupModal, setShowCleanupModal] = useState(false);
-  const [cleanupType, setCleanupType] = useState<'server_temp' | 'trash_empty'>('server_temp');
+  const [cleanupType, setCleanupType] = useState<'server_temp' | 'trash_empty' | 'purge_all'>('server_temp');
   const [isCleaning, setIsCleaning] = useState(false);
   const [cleanupResult, setCleanupResult] = useState<any>(null);
 
@@ -223,11 +224,21 @@ export const StorageCenterTab: React.FC<StorageCenterTabProps> = ({ currentUser 
   };
 
   // Server Cleanup execution
-  const handleExecuteCleanup = async (type: 'server_temp' | 'trash_empty') => {
+  const handleExecuteCleanup = async (type: 'server_temp' | 'trash_empty' | 'purge_all') => {
     setIsCleaning(true);
     setCleanupResult(null);
     try {
-      if (type === 'server_temp') {
+      if (type === 'purge_all') {
+        const res = await purgeAllFirestoreDatabaseFiles(currentUser);
+        setCleanupResult({
+          ok: true,
+          deletedCount: res.deletedCount,
+          freedBytes: 0,
+          freedMb: '0',
+          message: res.message
+        });
+        showToast(res.message, 'success');
+      } else if (type === 'server_temp') {
         const res = await executeServerCleanup(currentUser);
         setCleanupResult(res);
         showToast(res.message);
@@ -360,6 +371,18 @@ export const StorageCenterTab: React.FC<StorageCenterTabProps> = ({ currentUser 
           >
             <RefreshCw size={16} className={refreshing ? 'animate-spin text-indigo-400' : ''} />
             تحديث
+          </button>
+
+          <button
+            onClick={() => {
+              setCleanupType('purge_all');
+              setShowCleanupModal(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-red-600/30 hover:bg-red-600/40 text-red-200 rounded-xl text-sm font-black border border-red-500/50 transition-all shadow-md"
+            title="حذف وتفريغ كافة الملفات المخزنة من قاعدة البيانات والتخزين بالكامل"
+          >
+            <Flame size={16} className="text-red-400" />
+            تنظيف قاعدة البيانات والتخزين 💥
           </button>
 
           <button
@@ -577,6 +600,44 @@ export const StorageCenterTab: React.FC<StorageCenterTabProps> = ({ currentUser 
               >
                 {isCleaning ? <RefreshCw className="animate-spin" size={18} /> : <Trash2 size={18} />}
                 تفريغ سلة المهملات نهائياً
+              </button>
+            </div>
+
+            {/* Total Firebase Database Purge Card */}
+            <div className="p-5 bg-slate-800/60 rounded-xl border border-red-900/50 md:col-span-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Flame className="text-red-500" size={20} />
+                  <span className="text-base font-bold text-white">تفريغ وحذف قاعدة بيانات فايربيس (Purge All Files Database)</span>
+                </div>
+                <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                  حذف جميع السجلات والملفات المخزنة في مجموعة files و storageActivityLogs في Firestore نهائياً لتفريغ قاعدة البيانات فوراً.
+                </p>
+              </div>
+
+              <button
+                onClick={async () => {
+                  if (!window.confirm('⚠️ هل أنت متأكد من حذف وتفريغ كل سجلات الملفات من قاعدة بيانات فايربيس بالكامل؟')) return;
+                  setIsCleaning(true);
+                  try {
+                    const res = await purgeAllFirestoreDatabaseFiles();
+                    setCleanupResult({
+                      ok: true,
+                      deletedCount: res.deletedCount,
+                      message: res.message
+                    });
+                    loadData();
+                  } catch (e: any) {
+                    alert('خطأ: ' + (e.message || 'فشل تنظيف قاعدة البيانات'));
+                  } finally {
+                    setIsCleaning(false);
+                  }
+                }}
+                disabled={isCleaning}
+                className="px-6 py-3 bg-red-600 hover:bg-red-500 text-white font-black text-xs rounded-xl shadow-lg shadow-red-600/20 whitespace-nowrap transition-all cursor-pointer disabled:opacity-50 flex items-center gap-2"
+              >
+                {isCleaning ? <RefreshCw className="animate-spin" size={16} /> : <Trash2 size={16} />}
+                <span>تنظيف قاعدة بيانات فايربيس من كل شيء</span>
               </button>
             </div>
           </div>
@@ -969,15 +1030,21 @@ export const StorageCenterTab: React.FC<StorageCenterTabProps> = ({ currentUser 
       {showCleanupModal && (
         <div className="fixed inset-0 z-[150] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center gap-3 text-amber-400">
-              <Trash2 size={24} />
+            <div className={`flex items-center gap-3 ${cleanupType === 'purge_all' ? 'text-red-400' : 'text-amber-400'}`}>
+              {cleanupType === 'purge_all' ? <Flame size={24} /> : <Trash2 size={24} />}
               <h3 className="text-lg font-bold text-white">
-                {cleanupType === 'server_temp' ? 'تنظيف ملفات السيرفر المؤقتة' : 'تفريغ سلة المهملات بالكامل'}
+                {cleanupType === 'purge_all'
+                  ? 'حذف وتفريغ قاعدة بيانات فايربيس والتخزين بالكامل'
+                  : cleanupType === 'server_temp'
+                  ? 'تنظيف ملفات السيرفر المؤقتة'
+                  : 'تفريغ سلة المهملات بالكامل'}
               </h3>
             </div>
 
             <p className="text-sm text-gray-300 leading-relaxed">
-              {cleanupType === 'server_temp'
+              {cleanupType === 'purge_all'
+                ? `تحذير هام: سيتم مسح وحذف كافة سجلات الملفات المخزنة في قاعدة البيانات Firestore (${stats?.totalFiles ?? 0} ملف) وحذفها نهائياً من التخزين لتوفير المساحة بالكامل. هل تريد الاستمرار؟`
+                : cleanupType === 'server_temp'
                 ? `سيتم تنظيف مجلد الرفع المؤقت، كاش السيرفر الداخلي، وذاكرة التنزيل المؤقتة In-Memory. مساحة التخزين المستهلكة حالياً: ${serverStatus ? formatBytes(serverStatus.totalTempBytes) : '0 B'}.`
                 : `سيتم حذف جميع الملفات الموجودة في سلة المهملات (${stats?.trashCount ?? 0} ملف) نهائياً من التخزين السحابي وقاعدة البيانات.`
               }
@@ -996,10 +1063,14 @@ export const StorageCenterTab: React.FC<StorageCenterTabProps> = ({ currentUser 
                   setShowCleanupModal(false);
                 }}
                 disabled={isCleaning}
-                className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-sm font-bold flex items-center gap-2 shadow-lg disabled:opacity-50"
+                className={`px-5 py-2 text-white rounded-xl text-sm font-bold flex items-center gap-2 shadow-lg disabled:opacity-50 ${
+                  cleanupType === 'purge_all'
+                    ? 'bg-red-600 hover:bg-red-500'
+                    : 'bg-amber-600 hover:bg-amber-500'
+                }`}
               >
                 {isCleaning && <RefreshCw size={14} className="animate-spin" />}
-                بدء التنظيف الآن
+                {cleanupType === 'purge_all' ? 'تنظيف ومسح قاعدة البيانات الآن 💥' : 'بدء التنظيف الآن'}
               </button>
             </div>
           </div>

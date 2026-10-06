@@ -157,7 +157,8 @@ export async function extractAndScaleVideoAudio(
   videoFile: File,
   targetDurationSec: number,
   playbackSpeed: number,
-  outputType: 'mp3' | 'wav' | 'buffer' = 'mp3'
+  outputType: 'mp3' | 'wav' | 'buffer' = 'mp3',
+  startTimeOffsetSec: number = 0
 ): Promise<{
   audioBuffer: AudioBuffer | null;
   audioBytes: Uint8Array | null;
@@ -196,7 +197,7 @@ export async function extractAndScaleVideoAudio(
     source.buffer = originalAudioBuffer;
     source.playbackRate.value = Math.max(0.01, playbackSpeed);
     source.connect(offlineCtx.destination);
-    source.start(0);
+    source.start(0, Math.max(0, startTimeOffsetSec));
 
     const renderedBuffer = await offlineCtx.startRendering();
 

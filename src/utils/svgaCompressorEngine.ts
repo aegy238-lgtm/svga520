@@ -34,6 +34,7 @@ export interface SvgaCompressionSettings {
   targetHeight?: number; // Custom target height in pixels
   lockAspectRatio?: boolean; // Maintain aspect ratio when resizing
   resizeMode?: 'scale' | 'custom' | 'contain' | 'fit';
+  imageFormat?: 'png' | 'webp' | 'jpeg' | 'auto'; // Choice of image compression format
   optimizeTransforms?: boolean; // round floating numbers to save payload
   stripUnusedImages?: boolean; // remove orphan images from images map
   preserveAudio?: boolean; // Preserve embedded audio tracks completely (default: true)
@@ -74,7 +75,8 @@ export interface SvgaCompressionResult {
 export async function compressImageBuffer(
   imageBytes: Uint8Array,
   quality: number,
-  scale: number = 1.0
+  scale: number = 1.0,
+  imageFormat: 'png' | 'webp' | 'jpeg' | 'auto' = 'auto'
 ): Promise<Uint8Array> {
   if (!imageBytes || imageBytes.length === 0) return imageBytes;
 
@@ -84,7 +86,7 @@ export async function compressImageBuffer(
       const url = URL.createObjectURL(blob);
       const img = new Image();
 
-      img.onload = () => {
+      img.onload = async () => {
         URL.revokeObjectURL(url);
         const originalW = img.naturalWidth || img.width;
         const originalH = img.naturalHeight || img.height;
@@ -112,69 +114,68 @@ export async function compressImageBuffer(
         ctx.clearRect(0, 0, targetW, targetH);
         ctx.drawImage(img, 0, 0, targetW, targetH);
 
-        try {
-          const imgData = ctx.getImageData(0, 0, targetW, targetH);
-          
-          // Determine color quantization count
-          // quality >= 95 -> Lossless (0 colors means lossless in UPNG)
-          // quality 80-94 -> 256 colors with full alpha preserving
-          // quality 65-79 -> 128 colors
-          // quality 50-64 -> 64 colors
-          // quality 30-49 -> 32 colors
-          // quality < 30  -> 16 colors
-          let cnum = 0;
-          if (quality >= 95 && (scale === 1.0 || !scale)) {
-            cnum = 0; // Lossless UPNG
-          } else if (quality >= 80) {
-            cnum = 256;
-          } else if (quality >= 65) {
-            cnum = 128;
-          } else if (quality >= 50) {
-            cnum = 64;
-          } else if (quality >= 30) {
-            cnum = 32;
-          } else {
-            cnum = 16;
-          }
+        const candidateBytes: Uint8Array[] = [imageBytes];
 
-          // Encode using UPNG
-          const upngBuffer = UPNG.encode([imgData.data.buffer], targetW, targetH, cnum);
-          const upngUint8 = new Uint8Array(upngBuffer);
-
-          // Verify that UPNG result is smaller than original or resized
-          if (upngUint8.length > 0 && (upngUint8.length < imageBytes.length || scale < 1.0)) {
-            resolve(upngUint8);
-            return;
-          }
-
-          // Fallback to canvas toBlob if UPNG did not save bytes
-          canvas.toBlob((b) => {
-            if (b) {
-              b.arrayBuffer().then((buf) => {
-                const canvasBytes = new Uint8Array(buf);
-                if (canvasBytes.length < imageBytes.length) {
-                  resolve(canvasBytes);
-                } else {
-                  resolve(imageBytes);
-                }
-              }).catch(() => resolve(imageBytes));
-            } else {
-              resolve(imageBytes);
+        // 1. WebP Pass (if format is 'webp' or 'auto')
+        if (imageFormat === 'webp' || imageFormat === 'auto') {
+          try {
+            const qFactor = Math.max(0.1, Math.min(1.0, quality / 100));
+            const webpBlob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/webp', qFactor));
+            if (webpBlob && webpBlob.size > 0) {
+              const buf = await webpBlob.arrayBuffer();
+              const webpUint8 = new Uint8Array(buf);
+              if (webpUint8.length > 0) candidateBytes.push(webpUint8);
             }
-          }, 'image/png');
-        } catch {
-          // If UPNG fails on exotic pixel buffers, fallback gracefully
-          canvas.toBlob((b) => {
-            if (b) {
-              b.arrayBuffer().then(buf => {
-                const resBytes = new Uint8Array(buf);
-                resolve(resBytes.length < imageBytes.length ? resBytes : imageBytes);
-              }).catch(() => resolve(imageBytes));
-            } else {
-              resolve(imageBytes);
-            }
-          }, 'image/png');
+          } catch {}
         }
+
+        // 2. JPEG Pass (if format is 'jpeg')
+        if (imageFormat === 'jpeg') {
+          try {
+            const qFactor = Math.max(0.1, Math.min(1.0, quality / 100));
+            const jpegBlob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', qFactor));
+            if (jpegBlob && jpegBlob.size > 0) {
+              const buf = await jpegBlob.arrayBuffer();
+              const jpegUint8 = new Uint8Array(buf);
+              if (jpegUint8.length > 0) candidateBytes.push(jpegUint8);
+            }
+          } catch {}
+        }
+
+        // 3. PNG / UPNG Pass (if format is 'png' or 'auto')
+        if (imageFormat === 'png' || imageFormat === 'auto') {
+          try {
+            const imgData = ctx.getImageData(0, 0, targetW, targetH);
+            let cnum = 0;
+            if (quality >= 95 && (scale === 1.0 || !scale)) {
+              cnum = 0; // Lossless UPNG
+            } else if (quality >= 80) {
+              cnum = 256;
+            } else if (quality >= 65) {
+              cnum = 128;
+            } else if (quality >= 50) {
+              cnum = 64;
+            } else if (quality >= 30) {
+              cnum = 32;
+            } else {
+              cnum = 16;
+            }
+
+            const upngBuffer = UPNG.encode([imgData.data.buffer], targetW, targetH, cnum);
+            const upngUint8 = new Uint8Array(upngBuffer);
+            if (upngUint8.length > 0) candidateBytes.push(upngUint8);
+          } catch {
+            const pngBlob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
+            if (pngBlob) {
+              const buf = await pngBlob.arrayBuffer();
+              candidateBytes.push(new Uint8Array(buf));
+            }
+          }
+        }
+
+        // Sort candidates by size ascending and pick the smallest
+        candidateBytes.sort((a, b) => a.length - b.length);
+        resolve(candidateBytes[0] || imageBytes);
       };
 
       img.onerror = () => {
@@ -446,7 +447,7 @@ export async function compressSvgaFile(
       try {
         const imgBlob = await entry.async('blob');
         const imgBuffer = new Uint8Array(await imgBlob.arrayBuffer());
-        const compressedBytes = await compressImageBuffer(imgBuffer, effectiveQuality, effectiveScale);
+        const compressedBytes = await compressImageBuffer(imgBuffer, effectiveQuality, effectiveScale, settings.imageFormat || 'auto');
 
         if (compressedBytes.length < imgBuffer.length) {
           zip.file(path, compressedBytes);
@@ -660,7 +661,7 @@ export async function compressSvgaFile(
       }
 
       try {
-        const compressedBytes = await compressImageBuffer(rawData, effectiveQuality, imgScale);
+        const compressedBytes = await compressImageBuffer(rawData, effectiveQuality, imgScale, settings.imageFormat || 'auto');
         // Replace if smaller or if scaled
         if (compressedBytes.length < rawData.length || imgScale < 0.99) {
           movie.images[key] = compressedBytes;

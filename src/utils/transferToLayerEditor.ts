@@ -514,10 +514,15 @@ export async function transferVideoEditsToLayerEditor(
 
     await seekVideo(frameTime);
 
-    // Render video to tempCanvas
+    // Render video to tempCanvas with spatial top & bottom cropping support
+    const cropTopPct = Math.max(0, Math.min(0.45, (timingSettings?.cropTop || 0) / 100));
+    const cropBottomPct = Math.max(0, Math.min(0.45, (timingSettings?.cropBottom || 0) / 100));
+    const srcY = Math.floor(video.videoHeight * cropTopPct);
+    const srcH = Math.max(1, Math.floor(video.videoHeight * (1 - cropTopPct - cropBottomPct)));
+
     tCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
     if (isVapInput) {
-      tCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+      tCtx.drawImage(video, 0, srcY, video.videoWidth, srcH, 0, 0, tempCanvas.width, tempCanvas.height);
       const halfW = outWidth;
       const alphaData = tCtx.getImageData(0, 0, halfW, outHeight).data;
       const rgbData = tCtx.getImageData(halfW, 0, halfW, outHeight).data;
@@ -532,7 +537,7 @@ export async function transferVideoEditsToLayerEditor(
       ctx.putImageData(combined, 0, 0);
     } else {
       ctx.clearRect(0, 0, outWidth, outHeight);
-      ctx.drawImage(video, 0, 0, outWidth, outHeight);
+      ctx.drawImage(video, 0, srcY, video.videoWidth, srcH, 0, 0, outWidth, outHeight);
     }
 
     // Apply green screen removal and edge effects

@@ -85,6 +85,7 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
   const [stripUnusedImages, setStripUnusedImages] = useState<boolean>(true);
   const [preserveAudio, setPreserveAudio] = useState<boolean>(true);
   const [filenameSuffix, setFilenameSuffix] = useState<string>('_compressed');
+  const [imageFormat, setImageFormat] = useState<'png' | 'webp' | 'jpeg' | 'auto'>('auto');
   const [concurrency, setConcurrency] = useState<number>(3);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
 
@@ -312,6 +313,7 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
           targetHeight: (dimensionMode === 'custom' || dimensionMode === 'fixed') ? customHeight : undefined,
           lockAspectRatio,
           resizeMode: dimensionMode === 'original' ? undefined : (dimensionMode as any),
+          imageFormat,
           optimizeTransforms,
           stripUnusedImages,
           preserveAudio,
@@ -1168,6 +1170,32 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
                 className="pt-4 border-t border-white/10 space-y-4 overflow-hidden"
               >
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+                  {/* Image Compression Format Selector */}
+                  <div className="bg-white/5 border border-white/5 p-3.5 rounded-2xl space-y-2">
+                    <label className="text-xs font-bold text-slate-300 block">صيغة ضغط الصور الداخلية:</label>
+                    <div className="grid grid-cols-2 gap-1 bg-[#0A0D18] p-1 rounded-xl border border-white/10">
+                      {[
+                        { id: 'auto', label: 'تلقائي (الأصغر)' },
+                        { id: 'webp', label: 'WebP (فائق)' },
+                        { id: 'png', label: 'PNG (قياسي)' },
+                        { id: 'jpeg', label: 'JPEG' },
+                      ].map(fmt => (
+                        <button
+                          key={fmt.id}
+                          onClick={() => setImageFormat(fmt.id as any)}
+                          className={`py-1 text-[11px] font-bold rounded-lg transition-all ${
+                            imageFormat === fmt.id
+                              ? 'bg-indigo-600 text-white shadow'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          {fmt.label}
+                        </button>
+                      ))}
+                    </div>
+                    <span className="text-[10px] text-slate-500 block">اختيار صيغة الضغط الأنسب للحجم أو التوافق</span>
+                  </div>
+
                   {/* Filename suffix */}
                   <div className="bg-white/5 border border-white/5 p-3.5 rounded-2xl space-y-2">
                     <label className="text-xs font-bold text-slate-300 block">لاحقة اسم الملف المضغوط:</label>

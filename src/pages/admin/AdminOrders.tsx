@@ -41,7 +41,7 @@ export default function AdminOrders() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {allOrders.map((order) => (
-                <tr key={order.id} className="hover:bg-slate-50 transition-colors group">
+                <tr key={`order-${order.id || ""}-${idx}`} className="hover:bg-slate-50 transition-colors group">
                   <td className="px-6 py-4 font-medium text-slate-900">{order.id}</td>
                   <td className="px-6 py-4 text-slate-600">{order.userEmail}</td>
                   <td className="px-6 py-4 text-slate-500">{new Date(order.date).toLocaleDateString()}</td>
