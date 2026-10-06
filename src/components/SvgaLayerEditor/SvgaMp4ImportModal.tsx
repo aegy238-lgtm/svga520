@@ -93,6 +93,8 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
   const [qualityMode, setQualityMode] = useState<'fast' | 'high'>('fast');
   const [maxFramesLimit, setMaxFramesLimit] = useState<number>(0);
   const [preserveAudio, setPreserveAudio] = useState<boolean>(true);
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'quick' | 'crop' | 'advanced'>('quick');
+  const [showCustomResolutionInputs, setShowCustomResolutionInputs] = useState<boolean>(false);
 
   // Video Preview State
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -395,28 +397,28 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md select-none text-right font-sans" dir="rtl">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-md select-none text-right font-sans" dir="rtl">
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 15 }}
           transition={{ duration: 0.2 }}
-          className="relative w-full max-w-4xl bg-[#0c1220] border border-indigo-500/30 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]"
+          className="relative w-full max-w-4xl bg-[#0c1220] border border-indigo-500/30 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[96vh] sm:max-h-[92vh]"
         >
           {/* Top Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-gradient-to-r from-indigo-950/60 via-purple-950/40 to-slate-900/60">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/25">
-                <Film size={20} />
+          <div className="flex items-center justify-between px-3.5 sm:px-6 py-3 sm:py-4 border-b border-white/10 bg-gradient-to-r from-indigo-950/60 via-purple-950/40 to-slate-900/60 shrink-0">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/25 shrink-0">
+                <Film size={18} />
               </div>
-              <div>
-                <h2 className="text-lg font-black text-white flex items-center gap-2">
+              <div className="min-w-0">
+                <h2 className="text-sm sm:text-lg font-black text-white flex items-center gap-2 truncate">
                   استدعاء فيديو MP4 والتحكم به كملف SVGA
-                  <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full font-bold">
+                  <span className="hidden xs:inline-block text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full font-bold">
                     معالجة فائقة السرعة
                   </span>
                 </h2>
-                <p className="text-xs text-slate-400">
+                <p className="text-[11px] sm:text-xs text-slate-400 truncate hidden xs:block">
                   تحويل ملف MP4 إلى مشروع SVGA قابل للتحريك، تغيير الأبعاد، المؤثرات، والتصدير لأي صيغة متاحة
                 </p>
               </div>
@@ -425,7 +427,7 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
             <button
               onClick={onClose}
               disabled={isProcessing}
-              className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer disabled:opacity-40"
+              className="p-1.5 sm:p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer disabled:opacity-40 shrink-0"
             >
               <X size={18} />
             </button>
@@ -442,7 +444,7 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
           />
 
           {/* Modal Body */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div className="flex-1 overflow-y-auto p-3.5 sm:p-6 space-y-4 sm:space-y-6">
             {/* If no files loaded yet, show Dropzone / Upload button */}
             {files.length === 0 ? (
               <div
@@ -647,780 +649,666 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
                   </div>
 
                   {/* Right Column: Settings & Configuration */}
-                  <div className="md:col-span-7 space-y-3.5">
-                    {/* Turbo Mode / 1-Second Import CTA */}
-                    <div className="p-3 rounded-2xl bg-gradient-to-r from-amber-500/20 via-orange-500/15 to-purple-500/20 border border-amber-500/40 flex items-center justify-between shadow-lg shadow-amber-500/10">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-xl bg-amber-500/30 text-amber-300 flex items-center justify-center">
-                          <Zap size={18} className="animate-pulse text-amber-400" />
-                        </div>
-                        <div>
-                          <span className="text-xs font-black text-amber-300 block">وضع الاستيراد الفائق (في ثانية واحدة) ⚡</span>
-                          <span className="text-[10px] text-slate-300 block">معالجة فورية خفيفة بدون أي تأخير تفتح المشروع في ثانية واحدة</span>
-                        </div>
-                      </div>
+                  <div className="md:col-span-7 flex flex-col gap-3">
+                    {/* ----------------- SETTINGS TABS (APPLE / STUDIO STYLE) ----------------- */}
+                    <div className="grid grid-cols-3 gap-1.5 p-1 rounded-2xl bg-slate-900/90 border border-white/10 shadow-inner">
                       <button
                         type="button"
-                        onClick={applyTurboSpeedPreset}
-                        className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 text-xs font-black shadow-md cursor-pointer transition-transform transform active:scale-95 whitespace-nowrap"
+                        onClick={() => setActiveSettingsTab('quick')}
+                        className={`flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                          activeSettingsTab === 'quick'
+                            ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-600/30'
+                            : 'text-slate-400 hover:text-white hover:bg-white/5'
+                        }`}
                       >
-                        تطبيق السرعة الفائقة ⚡
+                        <Zap size={14} className={activeSettingsTab === 'quick' ? 'text-amber-300' : 'text-slate-400'} />
+                        <span>إعداد سريع وذكي</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setActiveSettingsTab('crop')}
+                        className={`flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl text-xs font-black transition-all cursor-pointer relative ${
+                          activeSettingsTab === 'crop'
+                            ? 'bg-gradient-to-r from-rose-600 to-pink-600 text-white shadow-md shadow-rose-600/30'
+                            : 'text-slate-400 hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        <Crop size={14} className={activeSettingsTab === 'crop' ? 'text-white' : 'text-slate-400'} />
+                        <span>القص والحواف</span>
+                        {(cropTop > 0 || cropBottom > 0 || durationMode === 'trim') && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse ml-0.5" />
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setActiveSettingsTab('advanced')}
+                        className={`flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                          activeSettingsTab === 'advanced'
+                            ? 'bg-gradient-to-r from-slate-700 to-slate-800 text-white shadow-md border border-white/15'
+                            : 'text-slate-400 hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        <Sliders size={14} className={activeSettingsTab === 'advanced' ? 'text-purple-300' : 'text-slate-400'} />
+                        <span>المتقدم و FPS</span>
                       </button>
                     </div>
 
-                    {/* Numeric Dimensions & Resolution Control */}
-                    <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                          <Maximize2 size={14} className="text-indigo-400" />
-                          التحكم الرقمي في مقاس وأبعاد الكانفاس (Width × Height):
-                        </span>
-                        <span className="text-[11px] font-mono font-bold text-indigo-300 bg-indigo-950/60 px-2 py-0.5 rounded-md border border-indigo-500/30">
-                          {customWidth} × {customHeight} px
-                        </span>
-                      </div>
-
-                      {/* Direct Numeric Inputs with Steppers */}
-                      <div className="grid grid-cols-5 gap-2 items-center bg-black/40 p-2.5 rounded-xl border border-white/5">
-                        <div className="col-span-2 space-y-1.5">
-                          <div className="flex items-center justify-between">
-                            <label className="text-[10px] text-slate-400 block font-medium">العرض (Width px):</label>
-                            <div className="flex gap-0.5">
-                              <button
-                                type="button"
-                                onClick={() => stepDimension('w', -100)}
-                                className="px-1 py-0.5 text-[9px] bg-white/10 hover:bg-white/20 text-slate-300 rounded cursor-pointer"
-                                title="إنقاص 100 بكسل"
-                              >
-                                -100
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => stepDimension('w', -10)}
-                                className="px-1 py-0.5 text-[9px] bg-white/10 hover:bg-white/20 text-slate-300 rounded cursor-pointer"
-                                title="إنقاص 10 بكسل"
-                              >
-                                -10
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => stepDimension('w', 10)}
-                                className="px-1 py-0.5 text-[9px] bg-white/10 hover:bg-white/20 text-slate-300 rounded cursor-pointer"
-                                title="زيادة 10 بكسل"
-                              >
-                                +10
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => stepDimension('w', 100)}
-                                className="px-1 py-0.5 text-[9px] bg-white/10 hover:bg-white/20 text-slate-300 rounded cursor-pointer"
-                                title="زيادة 100 بكسل"
-                              >
-                                +100
-                              </button>
+                    {/* ----------------- TAB 1: QUICK & SMART ----------------- */}
+                    {activeSettingsTab === 'quick' && (
+                      <div className="space-y-3 animate-in fade-in duration-200">
+                        {/* One-Click Turbo Preset CTA Banner */}
+                        <div className="p-3 rounded-2xl bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-indigo-500/15 border border-amber-500/30 flex items-center justify-between gap-3 shadow-md shadow-amber-500/5">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/30">
+                              <Zap size={16} className="animate-pulse" />
+                            </div>
+                            <div className="min-w-0">
+                              <span className="text-xs font-black text-amber-300 block truncate">الاستيراد الفائق (في ثانية واحدة) ⚡</span>
+                              <span className="text-[10px] text-slate-300 block truncate">إعداد خفيف (15fps @ 2ث) لفتح المشروع فوراً بدون أي بطء</span>
                             </div>
                           </div>
-                          <input
-                            type="number"
-                            min="32"
-                            max="3840"
-                            value={widthStr}
-                            onChange={(e) => handleWidthChange(e.target.value)}
-                            onBlur={() => {
-                              const num = parseInt(widthStr, 10);
-                              if (isNaN(num) || num < 16) {
-                                setWidthStr(String(customWidth || 750));
-                              }
-                            }}
-                            className="w-full bg-white/10 border border-white/15 rounded-lg px-2 py-1.5 text-xs text-white font-mono font-bold text-center focus:outline-none focus:border-indigo-400 focus:bg-white/15"
-                            placeholder="750"
-                          />
-                        </div>
-
-                        {/* Aspect Ratio Lock Button */}
-                        <div className="col-span-1 flex flex-col items-center justify-center pt-3">
                           <button
                             type="button"
-                            onClick={() => setLockAspectRatio(!lockAspectRatio)}
-                            className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
-                              lockAspectRatio
-                                ? 'bg-indigo-600/40 border-indigo-400 text-indigo-300 shadow-sm'
-                                : 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30'
-                            }`}
-                            title={lockAspectRatio ? 'نسبة الأبعاد مقفلة (تناسب تلقائي)' : 'نسبة الأبعاد حرة تماماً'}
+                            onClick={applyTurboSpeedPreset}
+                            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 text-xs font-black shadow-md cursor-pointer transition-transform active:scale-95 shrink-0"
                           >
-                            {lockAspectRatio ? <Lock size={14} /> : <Unlock size={14} />}
+                            تطبيق الآن ⚡
                           </button>
-                          <span className="text-[9px] text-slate-400 mt-0.5">{lockAspectRatio ? 'مقفل' : 'حر 🔓'}</span>
                         </div>
 
-                        <div className="col-span-2 space-y-1.5">
+                        {/* Canvas Dimensions & Resolution */}
+                        <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-white/10 space-y-2.5">
                           <div className="flex items-center justify-between">
-                            <label className="text-[10px] text-slate-400 block font-medium">الارتفاع (Height px):</label>
-                            <div className="flex gap-0.5">
-                              <button
-                                type="button"
-                                onClick={() => stepDimension('h', -100)}
-                                className="px-1 py-0.5 text-[9px] bg-white/10 hover:bg-white/20 text-slate-300 rounded cursor-pointer"
-                                title="إنقاص 100 بكسل"
-                              >
-                                -100
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => stepDimension('h', -10)}
-                                className="px-1 py-0.5 text-[9px] bg-white/10 hover:bg-white/20 text-slate-300 rounded cursor-pointer"
-                                title="إنقاص 10 بكسل"
-                              >
-                                -10
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => stepDimension('h', 10)}
-                                className="px-1 py-0.5 text-[9px] bg-white/10 hover:bg-white/20 text-slate-300 rounded cursor-pointer"
-                                title="زيادة 10 بكسل"
-                              >
-                                +10
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => stepDimension('h', 100)}
-                                className="px-1 py-0.5 text-[9px] bg-white/10 hover:bg-white/20 text-slate-300 rounded cursor-pointer"
-                                title="زيادة 100 بكسل"
-                              >
-                                +100
-                              </button>
-                            </div>
-                          </div>
-                          <input
-                            type="number"
-                            min="32"
-                            max="3840"
-                            value={heightStr}
-                            onChange={(e) => handleHeightChange(e.target.value)}
-                            onBlur={() => {
-                              const num = parseInt(heightStr, 10);
-                              if (isNaN(num) || num < 16) {
-                                setHeightStr(String(customHeight || 1334));
-                              }
-                            }}
-                            className="w-full bg-white/10 border border-white/15 rounded-lg px-2 py-1.5 text-xs text-white font-mono font-bold text-center focus:outline-none focus:border-indigo-400 focus:bg-white/15"
-                            placeholder="1334"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="text-[10px] text-slate-400 flex items-center justify-between px-1">
-                        <span>تحكم حر كامل: يمكنك كتابة أي أرقام تفضلها بدون أي إجبار.</span>
-                        <button
-                          type="button"
-                          onClick={() => setDimensions(750, 1334)}
-                          className="text-indigo-300 hover:text-white font-bold underline cursor-pointer text-[10px]"
-                        >
-                          تطبيق 750×1334 فوراً
-                        </button>
-                      </div>
-
-                      {/* Quick Resolution Presets */}
-                      <div className="grid grid-cols-4 gap-1.5 pt-0.5">
-                        {[
-                          { label: '★ 750×1334 (المختار)', w: 750, h: 1334 },
-                          { label: 'الأصلي', w: activeProbe?.width || 750, h: activeProbe?.height || 1334 },
-                          { label: '1080×1920', w: 1080, h: 1920 },
-                          { label: '1080×1080', w: 1080, h: 1080 },
-                          { label: '1280×720', w: 1280, h: 720 },
-                          { label: '750×750', w: 750, h: 750 },
-                          { label: '500×500', w: 500, h: 500 },
-                          { label: 'مخفف 50%', w: Math.round((activeProbe?.width || 750) * 0.5), h: Math.round((activeProbe?.height || 1334) * 0.5) },
-                        ].map((preset, idx) => (
-                          <button
-                            key={idx}
-                            type="button"
-                            onClick={() => setDimensions(preset.w, preset.h)}
-                            className={`py-1 px-1.5 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer text-center ${
-                              customWidth === preset.w && customHeight === preset.h
-                                ? 'bg-indigo-600/40 border-indigo-400 text-white shadow-sm ring-1 ring-indigo-400'
-                                : 'bg-white/5 border-white/5 text-slate-400 hover:text-white hover:bg-white/10'
-                            }`}
-                          >
-                            {preset.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Duration / Zero-Crop Speed / Manual Trim Setting */}
-                    <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                          <Clock size={14} className="text-amber-400" />
-                          مدة الفيديو وسرعة الحركة:
-                        </span>
-                        <div className="flex flex-wrap gap-1">
-                          <button
-                            type="button"
-                            onClick={setOriginalDurationMode}
-                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                              durationMode === 'original'
-                                ? 'bg-amber-500/25 text-amber-200 border border-amber-400/50 shadow-sm shadow-amber-500/20 ring-1 ring-amber-400/40'
-                                : 'bg-white/5 text-slate-400 hover:text-white border border-white/5'
-                            }`}
-                          >
-                            <span>المدة الأصلية</span>
-                            <span className="font-mono bg-amber-400/20 px-1 py-0.2 rounded text-amber-300">
-                              {activeProbe ? `${activeProbe.duration.toFixed(1)}ث` : '...'}
+                            <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                              <Maximize2 size={13} className="text-indigo-400" />
+                              مقاس وأبعاد الكانفاس (Resolution):
                             </span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDurationMode('custom')}
-                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
-                              durationMode === 'custom'
-                                ? 'bg-indigo-500/25 text-indigo-200 border border-indigo-400/50 shadow-sm shadow-indigo-500/20 ring-1 ring-indigo-400/40'
-                                : 'bg-white/5 text-slate-400 hover:text-white border border-white/5'
-                            }`}
-                          >
-                            تخصيص مدة
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setDurationMode('trim');
-                              if (trimEnd <= 0 && activeProbe) {
-                                setTrimEnd(activeProbe.duration);
-                              }
-                              setShowTrimmerStudio(true);
-                            }}
-                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                              durationMode === 'trim'
-                                ? 'bg-sky-500/25 text-sky-200 border border-sky-400/50 shadow-sm shadow-sky-500/20 ring-1 ring-sky-400/40'
-                                : 'bg-white/5 text-slate-400 hover:text-white border border-white/5'
-                            }`}
-                          >
-                            <Scissors size={12} />
-                            <span>قص يدوي (Trim)</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Launch Full Scissors & Timeline Studio Button */}
-                      <button
-                        type="button"
-                        onClick={() => setShowTrimmerStudio(true)}
-                        className="w-full py-2.5 px-3.5 rounded-xl bg-gradient-to-r from-sky-500/15 via-indigo-500/15 to-purple-500/15 hover:from-sky-500/25 hover:via-indigo-500/25 hover:to-purple-500/25 border border-sky-400/40 text-white text-xs font-black flex items-center justify-between transition-all shadow-md cursor-pointer group"
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-lg bg-sky-500 text-slate-950 flex items-center justify-center font-bold shadow group-hover:scale-110 transition-transform">
-                            <Scissors size={13} />
-                          </div>
-                          <span className="text-sky-200 font-bold">
-                            استوديو القص وتسريع الفيديو والتايم لاين الاحترافي (PRO RETIMING)
-                          </span>
-                        </div>
-                        <span className="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-[10px] font-bold border border-sky-400/30">
-                          فتح الاستوديو المصور ⚡
-                        </span>
-                      </button>
-
-                      {/* When Original Duration Mode is Selected */}
-                      {durationMode === 'original' && (
-                        <div className="p-3 rounded-xl bg-gradient-to-r from-amber-500/10 via-emerald-500/5 to-transparent border border-amber-400/30 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                              <span className="text-xs font-bold text-amber-200">
-                                المدة الأساسية المعتمدة للفيديو: {activeProbe ? `${activeProbe.duration.toFixed(1)} ثانية` : '...'}
-                              </span>
-                            </div>
-                            <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold">
-                              كامل الفيديو 1:1
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-slate-300 leading-relaxed">
-                            سيتم استدعاء الفيديو بالكامل من بدايته إلى نهايته بنفس سرعته الطبيعية الأصلية وبدون أي اقتطاع.
-                          </p>
-                          <div className="flex items-center justify-between pt-1 border-t border-white/5">
-                            <span className="text-[10px] text-slate-400">أو اضغط لاختيار مدة سريعة مختصرة:</span>
-                            <div className="flex gap-1">
-                              {[
-                                { label: '1ث ⚡', sec: 1.0 },
-                                { label: '2ث ⚡', sec: 2.0 },
-                                { label: '3ث', sec: 3.0 },
-                                { label: '5ث', sec: 5.0 },
-                                { label: '10ث', sec: 10.0 },
-                              ].map((chip, idx) => (
-                                <button
-                                  key={idx}
-                                  type="button"
-                                  onClick={() => setQuickDuration(chip.sec)}
-                                  className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-white/10 hover:bg-amber-400/20 text-slate-300 hover:text-amber-200 border border-white/10 transition-colors cursor-pointer"
-                                >
-                                  {chip.label}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* When Manual Trim (Scissors) Mode is Selected */}
-                      {durationMode === 'trim' && (
-                        <div className="p-3 rounded-xl bg-gradient-to-r from-sky-500/10 via-indigo-500/5 to-transparent border border-sky-400/30 space-y-3 animate-in fade-in">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <Scissors size={14} className="text-sky-400" />
-                              <span className="text-xs font-bold text-sky-200">
-                                استوديو قص وتحديد المقطع (Manual Trim)
-                              </span>
-                            </div>
-                            <span className="text-[10px] bg-sky-500/20 text-sky-300 border border-sky-500/30 px-2 py-0.5 rounded-full font-mono font-bold">
-                              المدة الناتجة: {Math.max(0.1, (trimEnd || (activeProbe?.duration || 0)) - trimStart).toFixed(2)} ثانية
+                            <span className="text-[11px] font-mono font-black text-indigo-300 bg-indigo-950/60 px-2 py-0.5 rounded-lg border border-indigo-500/30">
+                              {customWidth} × {customHeight} px
                             </span>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-3">
-                            {/* Start Time */}
-                            <div className="bg-slate-900/80 p-2.5 rounded-xl border border-white/5 space-y-1.5">
-                              <div className="flex justify-between items-center text-[10px]">
-                                <span className="text-slate-400 font-bold">نقطة البداية (ثانية):</span>
-                                <button
-                                  type="button"
-                                  onClick={() => setTrimStart(currentTime)}
-                                  className="text-[9px] text-sky-300 hover:underline cursor-pointer bg-sky-500/10 px-1.5 py-0.5 rounded"
-                                >
-                                  [ ضبط الحالي {currentTime.toFixed(1)}ث
-                                </button>
-                              </div>
-                              <input
-                                type="number"
-                                min="0"
-                                max={trimEnd > 0 ? trimEnd : (activeProbe?.duration || 60)}
-                                step="0.1"
-                                value={trimStart}
-                                onChange={(e) => setTrimStart(Math.max(0, parseFloat(e.target.value) || 0))}
-                                className="w-full bg-white/5 border border-white/10 rounded-lg p-1.5 text-xs text-white font-mono font-bold text-center outline-none focus:border-sky-400"
-                              />
-                            </div>
-
-                            {/* End Time */}
-                            <div className="bg-slate-900/80 p-2.5 rounded-xl border border-white/5 space-y-1.5">
-                              <div className="flex justify-between items-center text-[10px]">
-                                <span className="text-slate-400 font-bold">نقطة النهاية (ثانية):</span>
-                                <button
-                                  type="button"
-                                  onClick={() => setTrimEnd(currentTime)}
-                                  className="text-[9px] text-indigo-300 hover:underline cursor-pointer bg-indigo-500/10 px-1.5 py-0.5 rounded"
-                                >
-                                  ضبط الحالي {currentTime.toFixed(1)}ث ]
-                                </button>
-                              </div>
-                              <input
-                                type="number"
-                                min={trimStart}
-                                max={activeProbe?.duration || 120}
-                                step="0.1"
-                                value={trimEnd || (activeProbe?.duration || 0)}
-                                onChange={(e) => setTrimEnd(Math.max(trimStart + 0.1, parseFloat(e.target.value) || (activeProbe?.duration || 0)))}
-                                className="w-full bg-white/5 border border-white/10 rounded-lg p-1.5 text-xs text-white font-mono font-bold text-center outline-none focus:border-indigo-400"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* When Custom Duration Mode is Selected */}
-                      {durationMode === 'custom' && (
-                        <div className="space-y-2.5 pt-1 bg-black/30 p-3 rounded-xl border border-white/5">
-                          {/* Quick Preset Duration Chips */}
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] text-slate-400">خيارات سريعة للمدة:</span>
-                            <button
-                              type="button"
-                              onClick={setOriginalDurationMode}
-                              className="text-[10px] text-amber-300 hover:underline flex items-center gap-1 cursor-pointer font-bold"
-                            >
-                              الرجوع للأصلية ({activeProbe ? `${activeProbe.duration.toFixed(1)}ث` : '...'})
-                            </button>
-                          </div>
-                          <div className="grid grid-cols-6 gap-1">
+                          {/* Preset Chips */}
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                             {[
-                              { label: `الأصلية (${activeProbe ? `${activeProbe.duration.toFixed(0)}ث` : '...'}) ★`, sec: activeProbe ? parseFloat(activeProbe.duration.toFixed(1)) : 5.0 },
-                              { label: '1 ثانية ⚡', sec: 1.0 },
-                              { label: '2 ثانية ⚡', sec: 2.0 },
-                              { label: '3 ثواني', sec: 3.0 },
-                              { label: '5 ثواني', sec: 5.0 },
-                              { label: '10 ثواني', sec: 10.0 },
-                            ].map((chip, idx) => (
+                              { label: '750 × 1334 (الموصى به) ★', w: 750, h: 1334 },
+                              { label: `الأصلي (${activeProbe ? `${activeProbe.width}×${activeProbe.height}` : '...'})`, w: activeProbe?.width || 750, h: activeProbe?.height || 1334 },
+                              { label: '1080 × 1920 (رأسي HD)', w: 1080, h: 1920 },
+                              { label: '1080 × 1080 (مربع)', w: 1080, h: 1080 },
+                              { label: '1280 × 720 (أفقي HD)', w: 1280, h: 720 },
+                              { label: 'مخفف 50% (خفيف)', w: Math.round((activeProbe?.width || 750) * 0.5), h: Math.round((activeProbe?.height || 1334) * 0.5) },
+                            ].map((preset, idx) => (
                               <button
                                 key={idx}
                                 type="button"
-                                onClick={() => setQuickDuration(chip.sec)}
-                                className={`py-1 px-1 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer text-center ${
-                                  Math.abs(customDuration - chip.sec) < 0.15
-                                    ? 'bg-amber-500/30 border-amber-400 text-amber-200 shadow-sm ring-1 ring-amber-400'
+                                onClick={() => setDimensions(preset.w, preset.h)}
+                                className={`py-1.5 px-2 rounded-xl text-[11px] font-bold border transition-all cursor-pointer text-center truncate ${
+                                  customWidth === preset.w && customHeight === preset.h
+                                    ? 'bg-indigo-600/30 border-indigo-400 text-white shadow-sm ring-1 ring-indigo-400/50'
                                     : 'bg-white/5 border-white/5 text-slate-400 hover:text-white hover:bg-white/10'
                                 }`}
                               >
-                                {chip.label}
+                                {preset.label}
                               </button>
                             ))}
                           </div>
 
-                          {/* Numeric Duration Input with Steppers */}
-                          <div className="flex items-center justify-between text-xs pt-1">
-                            <span className="text-slate-300 text-[11px] font-medium">حدد المدة المطلوبة رقمياً:</span>
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => stepDuration(-1)}
-                                className="px-1.5 py-0.5 text-[10px] bg-white/10 hover:bg-white/20 text-slate-300 rounded cursor-pointer font-bold"
-                                title="إنقاص ثانية واحدة"
-                              >
-                                -1ث
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => stepDuration(-0.5)}
-                                className="px-1.5 py-0.5 text-[10px] bg-white/10 hover:bg-white/20 text-slate-300 rounded cursor-pointer font-bold"
-                                title="إنقاص نصف ثانية"
-                              >
-                                -0.5ث
-                              </button>
-                              <div className="flex items-center gap-1 bg-white/10 border border-white/15 rounded-md px-1.5 py-0.5">
-                                <input
-                                  type="number"
-                                  min="0.2"
-                                  max={activeProbe ? Math.max(120, Math.ceil(activeProbe.duration * 2)) : 120}
-                                  step="0.1"
-                                  value={customDuration}
-                                  onChange={(e) => setCustomDuration(Math.max(0.2, parseFloat(e.target.value) || 1))}
-                                  className="w-14 text-xs text-amber-300 font-mono font-bold text-center focus:outline-none bg-transparent"
-                                />
-                                <span className="text-slate-400 text-xs font-mono">ث</span>
+                          {/* Expandable Manual Custom Inputs */}
+                          <div className="pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setShowCustomResolutionInputs(!showCustomResolutionInputs)}
+                              className="text-[11px] text-indigo-300 hover:text-white font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                            >
+                              <span>{showCustomResolutionInputs ? '▲ إخفاء التخصيص اليدوي' : '▼ كتابة مقاس مخصص يدوياً بالبكسل'}</span>
+                            </button>
+
+                            {showCustomResolutionInputs && (
+                              <div className="mt-2 p-2.5 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between gap-3 animate-in fade-in">
+                                <div className="flex-1 space-y-1">
+                                  <label className="text-[10px] text-slate-400 block font-medium">العرض (Width px):</label>
+                                  <input
+                                    type="number"
+                                    min="32"
+                                    max="3840"
+                                    value={widthStr}
+                                    onChange={(e) => handleWidthChange(e.target.value)}
+                                    onBlur={() => {
+                                      const num = parseInt(widthStr, 10);
+                                      if (isNaN(num) || num < 16) setWidthStr(String(customWidth || 750));
+                                    }}
+                                    className="w-full bg-white/10 border border-white/15 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono font-bold text-center focus:outline-none focus:border-indigo-400"
+                                    placeholder="750"
+                                  />
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setLockAspectRatio(!lockAspectRatio)}
+                                  className={`p-2 rounded-xl border transition-colors cursor-pointer mt-4 shrink-0 ${
+                                    lockAspectRatio
+                                      ? 'bg-indigo-600/40 border-indigo-400 text-indigo-300'
+                                      : 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300'
+                                  }`}
+                                  title={lockAspectRatio ? 'نسبة الأبعاد مقفلة (تناسب تلقائي)' : 'نسبة الأبعاد حرة'}
+                                >
+                                  {lockAspectRatio ? <Lock size={14} /> : <Unlock size={14} />}
+                                </button>
+
+                                <div className="flex-1 space-y-1">
+                                  <label className="text-[10px] text-slate-400 block font-medium">الارتفاع (Height px):</label>
+                                  <input
+                                    type="number"
+                                    min="32"
+                                    max="3840"
+                                    value={heightStr}
+                                    onChange={(e) => handleHeightChange(e.target.value)}
+                                    onBlur={() => {
+                                      const num = parseInt(heightStr, 10);
+                                      if (isNaN(num) || num < 16) setHeightStr(String(customHeight || 1334));
+                                    }}
+                                    className="w-full bg-white/10 border border-white/15 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono font-bold text-center focus:outline-none focus:border-indigo-400"
+                                    placeholder="1334"
+                                  />
+                                </div>
                               </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Video Duration & Playback Speed */}
+                        <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-white/10 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                              <Clock size={13} className="text-amber-400" />
+                              مدة الفيديو وسرعة الحركة:
+                            </span>
+                            <span className="text-[11px] font-mono font-black text-amber-300 bg-amber-950/60 px-2 py-0.5 rounded-lg border border-amber-500/30">
+                              {targetDurationSeconds.toFixed(1)} ثانية
+                            </span>
+                          </div>
+
+                          {/* 3 Main Choice Cards */}
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            {/* Option 1: Full Original */}
+                            <button
+                              type="button"
+                              onClick={setOriginalDurationMode}
+                              className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex flex-col justify-between ${
+                                durationMode === 'original'
+                                  ? 'bg-amber-500/20 border-amber-400/80 text-white shadow-sm ring-1 ring-amber-400/40'
+                                  : 'bg-white/5 border-white/5 text-slate-300 hover:bg-white/10'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between w-full mb-1">
+                                <span className="text-xs font-bold text-amber-300">المدة الأصلية كاملة</span>
+                                <span className="text-[10px] font-mono font-black bg-amber-400/20 text-amber-200 px-1.5 py-0.5 rounded">
+                                  {activeProbe ? `${activeProbe.duration.toFixed(1)}ث` : '...'}
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-slate-400 leading-tight">حركة طبيعية 1:1 بدون أي تسريع</span>
+                            </button>
+
+                            {/* Option 2: 2.0s Turbo */}
+                            <button
+                              type="button"
+                              onClick={() => setQuickDuration(2.0, 15)}
+                              className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex flex-col justify-between ${
+                                durationMode === 'custom' && Math.abs(customDuration - 2.0) < 0.1
+                                  ? 'bg-amber-500/20 border-amber-400/80 text-white shadow-sm ring-1 ring-amber-400/40'
+                                  : 'bg-white/5 border-white/5 text-slate-300 hover:bg-white/10'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between w-full mb-1">
+                                <span className="text-xs font-bold text-amber-300">تسريع فائق (2.0ث) ⚡</span>
+                                <span className="text-[10px] font-mono font-black bg-amber-400/20 text-amber-200 px-1.5 py-0.5 rounded">
+                                  2.0ث
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-slate-400 leading-tight">سريع وخفيف جداً للمشاريع</span>
+                            </button>
+
+                            {/* Option 3: Custom Duration */}
+                            <button
+                              type="button"
+                              onClick={() => setDurationMode('custom')}
+                              className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex flex-col justify-between ${
+                                durationMode === 'custom' && Math.abs(customDuration - 2.0) >= 0.1
+                                  ? 'bg-indigo-500/20 border-indigo-400/80 text-white shadow-sm ring-1 ring-indigo-400/40'
+                                  : 'bg-white/5 border-white/5 text-slate-300 hover:bg-white/10'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between w-full mb-1">
+                                <span className="text-xs font-bold text-indigo-300">تخصيص مدة</span>
+                                <span className="text-[10px] font-mono font-black bg-indigo-400/20 text-indigo-200 px-1.5 py-0.5 rounded">
+                                  {customDuration.toFixed(1)}ث
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-slate-400 leading-tight">تحديد عدد الثواني يدوياً</span>
+                            </button>
+                          </div>
+
+                          {/* If Custom Duration is Active */}
+                          {durationMode === 'custom' && (
+                            <div className="p-2.5 rounded-xl bg-black/40 border border-white/5 space-y-2 mt-1 animate-in fade-in">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="text-[11px] text-slate-300 font-bold">شريط ضبط الثواني:</span>
+                                <span className="text-xs font-mono font-black text-amber-300">{customDuration.toFixed(1)} ثانية</span>
+                              </div>
+                              <input
+                                type="range"
+                                min="0.5"
+                                max={activeProbe ? Math.max(15, Math.ceil(activeProbe.duration)) : 15}
+                                step="0.1"
+                                value={customDuration}
+                                onChange={(e) => setCustomDuration(parseFloat(e.target.value))}
+                                className="w-full accent-amber-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                              />
+                              <div className="flex items-center justify-between pt-1">
+                                <span className="text-[10px] text-slate-500 font-mono">0.5ث (أقصى سرعة)</span>
+                                <div className="flex gap-1">
+                                  {[1.0, 3.0, 5.0, 10.0].map((s) => (
+                                    <button
+                                      key={s}
+                                      type="button"
+                                      onClick={() => setQuickDuration(s)}
+                                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-colors ${
+                                        Math.abs(customDuration - s) < 0.1
+                                          ? 'bg-amber-400 text-slate-950 border-amber-400'
+                                          : 'bg-white/5 text-slate-400 border-white/5 hover:text-white'
+                                      }`}
+                                    >
+                                      {s}ث
+                                    </button>
+                                  ))}
+                                </div>
+                                <span className="text-[10px] text-slate-500 font-mono">{activeProbe ? `${activeProbe.duration.toFixed(0)}ث` : '15ث'}</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Quick Toggles: Audio & Processing Engine */}
+                        <div className="grid grid-cols-2 gap-2.5">
+                          {/* Audio Toggle */}
+                          <div 
+                            onClick={() => setPreserveAudio(!preserveAudio)}
+                            className="p-3 rounded-2xl bg-slate-900/60 hover:bg-slate-900/80 border border-white/10 flex items-center justify-between cursor-pointer transition-colors"
+                          >
+                            <div className="flex items-center gap-2">
+                              {preserveAudio ? (
+                                <Volume2 size={16} className="text-emerald-400" />
+                              ) : (
+                                <VolumeX size={16} className="text-slate-500" />
+                              )}
+                              <div>
+                                <span className="text-xs font-bold text-white block">الصوت الأصلي</span>
+                                <span className="text-[10px] text-slate-400 block">{preserveAudio ? 'استخراج كـ MP3 ID3' : 'بدون صوت (مكتوم)'}</span>
+                              </div>
+                            </div>
+                            <div className={`w-8 h-4 rounded-full transition-colors relative ${preserveAudio ? 'bg-emerald-500' : 'bg-slate-700'}`}>
+                              <div className={`w-3 h-3 rounded-full bg-white transition-transform absolute top-0.5 ${preserveAudio ? 'right-4' : 'right-1'}`} />
+                            </div>
+                          </div>
+
+                          {/* Quality Engine Toggle */}
+                          <div 
+                            onClick={() => setQualityMode(qualityMode === 'fast' ? 'high' : 'fast')}
+                            className="p-3 rounded-2xl bg-slate-900/60 hover:bg-slate-900/80 border border-white/10 flex items-center justify-between cursor-pointer transition-colors"
+                          >
+                            <div className="flex items-center gap-2">
+                              <Zap size={16} className={qualityMode === 'fast' ? 'text-amber-400' : 'text-indigo-400'} />
+                              <div>
+                                <span className="text-xs font-bold text-white block">محرك المعالجة</span>
+                                <span className="text-[10px] text-slate-400 block">{qualityMode === 'fast' ? '⚡ فائق السرعة' : '💎 جودة PNG كاملة'}</span>
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-slate-300">
+                              تغيير
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ----------------- TAB 2: CROP & TRIM ----------------- */}
+                    {activeSettingsTab === 'crop' && (
+                      <div className="space-y-3.5 animate-in fade-in duration-200">
+                        {/* Top & Bottom Cropping Studio */}
+                        <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/25 space-y-3 shadow-md shadow-rose-500/5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-lg bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0">
+                                <Crop size={14} />
+                              </div>
+                              <div>
+                                <span className="text-xs font-bold text-white block">قص وحذف أجزاء الفيديو (أعلى وأسفل):</span>
+                                <span className="text-[10px] text-rose-300/80 block">إزالة الشعارات والحواف السوداء غير المرغوبة بدقة</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
                               <button
                                 type="button"
-                                onClick={() => stepDuration(0.5)}
-                                className="px-1.5 py-0.5 text-[10px] bg-white/10 hover:bg-white/20 text-slate-300 rounded cursor-pointer font-bold"
-                                title="زيادة نصف ثانية"
+                                onClick={() => setSymmetricCrop(!symmetricCrop)}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                                  symmetricCrop ? 'bg-rose-500 text-white shadow-sm' : 'bg-white/5 text-slate-400 hover:text-white border border-white/10'
+                                }`}
                               >
-                                +0.5ث
+                                {symmetricCrop ? <Lock size={11} /> : <Unlock size={11} />}
+                                <span>{symmetricCrop ? 'متماثل' : 'حر'}</span>
                               </button>
                               <button
                                 type="button"
-                                onClick={() => stepDuration(1)}
-                                className="px-1.5 py-0.5 text-[10px] bg-white/10 hover:bg-white/20 text-slate-300 rounded cursor-pointer font-bold"
-                                title="زيادة ثانية واحدة"
+                                onClick={() => { setCropTop(0); setCropBottom(0); }}
+                                className="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-[10px] border border-white/10 cursor-pointer"
                               >
-                                +1ث
+                                إعادة ضبط (0%)
                               </button>
                             </div>
                           </div>
 
-                          {/* Dynamic Range Slider scaling up to video length */}
-                          <input
-                            type="range"
-                            min="0.2"
-                            max={activeProbe ? Math.max(30, Math.ceil(activeProbe.duration)) : 30}
-                            step="0.1"
-                            value={customDuration}
-                            onChange={(e) => setCustomDuration(parseFloat(e.target.value))}
-                            className="w-full accent-amber-400 cursor-pointer"
-                          />
-                          <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                            <span>0.2 ثانية (سريع)</span>
-                            <span>{customDuration.toFixed(1)} ثانية مختارة</span>
-                            <span>الأصلية: {activeProbe ? `${activeProbe.duration.toFixed(1)}ث` : '30ث'}</span>
+                          {/* Quick Presets */}
+                          <div className="flex items-center justify-between gap-1 pt-1">
+                            <span className="text-[10px] text-slate-400 shrink-0">قص سريع:</span>
+                            <div className="flex gap-1 overflow-x-auto no-scrollbar">
+                              {[
+                                { label: '0% (بدون)', val: 0 },
+                                { label: '5% حواف', val: 5 },
+                                { label: '10% شريط', val: 10 },
+                                { label: '15% متوازن', val: 15 },
+                                { label: '20% سينمائي', val: 20 },
+                              ].map((p) => (
+                                <button
+                                  key={p.val}
+                                  type="button"
+                                  onClick={() => { setCropTop(p.val); setCropBottom(p.val); }}
+                                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-colors cursor-pointer ${
+                                    cropTop === p.val && cropBottom === p.val
+                                      ? 'bg-rose-500 text-white shadow-sm'
+                                      : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                                  }`}
+                                >
+                                  {p.label}
+                                </button>
+                              ))}
+                            </div>
                           </div>
 
-                          {/* Strategy selector: Crop Start (Natural speed, Instant) vs Compress Full */}
-                          <div className="grid grid-cols-2 gap-1.5 pt-2 border-t border-white/5">
+                          {/* Sliders Grid */}
+                          <div className="grid grid-cols-2 gap-3 bg-black/40 p-3 rounded-xl border border-white/5">
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between items-center text-[10px]">
+                                <span className="text-rose-300 font-bold">✂️ قص من الأعلى:</span>
+                                <span className="font-mono font-bold text-white bg-rose-500/20 px-1.5 py-0.5 rounded">
+                                  {cropTop}%
+                                </span>
+                              </div>
+                              <input
+                                type="range"
+                                min="0"
+                                max="45"
+                                step="1"
+                                value={cropTop}
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value) || 0;
+                                  setCropTop(val);
+                                  if (symmetricCrop) setCropBottom(val);
+                                }}
+                                className="w-full accent-rose-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between items-center text-[10px]">
+                                <span className="text-rose-300 font-bold">✂️ قص من الأسفل:</span>
+                                <span className="font-mono font-bold text-white bg-rose-500/20 px-1.5 py-0.5 rounded">
+                                  {cropBottom}%
+                                </span>
+                              </div>
+                              <input
+                                type="range"
+                                min="0"
+                                max="45"
+                                step="1"
+                                value={cropBottom}
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value) || 0;
+                                  setCropBottom(val);
+                                  if (symmetricCrop) setCropTop(val);
+                                }}
+                                className="w-full accent-rose-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Video Trimmer Section (قص زمني يدوي) */}
+                        <div className="p-3.5 rounded-2xl bg-sky-500/10 border border-sky-500/25 space-y-3 shadow-md shadow-sky-500/5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-lg bg-sky-500/20 text-sky-400 flex items-center justify-center shrink-0">
+                                <Scissors size={14} />
+                              </div>
+                              <div>
+                                <span className="text-xs font-bold text-white block">قص المقطع الزمني (Trim):</span>
+                                <span className="text-[10px] text-sky-300/80 block">تحديد جزء معين فقط من الفيديو لاستدعائه</span>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDurationMode('trim');
+                                if (trimEnd <= 0 && activeProbe) setTrimEnd(activeProbe.duration);
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                                durationMode === 'trim'
+                                  ? 'bg-sky-500 text-white shadow-sm'
+                                  : 'bg-white/5 text-slate-300 hover:text-white border border-white/10'
+                              }`}
+                            >
+                              {durationMode === 'trim' ? 'مفعّل ✓' : 'تفعيل القص الزمني'}
+                            </button>
+                          </div>
+
+                          {durationMode === 'trim' && (
+                            <div className="grid grid-cols-2 gap-3 bg-black/40 p-3 rounded-xl border border-white/5 animate-in fade-in">
+                              <div className="space-y-1">
+                                <div className="flex justify-between items-center text-[10px]">
+                                  <span className="text-slate-400 font-bold">بداية المقطع:</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setTrimStart(currentTime)}
+                                    className="text-[9px] text-sky-300 hover:underline cursor-pointer"
+                                  >
+                                    [ ضبط {currentTime.toFixed(1)}ث
+                                  </button>
+                                </div>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={trimEnd > 0 ? trimEnd : (activeProbe?.duration || 60)}
+                                  step="0.1"
+                                  value={trimStart}
+                                  onChange={(e) => setTrimStart(Math.max(0, parseFloat(e.target.value) || 0))}
+                                  className="w-full bg-white/10 border border-white/15 rounded-lg p-1.5 text-xs text-white font-mono font-bold text-center outline-none focus:border-sky-400"
+                                />
+                              </div>
+
+                              <div className="space-y-1">
+                                <div className="flex justify-between items-center text-[10px]">
+                                  <span className="text-slate-400 font-bold">نهاية المقطع:</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setTrimEnd(currentTime)}
+                                    className="text-[9px] text-indigo-300 hover:underline cursor-pointer"
+                                  >
+                                    ضبط {currentTime.toFixed(1)}ث ]
+                                  </button>
+                                </div>
+                                <input
+                                  type="number"
+                                  min={trimStart}
+                                  max={activeProbe?.duration || 120}
+                                  step="0.1"
+                                  value={trimEnd || (activeProbe?.duration || 0)}
+                                  onChange={(e) => setTrimEnd(Math.max(trimStart + 0.1, parseFloat(e.target.value) || (activeProbe?.duration || 0)))}
+                                  className="w-full bg-white/10 border border-white/15 rounded-lg p-1.5 text-xs text-white font-mono font-bold text-center outline-none focus:border-indigo-400"
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Button to Launch Full Visual Studio */}
+                          <button
+                            type="button"
+                            onClick={() => setShowTrimmerStudio(true)}
+                            className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-sky-600/20 via-indigo-600/20 to-purple-600/20 hover:from-sky-600/30 hover:to-purple-600/30 border border-sky-400/30 text-white text-xs font-black flex items-center justify-between transition-all cursor-pointer"
+                          >
+                            <span className="flex items-center gap-1.5 text-sky-200">
+                              <Scissors size={13} />
+                              استوديو التايم لاين والمقص الاحترافي المصور (PRO RETIMING)
+                            </span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/30 font-bold">
+                              فتح الاستوديو ⚡
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ----------------- TAB 3: ADVANCED & FPS ----------------- */}
+                    {activeSettingsTab === 'advanced' && (
+                      <div className="space-y-3.5 animate-in fade-in duration-200">
+                        {/* FPS Selector */}
+                        <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-white/10 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-white block">معدل الإطارات في الثانية (FPS):</span>
+                            <span className="text-[11px] font-mono font-black text-purple-300 bg-purple-950/60 px-2 py-0.5 rounded-lg border border-purple-500/30">
+                              {fps} FPS
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-4 gap-1.5">
+                            {[
+                              { label: '12 fps (خفيف)', val: 12 },
+                              { label: '15 fps (الموصى به) ★', val: 15 },
+                              { label: '24 fps (سينمائي)', val: 24 },
+                              { label: '30 fps (سلس)', val: 30 },
+                            ].map((item) => (
+                              <button
+                                key={item.val}
+                                type="button"
+                                onClick={() => setFps(item.val)}
+                                className={`py-2 px-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer text-center truncate ${
+                                  fps === item.val
+                                    ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30 ring-1 ring-purple-400'
+                                    : 'bg-white/5 border border-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                                }`}
+                              >
+                                {item.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Max Frames Limit */}
+                        <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-white/10 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-white block">حد الإطارات الأقصى (Max Frames Limit):</span>
+                            <span className="text-[11px] font-mono font-black text-amber-300 bg-amber-950/60 px-2 py-0.5 rounded-lg border border-amber-500/30">
+                              {maxFramesLimit > 0 ? `${maxFramesLimit} إطار` : 'كافة الإطارات'}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-4 gap-1.5">
+                            {[
+                              { label: '30 إطار ⚡', val: 30 },
+                              { label: '45 إطار', val: 45 },
+                              { label: '90 إطار', val: 90 },
+                              { label: 'الكل (بلا حد)', val: 0 },
+                            ].map((item, i) => (
+                              <button
+                                key={i}
+                                type="button"
+                                onClick={() => setMaxFramesLimit(item.val)}
+                                className={`py-2 px-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer text-center truncate ${
+                                  maxFramesLimit === item.val
+                                    ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30 ring-1 ring-amber-400'
+                                    : 'bg-white/5 border border-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                                }`}
+                              >
+                                {item.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Duration Strategy */}
+                        <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-white/10 space-y-2">
+                          <span className="text-xs font-bold text-white block">طريقة معالجة مدة الفيديو المختصرة:</span>
+                          <div className="grid grid-cols-2 gap-2">
                             <button
                               type="button"
                               onClick={() => setDurationStrategy('crop_start')}
-                              className={`p-2 rounded-xl border text-right transition-all cursor-pointer ${
+                              className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer ${
                                 durationStrategy === 'crop_start'
                                   ? 'bg-amber-500/20 border-amber-400 text-amber-200 ring-1 ring-amber-400/50'
                                   : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
                               }`}
                             >
-                              <div className="text-[11px] font-bold flex items-center justify-between">
-                                <span>قص البداية (0 إلى {customDuration}ث)</span>
-                                <span className="text-[9px] bg-amber-500/30 text-amber-300 px-1 rounded font-bold">سرعة طبيعية ⚡</span>
+                              <div className="text-[11px] font-bold flex items-center justify-between mb-1">
+                                <span>قص البداية (Natural 1:1)</span>
+                                <span className="text-[9px] bg-amber-500/30 text-amber-300 px-1 rounded font-bold">طبيعي ⚡</span>
                               </div>
-                              <p className="text-[9px] text-slate-400 mt-0.5 leading-tight">
-                                يبدأ فوراً من اللقطة الأولى بسرعة حركة 1:1 الطبيعية وبدون تسريع.
+                              <p className="text-[9px] text-slate-400 leading-tight">
+                                يبدأ فوراً من اللقطة الأولى بسرعة 1:1 الطبيعية وبدون تسريع حركة.
                               </p>
                             </button>
 
                             <button
                               type="button"
                               onClick={() => setDurationStrategy('compress_full')}
-                              className={`p-2 rounded-xl border text-right transition-all cursor-pointer ${
+                              className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer ${
                                 durationStrategy === 'compress_full'
                                   ? 'bg-indigo-500/20 border-indigo-400 text-indigo-200 ring-1 ring-indigo-400/50'
                                   : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
                               }`}
                             >
-                              <div className="text-[11px] font-bold flex items-center justify-between">
+                              <div className="text-[11px] font-bold flex items-center justify-between mb-1">
                                 <span>تسريع وضغط كامل الفيديو</span>
                                 <span className="text-[9px] bg-indigo-500/30 text-indigo-300 px-1 rounded font-bold">ضغط</span>
                               </div>
-                              <p className="text-[9px] text-slate-400 mt-0.5 leading-tight">
-                                ضغط كل ثواني الفيديو الأصلية ({activeProbe ? `${activeProbe.duration.toFixed(1)}ث` : '...'}) في {customDuration}ث.
+                              <p className="text-[9px] text-slate-400 leading-tight">
+                                ضغط كل ثواني الفيديو الأصلية كاملة داخل المدة المحددة.
                               </p>
                             </button>
                           </div>
                         </div>
-                      )}
-                    </div>
-
-                    {/* Dedicated Top & Bottom Cropping Studio (قص وحذف أجزاء الفيديو من الأعلى ومن الأسفل) */}
-                    <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/25 space-y-3 shadow-lg shadow-rose-500/5">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-lg bg-rose-500/20 text-rose-400 flex items-center justify-center">
-                            <Crop size={14} />
-                          </div>
-                          <div>
-                            <span className="text-xs font-bold text-white block">
-                              قص وحذف أجزاء الفيديو (من الأعلى ومن الأسفل):
-                            </span>
-                            <span className="text-[10px] text-rose-300/80 block">
-                              إزالة الحواف والشعارات غير المرغوبة بدقة واقتطاعها من الإطارات
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setSymmetricCrop(!symmetricCrop)}
-                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all ${
-                              symmetricCrop
-                                ? 'bg-rose-500 text-white shadow-sm'
-                                : 'bg-white/5 text-slate-400 hover:text-white border border-white/10'
-                            }`}
-                          >
-                            {symmetricCrop ? <Lock size={10} /> : <Unlock size={10} />}
-                            <span>{symmetricCrop ? 'متماثل' : 'حر'}</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCropTop(0);
-                              setCropBottom(0);
-                            }}
-                            className="px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-[10px] border border-white/10"
-                          >
-                            إعادة ضبط
-                          </button>
-                        </div>
                       </div>
+                    )}
 
-                      {/* Sliders Grid */}
-                      <div className="grid grid-cols-2 gap-3 bg-black/40 p-3 rounded-xl border border-white/5">
-                        {/* Crop Top */}
-                        <div className="space-y-1">
-                          <div className="flex justify-between items-center text-[10px]">
-                            <span className="text-rose-300 font-bold">✂️ قص من الأعلى:</span>
-                            <span className="font-mono font-bold text-white bg-rose-500/20 px-1.5 py-0.2 rounded">
-                              {cropTop}% {activeProbe ? `(${Math.round((activeProbe.height * cropTop) / 100)}px)` : ''}
-                            </span>
-                          </div>
-                          <input
-                            type="range"
-                            min="0"
-                            max="45"
-                            step="1"
-                            value={cropTop}
-                            onChange={(e) => {
-                              const val = parseInt(e.target.value) || 0;
-                              setCropTop(val);
-                              if (symmetricCrop) setCropBottom(val);
-                            }}
-                            className="w-full accent-rose-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
-                          />
-                        </div>
-
-                        {/* Crop Bottom */}
-                        <div className="space-y-1">
-                          <div className="flex justify-between items-center text-[10px]">
-                            <span className="text-rose-300 font-bold">✂️ قص من الأسفل:</span>
-                            <span className="font-mono font-bold text-white bg-rose-500/20 px-1.5 py-0.2 rounded">
-                              {cropBottom}% {activeProbe ? `(${Math.round((activeProbe.height * cropBottom) / 100)}px)` : ''}
-                            </span>
-                          </div>
-                          <input
-                            type="range"
-                            min="0"
-                            max="45"
-                            step="1"
-                            value={cropBottom}
-                            onChange={(e) => {
-                              const val = parseInt(e.target.value) || 0;
-                              setCropBottom(val);
-                              if (symmetricCrop) setCropTop(val);
-                            }}
-                            className="w-full accent-rose-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Presets */}
-                      <div className="flex items-center justify-between pt-0.5">
-                        <span className="text-[10px] text-slate-400">إعدادات سريعة:</span>
-                        <div className="flex gap-1">
-                          {[
-                            { label: '0% (بدون)', val: 0 },
-                            { label: '5% حواف', val: 5 },
-                            { label: '10% شريط', val: 10 },
-                            { label: '15% متوازن', val: 15 },
-                            { label: '20% سينمائي', val: 20 },
-                            { label: '25% عريض', val: 25 },
-                          ].map((p) => (
-                            <button
-                              key={p.val}
-                              type="button"
-                              onClick={() => {
-                                setCropTop(p.val);
-                                setCropBottom(p.val);
-                              }}
-                              className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors cursor-pointer ${
-                                cropTop === p.val && cropBottom === p.val
-                                  ? 'bg-rose-500 text-white shadow-sm'
-                                  : 'bg-white/5 text-slate-400 hover:text-white'
-                              }`}
-                            >
-                              {p.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Speed Engine & Frame Rate & Limit */}
-                    <div className="grid grid-cols-2 gap-2.5">
-                      {/* FPS Control */}
-                      <div className="p-3 rounded-2xl bg-white/5 border border-white/10 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-white block">معدل FPS:</span>
-                          <span className="text-[10px] font-mono text-purple-300 font-bold">{fps} fps</span>
-                        </div>
-                        <div className="grid grid-cols-4 gap-1">
-                          {[12, 15, 24, 30].map((rate) => (
-                            <button
-                              key={rate}
-                              type="button"
-                              onClick={() => setFps(rate)}
-                              className={`py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer text-center ${
-                                fps === rate
-                                  ? 'bg-purple-600 text-white shadow-sm'
-                                  : 'bg-white/5 text-slate-400 hover:text-white'
-                              }`}
-                            >
-                              {rate}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Max Frames Cap */}
-                      <div className="p-3 rounded-2xl bg-white/5 border border-white/10 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-white block">حد الإطارات:</span>
-                          <span className="text-[10px] font-mono text-amber-300 font-bold">
-                            {maxFramesLimit > 0 ? `${maxFramesLimit} إطار` : 'الكل'}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-4 gap-1">
-                          {[
-                            { label: '30⚡', val: 30 },
-                            { label: '45⚡', val: 45 },
-                            { label: '90', val: 90 },
-                            { label: 'الكل', val: 0 }
-                          ].map((item, i) => (
-                            <button
-                              key={i}
-                              type="button"
-                              onClick={() => setMaxFramesLimit(item.val)}
-                              className={`py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer text-center ${
-                                maxFramesLimit === item.val
-                                  ? 'bg-amber-600 text-white shadow-sm'
-                                  : 'bg-white/5 text-slate-400 hover:text-white'
-                              }`}
-                            >
-                              {item.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Speed & Format Toggle and Audio */}
-                    <div className="grid grid-cols-2 gap-2.5">
-                      {/* Quality/Speed Toggle */}
-                      <div className="p-3 rounded-2xl bg-white/5 border border-white/10 space-y-1.5">
-                        <span className="text-xs font-bold text-white block">محرك وسرعة المعالجة:</span>
-                        <div className="grid grid-cols-2 gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setQualityMode('fast')}
-                            className={`py-1 px-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer text-center ${
-                              qualityMode === 'fast'
-                                ? 'bg-emerald-600/40 border border-emerald-400 text-emerald-200'
-                                : 'bg-white/5 border border-white/5 text-slate-400 hover:text-white'
-                            }`}
-                          >
-                            ⚡ فائق السرعة
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setQualityMode('high')}
-                            className={`py-1 px-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer text-center ${
-                              qualityMode === 'high'
-                                ? 'bg-indigo-600/40 border border-indigo-400 text-indigo-200'
-                                : 'bg-white/5 border border-white/5 text-slate-400 hover:text-white'
-                            }`}
-                          >
-                            💎 PNG كامل
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Audio Toggle */}
-                      <div className="p-3 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between">
-                        <div>
-                          <span className="text-xs font-bold text-white block">الصوت الأصلي:</span>
-                          <span className="text-[10px] text-slate-400 block">استخراج كـ MP3 ID3</span>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={preserveAudio}
-                            onChange={(e) => setPreserveAudio(e.target.checked)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
-                        </label>
-                      </div>
-                    </div>
-
-                    {/* Summary Card */}
-                    <div className="p-2.5 rounded-2xl bg-indigo-950/40 border border-indigo-500/20 text-xs text-indigo-200 flex items-center justify-between">
-                      <span className="flex items-center gap-1">
-                        <Zap size={13} className="text-amber-400" />
-                        المدة وإجمالي الإطارات في SVGA:
+                    {/* Persistent Live Export Summary Card */}
+                    <div className="p-3 rounded-2xl bg-gradient-to-r from-indigo-950/60 via-purple-950/40 to-slate-900/60 border border-indigo-500/30 text-xs text-indigo-200 flex flex-wrap items-center justify-between gap-2 shadow-lg">
+                      <span className="flex items-center gap-1.5 font-bold text-white">
+                        <Sparkles size={14} className="text-amber-400" />
+                        <span>الناتج المعتمد لـ SVGA:</span>
                       </span>
-                      <span className="font-mono font-bold text-indigo-300 bg-indigo-500/20 px-2.5 py-1 rounded-lg border border-indigo-500/30 flex items-center gap-1.5 text-[11px]">
-                        <span className="text-amber-300 font-black">{targetDurationSeconds.toFixed(1)}ثانية</span>
-                        <span className="text-slate-500">•</span>
-                        <span>{estimatedFrames} إطار @ {fps}fps</span>
-                        <span className="text-slate-500">•</span>
-                        <span className="text-emerald-300">
-                          {durationMode === 'original' ? 'المدة الأصلية كاملة' : (durationStrategy === 'crop_start' ? 'قص البداية 1:1' : 'تسريع وضغط')}
+                      <div className="flex flex-wrap items-center gap-1.5 font-mono text-[11px]">
+                        <span className="px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 font-bold border border-indigo-500/30">
+                          {customWidth} × {customHeight} px
                         </span>
-                      </span>
+                        <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
+                          {targetDurationSeconds.toFixed(1)} ثانية
+                        </span>
+                        <span className="px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30">
+                          {estimatedFrames} إطار @ {fps}fps
+                        </span>
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
+                          {preserveAudio ? '🔊 مع الصوت' : '🔇 مكتوم'}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1455,12 +1343,12 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
           </div>
 
           {/* Modal Footer Actions */}
-          <div className="flex items-center justify-between px-6 py-4 border-t border-white/10 bg-slate-900/80">
+          <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-t border-white/10 bg-slate-900/90 gap-2 shrink-0">
             <button
               type="button"
               onClick={onClose}
               disabled={isProcessing}
-              className="px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold transition-colors cursor-pointer disabled:opacity-40"
+              className="px-4 sm:px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold transition-colors cursor-pointer disabled:opacity-40 shrink-0"
             >
               إلغاء
             </button>
@@ -1470,7 +1358,7 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
                 type="button"
                 onClick={handleExecuteImport}
                 disabled={isProcessing || !activeFile}
-                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-black shadow-xl shadow-indigo-600/30 flex items-center gap-2 transition-all transform hover:scale-105 active:scale-95 cursor-pointer disabled:opacity-50"
+                className="flex-1 sm:flex-initial px-5 sm:px-6 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-black shadow-xl shadow-indigo-600/30 flex items-center justify-center gap-2 transition-all transform hover:scale-105 active:scale-95 cursor-pointer disabled:opacity-50"
               >
                 {isProcessing ? (
                   <>
