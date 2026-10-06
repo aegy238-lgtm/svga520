@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, Gift, Diamond, Mic, List, Plus, Trash2, Edit2, Check, X, ShieldAlert, Gamepad2, Image as ImageIcon, TrendingUp, ShoppingBag, Layout, Users, RefreshCw, Upload, Loader2, Star, Briefcase, Crown, Smile, FileText, Radio, GitBranch, Lock, Unlock, Download, Save, CheckCircle2 } from 'lucide-react';
+import { Settings, Gift, Diamond, Mic, List, Plus, Trash2, Edit2, Check, X, ShieldAlert, Gamepad2, Image as ImageIcon, TrendingUp, ShoppingBag, Layout, Users, RefreshCw, Upload, Loader2, Star, Briefcase, Crown, Smile, FileText, Radio, GitBranch, Lock, Unlock, Download, Save, CheckCircle2, HardDrive } from 'lucide-react';
 import { db, storage } from '../firebase';
 import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy, getDoc, setDoc, onSnapshot, DocumentSnapshot, where } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -13,7 +13,7 @@ import GamesTab from './admin/GamesTab';
 import ActiveRoomsTab from './admin/ActiveRoomsTab';
 import AppSettingsTab from './admin/AppSettingsTab';
 import { AccountVersionsTab } from './admin/AccountVersionsTab';
-import { CloudStorageTab } from './admin/CloudStorageTab';
+import { StorageCenterTab } from './admin/StorageCenterTab';
 
 import AppIconsTab from './admin/AppIconsTab';
 
@@ -84,7 +84,7 @@ export default function AdminDashboard() {
       case 'users': return <UsersTab />;
       case 'active_rooms': return <ActiveRoomsTab />;
       case 'account_versions': return <AccountVersionsTab currentAdminEmail={user?.email || 'Admin'} currentAdminId={user?.uid || 'admin'} />;
-      case 'cloud_storage': return <CloudStorageTab />;
+      case 'storage_center': return <StorageCenterTab currentUser={user} />;
       case 'app_settings': return <AppSettingsTab />;
       default: return null;
     }
@@ -123,7 +123,7 @@ export default function AdminDashboard() {
           <TabCard onClick={() => setActiveTab('users')} icon={<List size={24} />} label="سجلات الدخول" />
           <TabCard onClick={() => setActiveTab('active_rooms')} icon={<Radio size={24} />} label="الغرف المتصلة (النشطة)" />
           <TabCard onClick={() => setActiveTab('account_versions')} icon={<GitBranch size={24} />} label="إدارة إصدارات الحسابات" />
-          <TabCard onClick={() => setActiveTab('cloud_storage')} icon={<Server size={24} className="text-emerald-600" />} label="إدارة الملفات والتخزين السحابي ☁️" />
+          <TabCard onClick={() => setActiveTab('storage_center')} icon={<HardDrive size={24} />} label="مركز التخزين وتنظيف السيرفر" />
           <TabCard onClick={() => setActiveTab('app_settings')} icon={<Settings size={24} />} label="إعدادات التطبيق" />
         </div>
       </div>
@@ -133,7 +133,7 @@ export default function AdminDashboard() {
         <div className="fixed inset-0 z-[100] bg-gray-50 flex flex-col">
           <div className="bg-white p-4 shadow-sm flex items-center justify-between">
             <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-              {activeTab === 'account_versions' ? 'إدارة إصدارات الحسابات' : activeTab === 'cloud_storage' ? 'إدارة الملفات والتخزين السحابي ☁️' : activeTab}
+              {activeTab === 'account_versions' ? 'إدارة إصدارات الحسابات' : activeTab === 'storage_center' ? 'مركز إدارة وتخزين الملفات وتنظيف السيرفر' : activeTab}
             </h2>
             <button 
               onClick={() => setActiveTab(null)}

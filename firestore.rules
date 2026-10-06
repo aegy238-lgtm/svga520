@@ -161,5 +161,19 @@ service cloud.firestore {
       allow create: if isAuthenticated() || isAdmin();
       allow update, delete: if isAdmin();
     }
+
+    // 📁 Persistent Files in Private Object Storage
+    match /files/{fileId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if true;
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /storageActivityLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated() || isAdmin();
+      allow update, delete: if isAdmin();
+    }
   }
 }

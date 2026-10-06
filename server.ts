@@ -1,11 +1,10 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import audioRouter from "./src/server/audioRouter";
 import exportJobsRouter from "./src/server/exportJobsRouter";
-import storageRouter from "./src/server/storageRouter";
-import telegramRouter from "./src/server/telegramRouter";
 
 // In-memory maintenance cache for instant fast response
 let serverMaintenanceState = {
@@ -75,11 +74,133 @@ async function startServer() {
   // Background export & media tasks router (runs heavy exports without freezing client)
   app.use('/api/export-jobs', exportJobsRouter);
 
-  // Centralized Storage & File Management router (Private cloud storage, cache, & file records)
-  app.use('/api/storage', storageRouter);
+  // Helper to scan directory size and files
+  const getDirStats = (dirPath: string): { filesCount: number; sizeBytes: number } => {
+    let filesCount = 0;
+    let sizeBytes = 0;
+    if (!fs.existsSync(dirPath)) return { filesCount, sizeBytes };
+    try {
+      const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dirPath, entry.name);
+        try {
+          if (entry.isDirectory()) {
+            const sub = getDirStats(fullPath);
+            filesCount += sub.filesCount;
+            sizeBytes += sub.sizeBytes;
+          } else {
+            const stat = fs.statSync(fullPath);
+            filesCount++;
+            sizeBytes += stat.size;
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return { filesCount, sizeBytes };
+  };
 
-  // Telegram bot & automation integration router
-  app.use('/api/telegram', telegramRouter);
+  // Helper to delete directory contents recursively
+  const clearDirContents = (dirPath: string): { deletedCount: number; freedBytes: number } => {
+    let deletedCount = 0;
+    let freedBytes = 0;
+    if (!fs.existsSync(dirPath)) return { deletedCount, freedBytes };
+    try {
+      const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dirPath, entry.name);
+        try {
+          if (entry.isDirectory()) {
+            const sub = clearDirContents(fullPath);
+            deletedCount += sub.deletedCount;
+            freedBytes += sub.freedBytes;
+            try { fs.rmdirSync(fullPath); } catch (e) {}
+          } else {
+            const stat = fs.statSync(fullPath);
+            freedBytes += stat.size;
+            fs.unlinkSync(fullPath);
+            deletedCount++;
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return { deletedCount, freedBytes };
+  };
+
+  // Server Temporary Storage & Filesystem Status Endpoint
+  app.get('/api/storage/server-status', (req, res) => {
+    try {
+      const uploadsDir = path.join(process.cwd(), 'uploads');
+      const dataCacheDir = path.join(process.cwd(), 'data', 'mega_local_cache');
+
+      const uploadsStats = getDirStats(uploadsDir);
+      const dataCacheStats = getDirStats(dataCacheDir);
+
+      const totalTempFiles = uploadsStats.filesCount + dataCacheStats.filesCount;
+      const totalTempBytes = uploadsStats.sizeBytes + dataCacheStats.sizeBytes;
+
+      res.json({
+        ok: true,
+        totalTempFiles,
+        totalTempBytes,
+        uploads: uploadsStats,
+        cache: dataCacheStats,
+        uptime: process.uptime(),
+        memoryUsage: process.memoryUsage()
+      });
+    } catch (err: any) {
+      console.error('Server status error:', err);
+      res.status(500).json({ ok: false, error: err?.message || 'Failed to get server storage status' });
+    }
+  });
+
+  // Server Storage Cleanup Endpoint: Purges server temp files, cache & buffer stores
+  app.post('/api/storage/server-cleanup', (req, res) => {
+    try {
+      let totalDeleted = 0;
+      let totalFreedBytes = 0;
+      const cleanedItems: string[] = [];
+
+      // 1. Clean uploads/ directory
+      const uploadsDir = path.join(process.cwd(), 'uploads');
+      if (fs.existsSync(uploadsDir)) {
+        const resUploads = clearDirContents(uploadsDir);
+        totalDeleted += resUploads.deletedCount;
+        totalFreedBytes += resUploads.freedBytes;
+        cleanedItems.push(`مجلد الرفع المؤقت (${resUploads.deletedCount} ملف)`);
+      }
+
+      // 2. Clean data/mega_local_cache directory
+      const dataCacheDir = path.join(process.cwd(), 'data', 'mega_local_cache');
+      if (fs.existsSync(dataCacheDir)) {
+        const resCache = clearDirContents(dataCacheDir);
+        totalDeleted += resCache.deletedCount;
+        totalFreedBytes += resCache.freedBytes;
+        cleanedItems.push(`كاش السيرفر المحلي (${resCache.deletedCount} ملف)`);
+      }
+
+      // 3. Clear In-Memory Download Buffer Store
+      const bufferEntriesCount = downloadStore.size;
+      downloadStore.clear();
+      if (bufferEntriesCount > 0) {
+        cleanedItems.push(`ذاكرة التخزين المؤقت In-Memory (${bufferEntriesCount} عناصر)`);
+      }
+
+      const freedMb = (totalFreedBytes / (1024 * 1024)).toFixed(2);
+      const message = `تم تنظيف السيرفر بنجاح! تم حذف ${totalDeleted} ملف مؤقت وتحرير ${freedMb} ميجابايت من مساحة السيرفر.`;
+
+      res.json({
+        ok: true,
+        deletedCount: totalDeleted,
+        freedBytes: totalFreedBytes,
+        freedMb,
+        cleanedItems,
+        message
+      });
+    } catch (err: any) {
+      console.error('Server cleanup error:', err);
+      res.status(500).json({ ok: false, error: err?.message || 'Failed to execute server cleanup' });
+    }
+  });
 
   // Direct In-Memory Download Buffer Store for Reliable Downloads
   const downloadStore = new Map<string, { buffer: Buffer, mime: string, name: string, expires: number }>();
