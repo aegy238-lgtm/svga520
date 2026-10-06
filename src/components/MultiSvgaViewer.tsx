@@ -49,6 +49,7 @@ import { generateSvgaAllInOnePdf, SvgaPdfItem } from '../utils/svgaAllInOnePdfGe
 import { SvgaActionDock } from './SvgaActionDock';
 import { VideoDurationSpeedModal } from './VideoDurationSpeedModal';
 import { MultiSvgaWatermarkModal } from './MultiSvgaWatermarkModal';
+import { AeExportModal } from './AeExportModal';
 
 const decodeDataToBytes = (data: any): Uint8Array | null => {
   if (!data) return null;
@@ -950,6 +951,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const [lockAspectRatio, setLockAspectRatio] = useState<boolean>(false);
   const [fitMode, setFitMode] = useState<'contain' | 'cover' | 'fill' | 'native'>('contain');
   const [includePdfCatalog, setIncludePdfCatalog] = useState(false);
+  const [pdfOptionSingle, setPdfOptionSingle] = useState(true);
+  const [pdfOptionCatalog, setPdfOptionCatalog] = useState(false);
+  const [isExportingCustomPdf, setIsExportingCustomPdf] = useState(false);
   const [isPdfAllInOneExporting, setIsPdfAllInOneExporting] = useState(false);
   const [pdfAllInOneProgress, setPdfAllInOneProgress] = useState(0);
   const [preventDuplicates, setPreventDuplicates] = useState(true);
@@ -961,6 +965,27 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const [isDockCollapsed, setIsDockCollapsed] = useState(true);
   const [showSideDock, setShowSideDock] = useState(false);
   const [globalPaused, setGlobalPaused] = useState(false);
+  const [isAeExportModalOpen, setIsAeExportModalOpen] = useState(false);
+  const [aeExportItem, setAeExportItem] = useState<MultiSvgaItem | null>(null);
+
+  const handleOpenAeExportModal = useCallback((item?: MultiSvgaItem) => {
+    const target = item || (selectedItemId ? items.find(i => i.id === selectedItemId) : items[0]);
+    if (!target) {
+      alert('يرجى اختيار أو رفع ملف SVGA أولاً لتصديره ونقله إلى After Effects.');
+      return;
+    }
+    setAeExportItem(target);
+    setIsAeExportModalOpen(true);
+  }, [selectedItemId, items]);
+
+  useEffect(() => {
+    (window as any).handleOpenAeExportModal = handleOpenAeExportModal;
+    return () => {
+      try {
+        delete (window as any).handleOpenAeExportModal;
+      } catch(e){}
+    };
+  }, [handleOpenAeExportModal]);
   
   // Use a ref to pass to child components to avoid unnecessary re-renders
   const globalPausedRef = useRef(false);
@@ -4508,6 +4533,423 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     }
   };
 
+  // 1) تنزيل كل ملف هدية في ملف PDF مستقل (مع الصورة والمواصفات الفنية)
+  const handleDownloadSinglePdfsDirect = async () => {
+    const activeItems = getActiveItems();
+    if (activeItems.length === 0) {
+      alert('يرجى رفع أو اختيار ملفات SVGA أولاً لتنزيل ملفات الـ PDF الفردية.');
+      return;
+    }
+
+    setIsExportingCustomPdf(true);
+    try {
+      const pdfZip = new JSZip();
+      const queue = activeItems.slice(0, 30); // Process up to 30 items
+      for (let idx = 0; idx < queue.length; idx++) {
+        const item = queue[idx];
+        const cleanName = item.name.replace(/\.[^/.]+$/, '');
+        
+        const canvas = document.createElement('canvas');
+        const W = 1240, H = 1754; // A4 standard 150 DPI
+        canvas.width = W; canvas.height = H;
+        const ctx = canvas.getContext('2d');
+
+        if (ctx) {
+          // Background gradient
+          const bgGrad = ctx.createLinearGradient(0, 0, W, H);
+          bgGrad.addColorStop(0, '#090d1a');
+          bgGrad.addColorStop(0.5, '#0f172a');
+          bgGrad.addColorStop(1, '#131e3b');
+          ctx.fillStyle = bgGrad;
+          ctx.fillRect(0, 0, W, H);
+
+          // Tech Gold Outer Border
+          ctx.strokeStyle = 'rgba(234, 179, 8, 0.75)';
+          ctx.lineWidth = 4;
+          ctx.strokeRect(35, 35, W - 70, H - 70);
+
+          ctx.strokeStyle = 'rgba(59, 130, 246, 0.5)';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(45, 45, W - 90, H - 90);
+
+          // Header Banner
+          const hGrad = ctx.createLinearGradient(70, 70, W - 140, 130);
+          hGrad.addColorStop(0, '#1e293b');
+          hGrad.addColorStop(1, '#0f172a');
+          ctx.fillStyle = hGrad;
+          if (ctx.roundRect) ctx.roundRect(70, 70, W - 140, 130, 16);
+          else ctx.fillRect(70, 70, W - 140, 130);
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(234, 179, 8, 0.6)';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          ctx.fillStyle = '#fef08a';
+          ctx.font = 'bold 36px "Segoe UI", Tahoma, Arial, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('🎁 وثيقة ومواصفات أصل الهدية الرقمية', W / 2, 125);
+
+          ctx.fillStyle = '#94a3b8';
+          ctx.font = '20px "Segoe UI", Tahoma, Arial, sans-serif';
+          ctx.fillText(`Digital Gift Asset Sheet (${idx + 1} / ${queue.length}): ${cleanName}`, W / 2, 165);
+
+          // Preview Box
+          const boxX = 90, boxY = 230, boxW = W - 180, boxH = 680;
+          ctx.fillStyle = '#030712';
+          if (ctx.roundRect) ctx.roundRect(boxX, boxY, boxW, boxH, 20);
+          else ctx.fillRect(boxX, boxY, boxW, boxH);
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(234, 179, 8, 0.45)';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          // Checkered background
+          const chkSize = 24;
+          for (let bx = boxX + 10; bx < boxX + boxW - 10; bx += chkSize) {
+            for (let by = boxY + 10; by < boxY + boxH - 10; by += chkSize) {
+              const isDark = Math.floor((bx - boxX) / chkSize) % 2 === Math.floor((by - boxY) / chkSize) % 2;
+              ctx.fillStyle = isDark ? '#111827' : '#1f2937';
+              ctx.fillRect(bx, by, Math.min(chkSize, boxX + boxW - 10 - bx), Math.min(chkSize, boxY + boxH - 10 - by));
+            }
+          }
+
+          // Capture Best Image Frame
+          try {
+            const bestImgBlob = await captureBestGiftFrame(item);
+            const imgBitmap = await createImageBitmap(bestImgBlob);
+            const iw = imgBitmap.width, ih = imgBitmap.height;
+            const maxW = boxW - 80, maxH = boxH - 80;
+            const scale = Math.min(maxW / iw, maxH / ih, 1.8);
+            const dw = iw * scale, dh = ih * scale;
+            const dx = boxX + (boxW - dw) / 2, dy = boxY + (boxH - dh) / 2;
+            ctx.drawImage(imgBitmap, dx, dy, dw, dh);
+          } catch (e) {
+            ctx.fillStyle = '#eab308';
+            ctx.font = 'bold 72px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('🎁', W / 2, boxY + boxH / 2);
+          }
+
+          // Information Details Card
+          const cardY = 940, cardH = 620;
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+          if (ctx.roundRect) ctx.roundRect(boxX, cardY, boxW, cardH, 16);
+          else ctx.fillRect(boxX, cardY, boxW, cardH);
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(59, 130, 246, 0.4)';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          ctx.fillStyle = '#fde047';
+          ctx.font = 'bold 26px "Segoe UI", Tahoma, Arial, sans-serif';
+          ctx.textAlign = 'right';
+          ctx.fillText('📊 البيانات الفنية ومواصفات الملف المستخرج:', boxX + boxW - 30, cardY + 50);
+
+          const dw = item.dimensions?.width || 500;
+          const dh = item.dimensions?.height || 500;
+          const durSec = item.videoItem ? (item.videoItem.frames / (item.videoItem.fps || 30)).toFixed(2) : (item.frames ? (item.frames / (item.fps || 30)).toFixed(2) : '0');
+
+          const rows = [
+            { label: 'اسم الهدية / الأصل:', val: cleanName },
+            { label: 'نوع وصيغة الملف:', val: `${item.type.toUpperCase()} Animation` },
+            { label: 'الأبعاد المعيارية:', val: `${dw} × ${dh} بكسل` },
+            { label: 'معدل الإطارات (FPS):', val: `${item.fps || item.videoItem?.fps || 30} FPS` },
+            { label: 'إجمالي الإطارات والمدة:', val: `${item.frames || item.videoItem?.frames || 1} إطار (${durSec} ثانية)` },
+            { label: 'حالة المؤثرات الصوتية:', val: item.hasAudio ? 'مدمج صوت MP3' : 'بدون صوت' },
+            { label: 'تاريخ وساعة التصدير:', val: new Date().toLocaleString('ar-EG') }
+          ];
+
+          const startY = cardY + 110;
+          rows.forEach((r, rIdx) => {
+            const ry = startY + rIdx * 65;
+            if (rIdx % 2 === 0) {
+              ctx.fillStyle = 'rgba(255,255,255,0.03)';
+              ctx.fillRect(boxX + 15, ry - 35, boxW - 30, 52);
+            }
+            ctx.fillStyle = '#93c5fd';
+            ctx.font = 'bold 20px "Segoe UI", Tahoma, Arial, sans-serif';
+            ctx.textAlign = 'right';
+            ctx.fillText(r.label, boxX + boxW - 35, ry);
+
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '19px "Segoe UI", Tahoma, Arial, sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText(r.val, boxX + 40, ry);
+          });
+
+          ctx.fillStyle = '#64748b';
+          ctx.font = '16px "Segoe UI", Tahoma, Arial, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('مستخرج أصول التطبيقات وهدايا SVGA — تم التحقق والتصدير بجودة أصلية 100%', W / 2, H - 65);
+
+          const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+          const imgData = canvas.toDataURL('image/jpeg', 0.92);
+          doc.addImage(imgData, 'JPEG', 0, 0, doc.internal.pageSize.getWidth(), doc.internal.pageSize.getHeight());
+          const pdfBlob = doc.output('blob');
+          const pdfBuffer = await pdfBlob.arrayBuffer();
+
+          pdfZip.file(`توثيق_هدية_${cleanName}.pdf`, pdfBuffer);
+        }
+      }
+
+      const zipBlob = await pdfZip.generateAsync({ type: 'blob', compression: 'STORE' });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `تقارير_PDF_لكل_هدية.zip`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+      alert(`✅ تم تنزيل حزمة تقارير PDF لجميع الهدايا بملف ZIP واحد بنجاح!`);
+    } catch (err: any) {
+      console.error('Single PDF export error:', err);
+      alert('حدث خطأ أثناء تصدير ملفات PDF: ' + err.message);
+    } finally {
+      setIsExportingCustomPdf(false);
+    }
+  };
+
+  // 2) تنزيل كل ملفات SVG مفتوحة ومباشرة (وليس مضغوطة / Direct Unzipped SVGs)
+  const handleDownloadAllSvgsDirect = async () => {
+    const activeItems = getActiveItems();
+    if (activeItems.length === 0) {
+      alert('يرجى رفع ملفات SVGA أولاً لتنزيل مسارات ومتجهات الـ SVG.');
+      return;
+    }
+
+    try {
+      const svgZip = new JSZip();
+
+      for (const item of activeItems) {
+        const cleanName = item.name.replace(/\.[^/.]+$/, '');
+        const videoItem = item.videoItem;
+        const w = item.dimensions?.width || 500;
+        const h = item.dimensions?.height || 500;
+
+        let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">\n`;
+        svgContent += `  <!-- Exported from SVGA Gift: ${cleanName} -->\n`;
+        svgContent += `  <rect width="100%" height="100%" fill="none"/>\n`;
+
+        if (videoItem?.images && Object.keys(videoItem.images).length > 0) {
+          Object.keys(videoItem.images).forEach((imgKey, i) => {
+            const rawBytes = videoItem.images[imgKey];
+            if (rawBytes) {
+              const b64 = btoa(Array.from(new Uint8Array(rawBytes)).map(b => String.fromCharCode(b)).join(''));
+              svgContent += `  <image id="layer_${i}_${imgKey.replace(/[^a-zA-Z0-9_]/g, '_')}" href="data:image/png;base64,${b64}" width="${w}" height="${h}" opacity="1"/>\n`;
+            }
+          });
+        } else {
+          svgContent += `  <circle cx="${w/2}" cy="${h/2}" r="${Math.min(w,h)*0.4}" fill="#1e1b4b" stroke="#6366f1" stroke-width="4"/>\n`;
+          svgContent += `  <text x="50%" y="50%" font-size="28" font-family="sans-serif" font-weight="bold" fill="#fef08a" text-anchor="middle" dominant-baseline="middle">🎁 ${cleanName}</text>\n`;
+        }
+
+        svgContent += `</svg>`;
+        svgZip.file(`${cleanName}.svg`, svgContent);
+      }
+
+      const zipBlob = await svgZip.generateAsync({ type: 'blob', compression: 'STORE' });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ملفات_SVG_المفتوحة.zip`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+      alert(`✅ تم تنزيل جميع ملفات الـ SVG المفتوحة بملف ZIP واحد بنجاح!`);
+    } catch (err: any) {
+      console.error('Failed to export direct SVGs:', err);
+      alert('حدث خطأ أثناء تنزيل ملفات SVG المباشرة: ' + err.message);
+    }
+  };
+
+  // 3) تنزيل الهدايا وصورها في مجلد مفتوح مباشر بدون أي ضغط ZIP (Unzipped Directory Picker)
+  const handleDownloadToOpenFolder = async (isCustomSubfolders: boolean) => {
+    const activeItems = getActiveItems();
+    if (activeItems.length === 0) {
+      alert('يرجى اختيار أو رفع ملفات الهدايا أولاً لتنزيلها في مجلد مفتوح.');
+      return;
+    }
+
+    let dirHandle: any = null;
+    if ('showDirectoryPicker' in window) {
+      try {
+        dirHandle = await (window as any).showDirectoryPicker({
+          mode: 'readwrite',
+          startIn: 'downloads'
+        });
+      } catch (err: any) {
+        if (err.name === 'AbortError') return; // User cancelled
+        console.warn('showDirectoryPicker cancelled or unsupported:', err);
+      }
+    }
+
+    setIsExporting(true);
+    try {
+      for (let idx = 0; idx < activeItems.length; idx++) {
+        const item = activeItems[idx];
+        const cleanName = item.name.replace(/\.[^/.]+$/, '').replace(/\s+/g, '_');
+        const ext = item.type === 'vap' ? (item.name.endsWith('.mp4') ? 'mp4' : 'vap') : (item.type === 'pag' ? 'pag' : 'svga');
+
+        // Get file array buffer
+        const fileBuffer = await item.file.arrayBuffer();
+
+        // Capture clearest frame image
+        let coverBlob: Blob | null = null;
+        try {
+          coverBlob = await captureBestGiftFrame(item);
+        } catch (e) {
+          console.warn('Frame capture error:', e);
+        }
+
+        if (dirHandle) {
+          let giftFolder = dirHandle;
+          if (isCustomSubfolders) {
+            // Create subfolder for each gift inside main open folder: 📁 Gift_Name/
+            giftFolder = await dirHandle.getDirectoryHandle(`هدية_${cleanName}`, { create: true });
+          }
+
+          // 1. Save original gift file directly into folder
+          const giftFileHandle = await giftFolder.getFileHandle(`${cleanName}.${ext}`, { create: true });
+          const giftWritable = await giftFileHandle.createWritable();
+          await giftWritable.write(fileBuffer);
+          await giftWritable.close();
+
+          // 2. Save cover image directly into folder
+          if (coverBlob) {
+            const imgFileHandle = await giftFolder.getFileHandle(`${cleanName}_صورة.png`, { create: true });
+            const imgWritable = await imgFileHandle.createWritable();
+            await imgWritable.write(await coverBlob.arrayBuffer());
+            await imgWritable.close();
+          }
+        } else {
+          // Fallback direct downloads for non-Chromium browsers
+          const giftBlob = new Blob([fileBuffer]);
+          const url1 = URL.createObjectURL(giftBlob);
+          const a1 = document.createElement('a');
+          a1.href = url1;
+          a1.download = `${cleanName}.${ext}`;
+          a1.style.display = 'none';
+          document.body.appendChild(a1);
+          a1.click();
+          setTimeout(() => { a1.remove(); URL.revokeObjectURL(url1); }, 15000);
+
+          if (coverBlob) {
+            const url2 = URL.createObjectURL(coverBlob);
+            const a2 = document.createElement('a');
+            a2.href = url2;
+            a2.download = `${cleanName}_صورة.png`;
+            a2.style.display = 'none';
+            document.body.appendChild(a2);
+            a2.click();
+            setTimeout(() => { a2.remove(); URL.revokeObjectURL(url2); }, 15000);
+          }
+        }
+      }
+
+      alert(
+        dirHandle
+          ? `✅ تم حفظ ${activeItems.length} هدية وصورها داخل المجلد المفتوح المحدد على جهازك مباشرة بدون ضغط!`
+          : `✅ تم تنزيل ${activeItems.length} هدية وصورها مباشرة على جهازك بنجاح!`
+      );
+    } catch (err: any) {
+      console.error('Folder download error:', err);
+      alert('حدث خطأ أثناء تنزيل الهدايا في المجلد المفتوح: ' + (err.message || 'خطأ غير متوقع'));
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // 4) تنزيل جميع الهدايا والصور في فولدر واحد داخل حزمة ZIP
+  const handleDownloadAllInOneFolderZip = async () => {
+    const activeItems = getActiveItems();
+    if (activeItems.length === 0) {
+      alert('يرجى اختيار أو رفع ملفات الهدايا أولاً لتنزيل الفولدر.');
+      return;
+    }
+
+    setIsZipping(true);
+    try {
+      const zip = new JSZip();
+      for (let idx = 0; idx < activeItems.length; idx++) {
+        const item = activeItems[idx];
+        const cleanName = item.name.replace(/\.[^/.]+$/, '').replace(/\s+/g, '_');
+        const ext = item.type === 'vap' ? (item.name.endsWith('.mp4') ? 'mp4' : 'vap') : (item.type === 'pag' ? 'pag' : 'svga');
+
+        const fileBuffer = await item.file.arrayBuffer();
+        zip.file(`${cleanName}.${ext}`, fileBuffer);
+
+        try {
+          const coverBlob = await captureBestGiftFrame(item);
+          const coverBuffer = await coverBlob.arrayBuffer();
+          zip.file(`${cleanName}_صورة.png`, coverBuffer);
+        } catch (e) {
+          console.warn('Cover image capture failed for item', item.name, e);
+        }
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `جميع_الهدايا_والصور_فولدر_واحد.zip`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      alert('✅ تم تنزيل جميع الملفات والصور في فولدر واحد (ZIP) بنجاح!');
+    } catch (err: any) {
+      console.error('All-in-one ZIP download failed:', err);
+      alert('حدث خطأ أثناء تنزيل الفولدر: ' + (err.message || 'خطأ غير متوقع'));
+    } finally {
+      setIsZipping(false);
+    }
+  };
+
+  // 5) تخصيص: تنزيل كل هدية بملفها وصورتها داخل فولدر مستقل داخل ZIP
+  const handleDownloadCustomFolderPerGiftZip = async () => {
+    const activeItems = getActiveItems();
+    if (activeItems.length === 0) {
+      alert('يرجى اختيار أو رفع ملفات الهدايا أولاً لتنزيل الفولدرات المستقلة.');
+      return;
+    }
+
+    setIsZipping(true);
+    try {
+      const zip = new JSZip();
+      for (let idx = 0; idx < activeItems.length; idx++) {
+        const item = activeItems[idx];
+        const cleanName = item.name.replace(/\.[^/.]+$/, '').replace(/\s+/g, '_');
+        const ext = item.type === 'vap' ? (item.name.endsWith('.mp4') ? 'mp4' : 'vap') : (item.type === 'pag' ? 'pag' : 'svga');
+
+        const giftFolder = zip.folder(`فولدر_هدية_${cleanName}`);
+        if (giftFolder) {
+          const fileBuffer = await item.file.arrayBuffer();
+          giftFolder.file(`${cleanName}.${ext}`, fileBuffer);
+
+          try {
+            const coverBlob = await captureBestGiftFrame(item);
+            const coverBuffer = await coverBlob.arrayBuffer();
+            giftFolder.file(`${cleanName}_صورة.png`, coverBuffer);
+          } catch (e) {
+            console.warn('Cover image capture failed for item', item.name, e);
+          }
+        }
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `تخصيص_فولدر_مستقل_لكل_هدية.zip`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      alert('✅ تم تنزيل كل هدية بملفها وصورتها داخل فولدر مستقل (ZIP) بنجاح!');
+    } catch (err: any) {
+      console.error('Custom subfolders ZIP download failed:', err);
+      alert('حدث خطأ أثناء تنزيل الفولدرات المستقلة: ' + (err.message || 'خطأ غير متوقع'));
+    } finally {
+      setIsZipping(false);
+    }
+  };
+
 
   const selectedItem = useMemo(() => items.find(i => i.id === selectedItemId), [items, selectedItemId]);
 
@@ -4695,133 +5137,144 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
         {/* Row 2: All Action & Export Buttons in Top Bar */}
         {(items as any[]).length > 0 && (
-          <div className="bg-[#0b1120]/80 border border-white/10 p-3 sm:p-4 rounded-2xl shadow-lg backdrop-blur-md flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
-            {/* Section 1: Packages, PDF & Bundles */}
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-semibold text-slate-400 pl-2 border-l border-white/10 hidden sm:inline">
-                حزم وتصدير:
-              </span>
-
-              {/* Download Gift Bundles */}
-              <button
-                onClick={handleDownloadAllGiftBundles}
-                disabled={isZipping || (items as any[]).length === 0}
-                className="px-3.5 py-2 bg-pink-600/20 hover:bg-pink-600/30 text-pink-300 border border-pink-500/30 disabled:opacity-50 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
-                title="تنزيل حزم الهدايا كاملة (ملف الهدية + أحلى صورة كادر داخل ZIP)"
-              >
-                {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Gift className="w-4 h-4" />}
-                <span>تنزيل حزم الهدايا ZIP</span>
-              </button>
-
-              {/* All-in-One PDF */}
-              <div className="flex items-center bg-amber-500/15 border border-amber-500/30 rounded-xl overflow-hidden">
-                <button
-                  onClick={handleDownloadAllSvgaInOnePdf}
-                  disabled={isPdfAllInOneExporting || (items as any[]).length === 0}
-                  className="px-3.5 py-2 hover:bg-amber-500/20 disabled:opacity-50 text-amber-200 font-bold text-xs flex items-center gap-2 transition-all cursor-pointer"
-                  title="تصدير جميع الملفات في ملف PDF واحد ذكي مدمج"
-                >
-                  {isPdfAllInOneExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-                  <span>{isPdfAllInOneExporting ? `جاري التصدير (${pdfAllInOneProgress}%)` : 'ملف PDF واحد موحد'}</span>
-                </button>
-                <label className="flex items-center gap-1.5 px-2.5 py-2 bg-black/30 hover:bg-black/40 text-amber-200 text-[10px] font-semibold cursor-pointer border-r border-amber-500/20" title="تضمين كتالوج PDF موحد داخل الحزمة">
-                  <input
-                    type="checkbox"
-                    checked={includePdfCatalog}
-                    onChange={() => setIncludePdfCatalog(!includePdfCatalog)}
-                    className="w-3.5 h-3.5 accent-amber-400 rounded"
-                  />
-                  <span>كتالوج</span>
-                </label>
+          <div className="flex flex-col gap-3">
+            {/* Primary Highlighted Strip 1: Open Folder & ZIP Exports (Direct Single Folder vs Custom Subfolder per Gift) */}
+            <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border-2 border-amber-500/60 p-4 sm:p-5 rounded-3xl shadow-2xl backdrop-blur-xl flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-4 ring-2 ring-amber-400/30">
+              <div className="flex items-center gap-3">
+                <span className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500 to-yellow-500 text-slate-950 flex items-center justify-center font-black shadow-lg shadow-amber-500/30 text-xl">
+                  📁
+                </span>
+                <div className="flex flex-col text-right">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-black text-amber-300">
+                      تنزيل الفولدرات المفتوحة وحزم ZIP للهدايا والصور:
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full bg-amber-400/20 text-amber-200 border border-amber-400/30 text-[10px] font-black">
+                      فولدرات جاهزة
+                    </span>
+                  </div>
+                  <span className="text-xs text-slate-300 font-medium">
+                    اختر تنزيل جميع الملفات والصور في فولدر واحد أو تخصيص فولدر مستقل لكل هدية
+                  </span>
+                </div>
               </div>
 
-              {/* Download All SVGA ZIP */}
-              <button
-                onClick={handleDownloadAllSvga}
-                disabled={isZipping || (items as any[]).length === 0}
-                className="px-3.5 py-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 disabled:opacity-50 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
-                title="تنزيل جميع ملفات SVGA / VAP الأصلية فقط في ملف ZIP"
-              >
-                <Download className="w-4 h-4" />
-                <span>تنزيل كل الملفات (ZIP)</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Button 1: Download All Files & Images in One Folder ZIP */}
+                <button
+                  onClick={handleDownloadAllInOneFolderZip}
+                  disabled={isZipping || (items as any[]).length === 0}
+                  className="px-4 py-3 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-500 hover:from-amber-400 hover:to-yellow-400 disabled:opacity-50 text-slate-950 rounded-2xl font-black text-xs shadow-xl shadow-amber-500/30 flex items-center gap-2.5 transition-all hover:scale-105 active:scale-95 cursor-pointer border border-yellow-200"
+                  title="تنزيل جميع ملفات الهدايا مع صورها المعاينة مباشرة في فولدر واحد (ZIP)"
+                >
+                  <FolderUp className="w-4.5 h-4.5 text-slate-950 stroke-[2.5]" />
+                  <span>📁 ⬇️ تنزيل جميع الملفات والصور في فولدر واحد (ZIP)</span>
+                </button>
 
-              {/* Download All Combined */}
-              <button
-                onClick={handleDownloadAllCombined}
-                disabled={isZipping || (items as any[]).length === 0}
-                className="px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 disabled:opacity-50 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
-                title="تنزيل شامل لجميع الملفات والصور والكتالوج"
-              >
-                <Sparkles className="w-4 h-4 text-emerald-300" />
-                <span>تنزيل الكل الشامل</span>
-              </button>
+                {/* Button 2: Customization option - Subfolder for each gift with its file and image */}
+                <button
+                  onClick={handleDownloadCustomFolderPerGiftZip}
+                  disabled={isZipping || (items as any[]).length === 0}
+                  className="px-4 py-3 bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-50 text-white rounded-2xl font-black text-xs shadow-xl shadow-indigo-600/30 flex items-center gap-2.5 transition-all hover:scale-105 active:scale-95 cursor-pointer border border-indigo-400/60"
+                  title="تخصيص: تنزيل مجلد فرعي باسم كل هدية يحتوي على ملف الهدية وصورتها داخل فولدر مضغوط ZIP"
+                >
+                  <FolderUp className="w-4.5 h-4.5 text-indigo-200 stroke-[2.5]" />
+                  <span>📂 ⬇️ تخصيص: فولدر مستقل لكل هدية يضم ملفها وصورتها (ZIP)</span>
+                </button>
+              </div>
             </div>
 
-            {/* Section 2: Video Studio */}
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-semibold text-slate-400 pl-2 border-l border-white/10 hidden sm:inline">
-                استوديو الفيديو:
-              </span>
+            {/* Secondary Strip: Packages, ZIPs & Video Studio */}
+            <div className="bg-[#0b1120]/80 border border-white/10 p-3 sm:p-4 rounded-2xl shadow-lg backdrop-blur-md flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
+              {/* Section 1: Packages & Bundles */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold text-slate-400 pl-2 border-l border-white/10 hidden sm:inline">
+                  حزم وملفات ZIP:
+                </span>
 
-              {/* Video Duration & Speed Button */}
-              <button
-                onClick={() => setShowDurationSpeedModal(true)}
-                className="px-3.5 py-2 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 text-amber-200 border border-amber-500/40 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-md shadow-amber-500/10"
-                title="تحديد مدة وقت الفيديو (بالثواني) والتحكم في سرعة التسجيل لجميع الملفات"
-              >
-                <Clock className="w-4 h-4 text-amber-400" />
-                <span>مدة وقت الفيديو ({useNativeDuration ? 'الأصلية' : `${exportDuration} ثواني`})</span>
-              </button>
+                {/* Download Gift Bundles */}
+                <button
+                  onClick={handleDownloadAllGiftBundles}
+                  disabled={isZipping || (items as any[]).length === 0}
+                  className="px-3.5 py-2 bg-pink-600/20 hover:bg-pink-600/30 text-pink-300 border border-pink-500/30 disabled:opacity-50 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                  title="تنزيل حزم الهدايا كاملة (ملف الهدية + أحلى صورة كادر داخل ZIP)"
+                >
+                  {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Gift className="w-4 h-4" />}
+                  <span>تنزيل حزم الهدايا ZIP</span>
+                </button>
 
-              {/* Convert VAP to MP4 */}
-              <button
-                onClick={handleExportAllVapToMp4}
-                disabled={vapBatchProgress?.isOpen}
-                className="px-3.5 py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 disabled:opacity-50 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
-                title="تحويل جميع ملفات VAP إلى MP4 بالصوت المدمج والشفافية"
-              >
-                {vapBatchProgress?.isOpen ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4 text-purple-300" />}
-                <span>{vapBatchProgress?.isOpen ? `تحويل (${vapBatchProgress.overallPercent}%)` : 'تحويل VAP ➔ MP4'}</span>
-              </button>
+                {/* Download All SVGA ZIP */}
+                <button
+                  onClick={handleDownloadAllSvga}
+                  disabled={isZipping || (items as any[]).length === 0}
+                  className="px-3.5 py-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 disabled:opacity-50 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                  title="تنزيل جميع ملفات SVGA / VAP الأصلية فقط في ملف ZIP"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>تنزيل كل الملفات (ZIP)</span>
+                </button>
 
-              {/* Export Individual Videos ZIP */}
-              <button
-                onClick={() => handleExportIndividualVideos()}
-                disabled={isExporting}
-                className="px-3.5 py-2 bg-[#0e172a] hover:bg-[#1e293b] disabled:opacity-50 text-slate-200 border border-white/10 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
-                title="تصدير فيديو منفصل لكل ملف على حدة وتنزيلها مضغوطة في ملف ZIP"
-              >
-                <Film className="w-4 h-4 text-indigo-400" />
-                <span>فيديو منفصل لكل ملف (ZIP)</span>
-              </button>
+                {/* Download All Combined */}
+                <button
+                  onClick={handleDownloadAllCombined}
+                  disabled={isZipping || (items as any[]).length === 0}
+                  className="px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 disabled:opacity-50 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                  title="تنزيل شامل لجميع الملفات والصور والكتالوج"
+                >
+                  <Sparkles className="w-4 h-4 text-emerald-300" />
+                  <span>تنزيل الكل الشامل</span>
+                </button>
+              </div>
 
-              {/* Record Grid Video */}
-              <button
-                onClick={handleExportGrid}
-                disabled={isExporting}
-                className="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-md shadow-rose-600/20 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
-                title="تسجيل وتصدير فيديو مجمع للشاشة بالكامل"
-              >
-                <span className="w-2 h-2 rounded-full bg-white animate-ping" />
-                <span>{isExporting ? `تسجيل (${exportProgress}%)` : 'تسجيل فيديو مجمع'}</span>
-              </button>
+              {/* Section 2: Video Studio */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold text-slate-400 pl-2 border-l border-white/10 hidden sm:inline">
+                  استوديو الفيديو:
+                </span>
 
-              {/* Dedicated Export to After Effects JSX */}
-              <button
-                onClick={() => {
-                  if (selectedItem) {
-                    handleOpenAeExportModal(selectedItem);
-                  } else if ((items as any[]).length > 0) {
-                    handleOpenAeExportModal((items as any[])[0]);
-                  }
-                }}
-                className="px-3.5 py-2 bg-gradient-to-r from-red-600 via-rose-600 to-red-600 hover:from-red-500 hover:to-rose-500 text-white rounded-xl font-black text-xs shadow-md shadow-red-600/30 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer border border-red-400/40"
-                title="تصدير ونقل مشروع وسكربت After Effects (.jsx) مع تحديد المقاسات والمدة والفريمات والطبقات"
-              >
-                <Film className="w-4 h-4 text-red-200" />
-                <span>🚀 نقل وتصدير المشروع إلى After Effects (.jsx)</span>
-              </button>
+                {/* Video Duration & Speed Button */}
+                <button
+                  onClick={() => setShowDurationSpeedModal(true)}
+                  className="px-3.5 py-2 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 text-amber-200 border border-amber-500/40 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-md shadow-amber-500/10"
+                  title="تحديد مدة وقت الفيديو (بالثواني) والتحكم في سرعة التسجيل لجميع الملفات"
+                >
+                  <Clock className="w-4 h-4 text-amber-400" />
+                  <span>مدة وقت الفيديو ({useNativeDuration ? 'الأصلية' : `${exportDuration} ثواني`})</span>
+                </button>
+
+                {/* Convert VAP to MP4 */}
+                <button
+                  onClick={handleExportAllVapToMp4}
+                  disabled={vapBatchProgress?.isOpen}
+                  className="px-3.5 py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 disabled:opacity-50 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                  title="تحويل جميع ملفات VAP إلى MP4 بالصوت المدمج والشفافية"
+                >
+                  {vapBatchProgress?.isOpen ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4 text-purple-300" />}
+                  <span>{vapBatchProgress?.isOpen ? `تحويل (${vapBatchProgress.overallPercent}%)` : 'تحويل VAP ➔ MP4'}</span>
+                </button>
+
+                {/* Export Individual Videos ZIP */}
+                <button
+                  onClick={() => handleExportIndividualVideos()}
+                  disabled={isExporting}
+                  className="px-3.5 py-2 bg-[#0e172a] hover:bg-[#1e293b] disabled:opacity-50 text-slate-200 border border-white/10 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                  title="تصدير فيديو منفصل لكل ملف على حدة وتنزيلها مضغوطة في ملف ZIP"
+                >
+                  <Film className="w-4 h-4 text-indigo-400" />
+                  <span>فيديو منفصل لكل ملف (ZIP)</span>
+                </button>
+
+                {/* Record Grid Video */}
+                <button
+                  onClick={handleExportGrid}
+                  disabled={isExporting}
+                  className="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-md shadow-rose-600/20 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                  title="تسجيل وتصدير فيديو مجمع للشاشة بالكامل"
+                >
+                  <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                  <span>{isExporting ? `تسجيل (${exportProgress}%)` : 'تسجيل فيديو مجمع'}</span>
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -6095,6 +6548,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           vapBatchProgress={vapBatchProgress}
           onDownloadGiftBundles={handleDownloadAllGiftBundles}
           onDownloadAllSvgaInOnePdf={handleDownloadAllSvgaInOnePdf}
+          onDownloadSinglePdfsDirect={handleDownloadSinglePdfsDirect}
+          isExportingCustomPdf={isExportingCustomPdf}
           onDownloadAllCombined={handleDownloadAllCombined}
           onDownloadAllSvga={handleDownloadAllSvga}
           onExportAllVapToMp4={handleExportAllVapToMp4}
@@ -6125,6 +6580,26 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           setShowDurationSpeedModal(false);
         }}
       />
+
+      {/* Adobe After Effects Project & JSX Export Modal */}
+      {isAeExportModalOpen && aeExportItem && (
+        <AeExportModal
+          isOpen={isAeExportModalOpen}
+          onClose={() => setIsAeExportModalOpen(false)}
+          metadata={{
+            name: aeExportItem.name ? aeExportItem.name.replace(/\.[^/.]+$/, '') : 'SVGA_Project',
+            width: aeExportItem.width || 500,
+            height: aeExportItem.height || 500,
+            fps: aeExportItem.fps || 30,
+            frames: aeExportItem.frames || 60,
+            version: '2.0'
+          }}
+          sprites={aeExportItem.videoItem?.sprites || []}
+          imagesData={aeExportItem.videoItem?.images || {}}
+          previewBg={previewBg}
+          onSuccessToast={(msg) => alert(msg)}
+        />
+      )}
     </div>
   );
 };

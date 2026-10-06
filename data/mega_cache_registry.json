@@ -1,0 +1,27 @@
+[
+  {
+    "id": "mega_1791288500045_b1ace7f3",
+    "fileId": "mega_1791288500045_b1ace7f3",
+    "nodeId": "",
+    "fileName": "sample_upload.txt",
+    "originalName": "sample_upload.txt",
+    "fileSize": 38,
+    "mimeType": "text/plain",
+    "category": "other",
+    "megaUrl": "https://mega.nz/folder/ZAEVwBAR#eCpPGWnnzvZRaNXoJleO9g?file=sample_upload.txt",
+    "downloadUrl": "/api/storage/download/mega_1791288500045_b1ace7f3",
+    "hash": "ce567ed633f12c02d8d01b2c862f3b3073781df2a8383f605378e185fdaab656",
+    "storagePath": "/cache/other/sample_upload.txt",
+    "status": "cached",
+    "uploadedAt": "2026-10-06T12:08:20.045Z",
+    "uploadedBy": {
+      "userId": "guest_user",
+      "userName": "مستخدم",
+      "userEmail": ""
+    },
+    "sourceFeature": "admin_test",
+    "downloadCount": 1,
+    "isDuplicate": false,
+    "lastDownloadedAt": "2026-10-06T12:08:31.406Z"
+  }
+]

@@ -266,4 +266,85 @@ router.post('/test-connection', async (req: express.Request, res: express.Respon
   }
 });
 
+/**
+ * GET /api/storage/links
+ * Get all files links formatted and ready for clipboard copying and bulk download
+ */
+router.get('/links', (req: express.Request, res: express.Response) => {
+  try {
+    const protocol = req.protocol;
+    const host = req.get('host');
+    const baseUrl = `${protocol}://${host}`;
+    const result = megaService.getAllFileLinks(baseUrl);
+    return res.json({
+      success: true,
+      ...result
+    });
+  } catch (error: any) {
+    console.error('Storage links route error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'LINKS_QUERY_FAILED',
+      message: error.message || 'فشل جلب قائمة الروابط.'
+    });
+  }
+});
+
+/**
+ * POST /api/storage/clean
+ * Clean local server cache & uploads while extracting/preserving file links
+ */
+router.post('/clean', (req: express.Request, res: express.Response) => {
+  try {
+    const { cleanLocalCache, cleanUploadsDir, clearRecords, fileIds } = req.body || {};
+    const result = megaService.cleanServerStorage({
+      cleanLocalCache: cleanLocalCache !== false,
+      cleanUploadsDir: cleanUploadsDir !== false,
+      clearRecords: Boolean(clearRecords),
+      fileIds
+    });
+
+    return res.json(result);
+  } catch (error: any) {
+    console.error('Storage clean route error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'CLEAN_FAILED',
+      message: error.message || 'حدث خطأ أثناء تنظيف السيرفر.'
+    });
+  }
+});
+
+/**
+ * POST /api/storage/batch-delete
+ * Delete multiple files by IDs
+ */
+router.post('/batch-delete', async (req: express.Request, res: express.Response) => {
+  try {
+    const { fileIds } = req.body || {};
+    if (!Array.isArray(fileIds) || fileIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'يرجى تقديم قائمة بمعرفات الملفات للحذف.' });
+    }
+
+    let deletedCount = 0;
+    for (const id of fileIds) {
+      const ok = await megaService.deleteFile(id);
+      if (ok) deletedCount++;
+    }
+
+    return res.json({
+      success: true,
+      deletedCount,
+      message: `تم حذف ${deletedCount} من أصل ${fileIds.length} ملف بنجاح.`
+    });
+  } catch (error: any) {
+    console.error('Batch delete route error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'BATCH_DELETE_FAILED',
+      message: error.message || 'فشل حذف الملفات المحددة.'
+    });
+  }
+});
+
 export default router;

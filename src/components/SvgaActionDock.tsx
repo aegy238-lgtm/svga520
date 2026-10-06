@@ -41,6 +41,8 @@ export interface SvgaActionDockProps {
   vapBatchProgress?: { isOpen: boolean; overallPercent: number } | null;
   onDownloadGiftBundles: () => void;
   onDownloadAllSvgaInOnePdf: () => void;
+  onDownloadSinglePdfsDirect?: () => void;
+  isExportingCustomPdf?: boolean;
   onDownloadAllCombined: () => void;
   onDownloadAllSvga: () => void;
   onExportAllVapToMp4: () => void;
@@ -76,6 +78,8 @@ export const SvgaActionDock: React.FC<SvgaActionDockProps> = ({
   vapBatchProgress,
   onDownloadGiftBundles,
   onDownloadAllSvgaInOnePdf,
+  onDownloadSinglePdfsDirect,
+  isExportingCustomPdf = false,
   onDownloadAllCombined,
   onDownloadAllSvga,
   onExportAllVapToMp4,
@@ -369,31 +373,61 @@ export const SvgaActionDock: React.FC<SvgaActionDockProps> = ({
                 </div>
               </div>
 
-              {/* All in One PDF Export */}
+              {/* 1) Single PDF for each gift */}
+              {onDownloadSinglePdfsDirect && (
+                <button
+                  type="button"
+                  onClick={onDownloadSinglePdfsDirect}
+                  disabled={isBusy || isExportingCustomPdf || itemsCount === 0}
+                  className="w-full relative overflow-hidden group px-3.5 py-2.5 bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white rounded-2xl shadow-lg shadow-red-600/30 font-black text-xs transition-all flex items-center justify-between disabled:opacity-50 border border-red-400/50 cursor-pointer disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98]"
+                  title="تنزيل كل هدية في ملف PDF مستقل مع صورتها وبياناتها الفنية"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-white/20 flex items-center justify-center">
+                      {isExportingCustomPdf ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                      ) : (
+                        <FileText className="w-3.5 h-3.5 text-yellow-200" />
+                      )}
+                    </div>
+                    <div className="flex flex-col text-right">
+                      <span className="leading-tight text-white">
+                        {isExportingCustomPdf ? 'جاري التصدير...' : 'كل هدية في ملف PDF منفصل'}
+                      </span>
+                      <span className="text-[9px] text-yellow-200/90 font-normal">صورة الهدية + مواصفاتها</span>
+                    </div>
+                  </div>
+                  <span className="px-1.5 py-0.5 rounded bg-black/30 text-[9px] font-mono font-black uppercase tracking-wider text-yellow-200">
+                    PDF 📄
+                  </span>
+                </button>
+              )}
+
+              {/* 2) All in One PDF Export */}
               <button
                 type="button"
                 onClick={onDownloadAllSvgaInOnePdf}
-                disabled={isBusy || itemsCount === 0}
-                className="w-full relative overflow-hidden group px-3.5 py-2.5 bg-gradient-to-r from-amber-600 via-rose-600 to-pink-600 hover:from-amber-500 hover:via-rose-500 hover:to-pink-500 text-white rounded-2xl shadow-lg shadow-rose-600/20 font-black text-xs transition-all flex items-center justify-between disabled:opacity-50 border border-rose-400/40 cursor-pointer disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98]"
+                disabled={isBusy || isPdfAllInOneExporting || itemsCount === 0}
+                className="w-full relative overflow-hidden group px-3.5 py-2.5 bg-gradient-to-r from-amber-600 via-yellow-600 to-amber-600 hover:from-amber-500 hover:via-yellow-500 hover:to-amber-500 text-slate-950 rounded-2xl shadow-lg shadow-amber-600/30 font-black text-xs transition-all flex items-center justify-between disabled:opacity-50 border border-yellow-300 cursor-pointer disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98]"
                 title="تنزيل جميع ملفات SVGA في ملف PDF واحد مجمع، يحتوي على كل ملف مع صورته المعاينة وبياناته"
               >
                 <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-white/20 flex items-center justify-center">
+                  <div className="w-6 h-6 rounded-lg bg-slate-950/20 flex items-center justify-center">
                     {isPdfAllInOneExporting ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-950" />
                     ) : (
-                      <FileText className="w-3.5 h-3.5" />
+                      <FileText className="w-3.5 h-3.5 text-slate-950" />
                     )}
                   </div>
                   <div className="flex flex-col text-right">
-                    <span className="leading-tight">
-                      {isPdfAllInOneExporting ? `جاري التحضير ${pdfAllInOneProgress}%` : 'ملف PDF واحد موحد'}
+                    <span className="leading-tight font-black text-slate-950">
+                      {isPdfAllInOneExporting ? `جاري التحضير ${pdfAllInOneProgress}%` : 'كتالوج PDF موحد وشامل'}
                     </span>
-                    <span className="text-[9px] text-amber-200/90 font-normal">جميع ملفات SVGA مدمجة</span>
+                    <span className="text-[9px] text-slate-900 font-bold">جميع الهدايا في ملف واحد</span>
                   </div>
                 </div>
-                <span className="px-1.5 py-0.5 rounded bg-white/20 text-[9px] font-mono font-black uppercase tracking-wider text-amber-200">
-                  PDF
+                <span className="px-1.5 py-0.5 rounded bg-slate-950/20 text-[9px] font-mono font-black uppercase tracking-wider text-slate-950">
+                  PDF 📑
                 </span>
               </button>
 

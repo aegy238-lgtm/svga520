@@ -13,6 +13,7 @@ import GamesTab from './admin/GamesTab';
 import ActiveRoomsTab from './admin/ActiveRoomsTab';
 import AppSettingsTab from './admin/AppSettingsTab';
 import { AccountVersionsTab } from './admin/AccountVersionsTab';
+import { CloudStorageTab } from './admin/CloudStorageTab';
 
 import AppIconsTab from './admin/AppIconsTab';
 
@@ -83,6 +84,7 @@ export default function AdminDashboard() {
       case 'users': return <UsersTab />;
       case 'active_rooms': return <ActiveRoomsTab />;
       case 'account_versions': return <AccountVersionsTab currentAdminEmail={user?.email || 'Admin'} currentAdminId={user?.uid || 'admin'} />;
+      case 'cloud_storage': return <CloudStorageTab />;
       case 'app_settings': return <AppSettingsTab />;
       default: return null;
     }
@@ -121,6 +123,7 @@ export default function AdminDashboard() {
           <TabCard onClick={() => setActiveTab('users')} icon={<List size={24} />} label="سجلات الدخول" />
           <TabCard onClick={() => setActiveTab('active_rooms')} icon={<Radio size={24} />} label="الغرف المتصلة (النشطة)" />
           <TabCard onClick={() => setActiveTab('account_versions')} icon={<GitBranch size={24} />} label="إدارة إصدارات الحسابات" />
+          <TabCard onClick={() => setActiveTab('cloud_storage')} icon={<Server size={24} className="text-emerald-600" />} label="إدارة الملفات والتخزين السحابي ☁️" />
           <TabCard onClick={() => setActiveTab('app_settings')} icon={<Settings size={24} />} label="إعدادات التطبيق" />
         </div>
       </div>
@@ -130,7 +133,7 @@ export default function AdminDashboard() {
         <div className="fixed inset-0 z-[100] bg-gray-50 flex flex-col">
           <div className="bg-white p-4 shadow-sm flex items-center justify-between">
             <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-              {activeTab === 'account_versions' ? 'إدارة إصدارات الحسابات' : activeTab}
+              {activeTab === 'account_versions' ? 'إدارة إصدارات الحسابات' : activeTab === 'cloud_storage' ? 'إدارة الملفات والتخزين السحابي ☁️' : activeTab}
             </h2>
             <button 
               onClick={() => setActiveTab(null)}

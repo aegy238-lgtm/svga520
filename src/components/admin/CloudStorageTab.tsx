@@ -4,7 +4,8 @@ import {
   ExternalLink, Copy, Check, Trash2, Download, Eye, AlertTriangle, 
   CheckCircle2, XCircle, FileText, Image as ImageIcon, Video, 
   Music, Film, Sparkles, FolderLock, ShieldCheck, Play, Pause,
-  Layers, ArrowUpDown, ChevronLeft, ChevronRight, X, AlertCircle
+  Layers, ArrowUpDown, ChevronLeft, ChevronRight, X, AlertCircle,
+  FileSpreadsheet, Link, Eraser, HardDriveDownload, FileDown, CheckCheck
 } from 'lucide-react';
 import { 
   MegaStorageRecord, MegaStorageStats, MegaSettings, 
@@ -13,6 +14,7 @@ import {
 import { 
   fetchStorageFiles, fetchStorageStats, fetchStorageSettings, 
   updateStorageSettings, testMegaConnection, uploadToMegaStorage, deleteStorageFile, 
+  fetchStorageLinks, triggerServerStorageClean, batchDeleteFiles,
   formatBytes, getCategoryLabel 
 } from '../../services/megaStorageService';
 
@@ -54,8 +56,52 @@ export const CloudStorageTab: React.FC = () => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Active view subtab: 'files' or 'settings'
-  const [subTab, setSubTab] = useState<'files' | 'settings'>('files');
+  // Active view subtab: 'files' | 'links_center' | 'cleanup' | 'settings'
+  const [subTab, setSubTab] = useState<'files' | 'links_center' | 'cleanup' | 'settings'>('files');
+
+  // Links Center State
+  const [linksData, setLinksData] = useState<{
+    links: Array<{
+      id: string;
+      fileId: string;
+      fileName: string;
+      fileSize: number;
+      category: string;
+      mimeType: string;
+      uploadedAt: string;
+      uploaderName: string;
+      downloadUrl: string;
+      megaUrl: string;
+    }>;
+    formattedText: string;
+    rawDownloadLinksText: string;
+    rawMegaLinksText: string;
+    totalFiles: number;
+    totalSizeBytes: number;
+  } | null>(null);
+  const [loadingLinks, setLoadingLinks] = useState(false);
+  const [linksSearch, setLinksSearch] = useState('');
+  const [linksCategoryFilter, setLinksCategoryFilter] = useState('all');
+  const [copiedLinksType, setCopiedLinksType] = useState<string | null>(null);
+  const [linksTextViewMode, setLinksTextViewMode] = useState<'formatted' | 'direct' | 'mega'>('formatted');
+  const [batchDownloading, setBatchDownloading] = useState(false);
+  const [batchDownloadProgress, setBatchDownloadProgress] = useState<{ current: number; total: number; name: string } | null>(null);
+
+  // Server Cleanup State
+  const [cleanLocalCache, setCleanLocalCache] = useState(true);
+  const [cleanUploadsDir, setCleanUploadsDir] = useState(true);
+  const [clearRecords, setClearRecords] = useState(false);
+  const [isCleaning, setIsCleaning] = useState(false);
+  const [cleanResult, setCleanResult] = useState<{
+    success: boolean;
+    freedBytes: number;
+    deletedDiskFilesCount: number;
+    preservedLinksCount: number;
+    remainingFilesCount: number;
+    cleanedLocations: string[];
+    exportedLinks: any[];
+    message: string;
+  } | null>(null);
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
     setActionNotice({ type, message });
@@ -96,6 +142,158 @@ export const CloudStorageTab: React.FC = () => {
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  const loadLinksData = async () => {
+    setLoadingLinks(true);
+    try {
+      const res = await fetchStorageLinks();
+      setLinksData(res);
+    } catch (err: any) {
+      console.error('Error fetching storage links:', err);
+      showNotification('فشل تحميل قائمة الروابط: ' + err.message, 'error');
+    } finally {
+      setLoadingLinks(false);
+    }
+  };
+
+  const handleCopyLinks = async (type: 'formatted' | 'direct' | 'mega') => {
+    if (!linksData) return;
+    let textToCopy = '';
+    if (type === 'formatted') textToCopy = linksData.formattedText;
+    else if (type === 'direct') textToCopy = linksData.rawDownloadLinksText;
+    else if (type === 'mega') textToCopy = linksData.rawMegaLinksText;
+
+    if (!textToCopy) {
+      showNotification('لا توجد روابط لنسخها حالياً', 'error');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      setCopiedLinksType(type);
+      showNotification(
+        type === 'formatted' 
+          ? 'تم نسخ جميع الروابط والمعلومات منسقة بنجاح إلى الحافظة! 📋' 
+          : type === 'direct' 
+            ? 'تم نسخ الروابط المباشرة فقط إلى الحافظة! 🔗' 
+            : 'تم نسخ روابط MEGA إلى الحافظة! ☁️',
+        'success'
+      );
+      setTimeout(() => setCopiedLinksType(null), 3000);
+    } catch (e) {
+      showNotification('فشل النسخ إلى الحافظة', 'error');
+    }
+  };
+
+  const handleDownloadLinksFile = () => {
+    if (!linksData || !linksData.formattedText) {
+      showNotification('لا توجد روابط لتنزيلها', 'error');
+      return;
+    }
+    const blob = new Blob([linksData.formattedText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `server_files_links_${new Date().toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showNotification('تم تنزيل ملف الروابط (TXT) بنجاح!', 'success');
+  };
+
+  const handleDownloadLinksCsv = () => {
+    if (!linksData || !linksData.links || linksData.links.length === 0) {
+      showNotification('لا توجد بيانات لإنشاء ملف CSV', 'error');
+      return;
+    }
+    const headers = ['رقم', 'اسم الملف', 'الحجم (بايت)', 'الحجم منسق', 'القسم', 'نوع الملف', 'المرفوع بواسطة', 'تاريخ الرفع', 'رابط التنزيل المباشر', 'رابط MEGA'];
+    const rows = linksData.links.map((l, idx) => [
+      idx + 1,
+      `"${(l.fileName || '').replace(/"/g, '""')}"`,
+      l.fileSize,
+      `"${formatBytes(l.fileSize)}"`,
+      `"${l.category}"`,
+      `"${l.mimeType}"`,
+      `"${(l.uploaderName || '').replace(/"/g, '""')}"`,
+      `"${l.uploadedAt}"`,
+      `"${l.downloadUrl}"`,
+      `"${l.megaUrl || ''}"`
+    ]);
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `server_files_links_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showNotification('تم تنزيل جدول الروابط (CSV / Excel) بنجاح!', 'success');
+  };
+
+  const handleBatchDownloadAllFiles = async () => {
+    if (!linksData || !linksData.links || linksData.links.length === 0) {
+      showNotification('لا توجد ملفات لتنزيلها', 'error');
+      return;
+    }
+    if (batchDownloading) return;
+
+    setBatchDownloading(true);
+    showNotification('بدء تنزيل الملفات تباعاً إلى جهازك...', 'success');
+
+    for (let i = 0; i < linksData.links.length; i++) {
+      const item = linksData.links[i];
+      setBatchDownloadProgress({
+        current: i + 1,
+        total: linksData.links.length,
+        name: item.fileName
+      });
+      try {
+        const a = document.createElement('a');
+        a.href = item.downloadUrl;
+        a.download = item.fileName;
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        await new Promise(r => setTimeout(r, 600));
+      } catch (e) {
+        console.warn('Batch download error for item:', item.fileName, e);
+      }
+    }
+
+    setBatchDownloading(false);
+    setBatchDownloadProgress(null);
+    showNotification('اكتمل تنزيل جميع الملفات بنجاح!', 'success');
+  };
+
+  const handleExecuteServerClean = async () => {
+    const confirmMsg = clearRecords
+      ? 'تحذير هام: اخترت حذف السجلات أيضاً! سيتم تنظيف قرص السيرفر وحذف السجلات من الداشبورد. هل تريد المتابعة بالتأكيد؟'
+      : 'سيتم الآن تنظيف الملفات المؤقتة وكاش السيرفر لتحرير مساحة الهاردسك مع الاحتفاظ بجميع روابط الملفات المسجلة. هل تريد المتابعة؟';
+
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsCleaning(true);
+    setCleanResult(null);
+    try {
+      const res = await triggerServerStorageClean({
+        cleanLocalCache,
+        cleanUploadsDir,
+        clearRecords
+      });
+      setCleanResult(res);
+      showNotification(res.message, 'success');
+      await Promise.all([loadData(true), loadLinksData()]);
+    } catch (err: any) {
+      console.error('Cleanup error:', err);
+      showNotification('حدث خطأ أثناء تنظيف السيرفر: ' + err.message, 'error');
+    } finally {
+      setIsCleaning(false);
     }
   };
 
@@ -296,36 +494,71 @@ export const CloudStorageTab: React.FC = () => {
 
         <div className="flex items-center gap-2">
           {/* Subtabs Toggle */}
-          <div className="bg-slate-950/60 p-1 rounded-xl border border-white/10 flex items-center text-sm font-medium">
+          <div className="bg-slate-950/60 p-1 rounded-xl border border-white/10 flex flex-wrap items-center text-xs sm:text-sm font-medium gap-1">
             <button
               onClick={() => setSubTab('files')}
-              className={`px-4 py-2 rounded-lg transition-all ${
+              className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg transition-all flex items-center gap-1.5 ${
                 subTab === 'files'
                   ? 'bg-indigo-600 text-white shadow-lg'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              ملفات التخزين ({totalFiles})
+              <HardDrive className="w-4 h-4" />
+              <span>ملفات التخزين ({totalFiles})</span>
+            </button>
+            <button
+              onClick={() => {
+                setSubTab('links_center');
+                loadLinksData();
+              }}
+              className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg transition-all flex items-center gap-1.5 ${
+                subTab === 'links_center'
+                  ? 'bg-emerald-600 text-white shadow-lg'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Copy className="w-4 h-4 text-emerald-300" />
+              <span>مركز الروابط والنسخ 📋</span>
+            </button>
+            <button
+              onClick={() => {
+                setSubTab('cleanup');
+                loadLinksData();
+              }}
+              className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg transition-all flex items-center gap-1.5 ${
+                subTab === 'cleanup'
+                  ? 'bg-rose-600 text-white shadow-lg'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Trash2 className="w-4 h-4 text-rose-300" />
+              <span>تنظيف السيرفر 🧹</span>
             </button>
             <button
               onClick={() => setSubTab('settings')}
-              className={`px-4 py-2 rounded-lg transition-all ${
+              className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg transition-all flex items-center gap-1.5 ${
                 subTab === 'settings'
                   ? 'bg-indigo-600 text-white shadow-lg'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              إعدادات MEGA والفحص
+              <FolderLock className="w-4 h-4" />
+              <span>إعدادات MEGA والفحص</span>
             </button>
           </div>
 
           <button
-            onClick={() => loadData(true)}
-            disabled={refreshing}
+            onClick={() => {
+              loadData(true);
+              if (subTab === 'links_center' || subTab === 'cleanup') {
+                loadLinksData();
+              }
+            }}
+            disabled={refreshing || loadingLinks}
             className="p-2.5 bg-slate-800/80 hover:bg-slate-700/80 border border-white/10 rounded-xl transition-all text-slate-300 hover:text-white disabled:opacity-50"
             title="تحديث البيانات"
           >
-            <RefreshCw className={`w-5 h-5 ${refreshing ? 'animate-spin text-indigo-400' : ''}`} />
+            <RefreshCw className={`w-5 h-5 ${refreshing || loadingLinks ? 'animate-spin text-indigo-400' : ''}`} />
           </button>
         </div>
       </div>
@@ -417,8 +650,45 @@ export const CloudStorageTab: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Content Area: Files View vs Settings View */}
-      {subTab === 'files' ? (
+      {/* Quick Action Banner for Server Cleanup & Links Center */}
+      <div className="bg-gradient-to-r from-emerald-950/40 via-slate-900/80 to-rose-950/40 p-4 sm:p-5 rounded-2xl border border-white/10 flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
+        <div className="flex items-center gap-3.5">
+          <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-emerald-400">
+            <Copy className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-white flex items-center gap-2">
+              <span>نظام استخراج الروابط وتنظيف مساحة السيرفر</span>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-normal">
+                جاهز بنقرة واحدة
+              </span>
+            </h3>
+            <p className="text-xs text-slate-300 mt-0.5">
+              استخرج جميع روابط الملفات لنسخها دفعة واحدة أو تنزيلها إلى جهازك، ونظف مساحة قرص السيرفر بأمان بدون فقدان أي رابط.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+          <button
+            onClick={() => { setSubTab('links_center'); loadLinksData(); }}
+            className="flex-1 md:flex-none px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-emerald-900/30 flex items-center justify-center gap-2 active:scale-95"
+          >
+            <Copy className="w-4 h-4" />
+            <span>استعراض ونسخ كافة الروابط</span>
+          </button>
+          <button
+            onClick={() => { setSubTab('cleanup'); loadLinksData(); }}
+            className="flex-1 md:flex-none px-4 py-2.5 bg-rose-600/90 hover:bg-rose-600 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-rose-900/30 flex items-center justify-center gap-2 active:scale-95"
+          >
+            <Trash2 className="w-4 h-4" />
+            <span>تنظيف السيرفر الآن</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Main Content Area: Files View */}
+      {subTab === 'files' && (
         <div className="space-y-6">
           {/* Direct Cloud Uploader Zone */}
           <div
@@ -747,8 +1017,458 @@ export const CloudStorageTab: React.FC = () => {
             )}
           </div>
         </div>
-      ) : (
-        /* Settings & Connection Testing View */
+      )}
+
+      {/* 2. Links Center View (استخراج ونسخ وتنزيل روابط الملفات) */}
+      {subTab === 'links_center' && (
+        <div className="space-y-6 animate-in fade-in">
+          {/* Header Action Card */}
+          <div className="bg-gradient-to-br from-emerald-950/40 via-slate-900/80 to-slate-950/60 p-6 rounded-2xl border border-emerald-500/30 shadow-2xl space-y-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-4">
+              <div>
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-emerald-500/20 text-emerald-300 rounded-xl">
+                    <Copy className="w-5 h-5" />
+                  </div>
+                  <h2 className="text-lg font-bold text-white">
+                    مركز نسخ واستخراج روابط ملفات السيرفر
+                  </h2>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    {linksData?.totalFiles || 0} رابط متاح
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">
+                  يمكنك هنا نسخ جميع روابط التنزيل دفعة واحدة للحافظة، أو تصديرها كملف TXT / CSV، أو تنزيل جميع الملفات إلى جهازك بنقرة واحدة.
+                </p>
+              </div>
+
+              {/* Bulk Action Buttons */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => handleCopyLinks('formatted')}
+                  disabled={loadingLinks || !linksData || linksData.totalFiles === 0}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2 active:scale-95 disabled:opacity-50"
+                  title="نسخ جميع الروابط منسقة مع البيانات"
+                >
+                  {copiedLinksType === 'formatted' ? <Check className="w-4 h-4 text-emerald-200" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiedLinksType === 'formatted' ? 'تم النسخ بنجاح!' : 'نسخ جميع الروابط (منسقة)'}</span>
+                </button>
+
+                <button
+                  onClick={() => handleCopyLinks('direct')}
+                  disabled={loadingLinks || !linksData || linksData.totalFiles === 0}
+                  className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium transition-all border border-white/10 flex items-center gap-2 active:scale-95 disabled:opacity-50"
+                  title="نسخ الروابط المباشرة فقط كقائمة نصية"
+                >
+                  {copiedLinksType === 'direct' ? <Check className="w-4 h-4 text-emerald-400" /> : <Link className="w-4 h-4 text-cyan-400" />}
+                  <span>{copiedLinksType === 'direct' ? 'تم نسخ المباشرة!' : 'نسخ الروابط المباشرة فقط'}</span>
+                </button>
+
+                <button
+                  onClick={handleDownloadLinksFile}
+                  disabled={loadingLinks || !linksData || linksData.totalFiles === 0}
+                  className="px-3.5 py-2 bg-indigo-600/80 hover:bg-indigo-600 text-white rounded-xl text-xs font-medium transition-all shadow-md flex items-center gap-2 active:scale-95 disabled:opacity-50"
+                  title="تنزيل قائمة الروابط في ملف TXT"
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>تنزيل (TXT)</span>
+                </button>
+
+                <button
+                  onClick={handleDownloadLinksCsv}
+                  disabled={loadingLinks || !linksData || linksData.totalFiles === 0}
+                  className="px-3.5 py-2 bg-teal-600/80 hover:bg-teal-600 text-white rounded-xl text-xs font-medium transition-all shadow-md flex items-center gap-2 active:scale-95 disabled:opacity-50"
+                  title="تنزيل جدول Excel / CSV"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  <span>تصدير (CSV)</span>
+                </button>
+
+                <button
+                  onClick={handleBatchDownloadAllFiles}
+                  disabled={batchDownloading || loadingLinks || !linksData || linksData.totalFiles === 0}
+                  className="px-3.5 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2 active:scale-95 disabled:opacity-50"
+                  title="تنزيل كافة الملفات إلى جهازك تباعاً"
+                >
+                  {batchDownloading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <HardDriveDownload className="w-4 h-4" />}
+                  <span>{batchDownloading ? 'جاري التنزيل...' : 'تنزيل الكل لجهازي'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Batch Download Progress Toast */}
+            {batchDownloadProgress && (
+              <div className="bg-purple-950/60 p-3.5 rounded-xl border border-purple-500/40 text-xs flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <RefreshCw className="w-4 h-4 animate-spin text-purple-400" />
+                  <div>
+                    <span className="font-semibold text-white">جاري تنزيل الملف {batchDownloadProgress.current} من {batchDownloadProgress.total}: </span>
+                    <span className="text-purple-300 font-mono">{batchDownloadProgress.name}</span>
+                  </div>
+                </div>
+                <span className="font-bold text-white">{Math.round((batchDownloadProgress.current / batchDownloadProgress.total) * 100)}%</span>
+              </div>
+            )}
+
+            {/* Quick Copy Text Box (Preview & Copy Area) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
+                <div className="flex items-center gap-2">
+                  <span>معاينة ونسخ النص السريع:</span>
+                  <div className="bg-slate-950 p-0.5 rounded-lg border border-white/10 flex items-center text-[11px]">
+                    <button
+                      onClick={() => setLinksTextViewMode('formatted')}
+                      className={`px-2.5 py-1 rounded-md transition-all ${
+                        linksTextViewMode === 'formatted' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      منسق مع البيانات
+                    </button>
+                    <button
+                      onClick={() => setLinksTextViewMode('direct')}
+                      className={`px-2.5 py-1 rounded-md transition-all ${
+                        linksTextViewMode === 'direct' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      الروابط المباشرة فقط
+                    </button>
+                    <button
+                      onClick={() => setLinksTextViewMode('mega')}
+                      className={`px-2.5 py-1 rounded-md transition-all ${
+                        linksTextViewMode === 'mega' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      روابط MEGA
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => handleCopyLinks(linksTextViewMode)}
+                  className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1.5 transition-colors font-medium"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>نسخ هذا المحتوى</span>
+                </button>
+              </div>
+
+              <div className="relative">
+                <textarea
+                  readOnly
+                  rows={6}
+                  value={
+                    loadingLinks 
+                      ? 'جاري استخراج وتحميل جميع الروابط من السيرفر...' 
+                      : linksTextViewMode === 'formatted'
+                        ? linksData?.formattedText || 'لا توجد ملفات مرفوعة حالياً في السيرفر.'
+                        : linksTextViewMode === 'direct'
+                          ? linksData?.rawDownloadLinksText || 'لا توجد روابط مباشرة حالياً.'
+                          : linksData?.rawMegaLinksText || 'لا توجد روابط MEGA متوفرة.'
+                  }
+                  className="w-full bg-slate-950/80 border border-white/10 rounded-xl p-3 text-xs font-mono text-slate-200 focus:outline-none focus:border-emerald-500/50 resize-y custom-scrollbar"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Interactive Links Table */}
+          <div className="bg-slate-900/60 rounded-2xl border border-white/10 p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Link className="w-4 h-4 text-emerald-400" />
+                <span>قائمة تفاصيل الروابط القابلة للنسخ والتنزيل</span>
+              </h3>
+
+              <div className="flex items-center gap-2">
+                {/* Search */}
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={linksSearch}
+                    onChange={(e) => setLinksSearch(e.target.value)}
+                    placeholder="بحث في الروابط والأسماء..."
+                    className="bg-slate-950/80 border border-white/10 rounded-xl pr-9 pl-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-48 sm:w-64"
+                  />
+                </div>
+
+                {/* Filter */}
+                <select
+                  value={linksCategoryFilter}
+                  onChange={(e) => setLinksCategoryFilter(e.target.value)}
+                  className="bg-slate-950/80 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="all">جميع الأقسام</option>
+                  <option value="svga">SVGA</option>
+                  <option value="vap">VAP</option>
+                  <option value="video">فيديو</option>
+                  <option value="image">صور</option>
+                  <option value="audio">صوتيات</option>
+                  <option value="other">أخرى</option>
+                </select>
+              </div>
+            </div>
+
+            {/* List Table */}
+            {loadingLinks ? (
+              <div className="py-12 text-center text-slate-400">
+                <RefreshCw className="w-6 h-6 animate-spin mx-auto text-emerald-400 mb-2" />
+                <span>جاري تحميل قائمة الروابط...</span>
+              </div>
+            ) : !linksData || linksData.links.length === 0 ? (
+              <div className="py-12 text-center text-slate-500 text-xs">
+                لا توجد ملفات متخزنة حالياً في السيرفر. قم برفع أي ملف ليظهر رابطه هنا تلقائياً.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-right text-xs">
+                  <thead>
+                    <tr className="border-b border-white/10 text-slate-400 text-[11px] font-semibold">
+                      <th className="pb-3 pr-2">الملف</th>
+                      <th className="pb-3">القسم</th>
+                      <th className="pb-3">الحجم</th>
+                      <th className="pb-3">تاريخ الرفع</th>
+                      <th className="pb-3">الرابط المباشر</th>
+                      <th className="pb-3 text-center">إجراءات سريعة</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {linksData.links
+                      .filter(item => {
+                        if (linksCategoryFilter !== 'all' && item.category !== linksCategoryFilter) return false;
+                        if (linksSearch.trim()) {
+                          const q = linksSearch.toLowerCase();
+                          return item.fileName.toLowerCase().includes(q) || item.uploaderName.toLowerCase().includes(q) || item.id.toLowerCase().includes(q);
+                        }
+                        return true;
+                      })
+                      .map((item, index) => (
+                        <tr key={item.id} className="hover:bg-white/[0.02] transition-colors group">
+                          <td className="py-3 pr-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-mono text-slate-500">#{index + 1}</span>
+                              <div className="font-semibold text-white truncate max-w-xs" title={item.fileName}>
+                                {item.fileName}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3">
+                            <span className="px-2 py-0.5 rounded-md bg-white/5 text-[11px] text-slate-300">
+                              {getCategoryLabel(item.category)}
+                            </span>
+                          </td>
+                          <td className="py-3 text-slate-300 font-mono">
+                            {formatBytes(item.fileSize)}
+                          </td>
+                          <td className="py-3 text-slate-400 text-[11px]">
+                            {new Date(item.uploadedAt).toLocaleDateString('ar-EG')}
+                          </td>
+                          <td className="py-3">
+                            <div className="flex items-center gap-1.5 max-w-xs">
+                              <input
+                                readOnly
+                                value={item.downloadUrl}
+                                className="bg-slate-950/80 border border-white/10 rounded-lg px-2 py-1 text-[11px] font-mono text-slate-300 w-full truncate focus:outline-none"
+                              />
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(item.downloadUrl);
+                                  showNotification('تم نسخ الرابط المباشر!', 'success');
+                                }}
+                                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg transition-colors flex-shrink-0"
+                                title="نسخ الرابط المباشر"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                          <td className="py-3 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              {item.megaUrl && (
+                                <button
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(item.megaUrl);
+                                    showNotification('تم نسخ رابط MEGA!', 'success');
+                                  }}
+                                  className="px-2 py-1 bg-red-950/60 hover:bg-red-900/60 border border-red-500/30 text-red-300 rounded-lg text-[11px] transition-colors"
+                                  title="نسخ رابط MEGA"
+                                >
+                                  MEGA
+                                </button>
+                              )}
+                              <a
+                                href={item.downloadUrl}
+                                download={item.fileName}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[11px] font-semibold transition-colors flex items-center gap-1"
+                              >
+                                <Download className="w-3 h-3" />
+                                <span>تنزيل</span>
+                              </a>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 3. Server Cleaner View (تنظيف السيرفر من الملفات المتخزنة) */}
+      {subTab === 'cleanup' && (
+        <div className="space-y-6 animate-in fade-in">
+          <div className="bg-gradient-to-br from-rose-950/40 via-slate-900/80 to-slate-950/60 p-6 rounded-2xl border border-rose-500/30 shadow-2xl space-y-6">
+            <div className="border-b border-white/10 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-rose-500/20 text-rose-300 rounded-xl">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <h2 className="text-lg font-bold text-white">
+                  نظام تنظيف السيرفر وتفريغ الكاش والملفات المؤقتة
+                </h2>
+              </div>
+              <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                يقوم هذا النظام بفحص وتنظيف الملفات المتخزنة على قرص السيرفر (Local Storage Cache والمجلدات المؤقتة) لتفريغ المساحة وحماية موارد الخادم، مع استخراج وحفظ روابط جميع الملفات تلقائياً حتى تتمكن من نسخها وتنزيلها بكل سهولة!
+              </p>
+            </div>
+
+            {/* Cleanup Options */}
+            <div className="space-y-3 bg-slate-950/60 p-5 rounded-xl border border-white/10">
+              <h3 className="text-xs font-bold text-slate-200 mb-2">خيارات التنظيف المستهدفة:</h3>
+
+              <label className="flex items-start gap-3 p-3 rounded-xl bg-slate-900/60 border border-white/5 hover:border-emerald-500/30 transition-colors cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={cleanLocalCache}
+                  onChange={(e) => setCleanLocalCache(e.target.checked)}
+                  className="mt-0.5 rounded border-white/20 text-emerald-600 focus:ring-emerald-500"
+                />
+                <div className="text-xs">
+                  <div className="font-semibold text-white flex items-center gap-2">
+                    <span>تنظيف كاش السيرفر المحلي (data/mega_local_cache)</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-normal">موصى به - آمن 100%</span>
+                  </div>
+                  <div className="text-slate-400 mt-0.5">
+                    يقوم بحذف الملفات المحملة على قرص السيرفر لتفريغ المساحة فوراً، مع الاحتفاظ بروابط الملفات مسجلة ومتاحة للتنزيل السحابي في أي وقت.
+                  </div>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-3 p-3 rounded-xl bg-slate-900/60 border border-white/5 hover:border-emerald-500/30 transition-colors cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={cleanUploadsDir}
+                  onChange={(e) => setCleanUploadsDir(e.target.checked)}
+                  className="mt-0.5 rounded border-white/20 text-emerald-600 focus:ring-emerald-500"
+                />
+                <div className="text-xs">
+                  <div className="font-semibold text-white">تفريغ مجلد الرفع المؤقت (/uploads)</div>
+                  <div className="text-slate-400 mt-0.5">
+                    إزالة بقايا ملفات التحويل والرفع المؤقتة الناتجة عن عمليات الاستيراد والتصدير.
+                  </div>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-3 p-3 rounded-xl bg-rose-950/20 border border-rose-500/20 hover:border-rose-500/40 transition-colors cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={clearRecords}
+                  onChange={(e) => setClearRecords(e.target.checked)}
+                  className="mt-0.5 rounded border-white/20 text-rose-600 focus:ring-rose-500"
+                />
+                <div className="text-xs">
+                  <div className="font-semibold text-rose-200">مسح سجلات وقاعدة بيانات الملفات أيضاً</div>
+                  <div className="text-rose-300/70 mt-0.5">
+                    تحذير: سيتم مسح قائمة الروابط والسجلات من الداشبورد بالكامل. لا تحدد هذا الخيار إلا إذا كنت تريد إعادة ضبط شاملة.
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            {/* Execute Cleanup Button */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+              <button
+                onClick={handleExecuteServerClean}
+                disabled={isCleaning || (!cleanLocalCache && !cleanUploadsDir && !clearRecords)}
+                className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white rounded-xl text-sm font-bold transition-all shadow-xl shadow-rose-900/40 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
+              >
+                {isCleaning ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
+                <span>{isCleaning ? 'جاري تنظيف وتحرير مساحة السيرفر...' : '🧹 تنفيذ عملية تنظيف السيرفر الآن'}</span>
+              </button>
+
+              <div className="text-xs text-slate-400 text-center sm:text-right">
+                سيتم استخراج كافة الروابط الحالية وحفظها تلقائياً قبل تنفيذ أي حذف لضمان سلامة بياناتك.
+              </div>
+            </div>
+
+            {/* Clean Result Card */}
+            {cleanResult && (
+              <div className="bg-emerald-950/60 p-5 rounded-2xl border border-emerald-500/40 space-y-4 animate-in fade-in">
+                <div className="flex items-center gap-3 text-emerald-400">
+                  <CheckCircle2 className="w-6 h-6 flex-shrink-0" />
+                  <div>
+                    <h3 className="text-sm font-bold text-white">اكتملت عملية تنظيف السيرفر بنجاح!</h3>
+                    <p className="text-xs text-emerald-200/90 mt-0.5">{cleanResult.message}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs pt-1">
+                  <div className="bg-slate-900/70 p-3 rounded-xl border border-white/5">
+                    <span className="text-slate-400 block text-[11px]">المساحة المحررة:</span>
+                    <span className="font-bold text-emerald-400 font-mono text-sm">
+                      {(cleanResult.freedBytes / 1024 / 1024).toFixed(2)} MB
+                    </span>
+                  </div>
+                  <div className="bg-slate-900/70 p-3 rounded-xl border border-white/5">
+                    <span className="text-slate-400 block text-[11px]">الملفات المحذوفة من القرص:</span>
+                    <span className="font-bold text-white font-mono text-sm">
+                      {cleanResult.deletedDiskFilesCount} ملف
+                    </span>
+                  </div>
+                  <div className="bg-slate-900/70 p-3 rounded-xl border border-white/5 col-span-2 sm:col-span-1">
+                    <span className="text-slate-400 block text-[11px]">الروابط المحفوظة الجاهزة للنسخ:</span>
+                    <span className="font-bold text-indigo-400 font-mono text-sm">
+                      {cleanResult.preservedLinksCount} رابط
+                    </span>
+                  </div>
+                </div>
+
+                {/* Quick actions for preserved links */}
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-emerald-500/20">
+                  <button
+                    onClick={() => handleCopyLinks('formatted')}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-2"
+                  >
+                    <Copy className="w-4 h-4" />
+                    <span>نسخ جميع الروابط الآن</span>
+                  </button>
+                  <button
+                    onClick={handleDownloadLinksFile}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium transition-colors border border-white/10 flex items-center gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>تنزيل ملف الروابط (TXT)</span>
+                  </button>
+                  <button
+                    onClick={() => setSubTab('links_center')}
+                    className="px-4 py-2 bg-indigo-600/80 hover:bg-indigo-600 text-white rounded-xl text-xs font-medium transition-colors flex items-center gap-2"
+                  >
+                    <Link className="w-4 h-4" />
+                    <span>الانتقال لمركز الروابط الكامل</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 4. Settings & Connection Testing View */}
+      {subTab === 'settings' && (
         <div className="space-y-6">
           {/* Custom Folder Configuration Card */}
           <div className="bg-gradient-to-br from-indigo-950/40 via-slate-900/60 to-purple-950/30 p-6 rounded-2xl border border-indigo-500/30 shadow-xl space-y-5">

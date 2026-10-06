@@ -12,6 +12,8 @@ import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { logActivity } from '../utils/logger';
 import { AccountVersionsTab } from './admin/AccountVersionsTab';
+import { CloudStorageTab } from './admin/CloudStorageTab';
+import { TelegramTab } from './admin/TelegramTab';
 import { FeatureAccessControlTab } from './admin/FeatureAccessControlTab';
 import { ExternalLinksManagerTab } from './admin/ExternalLinksManagerTab';
 import { MaintenanceScreen } from './MaintenanceScreen';
@@ -142,6 +144,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, o
     { id: 'keys', label: 'الاشتراكات', icon: <Key /> },
     { id: 'assets', label: 'الوسائط', icon: <ImageIcon /> },
     { id: 'records', label: 'السجلات', icon: <FileText /> },
+    { id: 'cloud_storage', label: 'إدارة الملفات والتخزين السحابي ☁️', icon: <Server className="text-emerald-400" /> },
+    { id: 'telegram_bot', label: 'بوت وتكامل تليجرام 🤖', icon: <Send className="text-sky-400" /> },
     { id: 'account_versions', label: 'إصدارات الحسابات', icon: <GitBranch /> },
     { id: 'settings', label: 'الإعدادات', icon: <SettingsIcon /> },
   ];
@@ -1255,6 +1259,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel, o
                 />
               )}
               {activeTab === 'store' && <StoreManager />}
+              {activeTab === 'cloud_storage' && <CloudStorageTab />}
+              {activeTab === 'telegram_bot' && <TelegramTab currentUser={currentUser} />}
               {activeTab === 'account_versions' && (
                 <AccountVersionsTab 
                   currentAdminEmail={currentUser?.email || 'Admin'} 

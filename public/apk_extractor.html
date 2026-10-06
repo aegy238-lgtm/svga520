@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>مُستخرِج أصول التطبيقات — APK Asset Extractor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
   :root{
     --bg:#0b1020; --card:#161f3d; --card2:#1d2850; --line:#2c3a68;
@@ -282,8 +283,50 @@ button.btn[data-act]{white-space:nowrap}
         <button type="button" class="btn" id="btnExportAllSafe">
           📦 ⬇️ تنزيل كل شيء داخل النسخة (ZIP أصفر كامل)
         </button>
+        <button type="button" class="btn" id="dlSvgDirect" style="background:linear-gradient(135deg,#059669,#10b981);color:#fff;font-weight:900;border:1px solid #34d399">
+          ✒️ ⬇️ تنزيل كل ملفات SVG مفتوحة ومباشرة
+        </button>
+        <button type="button" class="btn" id="btnExportAfterEffects" style="background:linear-gradient(135deg,#e11d48,#be123c);color:#fff;font-weight:900;border:1px solid #fb7185">
+          🚀 📑 نقل وتصدير المشروع إلى After Effects (.jsx)
+        </button>
         <button type="button" class="btn" id="btnViewAllSvga">
           🎬 تشغيل ومعاينة كافة ملفات SVGA
+        </button>
+      </div>
+
+      <!-- قسم تنزيل الهدايا والصور في مجلد مفتوح بدون أي ضغط ZIP (📁 Folder - Unzipped Direct Directory) -->
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:16px;padding:16px 20px;background:linear-gradient(135deg,rgba(120,53,15,0.7),rgba(30,41,59,0.9));border-radius:16px;border:2px solid rgba(245,158,11,0.6);box-shadow:0 8px 30px rgba(0,0,0,0.4)">
+        <b style="color:#fef08a;font-size:0.95rem;display:flex;align-items:center;gap:8px;margin-inline-end:auto">
+          <span style="font-size:1.2rem">📁</span>
+          <span>تنزيل الهدايا والصور في مجلد مفتوح مباشر (بدون ضغط ZIP):</span>
+        </b>
+        
+        <!-- الزر الأول: تنزيل كافة الهدايا وصورها في مجلد مفتوح -->
+        <button type="button" class="btn" id="btnExportOpenFolder" style="background:linear-gradient(135deg,#d97706,#b45309);color:#fff;font-weight:900;font-size:0.86rem;padding:10px 18px;border-radius:12px;border:1px solid #fde047;box-shadow:0 4px 15px rgba(217,119,6,0.35);cursor:pointer">
+          📁 ⬇️ تنزيل كافة الهدايا والصور في مجلد مفتوح
+        </button>
+
+        <!-- الزر الثاني: تخصيص مجلد فرعي لكل هدية -->
+        <button type="button" class="btn" id="btnExportOpenFolderCustom" style="background:linear-gradient(135deg,#4f46e5,#3730a3);color:#fff;font-weight:900;font-size:0.86rem;padding:10px 18px;border-radius:12px;border:1px solid #818cf8;box-shadow:0 4px 15px rgba(79,70,229,0.35);cursor:pointer">
+          📂 ⬇️ تخصيص: مجلد فرعي مستقل لكل هدية
+        </button>
+      </div>
+
+      <!-- تخصيص وتنزيل تقارير ومستندات PDF للهدايا (زرين مميزين وواضحين) -->
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:16px;padding:16px 20px;background:linear-gradient(135deg,rgba(15,23,42,0.9),rgba(30,41,59,0.85));border-radius:16px;border:2px solid rgba(234,179,8,0.5);box-shadow:0 8px 30px rgba(0,0,0,0.3)">
+        <b style="color:#fef08a;font-size:0.95rem;display:flex;align-items:center;gap:8px;margin-inline-end:auto">
+          <span>📄</span>
+          <span>تصدير وتوثيق تقارير PDF للهدايا:</span>
+        </b>
+        
+        <!-- الزر الأول: تنزيل كل هدية في ملف PDF مستقل -->
+        <button type="button" class="btn" id="btnExportPdfSingleGifts" style="background:linear-gradient(135deg,#dc2626,#b91c1c);color:#fff;font-weight:900;font-size:0.86rem;padding:10px 18px;border-radius:12px;border:1px solid #f87171;box-shadow:0 4px 15px rgba(220,38,38,0.35);cursor:pointer">
+          📄 ⬇️ تنزيل كل هدية في ملف PDF مستقل (مع الصورة والمواصفات)
+        </button>
+
+        <!-- الزر الثاني: تنزيل كافة الهدايا في كتالوج PDF موحد -->
+        <button type="button" class="btn" id="btnExportPdfCatalogGifts" style="background:linear-gradient(135deg,#d97706,#b45309);color:#fff;font-weight:900;font-size:0.86rem;padding:10px 18px;border-radius:12px;border:1px solid #fde047;box-shadow:0 4px 15px rgba(217,119,6,0.35);cursor:pointer">
+          📑 ⬇️ تنزيل كافة الهدايا في كتالوج PDF موحد (ملف واحد شامل)
         </button>
       </div>
     </div>
@@ -1599,6 +1642,814 @@ $('#dlSvg').onclick=function(){
     log('✒️ صُدّر '+n+' ملف SVG في حزمة ZIP صفراء: ' + nm);
   });
 };
+
+/* =======================================================================
+   1) تنزيل كل ملفات SVG مفتوحة ومباشرة (وليس مضغوطة / Direct Unzipped SVGs)
+   ======================================================================= */
+var btnDlSvgDirect = $('#dlSvgDirect');
+if(btnDlSvgDirect){
+  btnDlSvgDirect.onclick = function(){
+    if(!state.files || !state.files.length){
+      showToast('يرجى اختيار أو سحب ملف تطبيق (APK / ZIP) أولاً لاستخراج ملفات SVG.', 'warn');
+      var p = $('#pick'); if(p) p.click();
+      return;
+    }
+
+    var svgList = [];
+    for(var i=0; i<state.files.length; i++){
+      var f = state.files[i];
+      var ext = (f.ext || '').toLowerCase();
+      var isSvg = (ext === 'svg' || f.cat === 'svg' || f.svgFromAxml || /\.svg$/i.test(f.path));
+      if(isSvg){
+        var svgData = f.svgFromAxml || f._bytes;
+        var name = shortName(f.path).replace(/\.(xml|axml|png|webp|jpg)$/i, '') + '.svg';
+        if(!name.toLowerCase().endsWith('.svg')) name += '.svg';
+        svgList.push({ file: f, name: name, data: svgData });
+      }
+    }
+
+    if(!svgList.length){
+      showToast('لم يُعثر على ملفات متجهات SVG أو مسارات قابلة للاستخراج في هذا التطبيق.', 'warn');
+      return;
+    }
+
+    log('✒️ جارٍ تجهيز وتنزيل ' + svgList.length + ' ملفات SVG مفتوحة ومباشرة…');
+
+    // نافذة عرض قائمة ملفات SVG المفتوحة للتنزيل الفوري
+    var ov = document.createElement('div');
+    ov.className = 'svga-modal-overlay';
+    ov.style.zIndex = '999999';
+
+    var box = document.createElement('div');
+    box.className = 'svga-modal-box';
+    box.style.maxWidth = '680px';
+    box.style.background = 'linear-gradient(180deg,#131c38,#0b1020)';
+    box.style.border = '2px solid rgba(16,185,129,0.7)';
+
+    var itemsHtml = svgList.map(function(item, idx){
+      return '<div style="display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.04);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:8px">' +
+        '<div style="display:flex;align-items:center;gap:10px;overflow:hidden">' +
+        '  <span style="font-size:1.3rem">✒️</span>' +
+        '  <div style="text-align:start;overflow:hidden">' +
+        '    <b style="font-size:0.88rem;color:#6ee7b7;display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden">' + item.name + '</b>' +
+        '    <small style="color:var(--dim);font-size:0.75rem">' + fmtSize(item.data.length || item.data.byteLength || 0) + '</small>' +
+        '  </div>' +
+        '</div>' +
+        '<button type="button" class="btn" data-svg-idx="' + idx + '" style="background:rgba(16,185,129,0.2);border:1px solid #10b981;color:#fff;font-size:0.82rem;padding:5px 12px">⬇️ تنزيل مفتوح</button>' +
+      '</div>';
+    }).join('');
+
+    box.innerHTML = 
+      '<div class="svga-modal-head" style="border-bottom:1px solid rgba(16,185,129,0.3)">' +
+      '  <div style="display:flex;align-items:center;gap:10px">' +
+      '    <span style="font-size:1.5rem">✒️</span>' +
+      '    <div><b style="font-size:1.1rem;color:#6ee7b7">ملفات المتجهات SVG المفتوحة (' + svgList.length + ' ملفًا)</b>' +
+      '    <div style="font-size:.78rem;color:var(--dim)">تم استخراجها كملفات .svg قياسية مفتوحة بدون أي ضغط</div></div>' +
+      '  </div>' +
+      '  <button type="button" class="btn ghost" id="closeSvgDirectModal" style="font-size:1.2rem;padding:4px 10px">✕</button>' +
+      '</div>' +
+      '<div style="padding:16px 20px;max-height:360px;overflow-y:auto">' + itemsHtml + '</div>' +
+      '<div class="svga-modal-foot" style="border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center">' +
+      '  <button type="button" class="btn primary" id="btnDownloadAllSvgsNow" style="background:linear-gradient(135deg,#059669,#10b981);color:#fff;font-weight:900">' +
+      '    ⬇️ تنزيل كافة ملفات SVG دفعة واحدة على الجهاز' +
+      '  </button>' +
+      '  <button type="button" class="btn ghost" id="btnDismissSvgModal">إغلاق</button>' +
+      '</div>';
+
+    ov.appendChild(box);
+    document.body.appendChild(ov);
+
+    function closeOv(){ ov.remove(); }
+    box.querySelector('#closeSvgDirectModal').onclick = closeOv;
+    box.querySelector('#btnDismissSvgModal').onclick = closeOv;
+
+    // Single item download click
+    var itemBtns = box.querySelectorAll('button[data-svg-idx]');
+    itemBtns.forEach(function(btn){
+      btn.onclick = function(){
+        var idx = parseInt(this.dataset.svgIdx, 10);
+        var item = svgList[idx];
+        if(item){
+          var blob = (item.data instanceof Blob) ? item.data : new Blob([item.data], { type: 'image/svg+xml;charset=utf-8' });
+          triggerDownload(blob, item.name);
+          showToast('بدأ تنزيل: ' + item.name, 'ok');
+        }
+      };
+    });
+
+    // Download all sequentially
+    box.querySelector('#btnDownloadAllSvgsNow').onclick = function(){
+      showToast('جارٍ بدء تنزيل كافة ملفات SVG المفتوحة…', 'ok');
+      svgList.forEach(function(item, idx){
+        setTimeout(function(){
+          var blob = (item.data instanceof Blob) ? item.data : new Blob([item.data], { type: 'image/svg+xml;charset=utf-8' });
+          triggerDownload(blob, item.name);
+        }, idx * 250);
+      });
+    };
+
+    // Trigger the first download immediately
+    if(svgList.length === 1){
+      var singleBlob = (svgList[0].data instanceof Blob) ? svgList[0].data : new Blob([svgList[0].data], { type: 'image/svg+xml;charset=utf-8' });
+      triggerDownload(singleBlob, svgList[0].name);
+    }
+  };
+}
+
+/* =======================================================================
+   2) محرك بناء وتصدير ملفات وتوثيق PDF للهدايا (Single PDF & Catalog)
+   ======================================================================= */
+function createStandardPdfBlob(canvasList){
+  return new Promise(function(resolve, reject){
+    try {
+      if(!canvasList || !canvasList.length){
+        reject(new Error('No canvases provided for PDF generation'));
+        return;
+      }
+
+      // 1) Use jsPDF if available
+      if(window.jspdf && window.jspdf.jsPDF){
+        var doc = new window.jspdf.jsPDF({
+          orientation: 'portrait',
+          unit: 'pt',
+          format: 'a4'
+        });
+        
+        var pageWidth = doc.internal.pageSize.getWidth();
+        var pageHeight = doc.internal.pageSize.getHeight();
+
+        canvasList.forEach(function(canv, idx){
+          if(idx > 0) doc.addPage('a4', 'portrait');
+          var imgData = canv.toDataURL('image/jpeg', 0.92);
+          doc.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight);
+        });
+
+        var pdfBlob = doc.output('blob');
+        resolve(pdfBlob);
+        return;
+      }
+
+      // 2) Ultra-reliable pure client-side PDF 1.4 binary generator (Fallback)
+      var jpegBlobsPromises = canvasList.map(function(canv){
+        return new Promise(function(resCanv){
+          canv.toBlob(function(b){
+            var reader = new FileReader();
+            reader.onloadend = function(){
+              resCanv(new Uint8Array(reader.result));
+            };
+            reader.readAsArrayBuffer(b);
+          }, 'image/jpeg', 0.90);
+        });
+      });
+
+      Promise.all(jpegBlobsPromises).then(function(jpegBuffers){
+        var pdfParts = [];
+        var offsets = [];
+        var byteCount = 0;
+
+        function addStr(str){
+          var bytes = new Uint8Array(str.length);
+          for(var i=0; i<str.length; i++) bytes[i] = str.charCodeAt(i) & 255;
+          pdfParts.push(bytes);
+          byteCount += bytes.length;
+        }
+
+        function addBytes(u8){
+          pdfParts.push(u8);
+          byteCount += u8.length;
+        }
+
+        addStr('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n');
+
+        var numPages = jpegBuffers.length;
+        var pageObjIds = [];
+        var currentObjId = 3; // 1=Catalog, 2=Pages, 3..=Pages & Images & Contents
+
+        // We will define:
+        // Obj 1: Catalog
+        // Obj 2: Pages
+        // For each page i:
+        //   Obj (pageObjId): Page object
+        //   Obj (imgObjId): Image XObject
+        //   Obj (contentObjId): Page Contents stream
+
+        var pageEntries = [];
+        for(var i=0; i<numPages; i++){
+          var pId = currentObjId++;
+          var imId = currentObjId++;
+          var cId = currentObjId++;
+          pageEntries.push({ pId: pId, imId: imId, cId: cId, buffer: jpegBuffers[i], w: canvasList[i].width, h: canvasList[i].height });
+          pageObjIds.push(pId);
+        }
+
+        // Obj 1: Catalog
+        offsets[1] = byteCount;
+        addStr('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+
+        // Obj 2: Pages
+        offsets[2] = byteCount;
+        var kidsStr = pageObjIds.map(function(id){ return id + ' 0 R'; }).join(' ');
+        addStr('2 0 obj\n<< /Type /Pages /Kids [' + kidsStr + '] /Count ' + numPages + ' >>\nendobj\n');
+
+        // Render each page
+        pageEntries.forEach(function(pe){
+          // Page Object
+          offsets[pe.pId] = byteCount;
+          addStr(pe.pId + ' 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /XObject << /Im1 ' + pe.imId + ' 0 R >> /ProcSet [/PDF /ImageC] >> /Contents ' + pe.cId + ' 0 R >>\nendobj\n');
+
+          // Image Object
+          offsets[pe.imId] = byteCount;
+          addStr(pe.imId + ' 0 obj\n<< /Type /XObject /Subtype /Image /Width ' + pe.w + ' /Height ' + pe.h + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + pe.buffer.length + ' >>\nstream\n');
+          addBytes(pe.buffer);
+          addStr('\nendstream\nendobj\n');
+
+          // Contents Stream (Scaling image to full A4 page)
+          var contentStr = 'q\n595.28 0 0 841.89 0 0 cm\n/Im1 Do\nQ\n';
+          offsets[pe.cId] = byteCount;
+          addStr(pe.cId + ' 0 obj\n<< /Length ' + contentStr.length + ' >>\nstream\n' + contentStr + 'endstream\nendobj\n');
+        });
+
+        var startXref = byteCount;
+        addStr('xref\n0 ' + currentObjId + '\n');
+        addStr('0000000000 65535 f \n');
+        for(var j=1; j<currentObjId; j++){
+          var off = offsets[j] || 0;
+          var offStr = ('0000000000' + off).slice(-10);
+          addStr(offStr + ' 00000 n \n');
+        }
+
+        addStr('trailer\n<< /Size ' + currentObjId + ' /Root 1 0 R >>\nstartxref\n' + startXref + '\n%%EOF\n');
+
+        var totalBlob = new Blob(pdfParts, { type: 'application/pdf' });
+        resolve(totalBlob);
+      }).catch(reject);
+
+    } catch(err){
+      reject(err);
+    }
+  });
+}
+
+function renderGiftCardCanvas(fileItem, giftTitle, indexNum, totalItems){
+  return new Promise(function(resolve){
+    var canv = document.createElement('canvas');
+    var W = 1240, H = 1754; // A4 standard high-res at 150 DPI
+    canv.width = W; canv.height = H;
+    var ctx = canv.getContext('2d');
+
+    // Background gradient
+    var bgGrad = ctx.createLinearGradient(0, 0, W, H);
+    bgGrad.addColorStop(0, '#090d1a');
+    bgGrad.addColorStop(0.5, '#0f172a');
+    bgGrad.addColorStop(1, '#131e3b');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Modern cyber grid accents
+    ctx.strokeStyle = 'rgba(234, 179, 8, 0.12)';
+    ctx.lineWidth = 1;
+    for(var x = 40; x < W; x += 60){
+      ctx.beginPath(); ctx.moveTo(x, 40); ctx.lineTo(x, H - 40); ctx.stroke();
+    }
+    for(var y = 40; y < H; y += 60){
+      ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(W - 40, y); ctx.stroke();
+    }
+
+    // Outer Gold Tech Border
+    ctx.strokeStyle = 'rgba(234, 179, 8, 0.75)';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(35, 35, W - 70, H - 70);
+
+    ctx.strokeStyle = 'rgba(59, 130, 246, 0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(45, 45, W - 90, H - 90);
+
+    // Corner accents
+    function drawCorner(cx, cy, ox, oy){
+      ctx.fillStyle = '#f59e0b';
+      ctx.fillRect(cx - 5, cy - 5, 10, 10);
+      ctx.strokeStyle = '#fde047';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy + oy * 30);
+      ctx.lineTo(cx, cy);
+      ctx.lineTo(cx + ox * 30, cy);
+      ctx.stroke();
+    }
+    drawCorner(35, 35, 1, 1);
+    drawCorner(W - 35, 35, -1, 1);
+    drawCorner(35, H - 35, 1, -1);
+    drawCorner(W - 35, H - 35, -1, -1);
+
+    // Header banner
+    var hGrad = ctx.createLinearGradient(70, 70, W - 140, 150);
+    hGrad.addColorStop(0, '#1e293b');
+    hGrad.addColorStop(1, '#0f172a');
+    ctx.fillStyle = hGrad;
+    ctx.roundRect ? ctx.roundRect(70, 70, W - 140, 130, 16) : ctx.fillRect(70, 70, W - 140, 130);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(234, 179, 8, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Header Text
+    ctx.fillStyle = '#fef08a';
+    ctx.font = 'bold 36px "Segoe UI", Tahoma, Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('🎁 وثيقة ومواصفات أصل الهدية الرقمية', W / 2, 125);
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '20px "Segoe UI", Tahoma, Arial, sans-serif';
+    ctx.fillText('Digital Gift Asset Specification & Inspection Sheet (' + (indexNum || 1) + ' / ' + (totalItems || 1) + ')', W / 2, 165);
+
+    // Main Preview Box
+    var boxX = 90, boxY = 230, boxW = W - 180, boxH = 680;
+    ctx.fillStyle = '#030712';
+    ctx.roundRect ? ctx.roundRect(boxX, boxY, boxW, boxH, 20) : ctx.fillRect(boxX, boxY, boxW, boxH);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(234, 179, 8, 0.45)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Checkered background for preview
+    var chkSize = 24;
+    for(var bx = boxX + 10; bx < boxX + boxW - 10; bx += chkSize){
+      for(var by = boxY + 10; by < boxY + boxH - 10; by += chkSize){
+        var isDark = Math.floor((bx - boxX) / chkSize) % 2 === Math.floor((by - boxY) / chkSize) % 2;
+        ctx.fillStyle = isDark ? '#111827' : '#1f2937';
+        ctx.fillRect(bx, by, Math.min(chkSize, boxX + boxW - 10 - bx), Math.min(chkSize, boxY + boxH - 10 - by));
+      }
+    }
+
+    // Load and draw image
+    var img = new Image();
+    var sName = giftTitle || shortName(fileItem.path);
+
+    img.onload = function(){
+      var iw = img.width || 1, ih = img.height || 1;
+      var maxImgW = boxW - 80, maxImgH = boxH - 80;
+      var scale = Math.min(maxImgW / iw, maxImgH / ih, 1.8);
+      var dw = iw * scale, dh = ih * scale;
+      var dx = boxX + (boxW - dw) / 2, dy = boxY + (boxH - dh) / 2;
+
+      ctx.drawImage(img, dx, dy, dw, dh);
+      drawDetailsAndFinalize();
+    };
+
+    img.onerror = function(){
+      // Draw placeholder
+      ctx.fillStyle = '#eab308';
+      ctx.font = 'bold 72px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('🎁', W / 2, boxY + boxH / 2);
+      drawDetailsAndFinalize();
+    };
+
+    // Determine Image URL
+    var imgSrc = '';
+    if(fileItem.thumbUrl){
+      imgSrc = fileItem.thumbUrl;
+    } else if(fileItem._bytes){
+      var mime = fileItem.mime || 'image/png';
+      if(fileItem.svgFromAxml){
+        var blob = new Blob([fileItem.svgFromAxml], { type: 'image/svg+xml' });
+        imgSrc = URL.createObjectURL(blob);
+      } else {
+        var b = new Blob([fileItem._bytes], { type: mime });
+        imgSrc = URL.createObjectURL(b);
+      }
+    }
+
+    if(imgSrc) img.src = imgSrc;
+    else img.onerror();
+
+    function drawDetailsAndFinalize(){
+      // Information Table Card
+      var cardY = 940, cardH = 620;
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      ctx.roundRect ? ctx.roundRect(boxX, cardY, boxW, cardH, 16) : ctx.fillRect(boxX, cardY, boxW, cardH);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(59, 130, 246, 0.4)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Table Title
+      ctx.fillStyle = '#fde047';
+      ctx.font = 'bold 26px "Segoe UI", Tahoma, Arial, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText('📊 البيانات الفنية ومواصفات الملف المستخرج:', boxX + boxW - 30, cardY + 50);
+
+      var rows = [
+        { label: 'اسم الهدية / الأصل:', val: sName },
+        { label: 'المسار داخل الحزمة:', val: fileItem.path || '—' },
+        { label: 'نوع وتصنيف الأصل:', val: (catInfo(fileItem.cat) ? catInfo(fileItem.cat).ar : 'أصل رقمي') + ' (' + (fileItem.ext ? '.' + fileItem.ext : '—') + ')' },
+        { label: 'الأبعاد المعيارية:', val: fileItem.dims ? (fileItem.dims.w + ' × ' + fileItem.dims.h + ' بكسل') : 'تلقائي / متجهات عالية الدقة' },
+        { label: 'الحجم التخزيني:', val: fmtSize(fileItem.size || (fileItem._bytes ? fileItem._bytes.length : 0)) },
+        { label: 'حالة الشفافية:', val: (fileItem.alpha && fileItem.alpha.length) ? ('مدعومة (Alpha Channel ✓ ' + fileItem.alpha.slice(0,2).join(' ') + ')') : 'عادية' },
+        { label: 'تاريخ وساعة الاستخراج:', val: new Date().toLocaleString('ar-EG') }
+      ];
+
+      var startY = cardY + 110;
+      var rowGap = 65;
+
+      rows.forEach(function(r, idx){
+        var ry = startY + idx * rowGap;
+
+        // Row background strip
+        if(idx % 2 === 0){
+          ctx.fillStyle = 'rgba(255,255,255,0.03)';
+          ctx.fillRect(boxX + 15, ry - 35, boxW - 30, 52);
+        }
+
+        ctx.fillStyle = '#93c5fd';
+        ctx.font = 'bold 20px "Segoe UI", Tahoma, Arial, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(r.label, boxX + boxW - 35, ry);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '19px "Segoe UI", Tahoma, Arial, sans-serif';
+        ctx.textAlign = 'left';
+        var maxValW = boxW - 320;
+        var printVal = r.val;
+        if(ctx.measureText(printVal).width > maxValW){
+          while(printVal.length > 5 && ctx.measureText(printVal + '…').width > maxImgW){
+            printVal = printVal.slice(0, -3);
+          }
+          printVal += '…';
+        }
+        ctx.fillText(printVal, boxX + 40, ry);
+      });
+
+      // Footer stamp
+      ctx.fillStyle = '#64748b';
+      ctx.font = '16px "Segoe UI", Tahoma, Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('مستخرج أصول التطبيقات والمشاريع — تم التحقق والتصدير بجودة أصلية 100% بدون فقدان بالبيانات', W / 2, H - 65);
+
+      resolve(canv);
+    }
+  });
+}
+
+// 1.C) تنزيل كافة الهدايا والصور في مجلد مفتوح مباشر على جهاز المستخدم (📁 Folder Picker)
+function handleSaveToDirectoryPicker(isCustomSubfolders){
+  if(!state.files || !state.files.length){
+    showToast('يرجى اختيار أو رفع ملف أولاً لحفظه في مجلد مفتوح.', 'warn');
+    var p = $('#pick'); if(p) p.click();
+    return;
+  }
+
+  var giftItems = state.files.filter(function(f){
+    var ext = (f.ext || '').toLowerCase();
+    return (f.cat === 'raster' || f.cat === 'svga' || f.cat === 'svg' || f.svgFromAxml || ['png','webp','jpg','jpeg','svg','svga'].indexOf(ext) >= 0);
+  });
+  if(!giftItems.length) giftItems = state.files.slice(0, 50);
+
+  var dirPromise = ('showDirectoryPicker' in window) 
+    ? window.showDirectoryPicker({ mode: 'readwrite', startIn: 'downloads' })
+    : Promise.reject(new Error('Browser does not support directory picker'));
+
+  dirPromise.then(function(dirHandle){
+    showToast('⏳ جارٍ حفظ الهدايا والصور في المجلد المفتوح المحدد…', 'ok');
+    log('📁 جارٍ حفظ ' + giftItems.length + ' ملف صورة وهدية داخل المجلد المفتوح…');
+
+    var pChain = Promise.resolve();
+    giftItems.forEach(function(item, idx){
+      pChain = pChain.then(function(){
+        return CORE.readBytes(item).then(function(bytes){
+          var baseName = shortName(item.path).replace(/\.[^/.]+$/, '').replace(/\s+/g, '_');
+          var ext = (item.ext || 'bin').toLowerCase();
+          
+          var targetFolderPromise = isCustomSubfolders
+            ? dirHandle.getDirectoryHandle('هدية_' + baseName, { create: true })
+            : Promise.resolve(dirHandle);
+
+          return targetFolderPromise.then(function(giftFolder){
+            // Write gift file
+            return giftFolder.getFileHandle(baseName + '.' + ext, { create: true })
+              .then(function(fileHandle){ return fileHandle.createWritable(); })
+              .then(function(writable){
+                return writable.write(bytes).then(function(){ return writable.close(); });
+              }).then(function(){
+                // Also render image frame and save as PNG
+                return renderGiftCardCanvas(item, baseName, idx + 1, giftItems.length).then(function(canv){
+                  return new Promise(function(res){ canv.toBlob(res, 'image/png'); });
+                }).then(function(imgBlob){
+                  if(!imgBlob) return;
+                  return giftFolder.getFileHandle(baseName + '_صورة.png', { create: true })
+                    .then(function(fHandle){ return fHandle.createWritable(); })
+                    .then(function(w){
+                      return imgBlob.arrayBuffer().then(function(ab){ return w.write(ab); }).then(function(){ return w.close(); });
+                    });
+                });
+              });
+          });
+        });
+      });
+    });
+
+    return pChain.then(function(){
+      log('✅ تم حفظ جميع الهدايا والصور داخل المجلد المفتوح المعتمد على جهازك بنجاح!');
+      showToast('✅ تم حفظ الهدايا والصور في المجلد المفتوح بنجاح!', 'ok');
+    });
+  }).catch(function(err){
+    if(err && err.name === 'AbortError') return;
+    // Fallback single ZIP download
+    showToast('⏳ جارٍ ضغط وتجهيز حزمة الهدايا والصور بملف ZIP واحد…', 'ok');
+    var fallbackZip = new JSZip();
+    var pChain = Promise.resolve();
+
+    giftItems.forEach(function(item, idx){
+      pChain = pChain.then(function(){
+        return CORE.readBytes(item).then(function(bytes){
+          var baseName = shortName(item.path).replace(/\.[^/.]+$/, '').replace(/\s+/g, '_');
+          var ext = (item.ext || 'bin').toLowerCase();
+
+          var folderPrefix = isCustomSubfolders ? ('فولدر_هدية_' + baseName + '/') : '';
+          fallbackZip.file(folderPrefix + baseName + '.' + ext, bytes);
+
+          return renderGiftCardCanvas(item, baseName, idx + 1, giftItems.length).then(function(canv){
+            return new Promise(function(res){ canv.toBlob(res, 'image/png'); });
+          }).then(function(imgBlob){
+            if(imgBlob){
+              return imgBlob.arrayBuffer().then(function(ab){
+                fallbackZip.file(folderPrefix + baseName + '_صورة.png', ab);
+              });
+            }
+          });
+        });
+      });
+    });
+
+    pChain.then(function(){
+      var zipName = isCustomSubfolders ? 'تخصيص_فولدر_مستقل_لكل_هدية' : 'جميع_الهدايا_والصور_فولدر_واحد';
+      return safeDownloadZip(fallbackZip, zipName);
+    }).then(function(downloadedName){
+      if(downloadedName){
+        log('✅ تم تنزيل الهدايا والصور بملف ZIP واحد بنجاح: ' + downloadedName);
+        showToast('✅ تم تنزيل الملف بملف ZIP واحد بنجاح!', 'ok');
+      }
+    });
+  });
+}
+
+var btnFolder1 = $('#btnExportOpenFolder');
+if(btnFolder1) btnFolder1.onclick = function(){ handleSaveToDirectoryPicker(false); };
+
+var btnFolder2 = $('#btnExportOpenFolderCustom');
+if(btnFolder2) btnFolder2.onclick = function(){ handleSaveToDirectoryPicker(true); };
+
+// 2.A) الزر الأول: تنزيل كل هدية في ملف PDF مستقل
+var btnSinglePdf = $('#btnExportPdfSingleGifts');
+if(btnSinglePdf){
+  btnSinglePdf.onclick = function(){
+    if(!state.files || !state.files.length){
+      showToast('يرجى اختيار أو سحب ملف تطبيق (APK / ZIP) أولاً لتوليد ملفات PDF.', 'warn');
+      var p = $('#pick'); if(p) p.click();
+      return;
+    }
+
+    var giftItems = state.files.filter(function(f){
+      var ext = (f.ext || '').toLowerCase();
+      return (f.cat === 'raster' || f.cat === 'svga' || f.cat === 'svg' || f.svgFromAxml || ['png','webp','jpg','jpeg','svg','svga'].indexOf(ext) >= 0);
+    });
+    if(!giftItems.length) giftItems = state.files.slice(0, 30);
+
+    log('📄 جارٍ توليد وتنزيل ' + giftItems.length + ' ملفات PDF مستقلة لكل هدية…');
+    showToast('⏳ جارٍ تجهيز ملفات PDF الفردية للهدايا…', 'ok');
+
+    var queue = giftItems.slice(0, 30);
+    var zip = new JSZip();
+    var pChain = Promise.resolve();
+
+    queue.forEach(function(item, idx){
+      pChain = pChain.then(function(){
+        return renderGiftCardCanvas(item, shortName(item.path), idx + 1, queue.length).then(function(canv){
+          return createStandardPdfBlob([canv]).then(function(singleBlob){
+            var itemPdfName = 'توثيق_هدية_' + shortName(item.path).replace(/\.[^.]+$/, '') + '_' + (idx+1) + '.pdf';
+            zip.file(itemPdfName, singleBlob);
+            
+            // Also trigger direct single download if small queue
+            if(queue.length <= 3){
+              setTimeout(function(){ triggerDownload(singleBlob, itemPdfName); }, idx * 300);
+            }
+          });
+        });
+      });
+    });
+
+    pChain.then(function(){
+      if(queue.length > 3){
+        return safeDownloadZip(zip, 'حزمة_ملفات_PDF_لكل_هدية_' + stamp());
+      }
+    }).then(function(zipName){
+      if(zipName) log('✅ تم تنزيل حزمة ملفات PDF الفردية للهدايا بنجاح: ' + zipName);
+    }).catch(function(err){
+      alert('حدث خطأ أثناء تصدير ملفات PDF: ' + (err && err.message ? err.message : err));
+    });
+  };
+}
+
+// 2.B) الزر الثاني: تنزيل كافة الهدايا في كتالوج PDF موحد
+var btnCatalogPdf = $('#btnExportPdfCatalogGifts');
+if(btnCatalogPdf){
+  btnCatalogPdf.onclick = function(){
+    if(!state.files || !state.files.length){
+      showToast('يرجى اختيار أو سحب ملف تطبيق (APK / ZIP) أولاً لتوليد كتالوج PDF.', 'warn');
+      var p = $('#pick'); if(p) p.click();
+      return;
+    }
+
+    var giftItems = state.files.filter(function(f){
+      var ext = (f.ext || '').toLowerCase();
+      return (f.cat === 'raster' || f.cat === 'svga' || f.cat === 'svg' || f.svgFromAxml || ['png','webp','jpg','jpeg','svg','svga'].indexOf(ext) >= 0);
+    });
+    if(!giftItems.length) giftItems = state.files.slice(0, 50);
+
+    log('📑 جارٍ تجميع كافة الهدايا في كتالوج PDF موحد وشامل…');
+    showToast('⏳ جارٍ تجهيز كتالوج PDF الموحد…', 'ok');
+
+    var catalogPromises = giftItems.map(function(item, idx){
+      return renderGiftCardCanvas(item, shortName(item.path), idx + 1, giftItems.length);
+    });
+
+    Promise.all(catalogPromises).then(function(canvases){
+      return createStandardPdfBlob(canvases);
+    }).then(function(pdfBlob){
+      var pdfName = 'كتالوج_هدايا_المشروع_الشامل_' + stamp() + '.pdf';
+      triggerDownload(pdfBlob, pdfName);
+      log('✅ تم تنزيل كتالوج PDF الموحد بنجاح: ' + pdfName);
+      showToast('✅ تم تنزيل كتالوج PDF الموحد بنجاح!', 'ok');
+    }).catch(function(err){
+      alert('تعذر إنشاء كتالوج PDF: ' + (err && err.message ? err.message : err));
+    });
+  };
+}
+
+/* =======================================================================
+   3) تشغيل ونقل المشروع إلى After Effects (.jsx ExtendScript Generator)
+   ======================================================================= */
+var btnExAe = $('#btnExportAfterEffects');
+if(btnExAe){
+  btnExAe.onclick = function(){
+    if(!state.files || !state.files.length){
+      showToast('يرجى اختيار أو سحب ملف تطبيق (APK / ZIP) أولاً لتصدير سكربت After Effects.', 'warn');
+      var p = $('#pick'); if(p) p.click();
+      return;
+    }
+
+    log('🚀 جارٍ إعداد سكربت الاستيراد والتنظيم التلقائي لبرنامج Adobe After Effects…');
+
+    var zip = new JSZip();
+    var assetCount = 0;
+    var assetFileNames = [];
+
+    // Filter project visual & sound assets
+    for(var i=0; i<state.files.length; i++){
+      var f = state.files[i];
+      var ext = (f.ext || '').toLowerCase();
+      var sName = shortName(f.path);
+      var safeN = sName.replace(/[\\/:*?"<>|]/g, '_');
+
+      if(f.svgFromAxml){
+        var svgN = safeN.replace(/\.(xml|axml)$/i, '') + '.svg';
+        zip.file('assets/' + svgN, f.svgFromAxml);
+        assetFileNames.push({ name: svgN, type: 'vector' });
+        assetCount++;
+      } else if(f.cat === 'raster' || ['png','webp','jpg','jpeg','gif'].indexOf(ext) >= 0){
+        var rExt = (ext === 'webp' || ext === 'jpg' || ext === 'jpeg' || ext === 'gif') ? ext : 'png';
+        var imgN = safeN.replace(/\.[^.]+$/, '') + '.' + rExt;
+        zip.file('assets/' + imgN, f._bytes);
+        assetFileNames.push({ name: imgN, type: 'image' });
+        assetCount++;
+      } else if(ext === 'svg' || f.cat === 'svg'){
+        var pureSvgN = safeN.replace(/\.svg$/i, '') + '.svg';
+        zip.file('assets/' + pureSvgN, f._bytes);
+        assetFileNames.push({ name: pureSvgN, type: 'vector' });
+        assetCount++;
+      } else if(f.cat === 'audio' || ['mp3','wav','ogg'].indexOf(ext) >= 0){
+        var audN = safeN.replace(/\.[^.]+$/, '') + '.' + (ext || 'mp3');
+        zip.file('assets/' + audN, f._bytes);
+        assetFileNames.push({ name: audN, type: 'audio' });
+        assetCount++;
+      }
+    }
+
+    // Build After Effects ExtendScript JSX
+    var jsxLines = [
+      '/**',
+      ' * Adobe After Effects Automated Project Importer & Layer Setup',
+      ' * Generated by APK Asset Extractor & Motion Suite',
+      ' * Date: ' + new Date().toISOString(),
+      ' * Total Assets: ' + assetCount,
+      ' */',
+      '(function() {',
+      '    app.beginUndoGroup("Import APK Assets to Composition");',
+      '    try {',
+      '        var proj = app.project || app.newProject();',
+      '        var scriptFile = new File($.fileName);',
+      '        var scriptFolder = scriptFile.parent;',
+      '        var assetsFolder = new Folder(scriptFolder.fsName + "/assets");',
+      '',
+      '        if (!assetsFolder.exists) {',
+      '            assetsFolder = Folder.selectDialog("يرجى اختيار مجلد assets المرفق مع السكربت:");',
+      '        }',
+      '',
+      '        if (!assetsFolder || !assetsFolder.exists) {',
+      '            alert("تعذر العثور على مجلد الأصول (assets). يرجى التأكد من وجوده بجوار السكربت.");',
+      '            app.endUndoGroup();',
+      '            return;',
+      '        }',
+      '',
+      '        // Create Organized Bins in AE Project Panel',
+      '        var folderImages = proj.items.addFolder("01_Gifts_&_Images");',
+      '        var folderVectors = proj.items.addFolder("02_Vector_SVGs");',
+      '        var folderAudio = proj.items.addFolder("03_Sound_FX");',
+      '        var folderComps = proj.items.addFolder("04_Compositions");',
+      '',
+      '        // Create Main Working Comp (1080x1080, 30fps, 10s)',
+      '        var mainComp = proj.items.addComp("Main_APK_Export_Comp", 1080, 1080, 1.0, 10.0, 30.0);',
+      '        mainComp.parentFolder = folderComps;',
+      '        mainComp.openInViewer();',
+      '',
+      '        var files = assetsFolder.getFiles();',
+      '        var importedCount = 0;',
+      '',
+      '        for (var i = 0; i < files.length; i++) {',
+      '            var f = files[i];',
+      '            if (f instanceof File && !f.name.match(/^\\./)) {',
+      '                try {',
+      '                    var io = new ImportOptions(f);',
+      '                    var item = proj.importFile(io);',
+      '                    if (item) {',
+      '                        var ext = f.name.substring(f.name.lastIndexOf(".")).toLowerCase();',
+      '                        if (ext === ".svg" || ext === ".ai") {',
+      '                            item.parentFolder = folderVectors;',
+      '                        } else if (ext === ".mp3" || ext === ".wav" || ext === ".ogg") {',
+      '                            item.parentFolder = folderAudio;',
+      '                        } else {',
+      '                            item.parentFolder = folderImages;',
+      '                        }',
+      '',
+      '                        // Add to comp layer stack',
+      '                        if (ext !== ".mp3" && ext !== ".wav" && ext !== ".ogg") {',
+      '                            var layer = mainComp.layers.add(item);',
+      '                            layer.name = f.name.replace(/\\.[^.]+$/, "");',
+      '                            layer.transform.position.setValue([1080 / 2, 1080 / 2]);',
+      '                        }',
+      '                        importedCount++;',
+      '                    }',
+      '                } catch(err) {',
+      '                    // Continue importing remaining files',
+      '                }',
+      '            }',
+      '        }',
+      '',
+      '        alert("✅ تم استيراد وتجهيز " + importedCount + " عنصراً داخل مشروع After Effects بنجاح!");',
+      '    } catch(mainErr) {',
+      '        alert("حدث خطأ أثناء تشغيل السكربت: " + mainErr.message);',
+      '    } finally {',
+      '        app.endUndoGroup();',
+      '    }',
+      '})();'
+    ].join('\n');
+
+    var readmeText = [
+      '========================================================================',
+      '  دليل تشغيل واستيراد المشروع في برنامج Adobe After Effects (.jsx)',
+      '========================================================================',
+      '',
+      'خطوات التشغيل السهلة:',
+      '1. فك ضغط ملف الـ ZIP هذا في أي مجلد على جهازك.',
+      '2. افتح برنامج Adobe After Effects.',
+      '3. من القائمة العلوية اختر:',
+      '   File > Scripts > Run Script File... (ملف > السكربتات > تشغيل ملف السكربت)',
+      '4. اختر الملف المرفق باسم: Import_To_AfterEffects.jsx',
+      '5. سيقوم البرنامج تلقائياً بإنشاء Composition بدقة 1080x1080 ومجلدات منظمة',
+      '   واستيراد كافة الصور والمتجهات وترتيبها في الـ Timeline فوراً!',
+      '',
+      'المحتويات:',
+      '- Import_To_AfterEffects.jsx : سكربت الأتمتة',
+      '- assets/ : مجلد يضم كافة الصور ومتجهات SVG والأصوات المستخرجة',
+      '========================================================================'
+    ].join('\n');
+
+    zip.file('Import_To_AfterEffects.jsx', jsxLines);
+    zip.file('README_طريقة_التشغيل_في_AfterEffects.txt', readmeText);
+
+    // Also trigger direct download of the .jsx script file
+    var jsxBlob = new Blob([jsxLines], { type: 'application/javascript;charset=utf-8' });
+    triggerDownload(jsxBlob, 'Import_To_AfterEffects.jsx');
+
+    // And prepare the full ZIP package
+    safeDownloadZip(zip, 'AE_Project_Bundle_' + stamp(), function(p){
+      if(p.percent) log('⏳ جارٍ ضغط حزمة After Effects: ' + p.percent.toFixed(0) + '%');
+    }).then(function(pkgName){
+      log('🎬 تم تصدير حزمة After Effects بنجاح: ' + pkgName + ' مع ملف السكربت .jsx المباشر!');
+      showToast('✅ تم تجهيز وتنزيل سكربت وحزمة After Effects بنجاح!', 'ok');
+    });
+  };
+}
 
 window.__APK_APP = { run: run };
 })();

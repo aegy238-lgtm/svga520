@@ -685,6 +685,196 @@ class MegaService {
   }
 
   /**
+   * Get all file links and exportable data for Dashboard
+   */
+  public getAllFileLinks(baseUrl: string = ''): {
+    links: Array<{
+      id: string;
+      fileId: string;
+      fileName: string;
+      fileSize: number;
+      category: string;
+      mimeType: string;
+      uploadedAt: string;
+      uploaderName: string;
+      downloadUrl: string;
+      megaUrl: string;
+    }>;
+    formattedText: string;
+    rawDownloadLinksText: string;
+    rawMegaLinksText: string;
+    totalFiles: number;
+    totalSizeBytes: number;
+  } {
+    const list = Array.from(this.records.values());
+    let totalSizeBytes = 0;
+
+    const links = list.map((record, index) => {
+      const size = record.fileSize || record.size || 0;
+      totalSizeBytes += size;
+      const downloadUrl = record.downloadUrl || `${baseUrl}/api/storage/download/${record.id}`;
+      const megaUrl = record.megaUrl || '';
+      const fileName = record.originalName || record.fileName || `file_${record.id}`;
+      const uploader = (record.uploadedBy as any)?.userName || record.userName || 'مستخدم المنصة';
+      const uploadedAt = record.uploadedAt || new Date().toISOString();
+
+      return {
+        id: record.id,
+        fileId: record.fileId || record.id,
+        fileName,
+        fileSize: size,
+        category: record.category || 'other',
+        mimeType: record.mimeType || 'application/octet-stream',
+        uploadedAt,
+        uploaderName: uploader,
+        downloadUrl,
+        megaUrl
+      };
+    });
+
+    const textLines = [
+      `=======================================================`,
+      `📦 سجل وسحابة روابط ملفات السيرفر (${links.length} ملف - ${(totalSizeBytes / (1024 * 1024)).toFixed(2)} MB)`,
+      `تاريخ التقرير: ${new Date().toLocaleString('ar-EG')}`,
+      `=======================================================\n`
+    ];
+
+    links.forEach((item, idx) => {
+      textLines.push(`[ملف #${idx + 1}] ${item.fileName}`);
+      textLines.push(`- الحجم: ${(item.fileSize / 1024 / 1024).toFixed(2)} MB (${item.fileSize.toLocaleString()} بايت)`);
+      textLines.push(`- القسم: ${item.category} | المرفوع بواسطة: ${item.uploaderName}`);
+      textLines.push(`- تاريخ الرفع: ${item.uploadedAt}`);
+      textLines.push(`- رابط التنزيل المباشر: ${item.downloadUrl}`);
+      if (item.megaUrl) {
+        textLines.push(`- رابط MEGA السحابي: ${item.megaUrl}`);
+      }
+      textLines.push(`-------------------------------------------------------`);
+    });
+
+    const rawDownloadLinks = links.map(l => l.downloadUrl).join('\n');
+    const rawMegaLinks = links.filter(l => l.megaUrl).map(l => l.megaUrl).join('\n');
+
+    return {
+      links,
+      formattedText: textLines.join('\n'),
+      rawDownloadLinksText: rawDownloadLinks,
+      rawMegaLinksText: rawMegaLinks,
+      totalFiles: links.length,
+      totalSizeBytes
+    };
+  }
+
+  /**
+   * Clean server storage & temporary files with safe link preservation
+   */
+  public cleanServerStorage(options: {
+    cleanLocalCache?: boolean;
+    cleanUploadsDir?: boolean;
+    clearRecords?: boolean;
+    fileIds?: string[];
+  } = {}): {
+    success: boolean;
+    freedBytes: number;
+    deletedDiskFilesCount: number;
+    preservedLinksCount: number;
+    remainingFilesCount: number;
+    cleanedLocations: string[];
+    exportedLinks: any[];
+    message: string;
+  } {
+    const {
+      cleanLocalCache = true,
+      cleanUploadsDir = true,
+      clearRecords = false,
+      fileIds
+    } = options;
+
+    let freedBytes = 0;
+    let deletedDiskFilesCount = 0;
+    const cleanedLocations: string[] = [];
+
+    // Export all links first so nothing is ever lost
+    const exportedData = this.getAllFileLinks();
+
+    // 1. Clean local cache directory
+    if (cleanLocalCache && fs.existsSync(LOCAL_STORAGE_DIR)) {
+      try {
+        const files = fs.readdirSync(LOCAL_STORAGE_DIR);
+        for (const file of files) {
+          const filePath = path.join(LOCAL_STORAGE_DIR, file);
+          try {
+            const stat = fs.statSync(filePath);
+            if (stat.isFile()) {
+              if (fileIds && fileIds.length > 0) {
+                const matches = fileIds.some(id => file.startsWith(id));
+                if (!matches) continue;
+              }
+              freedBytes += stat.size;
+              fs.unlinkSync(filePath);
+              deletedDiskFilesCount++;
+            }
+          } catch (e) {}
+        }
+        cleanedLocations.push('data/mega_local_cache');
+      } catch (err) {
+        console.warn('Error cleaning LOCAL_STORAGE_DIR:', err);
+      }
+    }
+
+    // 2. Clean temporary uploads directory
+    if (cleanUploadsDir) {
+      const uploadsDir = path.join(process.cwd(), 'uploads');
+      if (fs.existsSync(uploadsDir)) {
+        try {
+          const files = fs.readdirSync(uploadsDir);
+          for (const file of files) {
+            const filePath = path.join(uploadsDir, file);
+            try {
+              const stat = fs.statSync(filePath);
+              if (stat.isFile()) {
+                freedBytes += stat.size;
+                fs.unlinkSync(filePath);
+                deletedDiskFilesCount++;
+              }
+            } catch (e) {}
+          }
+          cleanedLocations.push('uploads');
+        } catch (err) {
+          console.warn('Error cleaning uploads dir:', err);
+        }
+      }
+    }
+
+    // 3. Clear records if requested
+    if (clearRecords) {
+      if (fileIds && fileIds.length > 0) {
+        for (const id of fileIds) {
+          this.records.delete(id);
+        }
+      } else {
+        this.records.clear();
+        this.hashIndex.clear();
+      }
+      this.recalculateStats();
+      this.persistStateToDisk();
+    }
+
+    const remainingFilesCount = this.records.size;
+    const freedMb = (freedBytes / (1024 * 1024)).toFixed(2);
+
+    return {
+      success: true,
+      freedBytes,
+      deletedDiskFilesCount,
+      preservedLinksCount: remainingFilesCount,
+      remainingFilesCount,
+      cleanedLocations,
+      exportedLinks: exportedData.links,
+      message: `تم تنظيف السيرفر بنجاح! تم تحرير ${freedMb} ميجابايت وحذف ${deletedDiskFilesCount} ملفاً من قرص السيرفر مع الاحتفاظ بـ ${remainingFilesCount} رابطاً وجاهزيتها للنسخ والتنزيل.`
+    };
+  }
+
+  /**
    * Get Stats
    */
   public getStats(): MegaStorageStats {

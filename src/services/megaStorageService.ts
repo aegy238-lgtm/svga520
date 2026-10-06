@@ -227,6 +227,85 @@ export async function deleteStorageFile(fileId: string): Promise<boolean> {
 }
 
 /**
+ * Fetch all stored file links and formatted summary for Dashboard
+ */
+export async function fetchStorageLinks(): Promise<{
+  success: boolean;
+  links: Array<{
+    id: string;
+    fileId: string;
+    fileName: string;
+    fileSize: number;
+    category: string;
+    mimeType: string;
+    uploadedAt: string;
+    uploaderName: string;
+    downloadUrl: string;
+    megaUrl: string;
+  }>;
+  formattedText: string;
+  rawDownloadLinksText: string;
+  rawMegaLinksText: string;
+  totalFiles: number;
+  totalSizeBytes: number;
+}> {
+  const res = await fetch('/api/storage/links');
+  if (!res.ok) {
+    throw new Error('فشل جلب روابط الملفات من السيرفر');
+  }
+  return res.json();
+}
+
+/**
+ * Clean server storage / local cache with link preservation report
+ */
+export async function triggerServerStorageClean(options: {
+  cleanLocalCache?: boolean;
+  cleanUploadsDir?: boolean;
+  clearRecords?: boolean;
+  fileIds?: string[];
+} = {}): Promise<{
+  success: boolean;
+  freedBytes: number;
+  deletedDiskFilesCount: number;
+  preservedLinksCount: number;
+  remainingFilesCount: number;
+  cleanedLocations: string[];
+  exportedLinks: any[];
+  message: string;
+}> {
+  const res = await fetch('/api/storage/clean', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'فشل تنظيف السيرفر');
+  }
+  return res.json();
+}
+
+/**
+ * Batch delete multiple files
+ */
+export async function batchDeleteFiles(fileIds: string[]): Promise<{
+  success: boolean;
+  deletedCount: number;
+  message: string;
+}> {
+  const res = await fetch('/api/storage/batch-delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fileIds })
+  });
+  if (!res.ok) {
+    throw new Error('فشل حذف الملفات المحددة');
+  }
+  return res.json();
+}
+
+/**
  * Helper to format byte sizes (e.g. 1.25 MB)
  */
 export function formatBytes(bytes: number, decimals = 2): string {

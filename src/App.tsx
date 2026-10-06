@@ -105,6 +105,7 @@ import { VideoDurationSpeedModal } from './components/VideoDurationSpeedModal';
 import { VipSubscriptionModal } from './components/VipSubscriptionModal';
 import { ScreenProtectionOverlay } from './components/ScreenProtectionOverlay';
 import { useAuth } from './contexts/AuthContext';
+import { registerCurrentUserProvider } from './services/autoStorageSync';
 import { AppState, FileMetadata, AppSettings } from './types';
 import { useAccessControl } from './hooks/useAccessControl';
 import { doc, getDoc, onSnapshot, updateDoc, setDoc } from 'firebase/firestore';
@@ -163,6 +164,11 @@ const isVideoUrl = (url?: string | null): boolean => {
 const App: React.FC = () => {
   const { currentUser, loading, logout } = useAuth();
   const { checkAccess } = useAccessControl();
+
+  // Register current authenticated user with central storage sync
+  useEffect(() => {
+    registerCurrentUserProvider(() => currentUser);
+  }, [currentUser]);
   const [state, setState] = useState<AppState>(AppState.IDLE);
   const [fileMetadata, setFileMetadata] = useState<FileMetadata | null>(null);
   const [batchFiles, setBatchFiles] = useState<File[]>([]);

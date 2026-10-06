@@ -3,7 +3,7 @@ import {
   X, Download, Sparkles, CheckCircle2, AlertCircle, FileCode, 
   Layers, Play, Sliders, Zap, Film, Image as ImageIcon, Music,
   Check, ArrowDownToLine, Copy, ExternalLink, HelpCircle, ChevronRight,
-  Clock, RefreshCw, FileText, CheckCheck, Code
+  Clock, RefreshCw, FileText, CheckCheck, Code, Upload
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 

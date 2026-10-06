@@ -4,6 +4,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import audioRouter from "./src/server/audioRouter";
 import exportJobsRouter from "./src/server/exportJobsRouter";
+import storageRouter from "./src/server/storageRouter";
+import telegramRouter from "./src/server/telegramRouter";
 
 // In-memory maintenance cache for instant fast response
 let serverMaintenanceState = {
@@ -72,6 +74,12 @@ async function startServer() {
 
   // Background export & media tasks router (runs heavy exports without freezing client)
   app.use('/api/export-jobs', exportJobsRouter);
+
+  // Centralized Storage & File Management router (Private cloud storage, cache, & file records)
+  app.use('/api/storage', storageRouter);
+
+  // Telegram bot & automation integration router
+  app.use('/api/telegram', telegramRouter);
 
   // Direct In-Memory Download Buffer Store for Reliable Downloads
   const downloadStore = new Map<string, { buffer: Buffer, mime: string, name: string, expires: number }>();
