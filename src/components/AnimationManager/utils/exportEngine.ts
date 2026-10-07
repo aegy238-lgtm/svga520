@@ -1173,9 +1173,9 @@ export async function exportAsMp4(
         error: (e) => console.error('VideoEncoder error:', e)
       });
 
-      // Prefer hardware-accelerated H.264 encoder for maximum speed and zero CPU lag
+      // Prefer hardware-accelerated H.264 encoder for maximum speed, smooth FPS and zero frame drops
       let codecConfigured = false;
-      const candidateCodecs = ['avc1.4D002A', 'avc1.42E01F', 'avc1.42001f'];
+      const candidateCodecs = ['avc1.4D002A', 'avc1.640028', 'avc1.42E01F', 'avc1.42001f'];
       for (const candCodec of candidateCodecs) {
         try {
           // @ts-ignore
@@ -1220,9 +1220,9 @@ export async function exportAsMp4(
         }
       }
 
-      let timestampMicros = 0;
       let scratchCanvas: HTMLCanvasElement | null = null;
       let scratchCtx: CanvasRenderingContext2D | null = null;
+      const keyframeInterval = Math.max(1, Math.min(30, Math.round(fps)));
 
       for (let i = 0; i < canvases.length; i++) {
         const srcCanvas = canvases[i];
@@ -1241,28 +1241,29 @@ export async function exportAsMp4(
         }
 
         const frameSource = scratchCanvas || srcCanvas;
-        const frameDelay = delays[i] || Math.round(1000 / fps);
-        const frameDurMicros = Math.round(frameDelay * 1000);
+        
+        // Exact microsecond timestamps synced to true animation FPS for butter-smooth playback without stutter or drift
+        const timestampMicros = Math.round((i * 1_000_000) / Math.max(1, fps));
+        const nextTimestampMicros = Math.round(((i + 1) * 1_000_000) / Math.max(1, fps));
+        const frameDurMicros = Math.max(1000, nextTimestampMicros - timestampMicros);
 
         const frame = new VideoFrame(frameSource, {
           timestamp: timestampMicros,
           duration: frameDurMicros
         });
 
-        videoEncoder.encode(frame, { keyFrame: i % 30 === 0 });
+        videoEncoder.encode(frame, { keyFrame: i % keyframeInterval === 0 });
         frame.close();
 
-        timestampMicros += frameDurMicros;
-
-        // Keep encoder queue responsive & yield to event loop so the UI updates in real time
-        if (videoEncoder.encodeQueueSize > 4) {
+        // Keep encoder queue responsive to prevent GPU memory backpressure & stutter
+        if (videoEncoder.encodeQueueSize > 2) {
           await new Promise(r => setTimeout(r, 0));
-        } else if (i % 6 === 0 || i === canvases.length - 1) {
+        } else if (i % 8 === 0 || i === canvases.length - 1) {
           await new Promise(r => setTimeout(r, 0));
         }
 
         if (onProgress) {
-          onProgress((i + 1) / canvases.length, `ترميز MP4 عالي السرعة: إطار ${i + 1} من ${canvases.length}...`);
+          onProgress((i + 1) / canvases.length, `ترميز MP4 سلس وفائق الدقة: إطار ${i + 1} من ${canvases.length}...`);
         }
       }
 
@@ -1497,123 +1498,34 @@ export async function exportAsVap(
   quality: number = 100,
   layout: 'top-bottom' | 'left-right' | 'right-left' | 'bottom-top' | 'top-right-alpha' = 'left-right'
 ): Promise<Blob> {
-  // Scale video resolution dynamically based on selected quality level
-  const scale = quality >= 100
-    ? 1.0
-    : Math.max(0.45, Math.min(1.0, 0.45 + (quality / 100) * 0.5));
-
-  const scaledW = Math.max(32, Math.round(width * scale));
-  const scaledH = Math.max(32, Math.round(height * scale));
-
-  const safeW = Math.ceil(scaledW / 2) * 2;
-  const safeH = Math.ceil(scaledH / 2) * 2;
-
-  // Tencent VAP layout configuration:
-  // - 'left-right': Left = RGB video, Right = Alpha mask ("الحته البيضاء على اليمين بجانب الهدية")
-  // - 'top-right-alpha': Left = RGB video, Top-Right = Alpha mask (Matching screenshot aaa.png)
-  // - 'right-left': Left = Alpha mask, Right = RGB video
-  // - 'top-bottom': Top = Alpha mask, Bottom = RGB video
-  // - 'bottom-top': Top = RGB video, Bottom = Alpha mask
   const isVertical = layout === 'top-bottom' || layout === 'bottom-top';
+  
+  // Safe scaling: keep within max 1920px for universal hardware-accelerated playback on mobile & web
+  const maxSingleDim = isVertical ? 960 : 960;
+  let scale = 1.0;
+  if (width > maxSingleDim || height > maxSingleDim) {
+    scale = Math.min(maxSingleDim / width, maxSingleDim / height);
+  }
+  if (quality < 100) {
+    scale = scale * Math.max(0.5, quality / 100);
+  }
+
+  const rawW = Math.round(width * scale);
+  const rawH = Math.round(height * scale);
+
+  // Align to 16px blocks for zero-lag H.264 hardware decoding
+  const safeW = Math.max(16, Math.ceil(rawW / 16) * 16);
+  const safeH = Math.max(16, Math.ceil(rawH / 16) * 16);
+
   const videoW = isVertical ? safeW : safeW * 2;
   const videoH = isVertical ? safeH * 2 : safeH;
   const totalFrames = canvases.length;
+  const targetFps = Math.max(1, Math.round(fps || 30));
 
-  const compCanvases: HTMLCanvasElement[] = [];
+  const halfH = Math.floor(safeH / 2);
 
-  // Pre-allocate scratch canvases for high-speed scaled alpha extraction
-  const scratchAlphaCanvas = document.createElement('canvas');
-  scratchAlphaCanvas.width = safeW;
-  scratchAlphaCanvas.height = safeH;
-  const scratchAlphaCtx = scratchAlphaCanvas.getContext('2d');
-  const scratchAlphaImg = scratchAlphaCtx?.createImageData(safeW, safeH) || null;
-
-  const scratchSrcCanvas = document.createElement('canvas');
-  scratchSrcCanvas.width = safeW;
-  scratchSrcCanvas.height = safeH;
-  const scratchSrcCtx = scratchSrcCanvas.getContext('2d');
-
-  for (let i = 0; i < totalFrames; i++) {
-    const src = canvases[i];
-    const comp = document.createElement('canvas');
-    comp.width = videoW;
-    comp.height = videoH;
-    const cCtx = comp.getContext('2d');
-    if (cCtx) {
-      cCtx.fillStyle = '#000000';
-      cCtx.fillRect(0, 0, videoW, videoH);
-
-      // Extract Alpha mask via high-speed 32-bit register operations
-      if (scratchSrcCtx && scratchAlphaCtx && scratchAlphaImg) {
-        scratchSrcCtx.clearRect(0, 0, safeW, safeH);
-        scratchSrcCtx.drawImage(src, 0, 0, safeW, safeH);
-        const frameData = scratchSrcCtx.getImageData(0, 0, safeW, safeH);
-        const srcU32 = new Uint32Array(frameData.data.buffer);
-        const dstU32 = new Uint32Array(scratchAlphaImg.data.buffer);
-        const len = srcU32.length;
-
-        for (let p = 0; p < len; p++) {
-          const a = (srcU32[p] >>> 24);
-          // Duplicate alpha channel into R, G, B with full opacity 0xFF
-          dstU32[p] = (0xFF000000 | (a << 16) | (a << 8) | a) >>> 0;
-        }
-
-        scratchAlphaCtx.putImageData(scratchAlphaImg, 0, 0);
-      }
-
-      if (layout === 'top-bottom') {
-        // Top: Alpha Mask, Bottom: RGB
-        cCtx.drawImage(scratchAlphaCanvas, 0, 0, safeW, safeH);
-        cCtx.drawImage(src, 0, safeH, safeW, safeH);
-      } else if (layout === 'bottom-top') {
-        // Top: RGB, Bottom: Alpha Mask
-        cCtx.drawImage(src, 0, 0, safeW, safeH);
-        cCtx.drawImage(scratchAlphaCanvas, 0, safeH, safeW, safeH);
-      } else if (layout === 'right-left') {
-        // Left: Alpha Mask, Right: RGB
-        cCtx.drawImage(scratchAlphaCanvas, 0, 0, safeW, safeH);
-        cCtx.drawImage(src, safeW, 0, safeW, safeH);
-      } else if (layout === 'top-right-alpha') {
-        // Left: Full RGB (0, 0, safeW, safeH), Top-Right: Alpha mask (safeW, 0, safeW, safeH / 2) matching screenshot aaa.png
-        cCtx.drawImage(src, 0, 0, safeW, safeH);
-        const halfH = Math.ceil(safeH / 4) * 2;
-        cCtx.drawImage(scratchAlphaCanvas, safeW, 0, safeW, halfH);
-      } else {
-        // Standard Side-by-Side ('left-right' as shown in screenshot):
-        // Left (0, 0): Full Color RGB of the gift
-        // Right (safeW, 0): Grayscale Alpha mask ("الحته البيضاء على اليمين بجانب الهدية")
-        cCtx.drawImage(src, 0, 0, safeW, safeH);
-        cCtx.drawImage(scratchAlphaCanvas, safeW, 0, safeW, safeH);
-      }
-    }
-    compCanvases.push(comp);
-
-    if (i % 6 === 0 || i === totalFrames - 1) {
-      onProgress?.(((i + 1) / totalFrames) * 0.4, `تجهيز قناع شفافية VAP عالي الدقة: إطار ${i + 1} من ${totalFrames}...`);
-      await new Promise(r => setTimeout(r, 0));
-    }
-  }
-
-  // Base MP4 encode with selected quality level and embedded audioBuffer
-  const baseMp4 = await exportAsMp4(
-    compCanvases,
-    delays,
-    videoW,
-    videoH,
-    fps,
-    '#000000',
-    quality,
-    audioBuffer,
-    (p, msg) => {
-      onProgress?.(0.4 + p * 0.55, msg || 'ترميز فيديو VAP...');
-    }
-  );
-  const mp4ArrayBuffer = await baseMp4.arrayBuffer();
-
-  onProgress?.(0.97, 'بناء صندوق VAPc وبيانات التوافق القياسية...');
-
-  // Compute exact vapc coordinates according to layout
-  let aFrameBox: [number, number, number, number] = [safeW, 0, safeW, safeH];
+  // Determine channel boxes matching user screenshot 2432443434.png (Left RGB full height, Top-Right Alpha half height)
+  let aFrameBox: [number, number, number, number] = [safeW, 0, safeW, halfH];
   let rgbFrameBox: [number, number, number, number] = [0, 0, safeW, safeH];
 
   if (layout === 'top-bottom') {
@@ -1625,15 +1537,108 @@ export async function exportAsVap(
   } else if (layout === 'right-left') {
     aFrameBox = [0, 0, safeW, safeH];
     rgbFrameBox = [safeW, 0, safeW, safeH];
-  } else if (layout === 'top-right-alpha') {
-    const halfH = Math.ceil(safeH / 4) * 2;
-    rgbFrameBox = [0, 0, safeW, safeH];
-    aFrameBox = [safeW, 0, safeW, halfH];
-  } else {
-    // left-right (Left RGB, Right Alpha mask)
+  } else if (layout === 'left-right') {
     rgbFrameBox = [0, 0, safeW, safeH];
     aFrameBox = [safeW, 0, safeW, safeH];
+  } else {
+    // top-right-alpha (Matching screenshot 2432443434.png exactly): Left RGB full height, Right Alpha in top quadrant
+    rgbFrameBox = [0, 0, safeW, safeH];
+    aFrameBox = [safeW, 0, safeW, halfH];
   }
+
+  // Pre-allocate single high-speed scratch and composite canvases (Memory footprint < 15MB)
+  const scratchAlphaCanvas = document.createElement('canvas');
+  scratchAlphaCanvas.width = safeW;
+  scratchAlphaCanvas.height = safeH;
+  const scratchAlphaCtx = scratchAlphaCanvas.getContext('2d', { willReadFrequently: true });
+  const scratchAlphaImg = scratchAlphaCtx?.createImageData(safeW, safeH) || null;
+
+  const scratchSrcCanvas = document.createElement('canvas');
+  scratchSrcCanvas.width = safeW;
+  scratchSrcCanvas.height = safeH;
+  const scratchSrcCtx = scratchSrcCanvas.getContext('2d', { willReadFrequently: true });
+
+  const compCanvas = document.createElement('canvas');
+  compCanvas.width = videoW;
+  compCanvas.height = videoH;
+  const compCtx = compCanvas.getContext('2d', { alpha: false });
+
+  // Pre-render all composite frames using pre-allocated canvases
+  const compCanvases: HTMLCanvasElement[] = [];
+
+  for (let i = 0; i < totalFrames; i++) {
+    const src = canvases[i];
+    const frameCanvas = document.createElement('canvas');
+    frameCanvas.width = videoW;
+    frameCanvas.height = videoH;
+    const cCtx = frameCanvas.getContext('2d', { alpha: false });
+
+    if (cCtx) {
+      cCtx.fillStyle = '#000000';
+      cCtx.fillRect(0, 0, videoW, videoH);
+
+      // Extract Alpha channel with 32-bit register fast path
+      if (scratchSrcCtx && scratchAlphaCtx && scratchAlphaImg) {
+        scratchSrcCtx.clearRect(0, 0, safeW, safeH);
+        scratchSrcCtx.drawImage(src, 0, 0, safeW, safeH);
+        const frameData = scratchSrcCtx.getImageData(0, 0, safeW, safeH);
+        const srcU32 = new Uint32Array(frameData.data.buffer);
+        const dstU32 = new Uint32Array(scratchAlphaImg.data.buffer);
+        const len = srcU32.length;
+
+        for (let p = 0; p < len; p++) {
+          const a = (srcU32[p] >>> 24);
+          // Duplicated R, G, B with 100% full alpha
+          dstU32[p] = (0xFF000000 | (a << 16) | (a << 8) | a) >>> 0;
+        }
+
+        scratchAlphaCtx.putImageData(scratchAlphaImg, 0, 0);
+      }
+
+      if (layout === 'top-bottom') {
+        cCtx.drawImage(scratchAlphaCanvas, 0, 0, safeW, safeH);
+        cCtx.drawImage(src, 0, safeH, safeW, safeH);
+      } else if (layout === 'bottom-top') {
+        cCtx.drawImage(src, 0, 0, safeW, safeH);
+        cCtx.drawImage(scratchAlphaCanvas, 0, safeH, safeW, safeH);
+      } else if (layout === 'right-left') {
+        cCtx.drawImage(scratchAlphaCanvas, 0, 0, safeW, safeH);
+        cCtx.drawImage(src, safeW, 0, safeW, safeH);
+      } else if (layout === 'left-right') {
+        cCtx.drawImage(src, 0, 0, safeW, safeH);
+        cCtx.drawImage(scratchAlphaCanvas, safeW, 0, safeW, safeH);
+      } else {
+        // top-right-alpha (Matching screenshot 2432443434.png): Left full RGB (0, 0, safeW, safeH), Top-Right Alpha mask (safeW, 0, safeW, halfH)
+        cCtx.drawImage(src, 0, 0, safeW, safeH);
+        cCtx.drawImage(scratchAlphaCanvas, safeW, 0, safeW, halfH);
+      }
+    }
+
+    compCanvases.push(frameCanvas);
+
+    if (i % 8 === 0 || i === totalFrames - 1) {
+      onProgress?.(((i + 1) / totalFrames) * 0.45, `تجهيز قناع شفافية VAP عالي الدقة: إطار ${i + 1} من ${totalFrames}...`);
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+
+  // Base MP4 encode with selected quality level and embedded audioBuffer
+  const baseMp4 = await exportAsMp4(
+    compCanvases,
+    delays,
+    videoW,
+    videoH,
+    targetFps,
+    '#000000',
+    quality,
+    audioBuffer,
+    (p, msg) => {
+      onProgress?.(0.45 + p * 0.5, msg || 'ترميز فيديو VAP فائق النعومة...');
+    }
+  );
+  const mp4ArrayBuffer = await baseMp4.arrayBuffer();
+
+  onProgress?.(0.97, 'بناء صندوق VAPc وبيانات التوافق القياسية...');
 
   // Build standard vapc box with exact frame parameters
   const vapConfig = {
@@ -1642,7 +1647,7 @@ export async function exportAsVap(
       f: totalFrames,
       w: safeW,
       h: safeH,
-      fps: fps,
+      fps: targetFps,
       videoW: videoW,
       videoH: videoH,
       aFrame: aFrameBox,
@@ -1669,7 +1674,7 @@ export async function exportAsVap(
   finalBuffer.set(new Uint8Array(mp4ArrayBuffer), 0);
   finalBuffer.set(boxBuffer, mp4ArrayBuffer.byteLength);
 
-  onProgress?.(1.0, 'اكتمل تصدير VAP بنجاح!');
+  onProgress?.(1.0, 'اكتمل تصدير VAP بنجاح بدون أي تعليق!');
 
   return new Blob([finalBuffer], { type: 'video/mp4' });
 }

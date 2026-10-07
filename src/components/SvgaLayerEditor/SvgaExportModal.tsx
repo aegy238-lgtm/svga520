@@ -75,8 +75,8 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
   const [zlibLevel, setZlibLevel] = useState<number>(6); // 0 to 9
   const [compressImages, setCompressImages] = useState<boolean>(true);
   const [imageFormat, setImageFormat] = useState<'png' | 'webp' | 'jpeg' | 'auto'>('png');
-  // VAP channel layout: 'left-right' puts RGB on left and the white alpha matte on the right (matches the user's screenshot exactly)
-  const [vapLayout, setVapLayout] = useState<'left-right' | 'top-right-alpha' | 'top-bottom' | 'right-left' | 'bottom-top'>('top-right-alpha');
+  // VAP channel layout: 'top-right-alpha' puts RGB on left and the white alpha matte in top-right quadrant (Matching exact user screenshot 2432443434.png)
+  const [vapLayout, setVapLayout] = useState<'top-right-alpha' | 'left-right' | 'top-bottom' | 'right-left' | 'bottom-top'>('top-right-alpha');
 
   // Selected format
   const [selectedFormat, setSelectedFormat] = useState<ExportFormatType>(initialFormat || 'SVGA 2.0');
@@ -723,14 +723,14 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
                   <span>تموضع قناع الشفافية (الحته البيضاء) في فيديو VAP:</span>
                 </span>
                 <span className="text-[10px] text-cyan-300 font-mono font-bold">
-                  {vapLayout === 'top-right-alpha' ? 'الهدية يسار + الحتة البيضاء أعلى اليمين (مثل صورة العربية)' : vapLayout === 'left-right' ? 'أفقي: الهدية يسار + الحتة البيضاء يمين بالكامل' : vapLayout === 'top-bottom' ? 'عمودي: الحتة البيضاء فوق + الهدية تحت' : vapLayout === 'right-left' ? 'أفقي: الحتة البيضاء يسار' : 'عمودي: الحتة البيضاء تحت'}
+                  {vapLayout === 'top-right-alpha' ? 'الهدية يسار + الحتة البيضاء بأعلى اليمين (تخطيط الاسكرين الأصلي 2432443434)' : vapLayout === 'left-right' ? 'أفقي كامل: الهدية يسار + الحتة البيضاء يمين بالكامل' : vapLayout === 'top-bottom' ? 'عمودي: الحتة البيضاء فوق + الهدية تحت' : vapLayout === 'right-left' ? 'أفقي: الحتة البيضاء يسار' : 'عمودي: الحتة البيضاء تحت'}
                 </span>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5">
                 {[
-                  { id: 'top-right-alpha', label: 'الهدية يسار + بيضاء أعلى اليمين', desc: 'نفس نظام صورة السيارة aaa.png' },
-                  { id: 'left-right', label: 'الهدية يسار + بيضاء يمين', desc: 'أفقي كامل (بجانب الهدية)' },
+                  { id: 'top-right-alpha', label: 'الهدية يسار + أعلى اليمين', desc: 'مطابق للاسكرين 2432443434 (افتراضي)' },
+                  { id: 'left-right', label: 'الهدية يسار + بيضاء يمين', desc: 'أفقي كامل 100%' },
                   { id: 'top-bottom', label: 'بيضاء فوق + الهدية تحت', desc: 'الوضع الرأسي الافتراضي' },
                   { id: 'right-left', label: 'بيضاء يسار + الهدية يمين', desc: 'أفقي معكوس' },
                   { id: 'bottom-top', label: 'الهدية فوق + بيضاء تحت', desc: 'عمودي معكوس' },
@@ -849,8 +849,8 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
             <span className="text-sm">
               {isExporting 
                 ? 'جاري التصدير والمعالجة...' 
-                : selectedFormat === 'VAP1.0'
-                  ? `🚀 تصدير فيديو VAP1.0 الآن (${vapLayout === 'top-right-alpha' ? 'الحتة البيضاء أعلى اليمين مثل الاسكرين' : vapLayout === 'left-right' ? 'الحتة البيضاء يمين' : vapLayout === 'top-bottom' ? 'الحتة البيضاء فوق' : 'مخصص'})`
+                : selectedFormat === 'VAP1.0' || selectedFormat === 'VAP (MP4)' || selectedFormat === 'VAP 1.0.5'
+                  ? '🚀 تصدير فيديو VAP1.0 الآن (الهدية يسار + الحتة البيضاء مثل الاسكرين)'
                   : selectedFormat === 'SVGA 2.0'
                     ? '⚡ تنزيل وحفظ ملف SVGA 2.0 فوراً'
                     : `🚀 تصدير ${selectedFormat} الآن`}
@@ -900,16 +900,17 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
             <label className="text-xs font-bold text-slate-300">اسم الملف عند الحفظ:</label>
             <span className="text-[10px] text-cyan-400 font-mono">الصيغة: {formatExtension}</span>
           </div>
-          <div className="bg-slate-900 border border-white/10 focus-within:border-indigo-500 rounded-2xl px-4 py-2 flex items-center gap-2">
+          <div className="bg-slate-900 border border-white/10 focus-within:border-indigo-500 rounded-2xl px-4 py-2 flex items-center gap-2" dir="ltr">
             <FileCode size={15} className="text-indigo-400 shrink-0" />
             <input
               type="text"
               value={fileNameBase}
               onChange={(e) => setFileNameBase(e.target.value)}
               placeholder="gift_animation_edited"
-              className="w-full bg-transparent text-xs font-mono text-white outline-none"
+              className="w-full bg-transparent text-xs font-mono text-white outline-none text-left"
+              dir="ltr"
             />
-            <span className="text-xs text-slate-500 font-mono select-none">{formatExtension}</span>
+            <span className="text-xs text-cyan-400 font-mono select-none font-bold">{formatExtension}</span>
           </div>
         </div>
 
