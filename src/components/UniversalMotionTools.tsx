@@ -477,6 +477,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   const [exportTargetFormat, setExportTargetFormat] = useState<'svga' | 'vap' | 'mp4' | 'frames'>('svga');
 
   const availableExportFormats = [
+    'VAP1.0',
     'SVGA 2.0',
     'SVGA 1.0',
     'VAP (MP4)',
@@ -2294,19 +2295,24 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
         }
 
         let imageBytes: Uint8Array;
-        if (svgaFormat === 'webp' || svgaFormat === 'jpeg') {
-          const mime = svgaFormat === 'webp' ? 'image/webp' : 'image/jpeg';
-          const dataUrl = exportCanvas.toDataURL(mime, qualityRatio);
+        if (compressionLevel === 0) {
+          const dataUrl = exportCanvas.toDataURL('image/png');
           imageBytes = fastDataUrlToBytes(dataUrl);
         } else {
-          if (compressionLevel === 0) {
+          try {
+            const scaledImageData = exportCtx.getImageData(0, 0, outW, outH);
+            const cnum = Math.max(32, Math.min(256, Math.round(qualityRatio * 256)));
+            const pngBuffer = UPNG.encode([scaledImageData.data.buffer], outW, outH, cnum);
+            const candidate = new Uint8Array(pngBuffer);
+            if (candidate.length > 0 && candidate[0] === 0x89 && candidate[1] === 0x50) {
+              imageBytes = candidate;
+            } else {
+              const dataUrl = exportCanvas.toDataURL('image/png');
+              imageBytes = fastDataUrlToBytes(dataUrl);
+            }
+          } catch (e) {
             const dataUrl = exportCanvas.toDataURL('image/png');
             imageBytes = fastDataUrlToBytes(dataUrl);
-          } else {
-            const scaledImageData = exportCtx.getImageData(0, 0, outW, outH);
-            const cnum = Math.max(16, Math.min(256, Math.round(qualityRatio * 256)));
-            const pngBuffer = UPNG.encode([scaledImageData.data.buffer], outW, outH, cnum);
-            imageBytes = new Uint8Array(pngBuffer);
           }
         }
 
@@ -3229,7 +3235,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     const format = formatOverride || selectedFormat;
     if (!fileUrl) return;
 
-    if (format === 'VAP 1.0.5') {
+    if (format === 'VAP1.0' || format === 'VAP 1.0.5') {
       await handleVAP105Export();
       return;
     }

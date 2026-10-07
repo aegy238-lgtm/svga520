@@ -52,21 +52,26 @@ export interface SvgaCompressionOptions {
   quality?: number; // 10 to 100
   zlibLevel?: number; // 0 to 9 (0: store, 1: fastest, 6: balanced, 9: max compression)
   compressImages?: boolean;
+  imageFormat?: 'png' | 'webp' | 'jpeg' | 'auto';
 }
 
 /**
- * Advanced Multi-Engine Image Compressor for SVGA assets (UPNG.js + WebP with Alpha)
- * Inspires by top GitHub compression tools (pngquant, Photopea UPNG, libwebp).
- * Preserves 100% alpha transparency, sharp vector lines, and achieves up to 75% size reduction.
+ * Advanced Multi-Engine Image Compressor for SVGA assets (UPNG.js Lossless & Safe Optimization)
+ * Strictly guarantees 100% valid PNG format with magic signature [0x89, 0x50, 0x4E, 0x47].
+ * SVGA players require standard PNG images; non-PNG formats (like WebP) cause layers to render empty/blank.
+ * Preserves 100% alpha transparency, sharp lines, and achieves optimal file size reduction.
  */
 async function optimizeImageBytesAdvanced(
   bytes: Uint8Array,
   qualityPercent: number = 100,
-  allowWebp: boolean = false
+  _allowWebp: boolean = false
 ): Promise<Uint8Array> {
   if (!bytes || bytes.length < 512) return bytes;
   
   try {
+    const isOriginalPng = bytes.length >= 8 &&
+      bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47;
+
     const blob = new Blob([bytes]);
     const bmp = await createImageBitmap(blob);
     const width = bmp.width;
@@ -81,41 +86,49 @@ async function optimizeImageBytesAdvanced(
     ctx.clearRect(0, 0, width, height);
     ctx.drawImage(bmp, 0, 0);
 
-    const candidates: Uint8Array[] = [bytes];
+    const candidates: Uint8Array[] = [];
+    if (isOriginalPng) {
+      candidates.push(bytes);
+    }
 
-    // 1. UPNG.js Compression Pass (Lossless or Quantized PNG with full alpha channel)
+    const imgData = ctx.getImageData(0, 0, width, height);
+
+    // 1. Lossless UPNG.js Compression Pass (cnum = 0: pure lossless DEFLATE PNG with optimal filtering)
     try {
-      const imgData = ctx.getImageData(0, 0, width, height);
-      let cnum = 0; // 0 = lossless
-      if (qualityPercent < 95) {
-        if (qualityPercent >= 80) cnum = 256;
-        else if (qualityPercent >= 65) cnum = 128;
-        else if (qualityPercent >= 50) cnum = 64;
-        else if (qualityPercent >= 35) cnum = 32;
-        else cnum = 16;
-      }
-      const upngBuf = UPNG.encode([imgData.data.buffer], width, height, cnum);
+      const upngBuf = UPNG.encode([imgData.data.buffer], width, height, 0);
       const upngBytes = new Uint8Array(upngBuf);
-      if (upngBytes.length > 0) {
+      if (upngBytes.length > 0 && upngBytes[0] === 0x89 && upngBytes[1] === 0x50) {
         candidates.push(upngBytes);
       }
     } catch (eUpng) {}
 
-    // 2. WebP Compression Pass (if enabled or beneficial for high compression)
-    if (allowWebp || qualityPercent < 95) {
+    // 2. Standard Canvas PNG Pass
+    try {
+      const canvasDataUrl = canvas.toDataURL('image/png');
+      const canvasBytes = base64ToUint8ArrayFast(canvasDataUrl);
+      if (canvasBytes.length > 0 && canvasBytes[0] === 0x89 && canvasBytes[1] === 0x50) {
+        candidates.push(canvasBytes);
+      }
+    } catch (eCanvas) {}
+
+    // 3. Smart Quantized PNG with Alpha (only when quality < 95 is explicitly requested)
+    if (qualityPercent < 95) {
       try {
-        const q = Math.max(0.2, Math.min(1.0, qualityPercent / 100));
-        const webpBlob = await new Promise<Blob | null>((resolve) => {
-          canvas.toBlob(resolve, 'image/webp', q);
-        });
-        if (webpBlob && webpBlob.size > 0) {
-          const webpArr = await webpBlob.arrayBuffer();
-          candidates.push(new Uint8Array(webpArr));
+        let cnum = 256;
+        if (qualityPercent < 50) cnum = 64;
+        else if (qualityPercent < 75) cnum = 128;
+
+        const quantBuf = UPNG.encode([imgData.data.buffer], width, height, cnum);
+        const quantBytes = new Uint8Array(quantBuf);
+        if (quantBytes.length > 0 && quantBytes[0] === 0x89 && quantBytes[1] === 0x50) {
+          candidates.push(quantBytes);
         }
-      } catch (eWebp) {}
+      } catch (eQuant) {}
     }
 
-    // Pick the candidate with minimum byte length (strictly smallest valid buffer)
+    if (candidates.length === 0) return bytes;
+
+    // Pick strictly the smallest valid PNG buffer
     candidates.sort((a, b) => a.length - b.length);
     return candidates[0];
   } catch (err) {
@@ -696,8 +709,17 @@ export async function exportEditedSvga(
       }
     }
 
-    const key = ctx.layer.imageKey || ctx.layer.spriteRef?.imageKey;
-    if (key && !exportImages[key]) {
+    let key = ctx.layer.imageKey || ctx.layer.spriteRef?.imageKey;
+    if (!key) {
+      const cleanName = (ctx.layer.name || 'layer').replace(/[^a-zA-Z0-9_]/g, '_');
+      key = `layer_${ctx.layer.id || Math.random().toString(36).slice(2)}_${cleanName}.png`;
+      ctx.layer.imageKey = key;
+      if (ctx.layer.spriteRef) {
+        ctx.layer.spriteRef.imageKey = key;
+      }
+    }
+
+    if (!exportImages[key]) {
       const src = ctx.layer.thumbnailUrl || (project.imagesMap && project.imagesMap[key]);
       if (src && src.startsWith('data:')) {
         try {
@@ -710,6 +732,35 @@ export async function exportEditedSvga(
           exportImages[key] = new Uint8Array(ab);
         } catch (e) {}
       }
+    }
+
+    // Guarantee that every layer has a valid PNG image asset so no layer is ever empty!
+    if (!exportImages[key] || exportImages[key].length === 0) {
+      try {
+        const offCanvas = document.createElement('canvas');
+        const lw = Math.max(32, Math.round(ctx.layer.initialBounds?.width || ctx.layer.transform?.width || project.width || 256));
+        const lh = Math.max(32, Math.round(ctx.layer.initialBounds?.height || ctx.layer.transform?.height || project.height || 256));
+        offCanvas.width = lw;
+        offCanvas.height = lh;
+        const offCtx = offCanvas.getContext('2d');
+        if (offCtx) {
+          const thumb = ctx.layer.thumbnailUrl || (project.imagesMap && project.imagesMap[key]);
+          if (thumb) {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            await new Promise<void>((resolve) => {
+              img.onload = () => resolve();
+              img.onerror = () => resolve();
+              img.src = thumb;
+            });
+            if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+              offCtx.drawImage(img, 0, 0, lw, lh);
+            }
+          }
+          const dataUrl = offCanvas.toDataURL('image/png');
+          exportImages[key] = base64ToUint8ArrayFast(dataUrl);
+        }
+      } catch (e) {}
     }
   }
 
@@ -1051,16 +1102,43 @@ export async function exportEditedSvga(
     }
   }
 
-  // Apply Advanced Image Compression (UPNG.js + WebP) if requested or if quality < 100
-  const shouldCompressImages = compressionOptions?.compressImages || (compressionOptions?.quality !== undefined && compressionOptions.quality < 100) || compressionOptions?.mode === 'low' || compressionOptions?.mode === 'medium';
-  const targetQuality = compressionOptions?.quality ?? (compressionOptions?.mode === 'low' ? 60 : compressionOptions?.mode === 'medium' ? 80 : 100);
-  const allowWebp = !!compressionOptions?.compressImages;
+  // Critical Sync: Ensure EVERY sprite's imageKey exists in cleanedExportImages so no layer renders blank
+  for (const s of newSprites) {
+    if (s.imageKey && !cleanedExportImages[s.imageKey]) {
+      const match = exportImages[s.imageKey] ||
+                    exportImages[s.imageKey.replace(/\.(png|jpe?g|webp|svg)$/i, '')] ||
+                    Object.entries(exportImages).find(([k]) => k.toLowerCase() === s.imageKey.toLowerCase())?.[1];
+      if (match) {
+        cleanedExportImages[s.imageKey] = match;
+      }
+    }
+    if (s.matteKey && !cleanedExportImages[s.matteKey]) {
+      const match = exportImages[s.matteKey] ||
+                    exportImages[s.matteKey.replace(/\.(png|jpe?g|webp|svg)$/i, '')] ||
+                    Object.entries(exportImages).find(([k]) => k.toLowerCase() === s.matteKey.toLowerCase())?.[1];
+      if (match) {
+        cleanedExportImages[s.matteKey] = match;
+      }
+    }
+  }
 
-  for (const [key, rawBytes] of Object.entries(cleanedExportImages)) {
-    // Skip audio files from image compression
-    if (key.endsWith('.mp3') || key.endsWith('.wav') || key.endsWith('.ogg')) continue;
-    if (rawBytes.length > 512) {
-      cleanedExportImages[key] = await optimizeImageBytesAdvanced(rawBytes, targetQuality, allowWebp);
+  // Apply Advanced Image Compression (UPNG.js Lossless PNG & Deflate) ONLY if explicitly requested with compression active (mode low/medium or custom quality < 100)
+  const shouldCompressImages = Boolean(
+    compressionOptions?.compressImages && (
+      (compressionOptions?.quality !== undefined && compressionOptions.quality < 100) ||
+      compressionOptions?.mode === 'low' ||
+      compressionOptions?.mode === 'medium'
+    )
+  );
+  const targetQuality = compressionOptions?.quality ?? (compressionOptions?.mode === 'low' ? 60 : compressionOptions?.mode === 'medium' ? 80 : 100);
+
+  if (shouldCompressImages) {
+    for (const [key, rawBytes] of Object.entries(cleanedExportImages)) {
+      // Skip audio files from image compression
+      if (key.endsWith('.mp3') || key.endsWith('.wav') || key.endsWith('.ogg')) continue;
+      if (rawBytes.length > 512) {
+        cleanedExportImages[key] = await optimizeImageBytesAdvanced(rawBytes, targetQuality);
+      }
     }
   }
 

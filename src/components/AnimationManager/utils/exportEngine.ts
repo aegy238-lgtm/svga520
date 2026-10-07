@@ -1491,10 +1491,11 @@ export async function exportAsVap(
   width: number,
   height: number,
   fps: number = 30,
-  version: '1.0.5' | '2.0' = '1.0.5',
+  version: '1.0' | '1.0.5' | '2.0' = '1.0',
   audioBuffer?: AudioBuffer | null,
   onProgress?: (progress0to1: number, phaseText?: string) => void,
-  quality: number = 100
+  quality: number = 100,
+  layout: 'top-bottom' | 'left-right' | 'right-left' | 'bottom-top' | 'top-right-alpha' = 'left-right'
 ): Promise<Blob> {
   // Scale video resolution dynamically based on selected quality level
   const scale = quality >= 100
@@ -1506,8 +1507,16 @@ export async function exportAsVap(
 
   const safeW = Math.ceil(scaledW / 2) * 2;
   const safeH = Math.ceil(scaledH / 2) * 2;
-  const videoW = safeW * 2;
-  const videoH = safeH;
+
+  // Tencent VAP layout configuration:
+  // - 'left-right': Left = RGB video, Right = Alpha mask ("الحته البيضاء على اليمين بجانب الهدية")
+  // - 'top-right-alpha': Left = RGB video, Top-Right = Alpha mask (Matching screenshot aaa.png)
+  // - 'right-left': Left = Alpha mask, Right = RGB video
+  // - 'top-bottom': Top = Alpha mask, Bottom = RGB video
+  // - 'bottom-top': Top = RGB video, Bottom = Alpha mask
+  const isVertical = layout === 'top-bottom' || layout === 'bottom-top';
+  const videoW = isVertical ? safeW : safeW * 2;
+  const videoH = isVertical ? safeH * 2 : safeH;
   const totalFrames = canvases.length;
 
   const compCanvases: HTMLCanvasElement[] = [];
@@ -1534,10 +1543,7 @@ export async function exportAsVap(
       cCtx.fillStyle = '#000000';
       cCtx.fillRect(0, 0, videoW, videoH);
 
-      // Left: RGB (scaled to safeW x safeH)
-      cCtx.drawImage(src, 0, 0, safeW, safeH);
-
-      // Right: Grayscale Alpha mask via high-speed 32-bit register operations
+      // Extract Alpha mask via high-speed 32-bit register operations
       if (scratchSrcCtx && scratchAlphaCtx && scratchAlphaImg) {
         scratchSrcCtx.clearRect(0, 0, safeW, safeH);
         scratchSrcCtx.drawImage(src, 0, 0, safeW, safeH);
@@ -1553,6 +1559,30 @@ export async function exportAsVap(
         }
 
         scratchAlphaCtx.putImageData(scratchAlphaImg, 0, 0);
+      }
+
+      if (layout === 'top-bottom') {
+        // Top: Alpha Mask, Bottom: RGB
+        cCtx.drawImage(scratchAlphaCanvas, 0, 0, safeW, safeH);
+        cCtx.drawImage(src, 0, safeH, safeW, safeH);
+      } else if (layout === 'bottom-top') {
+        // Top: RGB, Bottom: Alpha Mask
+        cCtx.drawImage(src, 0, 0, safeW, safeH);
+        cCtx.drawImage(scratchAlphaCanvas, 0, safeH, safeW, safeH);
+      } else if (layout === 'right-left') {
+        // Left: Alpha Mask, Right: RGB
+        cCtx.drawImage(scratchAlphaCanvas, 0, 0, safeW, safeH);
+        cCtx.drawImage(src, safeW, 0, safeW, safeH);
+      } else if (layout === 'top-right-alpha') {
+        // Left: Full RGB (0, 0, safeW, safeH), Top-Right: Alpha mask (safeW, 0, safeW, safeH / 2) matching screenshot aaa.png
+        cCtx.drawImage(src, 0, 0, safeW, safeH);
+        const halfH = Math.ceil(safeH / 4) * 2;
+        cCtx.drawImage(scratchAlphaCanvas, safeW, 0, safeW, halfH);
+      } else {
+        // Standard Side-by-Side ('left-right' as shown in screenshot):
+        // Left (0, 0): Full Color RGB of the gift
+        // Right (safeW, 0): Grayscale Alpha mask ("الحته البيضاء على اليمين بجانب الهدية")
+        cCtx.drawImage(src, 0, 0, safeW, safeH);
         cCtx.drawImage(scratchAlphaCanvas, safeW, 0, safeW, safeH);
       }
     }
@@ -1582,6 +1612,29 @@ export async function exportAsVap(
 
   onProgress?.(0.97, 'بناء صندوق VAPc وبيانات التوافق القياسية...');
 
+  // Compute exact vapc coordinates according to layout
+  let aFrameBox: [number, number, number, number] = [safeW, 0, safeW, safeH];
+  let rgbFrameBox: [number, number, number, number] = [0, 0, safeW, safeH];
+
+  if (layout === 'top-bottom') {
+    aFrameBox = [0, 0, safeW, safeH];
+    rgbFrameBox = [0, safeH, safeW, safeH];
+  } else if (layout === 'bottom-top') {
+    rgbFrameBox = [0, 0, safeW, safeH];
+    aFrameBox = [0, safeH, safeW, safeH];
+  } else if (layout === 'right-left') {
+    aFrameBox = [0, 0, safeW, safeH];
+    rgbFrameBox = [safeW, 0, safeW, safeH];
+  } else if (layout === 'top-right-alpha') {
+    const halfH = Math.ceil(safeH / 4) * 2;
+    rgbFrameBox = [0, 0, safeW, safeH];
+    aFrameBox = [safeW, 0, safeW, halfH];
+  } else {
+    // left-right (Left RGB, Right Alpha mask)
+    rgbFrameBox = [0, 0, safeW, safeH];
+    aFrameBox = [safeW, 0, safeW, safeH];
+  }
+
   // Build standard vapc box with exact frame parameters
   const vapConfig = {
     info: {
@@ -1592,8 +1645,8 @@ export async function exportAsVap(
       fps: fps,
       videoW: videoW,
       videoH: videoH,
-      aFrame: [safeW, 0, safeW, safeH],
-      rgbFrame: [0, 0, safeW, safeH],
+      aFrame: aFrameBox,
+      rgbFrame: rgbFrameBox,
       isVapx: 0,
       codeTag: ["common"],
       orien: 0

@@ -58,6 +58,8 @@ import * as UPNG from 'upng-js';
 import { GIFEncoder, quantize, applyPalette } from 'gifenc';
 import JSZip from 'jszip';
 import { SVGAFileExtended } from '../types';
+import { exportAsVap, downloadBlob } from './AnimationManager/utils/exportEngine';
+import { backgroundExportManager } from '../services/backgroundExportManager';
 
 // Additional Layer / Child Overlay Config (دمج كقناع Alpha Matte / مسح ضوئي متواصل)
 export interface AdditionalLayerConfig {
@@ -2953,7 +2955,7 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
 
       const message = MovieEntity.create(movie);
       const encoded = MovieEntity.encode(message).finish();
-      const compressed = pako.deflate(encoded);
+      const compressed = pako.deflate(encoded, { level: 9 });
 
       const blob = new Blob([compressed], { type: 'application/octet-stream' });
       const filename = `${compSettings.name.replace(/\s+/g, '_')}_${Date.now()}.svga`;
@@ -2985,6 +2987,57 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
     } catch (err: any) {
       console.error(err);
       alert('خطأ أثناء تصدير SVGA: ' + err.message);
+      setExporting(false);
+    }
+  };
+
+  // 1.5. Export as Tencent VAP1.0 (True MP4 with Alpha mask & vapc box)
+  const exportAsVAP10 = async () => {
+    try {
+      setExporting(true);
+      setExportProgress(10);
+      setExportStatusText('جاري رندرة إطارات المشروع لتصدير VAP1.0...');
+
+      const { canvases } = await captureAllFrames((p, msg) => {
+        setExportProgress(Math.round(p * 0.7));
+        setExportStatusText(msg);
+      });
+
+      setExportProgress(75);
+      setExportStatusText('جاري ترميز فيديو Tencent VAP1.0 مع قناع الشفافية وصندوق vapc...');
+
+      const delays = new Array(canvases.length).fill(Math.round(1000 / compSettings.fps));
+      const vapBlob = await exportAsVap(
+        canvases,
+        delays,
+        compSettings.width,
+        compSettings.height,
+        compSettings.fps,
+        '1.0',
+        null,
+        (p, msg) => {
+          setExportProgress(75 + Math.round(p * 20));
+          if (msg) setExportStatusText(msg);
+        },
+        100,
+        'left-right' // Matches user screenshot: Left is full color RGB, Right is Alpha mask ("الحته البيضاء باليمين بجانب الهدية")
+      );
+
+      const filename = `${compSettings.name.replace(/\s+/g, '_')}_VAP1.0_${Date.now()}.mp4`;
+      downloadBlob(vapBlob, filename);
+
+      backgroundExportManager.registerCompletedJob({
+        title: `تصدير VAP1.0 (${compSettings.name})`,
+        fileName: filename,
+        blob: vapBlob
+      });
+
+      setExportProgress(100);
+      setExportStatusText('تم تصدير ملف VAP1.0 بنجاح!');
+      setTimeout(() => setExporting(false), 1200);
+    } catch (err: any) {
+      console.error(err);
+      alert('خطأ أثناء تصدير VAP1.0: ' + err.message);
       setExporting(false);
     }
   };
@@ -4913,10 +4966,31 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
 
                 {exportCategory === 'primary' ? (
                   <div className="flex flex-col gap-2.5">
+                    {/* VAP1.0 Option */}
+                    <button
+                      onClick={exportAsVAP10}
+                      className="p-3 rounded-xl bg-slate-800/40 hover:bg-cyan-600/20 border border-cyan-500/40 hover:border-cyan-500/70 flex items-center justify-between text-left transition-all group cursor-pointer"
+                    >
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-xs text-white">فيديو VAP1.0</span>
+                          <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-cyan-600/40 text-cyan-300 border border-cyan-500/50">
+                            Alpha Mask + vapc
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 mt-0.5">
+                          تصدير فيديو MP4 مع قناع الشفافية وصندوق VAP1.0 المتوافق
+                        </span>
+                      </div>
+                      <span className="px-2 py-0.5 rounded bg-cyan-600/30 text-cyan-300 text-[10px] font-mono font-bold border border-cyan-500/40 group-hover:bg-cyan-600 group-hover:text-white transition-all">
+                        VAP1.0
+                      </span>
+                    </button>
+
                     {/* SVGA Option */}
                     <button
                       onClick={exportAsSVGA}
-                      className="p-3 rounded-xl bg-slate-800/40 hover:bg-violet-600/20 border border-violet-500/40 hover:border-violet-500/70 flex items-center justify-between text-left transition-all group"
+                      className="p-3 rounded-xl bg-slate-800/40 hover:bg-violet-600/20 border border-violet-500/40 hover:border-violet-500/70 flex items-center justify-between text-left transition-all group cursor-pointer"
                     >
                       <div className="flex flex-col">
                         <div className="flex items-center gap-1.5">
@@ -4976,6 +5050,23 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
                       </div>
                       <span className="px-2 py-0.5 rounded bg-amber-600/30 text-amber-300 text-[10px] font-mono font-bold border border-amber-500/40 group-hover:bg-amber-600 group-hover:text-white transition-all">
                         .GIF
+                      </span>
+                    </button>
+
+                    {/* VAP 1.0 Option */}
+                    <button
+                      onClick={exportAsVap10}
+                      className="p-3 rounded-xl bg-cyan-950/40 hover:bg-cyan-600/20 border border-cyan-500/40 hover:border-cyan-400 flex items-center justify-between text-left transition-all group shadow-[0_0_12px_rgba(6,182,212,0.15)]"
+                    >
+                      <div className="flex flex-col">
+                        <span className="font-bold text-xs text-white flex items-center gap-1.5">
+                          <span>فيديو Tencent VAP1.0 شفاف</span>
+                          <span className="px-1.5 py-0.2 rounded text-[8px] bg-cyan-500 text-black font-black">VAP1.0</span>
+                        </span>
+                        <span className="text-[10px] text-cyan-300/80">فيديو MP4 شفاف مع قناع ألفا بالأعلى وصندوق vapc القياسي</span>
+                      </div>
+                      <span className="px-2 py-0.5 rounded bg-cyan-600/30 text-cyan-300 text-[10px] font-mono font-bold border border-cyan-500/40 group-hover:bg-cyan-600 group-hover:text-white transition-all">
+                        .MP4
                       </span>
                     </button>
 

@@ -76,7 +76,7 @@ export async function compressImageBuffer(
   imageBytes: Uint8Array,
   quality: number,
   scale: number = 1.0,
-  imageFormat: 'png' | 'webp' | 'jpeg' | 'auto' = 'auto'
+  imageFormat: 'png' | 'webp' | 'jpeg' | 'auto' = 'png'
 ): Promise<Uint8Array> {
   if (!imageBytes || imageBytes.length === 0) return imageBytes;
 
@@ -116,8 +116,9 @@ export async function compressImageBuffer(
 
         const candidateBytes: Uint8Array[] = [imageBytes];
 
-        // 1. WebP Pass (if format is 'webp' or 'auto')
-        if (imageFormat === 'webp' || imageFormat === 'auto') {
+        // 1. WebP Pass ONLY when explicitly requested as 'webp'
+        // Standard SVGA players and gift animations require standard PNG. WebP in SVGA causes empty layers!
+        if (imageFormat === 'webp') {
           try {
             const qFactor = Math.max(0.1, Math.min(1.0, quality / 100));
             const webpBlob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/webp', qFactor));
@@ -129,7 +130,7 @@ export async function compressImageBuffer(
           } catch {}
         }
 
-        // 2. JPEG Pass (if format is 'jpeg')
+        // 2. JPEG Pass (only if format is 'jpeg' and doesn't require transparency)
         if (imageFormat === 'jpeg') {
           try {
             const qFactor = Math.max(0.1, Math.min(1.0, quality / 100));
@@ -142,8 +143,9 @@ export async function compressImageBuffer(
           } catch {}
         }
 
-        // 3. PNG / UPNG Pass (if format is 'png' or 'auto')
-        if (imageFormat === 'png' || imageFormat === 'auto') {
+        // 3. PNG / UPNG Pass (Default for 'png' and 'auto')
+        // Strict PNG guarantee with 100% alpha transparency preservation so gift effects always appear!
+        if (imageFormat === 'png' || imageFormat === 'auto' || imageFormat !== 'webp') {
           try {
             const imgData = ctx.getImageData(0, 0, targetW, targetH);
             let cnum = 0;
@@ -163,17 +165,22 @@ export async function compressImageBuffer(
 
             const upngBuffer = UPNG.encode([imgData.data.buffer], targetW, targetH, cnum);
             const upngUint8 = new Uint8Array(upngBuffer);
-            if (upngUint8.length > 0) candidateBytes.push(upngUint8);
+            if (upngUint8.length > 0 && upngUint8[0] === 0x89 && upngUint8[1] === 0x50) {
+              candidateBytes.push(upngUint8);
+            }
           } catch {
             const pngBlob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
             if (pngBlob) {
               const buf = await pngBlob.arrayBuffer();
-              candidateBytes.push(new Uint8Array(buf));
+              const pngUint8 = new Uint8Array(buf);
+              if (pngUint8.length > 0 && pngUint8[0] === 0x89 && pngUint8[1] === 0x50) {
+                candidateBytes.push(pngUint8);
+              }
             }
           }
         }
 
-        // Sort candidates by size ascending and pick the smallest
+        // Sort candidates by size ascending and pick the smallest valid candidate
         candidateBytes.sort((a, b) => a.length - b.length);
         resolve(candidateBytes[0] || imageBytes);
       };
@@ -447,7 +454,7 @@ export async function compressSvgaFile(
       try {
         const imgBlob = await entry.async('blob');
         const imgBuffer = new Uint8Array(await imgBlob.arrayBuffer());
-        const compressedBytes = await compressImageBuffer(imgBuffer, effectiveQuality, effectiveScale, settings.imageFormat || 'auto');
+        const compressedBytes = await compressImageBuffer(imgBuffer, effectiveQuality, effectiveScale, settings.imageFormat || 'png');
 
         if (compressedBytes.length < imgBuffer.length) {
           zip.file(path, compressedBytes);
@@ -661,7 +668,7 @@ export async function compressSvgaFile(
       }
 
       try {
-        const compressedBytes = await compressImageBuffer(rawData, effectiveQuality, imgScale, settings.imageFormat || 'auto');
+        const compressedBytes = await compressImageBuffer(rawData, effectiveQuality, imgScale, settings.imageFormat || 'png');
         // Replace if smaller or if scaled
         if (compressedBytes.length < rawData.length || imgScale < 0.99) {
           movie.images[key] = compressedBytes;

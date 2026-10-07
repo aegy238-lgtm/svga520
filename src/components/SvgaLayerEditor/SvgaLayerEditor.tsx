@@ -46,7 +46,7 @@ import {
   Sparkles, MousePointer, Hand, ZoomIn, Grid, Compass, 
   FileCode, Check, AlertCircle, RefreshCw, X, Shield, Eye,
   Sliders, Play, Film, CheckCircle2, Music, Plus, FilePlus, Package,
-  Image as ImageIcon, Pipette, LayoutGrid, Copy
+  Image as ImageIcon, Pipette, LayoutGrid, Copy, Video
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -221,6 +221,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
+  const [initialExportFormat, setInitialExportFormat] = useState<string>('SVGA 2.0');
   const [showNewProjectModal, setShowNewProjectModal] = useState<boolean>(false);
   const [showAudioStudioModal, setShowAudioStudioModal] = useState<boolean>(false);
   const [showMergeCanvasModal, setShowMergeCanvasModal] = useState<boolean>(false);
@@ -4020,27 +4021,31 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
 
           {project && (
             <button
-              onClick={() => setShowExportModal(true)}
+              onClick={() => {
+                setShowExportModal(true);
+              }}
               disabled={isExporting}
-              className="flex items-center gap-1.5 text-xs font-black text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 px-4 py-1.5 rounded-xl shadow-lg shadow-indigo-600/30 transition-all cursor-pointer hover:scale-105"
-              title="تصدير ملف SVGA مباشر (Enter أو Tab)"
+              className="flex items-center gap-2 text-xs font-black text-white bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 px-4 py-2 rounded-xl shadow-lg shadow-emerald-600/25 border border-white/20 transition-all cursor-pointer hover:scale-105 active:scale-95"
+              title="تصدير وتنزيل المشروع بكافة الصيغ (SVGA فوري، VAP1.0 الشفاف، وغيرها)"
             >
-              <Download size={13} /> {isExporting ? 'جاري المعالجة...' : 'تصدير SVGA'}
-              <kbd className="hidden sm:inline-block text-[10px] bg-black/30 border border-white/20 px-1 py-0.2 rounded text-white/90 font-mono">Enter / Tab ⇥</kbd>
+              <Download size={14} />
+              <span className="text-sm">تصدير / تنزيل</span>
+              <kbd className="hidden sm:inline-block text-[10px] bg-black/40 border border-white/20 px-1.5 py-0.5 rounded text-white/90 font-mono">Enter ↵</kbd>
             </button>
           )}
         </div>
 
         {/* Mobile Actions Header Bar */}
-        <div className="lg:hidden flex items-center gap-2">
+        <div className="lg:hidden flex items-center gap-1.5">
           {project && (
             <button
               onClick={() => setShowExportModal(true)}
               disabled={isExporting}
-              className="flex items-center gap-1.5 text-xs font-black text-white bg-indigo-600 px-3.5 py-1.5 rounded-xl shadow-md transition-all cursor-pointer"
+              className="flex items-center gap-1.5 text-xs font-black text-white bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 px-3 py-1.5 rounded-xl shadow-md border border-white/20 transition-all cursor-pointer"
+              title="تصدير وتنزيل"
             >
-              <Download size={12} />
-              <span>{isExporting ? 'جاري...' : 'تصدير'}</span>
+              <Download size={13} />
+              <span>تصدير / تنزيل</span>
             </button>
           )}
           <button
@@ -4687,6 +4692,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               cropFeather={cropFeather}
               onOpenViewer={onOpenViewer}
               onSuccessToast={(msg) => setSuccessToast(msg)}
+              initialFormat={initialExportFormat as any}
             />
           </ErrorBoundary>
         )}

@@ -62,14 +62,48 @@ export interface ExportJobRecord {
   processRef?: ChildProcess;
 }
 
-// In-memory registry of jobs (persists while server is running)
+// In-memory registry of jobs (synced with disk persistence so jobs survive restarts)
 const jobsRegistry = new Map<string, ExportJobRecord>();
+const JOBS_METADATA_FILE = path.join(JOBS_BASE_DIR, 'jobs_metadata.json');
+
+export function saveJobsMetadata() {
+  try {
+    const list: any[] = [];
+    for (const job of jobsRegistry.values()) {
+      const { processRef, ...safeData } = job;
+      list.push(safeData);
+    }
+    fs.writeFileSync(JOBS_METADATA_FILE, JSON.stringify(list.slice(-100), null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('[ExportJobs] Could not save metadata to disk:', err);
+  }
+}
+
+function loadJobsMetadata() {
+  try {
+    if (fs.existsSync(JOBS_METADATA_FILE)) {
+      const content = fs.readFileSync(JOBS_METADATA_FILE, 'utf-8');
+      const list = JSON.parse(content);
+      if (Array.isArray(list)) {
+        for (const item of list) {
+          if (item && item.jobId) {
+            jobsRegistry.set(item.jobId, item);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[ExportJobs] Could not load metadata from disk:', err);
+  }
+}
+loadJobsMetadata();
 
 /**
- * Periodically purge jobs older than 6 hours to keep disk space lean
+ * Periodically purge jobs older than 24 hours to keep disk space lean while allowing users to retrieve files later
  */
 function cleanStaleJobs() {
-  const cutoff = Date.now() - 6 * 60 * 60 * 1000;
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  let changed = false;
   for (const [id, job] of jobsRegistry.entries()) {
     if (job.createdAt < cutoff) {
       if (job.inputPath && fs.existsSync(job.inputPath)) {
@@ -82,8 +116,10 @@ function cleanStaleJobs() {
         try { fs.unlinkSync(job.outputPath); } catch {}
       }
       jobsRegistry.delete(id);
+      changed = true;
     }
   }
+  if (changed) saveJobsMetadata();
 }
 setInterval(cleanStaleJobs, 30 * 60 * 1000);
 
@@ -210,13 +246,104 @@ async function processJobInBackground(
     }
 
     // Configure encoders based on target format
-    if (format === 'mp4') {
+    if (format === 'vap' || format === 'vap1.0' || format === 'vap 1.0.5') {
+      job.progress = 35;
+      job.message = 'جاري استخراج قناع الشفافية وترميز فيديو Tencent VAP1.0 بمسرع العتاد...';
+
+      const tempMp4Path = path.join(OUTPUTS_DIR, `temp_${job.jobId}.mp4`);
+      // Standard VAP 1.0 vertical stacking: Alpha on TOP ("الحته البيضاء بالأعلى"), RGB on BOTTOM
+      const filterStr = '[0:v]format=yuva420p,split[rgb][a];[a]alphaextract[alpha];[alpha][rgb]vstack[out]';
+      const vapArgs: string[] = [
+        '-y', '-i', inputPath,
+        '-filter_complex', filterStr,
+        '-map', '[out]',
+        '-c:v', 'libx264',
+        '-pix_fmt', 'yuv420p',
+        '-preset', preset,
+        '-crf', crf
+      ];
+
+      if (audioPath && fs.existsSync(audioPath)) {
+        vapArgs.push('-i', audioPath, '-map', '1:a:0', '-c:a', 'aac', '-b:a', '192k', '-shortest');
+      }
+
+      vapArgs.push(tempMp4Path);
+
+      await execFilePromise(FFMPEG_PATH, vapArgs, { maxBuffer: 15 * 1024 * 1024 });
+
+      job.progress = 80;
+      job.message = 'جاري حقن صندوق vapc القياسي وفق مواصفات VAP1.0...';
+
+      let videoW = 1000;
+      let videoH = 1000;
+      let fpsNum = config.fps || 30;
+      let totalF = 30;
+
+      try {
+        const { stdout } = await execFilePromise(FFPROBE_PATH, [
+          '-v', 'error',
+          '-select_streams', 'v:0',
+          '-show_entries', 'stream=width,height,r_frame_rate,nb_frames',
+          '-of', 'json',
+          tempMp4Path
+        ]);
+        const probeData = JSON.parse(stdout);
+        const stream = probeData.streams?.[0];
+        if (stream) {
+          videoW = stream.width || 1000;
+          videoH = stream.height || 1000;
+          if (stream.nb_frames) totalF = parseInt(stream.nb_frames, 10) || totalF;
+          if (stream.r_frame_rate) {
+            const [num, den] = stream.r_frame_rate.split('/').map(Number);
+            if (num && den) fpsNum = Math.round(num / den);
+          }
+        }
+      } catch (probeErr) {
+        console.warn('[ExportJobs] FFprobe notice:', probeErr);
+      }
+
+      const origW = videoW;
+      const origH = Math.round(videoH / 2);
+
+      const vapConfig = {
+        info: {
+          v: 1, // Tencent VAP 1.0 standard
+          f: totalF,
+          w: origW,
+          h: origH,
+          fps: fpsNum,
+          videoW: videoW,
+          videoH: videoH,
+          aFrame: [0, 0, origW, origH],        // Alpha mask on TOP ("الحته البيضاء بالأعلى")
+          rgbFrame: [0, origH, origW, origH],  // RGB color gift on BOTTOM
+          isVapx: 0,
+          codeTag: ["common"],
+          orien: 0
+        }
+      };
+
+      const jsonBytes = Buffer.from(JSON.stringify(vapConfig), 'utf-8');
+      const boxSize = 8 + jsonBytes.length;
+      const boxHeader = Buffer.alloc(8);
+      boxHeader.writeUInt32BE(boxSize, 0);
+      boxHeader.write('vapc', 4, 4, 'ascii');
+
+      const mp4Data = fs.readFileSync(tempMp4Path);
+      const finalVapBuffer = Buffer.concat([mp4Data, boxHeader, jsonBytes]);
+      fs.writeFileSync(outputPath, finalVapBuffer);
+
+      try { fs.unlinkSync(tempMp4Path); } catch {}
+    } else if (format === 'mp4') {
       args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', preset, '-crf', crf);
       if (audioPath && fs.existsSync(audioPath)) {
         args.push('-map', '0:v:0', '-map', '1:a:0', '-c:a', 'aac', '-b:a', '192k', '-shortest');
       } else {
         args.push('-c:a', 'copy');
       }
+      args.push(outputPath);
+      job.progress = 50;
+      job.message = 'جاري معالجة الإطارات بدقة فائقة...';
+      await execFilePromise(FFMPEG_PATH, args, { maxBuffer: 10 * 1024 * 1024 });
     } else if (format === 'webm') {
       args.push('-c:v', 'libvpx-vp9', '-pix_fmt', 'yuva420p', '-crf', '30', '-b:v', '0');
       if (audioPath && fs.existsSync(audioPath)) {
@@ -224,21 +351,30 @@ async function processJobInBackground(
       } else {
         args.push('-c:a', 'copy');
       }
+      args.push(outputPath);
+      job.progress = 50;
+      job.message = 'جاري معالجة فيديو WebM الشفاف...';
+      await execFilePromise(FFMPEG_PATH, args, { maxBuffer: 10 * 1024 * 1024 });
     } else if (format === 'gif') {
       args.push('-vf', `fps=${Math.min(config.fps, 24)},split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse`);
+      args.push(outputPath);
+      job.progress = 50;
+      job.message = 'جاري إنشاء صورة GIF المتحركة...';
+      await execFilePromise(FFMPEG_PATH, args, { maxBuffer: 10 * 1024 * 1024 });
     } else if (format === 'mp3') {
       args.push('-vn', '-c:a', 'libmp3lame', '-q:a', '2');
+      args.push(outputPath);
+      job.progress = 50;
+      job.message = 'جاري استخراج وتحويل الصوت...';
+      await execFilePromise(FFMPEG_PATH, args, { maxBuffer: 10 * 1024 * 1024 });
     } else {
       // Default standard copy / container conversion
       args.push('-c', 'copy');
+      args.push(outputPath);
+      job.progress = 50;
+      job.message = 'جاري نسخ وتحويل الحاوية...';
+      await execFilePromise(FFMPEG_PATH, args, { maxBuffer: 10 * 1024 * 1024 });
     }
-
-    args.push(outputPath);
-
-    job.progress = 50;
-    job.message = 'جاري معالجة الإطارات بدقة فائقة...';
-
-    await execFilePromise(FFMPEG_PATH, args, { maxBuffer: 10 * 1024 * 1024 });
 
     if (fs.existsSync(outputPath)) {
       const stats = fs.statSync(outputPath);
@@ -247,6 +383,7 @@ async function processJobInBackground(
       job.progress = 100;
       job.completedAt = Date.now();
       job.message = 'اكتمل التصدير بنجاح! الملف جاهز للتحميل.';
+      saveJobsMetadata();
     } else {
       throw new Error('لم ينتج ملف الإخراج بعد انتهاء المعالجة.');
     }
@@ -255,6 +392,7 @@ async function processJobInBackground(
     job.status = 'failed';
     job.error = err.message || 'حدث خطأ أثناء معالجة التصدير السحابي.';
     job.progress = 100;
+    saveJobsMetadata();
   } finally {
     // Delete temporary input files to free disk space immediately
     if (job.inputPath && fs.existsSync(job.inputPath)) {
@@ -265,6 +403,63 @@ async function processJobInBackground(
     }
   }
 }
+
+/**
+ * POST /api/export-jobs/submit-result
+ * Direct upload of completed file to register it permanently on the server
+ */
+router.post('/submit-result', upload.single('file'), (req: express.Request, res: express.Response) => {
+  try {
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ success: false, error: 'لم يتم إرسال ملف' });
+    }
+    const {
+      userId = 'guest',
+      title = 'ملف تم تصديره',
+      targetFormat = 'mp4',
+      fileName
+    } = req.body;
+
+    const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const outputFileName = fileName || file.originalname || `export_${Date.now()}.${targetFormat}`;
+    const targetPath = path.join(OUTPUTS_DIR, `${jobId}_${outputFileName}`);
+
+    // Move uploaded file to outputs directory
+    fs.renameSync(file.path, targetPath);
+    const stats = fs.statSync(targetPath);
+
+    const jobRecord: ExportJobRecord = {
+      jobId,
+      userId,
+      title: title || outputFileName,
+      operationType: 'direct_export',
+      targetFormat,
+      status: 'completed',
+      progress: 100,
+      message: 'تم حفظ وتأمين الملف على السيرفر بنجاح!',
+      createdAt: Date.now(),
+      completedAt: Date.now(),
+      outputPath: targetPath,
+      outputFileName,
+      outputFileSize: stats.size
+    };
+
+    jobsRegistry.set(jobId, jobRecord);
+    saveJobsMetadata();
+
+    res.json({
+      success: true,
+      jobId,
+      downloadUrl: `/api/export-jobs/${jobId}/download`,
+      fileSize: stats.size,
+      fileName: outputFileName
+    });
+  } catch (err: any) {
+    console.error('[ExportJobs] Submit result failed:', err);
+    res.status(500).json({ success: false, error: err.message || 'فشل في حفظ الملف' });
+  }
+});
 
 /**
  * GET /api/export-jobs/:jobId

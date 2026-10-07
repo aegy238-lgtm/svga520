@@ -85,7 +85,7 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
   const [stripUnusedImages, setStripUnusedImages] = useState<boolean>(true);
   const [preserveAudio, setPreserveAudio] = useState<boolean>(true);
   const [filenameSuffix, setFilenameSuffix] = useState<string>('_compressed');
-  const [imageFormat, setImageFormat] = useState<'png' | 'webp' | 'jpeg' | 'auto'>('auto');
+  const [imageFormat, setImageFormat] = useState<'png' | 'webp' | 'jpeg' | 'auto'>('png');
   const [concurrency, setConcurrency] = useState<number>(3);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
 

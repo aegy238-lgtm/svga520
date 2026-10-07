@@ -357,6 +357,66 @@ class BackgroundExportManager {
   }
 
   /**
+   * Register an already created or exported blob directly as a completed job.
+   * Immediately persists in storage, enables downloading anytime, and syncs with backend.
+   */
+  public async registerCompletedJob(params: {
+    title: string;
+    fileName: string;
+    blob: Blob;
+    userId?: string;
+  }): Promise<string> {
+    const jobId = `export_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const blobUrl = URL.createObjectURL(params.blob);
+
+    const job: BackgroundExportJob = {
+      id: jobId,
+      title: params.title,
+      fileName: params.fileName,
+      mode: 'client',
+      status: 'completed',
+      progress: 100,
+      message: 'اكتمل التصدير بنجاح! الملف جاهز للتحميل في أي وقت.',
+      createdAt: Date.now(),
+      completedAt: Date.now(),
+      fileSize: params.blob.size,
+      downloadUrl: blobUrl,
+      blob: params.blob,
+      userId: params.userId || 'guest'
+    };
+
+    this.jobs.set(jobId, job);
+    this.broadcast();
+
+    // Sync to server storage in background for persistence across sessions
+    try {
+      const formData = new FormData();
+      formData.append('file', params.blob, params.fileName);
+      formData.append('title', params.title);
+      formData.append('fileName', params.fileName);
+      formData.append('userId', params.userId || 'guest');
+      const ext = params.fileName.split('.').pop() || 'bin';
+      formData.append('targetFormat', ext);
+
+      fetch('/api/export-jobs/submit-result', {
+        method: 'POST',
+        body: formData
+      }).then(res => res.json()).then(data => {
+        if (data.success && data.downloadUrl) {
+          const current = this.jobs.get(jobId);
+          if (current) {
+            current.downloadUrl = data.downloadUrl;
+            this.broadcast();
+          }
+        }
+      }).catch(() => {});
+    } catch {}
+
+    try { playSound('success'); } catch {}
+    return jobId;
+  }
+
+  /**
    * Cancel an active job
    */
   public async cancelJob(id: string) {

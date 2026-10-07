@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   X, Download, Sparkles, CheckCircle2, AlertCircle, FileCode, 
   Layers, Play, Sliders, Shield, Zap, Film, Image as ImageIcon,
-  Check, ArrowDownToLine, Settings2, Hash, RefreshCw
+  Check, ArrowDownToLine, Settings2, Hash, RefreshCw, Video
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { EditableLayer, SVGAProjectData, FadeConfig, CropConfig, CropFeather } from './types';
@@ -26,8 +26,10 @@ import { renderAllProjectFrames } from './svgaProjectRenderer';
 import { generateAEProject } from '../../services/aeExportService';
 import { mixAudioTracksToBuffer, ExtractedAudioTrack } from '../../utils/svgaVideoAudioExporter';
 import { ensureMp3WithId3 } from '../../utils/svgaAudio';
+import { backgroundExportManager } from '../../services/backgroundExportManager';
 
 export type ExportFormatType = 
+  | 'VAP1.0'
   | 'SVGA 2.0'
   | 'SVGA 2.0 EX'
   | 'SVGA – Animated SVG'
@@ -52,6 +54,7 @@ interface SvgaExportModalProps {
   cropFeather?: CropFeather;
   onOpenViewer?: (blob: Blob, fileName: string) => void;
   onSuccessToast?: (msg: string) => void;
+  initialFormat?: ExportFormatType;
 }
 
 export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
@@ -63,17 +66,20 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
   cropConfig,
   cropFeather,
   onOpenViewer,
-  onSuccessToast
+  onSuccessToast,
+  initialFormat
 }) => {
   // Compression presets & numeric state (Defaults to pristine / uncompressed original quality)
   const [compressionMode, setCompressionMode] = useState<'high' | 'medium' | 'low' | 'custom'>('high');
   const [customQuality, setCustomQuality] = useState<number>(100); // 10 to 100
   const [zlibLevel, setZlibLevel] = useState<number>(6); // 0 to 9
   const [compressImages, setCompressImages] = useState<boolean>(true);
-  const [imageFormat, setImageFormat] = useState<'png' | 'webp' | 'jpeg' | 'auto'>('auto');
+  const [imageFormat, setImageFormat] = useState<'png' | 'webp' | 'jpeg' | 'auto'>('png');
+  // VAP channel layout: 'left-right' puts RGB on left and the white alpha matte on the right (matches the user's screenshot exactly)
+  const [vapLayout, setVapLayout] = useState<'left-right' | 'top-right-alpha' | 'top-bottom' | 'right-left' | 'bottom-top'>('top-right-alpha');
 
   // Selected format
-  const [selectedFormat, setSelectedFormat] = useState<ExportFormatType>('SVGA 2.0');
+  const [selectedFormat, setSelectedFormat] = useState<ExportFormatType>(initialFormat || 'SVGA 2.0');
 
   // File Name
   const [fileNameBase, setFileNameBase] = useState<string>(() => {
@@ -86,13 +92,23 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
   const [progressPercent, setProgressPercent] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [exportedSvgaBlob, setExportedSvgaBlob] = useState<{ blob: Blob; fileName: string } | null>(null);
+  const [completedExport, setCompletedExport] = useState<{
+    blob: Blob;
+    fileName: string;
+    format: string;
+    url: string;
+    size: number;
+  } | null>(null);
 
-  // Derive target file extension
-  const formatExtension = useMemo(() => {
-    switch (selectedFormat) {
+  // Helper to reliably compute file extension for any format
+  const getExtForFormat = (fmt: ExportFormatType): string => {
+    switch (fmt) {
       case 'SVGA 2.0':
       case 'SVGA 2.0 EX':
         return '.svga';
+      case 'VAP1.0':
+      case 'VAP (MP4)':
+      case 'VAP 1.0.5':
       case 'SVGA – YYSVA':
         return '.mp4';
       case 'AE Project':
@@ -108,9 +124,37 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
         return '.webp';
       case 'WebM (Video)':
         return '.webm';
+      case 'SVGA – Animated SVG':
+        return '.svg';
+      default:
+        return '.svga';
+    }
+  };
+
+  // Derive target file extension
+  const formatExtension = useMemo(() => {
+    switch (selectedFormat) {
+      case 'SVGA 2.0':
+      case 'SVGA 2.0 EX':
+        return '.svga';
+      case 'VAP1.0':
       case 'VAP (MP4)':
       case 'VAP 1.0.5':
+      case 'SVGA – YYSVA':
         return '.mp4';
+      case 'AE Project':
+      case 'Image Sequence':
+        return '.zip';
+      case 'Lottie (Sequence)':
+        return '.json';
+      case 'GIF (Animation)':
+        return '.gif';
+      case 'APNG (Animation)':
+        return '.png';
+      case 'WebP (Animated)':
+        return '.webp';
+      case 'WebM (Video)':
+        return '.webm';
       case 'SVGA – Animated SVG':
         return '.svg';
       default:
@@ -123,19 +167,20 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
     return clean.endsWith(formatExtension) ? clean : `${clean}${formatExtension}`;
   }, [fileNameBase, formatExtension]);
 
-  // Formats Grid (Matching screenshot layout)
+  // Formats Grid (Matching screenshot layout + prominent VAP1.0 button)
   const formatButtons: { id: ExportFormatType; label: string }[] = [
-    { id: 'SVGA – Animated SVG', label: 'SVGA – Animated SVG' },
-    { id: 'Lottie (Sequence)', label: 'Lottie (Sequence)' },
+    { id: 'VAP1.0', label: 'VAP1.0' },
     { id: 'SVGA 2.0', label: 'SVGA 2.0' },
     { id: 'SVGA 2.0 EX', label: 'SVGA 2.0 EX' },
+    { id: 'VAP (MP4)', label: 'VAP (MP4)' },
     { id: 'AE Project', label: 'AE Project' },
+    { id: 'Lottie (Sequence)', label: 'Lottie (Sequence)' },
     { id: 'WebM (Video)', label: 'WebM (Video)' },
     { id: 'APNG (Animation)', label: 'APNG (Animation)' },
     { id: 'GIF (Animation)', label: 'GIF (Animation)' },
     { id: 'Image Sequence', label: 'Image Sequence' },
     { id: 'SVGA – YYSVA', label: 'SVGA – YYSVA' },
-    { id: 'VAP (MP4)', label: 'VAP (MP4)' },
+    { id: 'SVGA – Animated SVG', label: 'SVGA – Animated SVG' },
     { id: 'WebP (Animated)', label: 'WebP (Animated)' }
   ];
 
@@ -144,8 +189,39 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
     if (isExporting) return;
     setIsExporting(true);
     setErrorMessage(null);
+    setCompletedExport(null);
     setProgressPercent(10);
     setExportPhase('جاري معالجة طبقات الهدية والشفافية...');
+
+    const targetExt = getExtForFormat(formatToExport);
+    const cleanBase = fileNameBase.trim().replace(/\.[a-zA-Z0-9]+$/, '') || 'animation_export';
+    const targetFileName = `${cleanBase}${targetExt}`;
+
+    const finalizeDownload = (outBlob: Blob, phaseTitle: string = 'تم التصدير والتحميل بنجاح!') => {
+      const blobUrl = URL.createObjectURL(outBlob);
+      setCompletedExport({
+        blob: outBlob,
+        fileName: targetFileName,
+        format: formatToExport,
+        url: blobUrl,
+        size: outBlob.size
+      });
+
+      // 1. Programmatic browser download trigger
+      downloadBlob(outBlob, targetFileName);
+
+      // 2. Continuous Background Job sync (persists in GlobalExportWidget & backend)
+      backgroundExportManager.registerCompletedJob({
+        title: `تصدير ${formatToExport} (${cleanBase})`,
+        fileName: targetFileName,
+        blob: outBlob
+      });
+
+      setProgressPercent(100);
+      setExportPhase(`${phaseTitle} ✓`);
+      onSuccessToast?.(`تم تصدير ملف ${formatToExport} بنجاح!`);
+      setIsExporting(false);
+    };
 
     try {
       // Calculate active compression options - default to level 9 maximum lossless compression
@@ -153,7 +229,7 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
         mode: compressionMode,
         quality: compressionMode === 'custom' ? customQuality : compressionMode === 'low' ? 60 : compressionMode === 'medium' ? 80 : 100,
         zlibLevel: compressionMode === 'custom' ? zlibLevel : 9,
-        compressImages: compressionMode === 'custom' ? compressImages : true,
+        compressImages: compressionMode === 'custom' ? compressImages : (compressionMode === 'low' || compressionMode === 'medium'),
         imageFormat: imageFormat
       };
 
@@ -164,22 +240,13 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
         const svgaResult = await exportEditedSvga(
           project,
           layers,
-          fileNameBase,
+          cleanBase,
           { fadeConfig, cropConfig, cropFeather },
           activeOptions
         );
 
         setExportedSvgaBlob(svgaResult);
-        setProgressPercent(90);
-        setExportPhase('جاري إنهاء وتحميل الملف...');
-        downloadBlob(svgaResult.blob, fullFileName);
-        setProgressPercent(100);
-        setExportPhase('تم التصدير والتحميل بنجاح! ✓');
-        onSuccessToast?.(`تم تصدير ملف ${formatToExport} بنجاح!`);
-        setTimeout(() => {
-          setIsExporting(false);
-          onClose();
-        }, 1200);
+        finalizeDownload(svgaResult.blob, 'تم تصدير ملف SVGA بنجاح!');
         return;
       }
 
@@ -233,7 +300,7 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
           };
         });
 
-        await generateAEProject({
+        const aeResult = await generateAEProject({
           metadata: {
             name: project.fileName,
             dimensions: { width: project.width, height: project.height },
@@ -252,13 +319,7 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
           setProgress: (p) => setProgressPercent(30 + Math.round(p * 0.65))
         });
 
-        setProgressPercent(100);
-        setExportPhase('تم تصدير حزمة After Effects بنجاح!');
-        onSuccessToast?.('تم تصدير حزمة After Effects بنجاح!');
-        setTimeout(() => {
-          setIsExporting(false);
-          onClose();
-        }, 1200);
+        finalizeDownload(aeResult.zipBlob, 'تم تصدير حزمة After Effects بنجاح!');
         return;
       }
 
@@ -286,7 +347,7 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
         const fallbackSvga = await exportEditedSvga(
           project,
           layers,
-          fileNameBase,
+          cleanBase,
           { fadeConfig, cropConfig, cropFeather },
           activeOptions
         );
@@ -304,18 +365,21 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
       if (formatToExport === 'Image Sequence') {
         setExportPhase('جاري تحزيم إطارات PNG في ملف ZIP...');
         setProgressPercent(75);
-        const zipBlob = await exportAsPngFramesZip(canvases, fileNameBase, delays);
-        downloadBlob(zipBlob, fullFileName);
+        const zipBlob = await exportAsPngFramesZip(canvases, cleanBase, delays);
+        finalizeDownload(zipBlob, 'تم تصدير حزمة إطارات PNG بنجاح!');
+        return;
       } else if (formatToExport === 'GIF (Animation)') {
         setExportPhase('جاري ترميز صورة GIF المتحركة مع الشفافية وضغط الألوان...');
         setProgressPercent(75);
         const gifBlob = await exportAsGif(canvases, delays, project.width, project.height);
-        downloadBlob(gifBlob, fullFileName);
+        finalizeDownload(gifBlob, 'تم تصدير صورة GIF المتحركة بنجاح!');
+        return;
       } else if (formatToExport === 'APNG (Animation)') {
         setExportPhase('جاري إنشاء صورة APNG فائقة الدقة والشفافية...');
         setProgressPercent(75);
         const apngBlob = await exportAsApng(canvases, delays, project.width, project.height);
-        downloadBlob(apngBlob, fullFileName);
+        finalizeDownload(apngBlob, 'تم تصدير صورة APNG فائقة الدقة بنجاح!');
+        return;
       } else if (formatToExport === 'WebP (Animated)') {
         setExportPhase('جاري تصدير WebP المتحرك فائق الضغط...');
         setProgressPercent(75);
@@ -326,8 +390,9 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
           project.height, 
           activeOptions.quality || 100
         );
-        downloadBlob(webpBlob, fullFileName);
-      } else if (formatToExport === 'WebM (Video)' || formatToExport === 'VAP (MP4)' || formatToExport === 'VAP 1.0.5' || formatToExport === 'SVGA – YYSVA') {
+        finalizeDownload(webpBlob, 'تم تصدير WebP المتحرك بنجاح!');
+        return;
+      } else if (formatToExport === 'WebM (Video)' || formatToExport === 'VAP1.0' || formatToExport === 'VAP (MP4)' || formatToExport === 'VAP 1.0.5' || formatToExport === 'SVGA – YYSVA') {
         // Extract and mix any audio tracks attached to the SVGA project
         let mixedAudioBuffer: AudioBuffer | null = null;
         try {
@@ -390,26 +455,38 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
               if (phase) setExportPhase(phase);
             }
           );
-          downloadBlob(webmBlob, fullFileName);
-        } else if (formatToExport === 'VAP (MP4)' || formatToExport === 'VAP 1.0.5') {
-          setExportPhase(`جاري تشكيل فيديو Tencent VAP الشفاف (${formatToExport}) بمسرع العتاد...`);
+          finalizeDownload(webmBlob, 'تم تصدير فيديو WebM الشفاف بنجاح!');
+          return;
+        } else if (formatToExport === 'VAP1.0' || formatToExport === 'VAP (MP4)' || formatToExport === 'VAP 1.0.5') {
+          const layoutName = vapLayout === 'top-right-alpha' 
+            ? 'الحته البيضاء بأعلى اليمين مثل الاسكرين' 
+            : vapLayout === 'left-right' 
+              ? 'الحته البيضاء باليمين بجانب الهدية' 
+              : vapLayout === 'top-bottom' 
+                ? 'الحته البيضاء بالأعلى' 
+                : vapLayout === 'right-left' 
+                  ? 'الحته البيضاء باليسار' 
+                  : 'الحته البيضاء بالأسفل';
+          setExportPhase(`جاري تشكيل فيديو Tencent VAP الشفاف (${formatToExport}) بمسرع العتاد مع تموضع قناع الشفافية (${layoutName})...`);
           setProgressPercent(70);
-          const vapVersion = formatToExport === 'VAP 1.0.5' ? '1.0.5' : '2.0';
+          const vapVersion = formatToExport === 'VAP1.0' ? '1.0' : formatToExport === 'VAP 1.0.5' ? '1.0.5' : '2.0';
           const vapBlob = await exportAsVap(
             canvases, 
             delays, 
             project.width, 
             project.height, 
             fps, 
-            vapVersion, 
+            vapVersion as any, 
             mixedAudioBuffer,
             (p, phase) => {
               setProgressPercent(70 + Math.round(p * 29));
               if (phase) setExportPhase(phase);
             },
-            activeOptions.quality || 100
+            activeOptions.quality || 100,
+            vapLayout // Dynamic layout: defaults to 'top-right-alpha' matching screenshot (RGB on left, white Alpha on top right)
           );
-          downloadBlob(vapBlob, fullFileName);
+          finalizeDownload(vapBlob, `تم تصدير فيديو Tencent ${formatToExport} بنجاح!`);
+          return;
         } else if (formatToExport === 'SVGA – YYSVA') {
           setExportPhase('جاري تجهيز فيديو YYEVA / YYSVA المزدوج الشفاف بمسرع العتاد...');
           setProgressPercent(70);
@@ -426,18 +503,21 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
             },
             activeOptions.quality || 100
           );
-          downloadBlob(yyevaBlob, fullFileName);
+          finalizeDownload(yyevaBlob, 'تم تصدير فيديو YYEVA الشفاف بنجاح!');
+          return;
         }
       } else if (formatToExport === 'SVGA – Animated SVG') {
         setExportPhase('جاري إنشاء ملف Animated SVG بكافة الإطارات ومتحركات CSS...');
         setProgressPercent(75);
         const svgBlob = await exportAsAnimatedSvg(canvases, delays, project.width, project.height);
-        downloadBlob(svgBlob, fullFileName);
+        finalizeDownload(svgBlob, 'تم تصدير ملف Animated SVG بنجاح!');
+        return;
       } else if (formatToExport === 'Lottie (Sequence)') {
         setExportPhase('جاري تحويل وتصدير الرسوم إلى ملف Lottie JSON كامل...');
         setProgressPercent(75);
         const lottieBlob = await exportAsLottie(canvases, fps);
-        downloadBlob(lottieBlob, fullFileName);
+        finalizeDownload(lottieBlob, 'تم تصدير ملف Lottie JSON بنجاح!');
+        return;
       }
 
       setProgressPercent(100);
@@ -600,18 +680,18 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
           <div className="bg-slate-900/90 border border-white/10 rounded-2xl p-3 space-y-2">
             <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
               <span className="flex items-center gap-1">
-                <span>🖼️ صيغة ضغط الصور الداخلية (Image Compression Format):</span>
+                <span>🖼️ صيغة أصول الصور في الطبقات (حفظ تأثير الهدية والشفافية):</span>
               </span>
-              <span className="text-[10px] text-purple-400 font-mono">
-                {imageFormat === 'auto' ? 'تلقائي (الأصغر)' : imageFormat === 'webp' ? 'WebP فائق' : imageFormat === 'png' ? 'PNG قياسي' : 'JPEG'}
+              <span className="text-[10px] text-emerald-400 font-mono font-bold">
+                {imageFormat === 'png' ? 'PNG (صور كاملة - تأثير الهدية يظهر 100%)' : imageFormat === 'auto' ? 'تلقائي ذكي' : imageFormat === 'webp' ? 'WebP فائق' : 'JPEG'}
               </span>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
               {[
-                { id: 'auto', label: 'تلقائي (الأصغر)', desc: 'مقارنة WebP و PNG' },
-                { id: 'webp', label: 'WebP (فائق الضغط)', desc: 'تقليل 80% مع الشفافية' },
-                { id: 'png', label: 'PNG (قياسي)', desc: 'جودة الشفافية الأصلية' },
+                { id: 'png', label: 'PNG (بصيغة الصور)', desc: 'ظهور تأثير الهدية 100% بدون تفريغ' },
+                { id: 'auto', label: 'تلقائي ذكي', desc: 'الحفاظ على صور PNG مع تقليل الحجم' },
+                { id: 'webp', label: 'WebP (فائق الضغط)', desc: 'قد لا تدعمه بعض مشغلات الهدايا' },
                 { id: 'jpeg', label: 'JPEG', desc: 'بدون قناة شفافية' },
               ].map((fmt) => (
                 <button
@@ -620,19 +700,61 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
                   onClick={() => setImageFormat(fmt.id as any)}
                   className={`p-2 rounded-xl border text-right transition-all cursor-pointer flex flex-col gap-0.5 ${
                     imageFormat === fmt.id
-                      ? 'bg-purple-600/30 border-purple-400 text-white shadow-[0_0_10px_rgba(168,85,247,0.3)]'
+                      ? 'bg-emerald-600/30 border-emerald-400 text-white shadow-[0_0_10px_rgba(16,185,129,0.3)]'
                       : 'bg-slate-950/60 border-white/5 text-slate-400 hover:bg-white/5'
                   }`}
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-white">{fmt.label}</span>
-                    {imageFormat === fmt.id && <Check size={12} className="text-purple-400" />}
+                    {imageFormat === fmt.id && <Check size={12} className="text-emerald-400" />}
                   </div>
                   <span className="text-[9px] text-slate-400">{fmt.desc}</span>
                 </button>
               ))}
             </div>
           </div>
+
+          {/* VAP Layout Selector (Matching user's exact screen layout: Left RGB + Right Alpha Mask) */}
+          {(selectedFormat === 'VAP1.0' || selectedFormat === 'VAP (MP4)' || selectedFormat === 'VAP 1.0.5') && (
+            <div className="bg-cyan-950/40 border border-cyan-500/30 rounded-2xl p-3 space-y-2">
+              <div className="flex items-center justify-between text-[11px] font-bold text-cyan-200">
+                <span className="flex items-center gap-1.5">
+                  <Video size={13} className="text-cyan-400" />
+                  <span>تموضع قناع الشفافية (الحته البيضاء) في فيديو VAP:</span>
+                </span>
+                <span className="text-[10px] text-cyan-300 font-mono font-bold">
+                  {vapLayout === 'top-right-alpha' ? 'الهدية يسار + الحتة البيضاء أعلى اليمين (مثل صورة العربية)' : vapLayout === 'left-right' ? 'أفقي: الهدية يسار + الحتة البيضاء يمين بالكامل' : vapLayout === 'top-bottom' ? 'عمودي: الحتة البيضاء فوق + الهدية تحت' : vapLayout === 'right-left' ? 'أفقي: الحتة البيضاء يسار' : 'عمودي: الحتة البيضاء تحت'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5">
+                {[
+                  { id: 'top-right-alpha', label: 'الهدية يسار + بيضاء أعلى اليمين', desc: 'نفس نظام صورة السيارة aaa.png' },
+                  { id: 'left-right', label: 'الهدية يسار + بيضاء يمين', desc: 'أفقي كامل (بجانب الهدية)' },
+                  { id: 'top-bottom', label: 'بيضاء فوق + الهدية تحت', desc: 'الوضع الرأسي الافتراضي' },
+                  { id: 'right-left', label: 'بيضاء يسار + الهدية يمين', desc: 'أفقي معكوس' },
+                  { id: 'bottom-top', label: 'الهدية فوق + بيضاء تحت', desc: 'عمودي معكوس' },
+                ].map((lyt) => (
+                  <button
+                    key={lyt.id}
+                    type="button"
+                    onClick={() => setVapLayout(lyt.id as any)}
+                    className={`p-2 rounded-xl border text-right transition-all cursor-pointer flex flex-col gap-0.5 ${
+                      vapLayout === lyt.id
+                        ? 'bg-cyan-600/40 border-cyan-400 text-white shadow-[0_0_12px_rgba(6,182,212,0.4)] scale-[1.02]'
+                        : 'bg-slate-950/60 border-white/5 text-slate-400 hover:bg-white/5'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-white">{lyt.label}</span>
+                      {vapLayout === lyt.id && <Check size={12} className="text-cyan-300" />}
+                    </div>
+                    <span className="text-[9px] text-cyan-200/70">{lyt.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {compressionMode === 'custom' && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
@@ -707,26 +829,36 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
           )}
         </div>
 
-        {/* 2. Prominent Purple Action Button (Exact match from sdsdsd88.png) */}
+        {/* 2. Prominent Action Button */}
         <div>
           <button
             type="button"
-            onClick={() => handleExport(selectedFormat === 'VAP 1.0.5' ? 'VAP 1.0.5' : selectedFormat)}
+            onClick={() => handleExport(selectedFormat)}
             disabled={isExporting}
-            className="w-full py-3.5 text-xs sm:text-sm font-black rounded-2xl shadow-[0_0_20px_rgba(168,85,247,0.35)] active:scale-95 flex items-center justify-center gap-2 transition-all hover:scale-[1.01] bg-purple-600 hover:bg-purple-500 text-white cursor-pointer disabled:opacity-50"
+            className={`w-full py-3.5 text-xs sm:text-sm font-black rounded-2xl active:scale-95 flex items-center justify-center gap-2 transition-all hover:scale-[1.01] cursor-pointer disabled:opacity-50 text-white border ${
+              selectedFormat === 'VAP1.0' || selectedFormat === 'VAP (MP4)' || selectedFormat === 'VAP 1.0.5'
+                ? 'bg-gradient-to-r from-cyan-600 via-teal-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 border-cyan-400/60 shadow-[0_0_25px_rgba(6,182,212,0.45)]'
+                : 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-purple-500 border-purple-400/40 shadow-[0_0_25px_rgba(168,85,247,0.35)]'
+            }`}
           >
-            <Sparkles size={16} className="text-amber-300" />
-            <span>
+            {selectedFormat === 'VAP1.0' || selectedFormat === 'VAP (MP4)' || selectedFormat === 'VAP 1.0.5' ? (
+              <Video size={17} className="text-cyan-200 animate-pulse" />
+            ) : (
+              <Sparkles size={17} className="text-amber-300" />
+            )}
+            <span className="text-sm">
               {isExporting 
                 ? 'جاري التصدير والمعالجة...' 
-                : selectedFormat === 'VAP 1.0.5' 
-                  ? '🚀 تصدير VAP 1.0.5 (خاص)' 
-                  : `🚀 تصدير ${selectedFormat} الآن`}
+                : selectedFormat === 'VAP1.0'
+                  ? `🚀 تصدير فيديو VAP1.0 الآن (${vapLayout === 'top-right-alpha' ? 'الحتة البيضاء أعلى اليمين مثل الاسكرين' : vapLayout === 'left-right' ? 'الحتة البيضاء يمين' : vapLayout === 'top-bottom' ? 'الحتة البيضاء فوق' : 'مخصص'})`
+                  : selectedFormat === 'SVGA 2.0'
+                    ? '⚡ تنزيل وحفظ ملف SVGA 2.0 فوراً'
+                    : `🚀 تصدير ${selectedFormat} الآن`}
             </span>
           </button>
         </div>
 
-        {/* 3. Export Formats Grid (Exact 12 Formats from sdsdsd88.png) */}
+        {/* 3. Export Formats Grid (Exact 13 Formats with prominent VAP1.0) */}
         <div className="space-y-1.5">
           <label className="text-[11px] font-bold text-slate-400 block">
             صيغ التصدير المتاحة (انقر للاختيار أو التصدير المباشر):
@@ -734,19 +866,27 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
             {formatButtons.map((fmt) => {
               const isSelected = selectedFormat === fmt.id;
+              const isVap10 = fmt.id === 'VAP1.0';
               return (
                 <button
                   key={fmt.id}
                   type="button"
                   onClick={() => setSelectedFormat(fmt.id)}
                   onDoubleClick={() => handleExport(fmt.id)}
-                  className={`py-2.5 px-2 rounded-xl text-[10px] font-black border transition-all text-center truncate cursor-pointer ${
+                  className={`py-2.5 px-2 rounded-xl text-[10px] font-black border transition-all text-center truncate cursor-pointer relative ${
                     isSelected
                       ? 'bg-sky-500 text-white border-sky-400 shadow-[0_0_12px_rgba(14,165,233,0.45)] scale-[1.02]'
-                      : 'bg-slate-950/60 text-slate-300 border-white/5 hover:bg-white/10 hover:border-white/20'
+                      : isVap10
+                        ? 'bg-cyan-950/60 text-cyan-200 border-cyan-500/60 hover:bg-cyan-900/60 hover:border-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.25)]'
+                        : 'bg-slate-950/60 text-slate-300 border-white/5 hover:bg-white/10 hover:border-white/20'
                   }`}
                   title={`${fmt.label} (انقر مرتين للتصدير الفوري)`}
                 >
+                  {isVap10 && (
+                    <span className="absolute -top-1.5 -left-1 px-1 py-0.2 rounded text-[7px] font-bold bg-cyan-500 text-black">
+                      جديد
+                    </span>
+                  )}
                   {fmt.label}
                 </button>
               );
@@ -822,6 +962,56 @@ export const SvgaExportModal: React.FC<SvgaExportModalProps> = ({
             <AlertCircle size={16} className="text-rose-400 shrink-0" />
             <span>{errorMessage}</span>
           </div>
+        )}
+
+        {/* 7. Completed Export Success & Direct Download Card */}
+        {completedExport && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-emerald-950/80 border border-emerald-500/60 rounded-2xl p-4 space-y-3 shadow-[0_0_25px_rgba(16,185,129,0.3)]"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <CheckCircle2 size={20} className="text-emerald-400 shrink-0 animate-pulse" />
+                <div>
+                  <h4 className="text-xs sm:text-sm font-black text-emerald-200">تم تجهيز ملف التصدير بنجاح! جاهز للتحميل</h4>
+                  <p className="text-[10px] text-slate-300 font-mono mt-0.5">
+                    {completedExport.fileName} • {(completedExport.size / 1024 / 1024).toFixed(2)} MB
+                  </p>
+                </div>
+              </div>
+              <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-black border border-emerald-500/40">
+                {completedExport.format}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => downloadBlob(completedExport.blob, completedExport.fileName)}
+                className="flex-1 py-3 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs sm:text-sm font-black rounded-xl shadow-lg shadow-emerald-900/50 flex items-center justify-center gap-2 transition-all cursor-pointer hover:scale-[1.01]"
+              >
+                <Download size={16} />
+                <span>تحميل الملف الآن على جهازك ({(completedExport.size / 1024 / 1024).toFixed(2)} MB)</span>
+              </button>
+
+              {onOpenViewer && (completedExport.format.startsWith('SVGA') || completedExport.format === 'SVGA 2.0') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenViewer(completedExport.blob, completedExport.fileName);
+                    onClose();
+                  }}
+                  className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl border border-white/10 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                  title="معاينة الملف المصدّر في العارض مباشرة"
+                >
+                  <Play size={14} />
+                  <span>معاينة</span>
+                </button>
+              )}
+            </div>
+          </motion.div>
         )}
 
         {/* Action Controls Bottom */}
