@@ -5669,11 +5669,21 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                     ref={workspaceVideoRef}
                     src={fileUrl}
                     playsInline
+                    webkit-playsinline="true"
                     loop
                     muted
                     autoPlay
                     crossOrigin="anonymous"
-                    className="hidden"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '1px',
+                      height: '1px',
+                      opacity: 0.001,
+                      pointerEvents: 'none',
+                      zIndex: -10
+                    }}
                   />
                   <canvas
                     ref={workspaceCanvasRef}
