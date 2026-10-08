@@ -5,13 +5,15 @@ export interface MediaAssetItem {
   id: string;
   name: string;
   type: string;
-  size: number;
+  size?: number;
+  originalSize?: number;
   hash?: string;
   usageCount?: number;
   lastUsed?: any;
   mimeType?: string;
   url?: string;
   compressedUrl?: string;
+  [key: string]: any;
 }
 
 export interface OptimizationOptions {
@@ -36,6 +38,8 @@ export interface SvgaStructureInfo {
   height?: number;
   layersCount?: number;
   spritesCount?: number;
+  uniqueSpritesCount?: number;
+  [key: string]: any;
 }
 
 /**

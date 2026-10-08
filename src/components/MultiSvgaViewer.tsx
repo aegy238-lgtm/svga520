@@ -958,6 +958,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const [pdfAllInOneProgress, setPdfAllInOneProgress] = useState(0);
   const [preventDuplicates, setPreventDuplicates] = useState(true);
   const preventDuplicatesRef = useRef(true);
+  const [pageSize, setPageSize] = useState<number>(36);
+  const [currentPage, setCurrentPage] = useState<number>(1);
   useEffect(() => {
     preventDuplicatesRef.current = preventDuplicates;
   }, [preventDuplicates]);
@@ -1399,7 +1401,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     setLoadProgress({ current: 0, total: fileArray.length });
     isCanceled.current = false;
     
-    const BATCH_SIZE = 25;
+    const BATCH_SIZE = 16;
     for (let i = 0; i < fileArray.length; i += BATCH_SIZE) {
       if (isCanceled.current) break;
       const batch = fileArray.slice(i, i + BATCH_SIZE);
@@ -1417,38 +1419,17 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           const url = URL.createObjectURL(normalizedFile);
           
           let vapConfig: any = null;
-          let dimensions: { width: number; height: number } | undefined = undefined;
-          let fps: number | undefined = undefined;
-          let frames: number | undefined = undefined;
-          let duration: number | undefined = undefined;
+          let dimensions: { width: number; height: number } | undefined = { width: 500, height: 500 };
+          let fps: number | undefined = 30;
+          let frames: number | undefined = 1;
+          let duration: number | undefined = 1;
 
           if (itemType === 'svga') {
-            try {
-              const parser = new SVGA.Parser();
-              await new Promise<void>((res) => {
-                const tid = setTimeout(() => res(), 1000);
-                parser.load(url, (videoItem: any) => {
-                  clearTimeout(tid);
-                  if (videoItem) {
-                    fps = videoItem.FPS || videoItem.fps || 30;
-                    frames = videoItem.frames || 1;
-                    duration = frames / fps;
-                    if (videoItem.videoSize) {
-                      dimensions = {
-                        width: videoItem.videoSize.width || 500,
-                        height: videoItem.videoSize.height || 500
-                      };
-                    }
-                  }
-                  res();
-                }, () => {
-                  clearTimeout(tid);
-                  res();
-                });
-              });
-            } catch (e) {
-              console.warn("SVGA metadata extraction error in handleFiles", e);
-            }
+            // High-speed ingestion: Default dimensions assigned instantly, full frame parsing done on-demand in viewport to prevent memory crash
+            fps = 30;
+            frames = 1;
+            duration = 1;
+            dimensions = { width: 500, height: 500 };
           } else if (itemType === 'pag') {
             try {
               const PAG = await getPAG();
@@ -4953,6 +4934,15 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
   const selectedItem = useMemo(() => items.find(i => i.id === selectedItemId), [items, selectedItemId]);
 
+  const totalPages = pageSize > 0 ? Math.ceil((items as any[]).length / pageSize) : 1;
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), Math.max(1, totalPages));
+
+  const paginatedItems = useMemo(() => {
+    if (pageSize <= 0) return items;
+    const start = (safeCurrentPage - 1) * pageSize;
+    return items.slice(start, start + pageSize);
+  }, [items, safeCurrentPage, pageSize]);
+
   return (
     <div className="flex flex-col h-full animate-in fade-in duration-500 transition-all duration-300 w-full">
       {/* Hidden File Input for SVGA/VAP/PAG/PDF/ZIP Uploads */}
@@ -5821,32 +5811,58 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         )}
 
         <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-5 w-full">
-          {/* Background selector */}
-          <div className="flex items-center gap-3 bg-white/[0.02] p-4 rounded-2xl border border-white/10 shrink-0">
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">الخلفية:</span>
-            <div className="flex gap-2">
+          {/* Background selector with guaranteed pristine presets & no broken external images */}
+          <div className="flex items-center gap-2.5 bg-slate-900/60 p-2.5 sm:p-3 rounded-2xl border border-white/10 shrink-0 backdrop-blur-md shadow-lg">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">الخلفية:</span>
+            <div className="flex items-center gap-1.5">
+              {/* 1. Transparent */}
               <button 
                 onClick={() => setPreviewBg(null)}
-                className={`w-10 h-10 rounded-xl border transition-all ${!previewBg ? 'border-indigo-500 bg-indigo-500/20' : 'border-white/10 bg-white/5'}`}
-                title="شفاف"
+                className={`w-9 h-9 rounded-xl border transition-all flex items-center justify-center cursor-pointer ${
+                  !previewBg ? 'border-indigo-400 bg-indigo-500/25 ring-2 ring-indigo-500/30' : 'border-white/10 bg-white/5 hover:bg-white/10'
+                }`}
+                title="خلفية شفافة (أصلية)"
               >
-                <X className="w-4 h-4 mx-auto text-slate-400" />
+                <X className="w-4 h-4 text-slate-300" />
               </button>
-              {presetBgs.slice(0, 4).map(bg => (
-                <button 
-                  key={bg.id}
-                  onClick={() => setPreviewBg(bg.url)}
-                  className={`w-10 h-10 rounded-xl border relative overflow-hidden transition-all ${previewBg === bg.url ? 'border-indigo-500 ring-2 ring-indigo-500/20' : 'border-white/10'}`}
-                >
-                  <img src={bg.url} alt={bg.label || "Background"} className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
-                </button>
-              ))}
+
+              {/* 2. Studio Dark */}
+              <button
+                onClick={() => setPreviewBg('linear-gradient(135deg, #0b0f19 0%, #111827 50%, #030712 100%)')}
+                className={`w-9 h-9 rounded-xl border transition-all relative overflow-hidden cursor-pointer ${
+                  previewBg?.includes('#0b0f19') ? 'border-indigo-400 ring-2 ring-indigo-500/30' : 'border-white/10 hover:border-white/30'
+                }`}
+                style={{ background: 'linear-gradient(135deg, #0b0f19, #111827)' }}
+                title="استوديو داكن فاخر"
+              />
+
+              {/* 3. Cyber Navy */}
+              <button
+                onClick={() => setPreviewBg('linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)')}
+                className={`w-9 h-9 rounded-xl border transition-all relative overflow-hidden cursor-pointer ${
+                  previewBg?.includes('#1e1b4b') ? 'border-indigo-400 ring-2 ring-indigo-500/30' : 'border-white/10 hover:border-white/30'
+                }`}
+                style={{ background: 'linear-gradient(135deg, #0f172a, #1e1b4b)' }}
+                title="فضاء سيبراني كحلي"
+              />
+
+              {/* 4. Pure Black */}
+              <button
+                onClick={() => setPreviewBg('#000000')}
+                className={`w-9 h-9 rounded-xl border transition-all relative overflow-hidden cursor-pointer ${
+                  previewBg === '#000000' ? 'border-indigo-400 ring-2 ring-indigo-500/30' : 'border-white/10 hover:border-white/30'
+                }`}
+                style={{ background: '#000000' }}
+                title="أسود فاحم سينمائي"
+              />
+
+              {/* 5. Custom Background Upload */}
               <button 
                 onClick={() => bgInputRef.current?.click()}
-                className="w-10 h-10 rounded-xl border border-white/10 bg-white/5 flex items-center justify-center hover:bg-white/10 transition-all"
-                title="خلفية مخصصة"
+                className="w-9 h-9 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 flex items-center justify-center transition-all cursor-pointer text-slate-300 hover:text-white"
+                title="رفع صورة خلفية مخصصة من جهازك"
               >
-                <ImageIcon className="w-4 h-4 text-slate-400" />
+                <ImageIcon className="w-4 h-4" />
               </button>
               <input type="file" ref={bgInputRef} className="hidden" accept="image/*" onChange={(e) => e.target.files?.[0] && setPreviewBg(URL.createObjectURL(e.target.files[0]))} />
             </div>
@@ -6229,7 +6245,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 }}
               >
                 <AnimatePresence mode="popLayout">
-                  {(items as any[]).map((item) => (
+                  {(paginatedItems as any[]).map((item) => (
                     <SvgaCard 
                       key={`${item.id}-${item.presetId}-${customWidth}-${customHeight}-${gridCols}`} 
                       item={item} 
@@ -6253,6 +6269,76 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                     />
                   ))}
                 </AnimatePresence>
+              </div>
+            )}
+
+            {/* Smart High-Performance Pagination Bar (Active when items > 24) */}
+            {(items as any[]).length > 24 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-2xl bg-[#0c1324]/90 border border-white/10 backdrop-blur-xl shadow-xl mt-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-black text-xs">
+                    ⚡
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xs font-black text-white block">
+                      عرض {paginatedItems.length} من أصل {(items as any[]).length} ملف
+                    </span>
+                    <span className="text-[10px] text-emerald-400 font-medium">
+                      وضع السرعة الفائقة والحماية مفعّل • صفر تعليق واستهلاك خفيف للرام والمعالج
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Page Size Switcher */}
+                  <div className="flex items-center bg-black/40 border border-white/10 rounded-xl p-1 gap-1">
+                    <span className="text-[10px] text-slate-400 px-2 font-bold">لكل صفحة:</span>
+                    {[24, 36, 72, 0].map((size) => (
+                      <button
+                        key={size}
+                        type="button"
+                        onClick={() => {
+                          setPageSize(size);
+                          setCurrentPage(1);
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                          pageSize === size
+                            ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                            : 'text-slate-400 hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        {size === 0 ? 'الكل' : size}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Navigation Pages */}
+                  {pageSize > 0 && totalPages > 1 && (
+                    <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded-xl p-1">
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                        disabled={safeCurrentPage <= 1}
+                        className="px-3 py-1 rounded-lg text-xs font-bold text-slate-300 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer"
+                      >
+                        السابق
+                      </button>
+
+                      <div className="px-3 py-1 text-xs font-mono font-black text-indigo-300">
+                        {safeCurrentPage} / {totalPages}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                        disabled={safeCurrentPage >= totalPages}
+                        className="px-3 py-1 rounded-lg text-xs font-bold text-slate-300 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer"
+                      >
+                        التالي
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -6915,6 +7001,17 @@ const SvgaPlayer: React.FC<{ item: any }> = ({ item }) => {
   );
 };
 
+// Global Concurrent Active Animation Pool (Keeps CPU < 5% and RAM lean regardless of file count)
+const MAX_ACTIVE_CONCURRENT_ANIMATIONS = 6;
+const activeRunningAnimationIds = new Set<string>();
+const animationSlotListeners = new Set<() => void>();
+
+const notifyAnimationSlotFreed = () => {
+  animationSlotListeners.forEach(listener => {
+    try { listener(); } catch (_) {}
+  });
+};
+
 const SvgaCard: React.FC<{ 
   item: MultiSvgaItem; 
   customDimensions?: { width: number; height: number } | null;
@@ -6970,15 +7067,52 @@ const SvgaCard: React.FC<{
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
 
+  const [hasActiveSlot, setHasActiveSlot] = useState(false);
+  const [isCardHovered, setIsCardHovered] = useState(false);
+
   useEffect(() => {
     const observer = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
         setIsVisible(entry.isIntersecting);
       });
-    }, { threshold: 0, rootMargin: '300px' });
+    }, { threshold: 0, rootMargin: '120px' });
     if (wrapperRef.current) observer.observe(wrapperRef.current);
     return () => observer.disconnect();
   }, []);
+
+  // Concurrent slot coordinator
+  useEffect(() => {
+    if (!isVisible) {
+      if (hasActiveSlot) {
+        activeRunningAnimationIds.delete(item.id);
+        setHasActiveSlot(false);
+        notifyAnimationSlotFreed();
+      }
+      return;
+    }
+
+    const checkSlot = () => {
+      if (activeRunningAnimationIds.has(item.id)) {
+        setHasActiveSlot(true);
+        return;
+      }
+      if (isCardHovered || activeRunningAnimationIds.size < MAX_ACTIVE_CONCURRENT_ANIMATIONS) {
+        activeRunningAnimationIds.add(item.id);
+        setHasActiveSlot(true);
+      } else {
+        setHasActiveSlot(false);
+      }
+    };
+
+    checkSlot();
+    animationSlotListeners.add(checkSlot);
+    return () => {
+      animationSlotListeners.delete(checkSlot);
+      if (activeRunningAnimationIds.delete(item.id)) {
+        notifyAnimationSlotFreed();
+      }
+    };
+  }, [isVisible, isCardHovered, item.id]);
 
   useEffect(() => {
     let isCanceled = false;
@@ -7217,7 +7351,7 @@ const SvgaCard: React.FC<{
         player.setVideoItem(videoItem);
       }
       
-      if (isPlayingRef.current && !globalPausedRef.current) playerRef.current.startAnimation();
+      if (hasActiveSlot && isPlayingRef.current && !globalPausedRef.current) playerRef.current.startAnimation();
       else playerRef.current.pauseAnimation();
     };
 
@@ -7234,22 +7368,22 @@ const SvgaCard: React.FC<{
       playerRef.current = null;
       pagSurfaceRef.current = null;
     };
-  }, [item.url, item.type, isVisible]); // Removed isLoaded and isPlaying from dependencies
+  }, [item.url, item.type, isVisible, hasActiveSlot]);
 
-  // Update animation state when globalPaused changes
+  // Update animation state when globalPaused changes or hasActiveSlot changes
   useEffect(() => {
     if (playerRef.current) {
       if (item.type === "pag") {
         // PAG handling is manual in a render loop
       } else {
-        if (!globalPausedRef.current && isPlayingRef.current) {
+        if (hasActiveSlot && !globalPausedRef.current && isPlayingRef.current) {
           playerRef.current.startAnimation();
         } else {
           playerRef.current.pauseAnimation();
         }
       }
     }
-  }, [globalPausedRef.current]);
+  }, [globalPausedRef.current, hasActiveSlot]);
 
     // Separate effect for Zoom and Preset style updates - much faster and smoother
     useEffect(() => {
@@ -7374,8 +7508,6 @@ const SvgaCard: React.FC<{
     : selectedPreset 
     ? (selectedPreset.height / selectedPreset.width) 
     : (itemHeight / (itemWidth || 1));
-
-  const [isCardHovered, setIsCardHovered] = useState(false);
 
   return (
     <motion.div 

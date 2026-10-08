@@ -1232,35 +1232,121 @@ const App: React.FC = () => {
                         case 'apk-extractor':
                           handleFeatureAccess(AppState.APK_EXTRACTOR, 'مستخرج أصول التطبيقات ومشاريع السيارات');
                           break;
-                        case 'animationManager': handleFeatureAccess(AppState.ANIMATION_MANAGER, 'Animation File Manager'); break;
-                        case 'aiVideoMatting': handleFeatureAccess(AppState.AI_VIDEO_MATTING, 'AI Video Matting Studio'); break;
-                        case 'imageCollageStudio': handleFeatureAccess(AppState.IMAGE_COLLAGE_STUDIO, 'Image Collage & Watermark Studio'); break;
-                        case 'videoConverter': handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter'); break;
-                        case 'universalConverter': handleFeatureAccess(AppState.UNIVERSAL_CONVERTER, 'Universal Motion Tools'); break;
-                        case 'multiSvga': handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview'); break;
-                        case 'batchImageProcessor': handleFeatureAccess(AppState.BATCH_IMAGE_PROCESSOR, 'Batch Image Processor'); break;
-                        case 'svgaBatchCompressor': handleFeatureAccess(AppState.SVGA_BATCH_COMPRESSOR, 'SVGA Batch Compressor'); break;
-                         case 'batchSvgaConverter': handleFeatureAccess(AppState.BATCH_SVGA_CONVERTER, 'Batch SVGA Converter'); break;
-                        case 'svgaLayerEditor': handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor'); break;
-                        case 'batchCompress': handleFeatureAccess(AppState.BATCH_COMPRESSOR, 'Batch Compressor'); break;
-                        case 'batchCropper': handleFeatureAccess(AppState.BATCH_CROPPER, 'Batch Cropper'); break;
-                        case 'imageConverter': handleImageConverterOpen(); break;
-                        case 'svgaEx': handleFeatureAccess(AppState.SVGA_EDITOR_EX, 'SVGA Editor EX'); break;
+                        case 'animationManager':
+                        case 'onAnimationManagerOpen':
+                        case 'animation-manager':
+                          handleFeatureAccess(AppState.ANIMATION_MANAGER, 'Animation File Manager'); 
+                          break;
+                        case 'aiVideoMatting':
+                        case 'onAiVideoMattingOpen':
+                        case 'ai-video-matting':
+                          handleFeatureAccess(AppState.AI_VIDEO_MATTING, 'AI Video Matting Studio'); 
+                          break;
+                        case 'imageCollageStudio':
+                        case 'onImageCollageStudioOpen':
+                        case 'image-collage-studio':
+                          handleFeatureAccess(AppState.IMAGE_COLLAGE_STUDIO, 'Image Collage & Watermark Studio'); 
+                          break;
+                        case 'videoConverter':
+                        case 'onConverterOpen':
+                        case 'converter':
+                          handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter'); 
+                          break;
+                        case 'universalConverter':
+                        case 'onUniversalConverterOpen':
+                          handleFeatureAccess(AppState.UNIVERSAL_CONVERTER, 'Universal Motion Tools'); 
+                          break;
+                        case 'multiSvga':
+                        case 'onMultiSvgaOpen':
+                        case 'multi-svga':
+                          handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview'); 
+                          break;
+                        case 'batchImageProcessor':
+                        case 'onBatchImageProcessorOpen':
+                        case 'batch-image-processor':
+                          handleFeatureAccess(AppState.BATCH_IMAGE_PROCESSOR, 'Batch Image Processor'); 
+                          break;
+                        case 'svgaBatchCompressor':
+                        case 'onSvgaBatchCompressorOpen':
+                        case 'svga-compressor':
+                          handleFeatureAccess(AppState.SVGA_BATCH_COMPRESSOR, 'SVGA Batch Compressor'); 
+                          break;
+                        case 'batchSvgaConverter':
+                        case 'onBatchSvgaConverterOpen':
+                        case 'batch-svga-converter':
+                          handleFeatureAccess(AppState.BATCH_SVGA_CONVERTER, 'Batch SVGA Converter'); 
+                          break;
+                        case 'svgaLayerEditor':
+                        case 'onSvgaLayerEditorOpen':
+                        case 'svga-layer-editor':
+                          handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor'); 
+                          break;
+                        case 'batchCompress':
+                        case 'onBatchOpen':
+                        case 'batch':
+                          handleFeatureAccess(AppState.BATCH_COMPRESSOR, 'Batch Compressor'); 
+                          break;
+                        case 'batchCropper':
+                        case 'onCropperOpen':
+                        case 'cropper':
+                          handleFeatureAccess(AppState.BATCH_CROPPER, 'Batch Cropper'); 
+                          break;
+                        case 'imageConverter':
+                        case 'onImageConverterOpen':
+                        case 'image-converter':
+                          handleImageConverterOpen(); 
+                          break;
+                        case 'svgaEx':
+                        case 'onSvgaExOpen':
+                        case 'svga-ex':
+                          handleFeatureAccess(AppState.SVGA_EDITOR_EX, 'SVGA Editor EX'); 
+                          break;
                         case 'store': 
+                        case 'onStoreOpen':
                           if (settings?.externalLinks?.storeLink?.enabled && settings?.externalLinks?.storeLink?.url) {
                             handleOpenEmbeddedPortal('first');
                           } else {
                             setState(AppState.STORE);
                           }
                           break;
-                        case 'imageProcessor': handleFeatureAccess(AppState.IMAGE_PROCESSOR, 'Image Processor'); break;
-                        case 'imageMatcher': handleFeatureAccess(AppState.IMAGE_MATCHER, 'Image Matcher'); break;
-                        case 'imageEditor': handleFeatureAccess(AppState.IMAGE_EDITOR, 'Image Editor'); break;
-                        case 'imageEnhancer': handleFeatureAccess(AppState.IMAGE_ENHANCER, 'AI Image Enhancer'); break;
-                        case 'batchImageOpen': setShowBatchImage(true); break;
-                        case 'name3DEditor': handleFeatureAccess(AppState.NAME_3D_EDITOR, '3D Name Editor'); break;
-                        case 'audioExtractor': handleFeatureAccess(AppState.AUDIO_EXTRACTOR, 'Audio Extractor'); break;
-                        case 'vapHub': handleFeatureAccess(AppState.VAP_HUB, 'VAP Hub'); break;
+                        case 'imageProcessor':
+                        case 'onImageProcessorOpen':
+                        case 'image-processor':
+                          handleFeatureAccess(AppState.IMAGE_PROCESSOR, 'Image Processor'); 
+                          break;
+                        case 'imageMatcher':
+                        case 'onImageMatcherOpen':
+                        case 'image-matcher':
+                          handleFeatureAccess(AppState.IMAGE_MATCHER, 'Image Matcher'); 
+                          break;
+                        case 'imageEditor':
+                        case 'onImageEditorOpen':
+                        case 'image-editor':
+                          handleFeatureAccess(AppState.IMAGE_EDITOR, 'Image Editor'); 
+                          break;
+                        case 'imageEnhancer':
+                        case 'onImageEnhancerOpen':
+                        case 'image-enhancer':
+                          handleFeatureAccess(AppState.IMAGE_ENHANCER, 'AI Image Enhancer'); 
+                          break;
+                        case 'batchImageOpen': 
+                          setShowBatchImage(true); 
+                          break;
+                        case 'name3DEditor':
+                        case 'onName3DEditorOpen':
+                        case 'name-3d':
+                          handleFeatureAccess(AppState.NAME_3D_EDITOR, '3D Name Editor'); 
+                          break;
+                        case 'audioExtractor':
+                        case 'onAudioExtractorOpen':
+                        case 'audio-extractor':
+                          handleFeatureAccess(AppState.AUDIO_EXTRACTOR, 'Audio Extractor'); 
+                          break;
+                        case 'vapHub':
+                        case 'onVapHubOpen':
+                        case 'vap-hub':
+                          handleFeatureAccess(AppState.VAP_HUB, 'VAP Hub'); 
+                          break;
                      }
                   }}
                 />
@@ -1287,32 +1373,74 @@ const App: React.FC = () => {
                 />
               </ErrorBoundary>
             )}
+            {(state === AppState.PROCESSING || state === AppState.SVGA_EDITOR_EX) && !fileMetadata && (
+              <div className="flex flex-col items-center justify-center min-h-[60vh] p-4 sm:p-8 text-center animate-fade-in">
+                <div className="max-w-xl w-full p-8 sm:p-12 rounded-[2.5rem] bg-[#0c1222]/95 border border-indigo-500/30 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.8)] flex flex-col items-center gap-6 relative overflow-hidden">
+                  <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-indigo-600/30 to-purple-600/30 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shadow-xl shadow-indigo-500/20">
+                    <Layers className="w-10 h-10 animate-pulse text-indigo-300" />
+                  </div>
+                  <div className="space-y-2">
+                    <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                      {state === AppState.SVGA_EDITOR_EX ? 'محرر SVGA Editor EX المتقدم' : 'مساحة العمل والتصميم'}
+                    </h2>
+                    <p className="text-sm text-slate-400 max-w-md mx-auto leading-relaxed">
+                      يرجى اختيار أو إفلات ملف SVGA للبدء الفوري في فحص وتحرير الطبقات والصوت والمؤثرات
+                    </p>
+                  </div>
+                  <label className="cursor-pointer px-8 py-4 bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-black text-sm rounded-2xl shadow-xl shadow-indigo-500/30 transition-all transform hover:scale-[1.03] active:scale-[0.98] flex items-center gap-2.5">
+                    <span>اختيار ملف SVGA للتحرير</span>
+                    <input 
+                      type="file" 
+                      accept=".svga,.SVGA,.json,.pag,.vap" 
+                      className="hidden" 
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files.length > 0) {
+                          handleFileUpload([e.target.files[0]]);
+                        }
+                      }}
+                    />
+                  </label>
+                  <button 
+                    onClick={handleReset}
+                    className="text-xs text-slate-500 hover:text-slate-300 transition-colors py-1 px-3 rounded-lg hover:bg-white/5"
+                  >
+                    ← العودة إلى الصفحة الرئيسية
+                  </button>
+                </div>
+              </div>
+            )}
             {state === AppState.BATCH_COMPRESSOR && (
-              <BatchCompressor 
-                onCancel={handleReset} 
-                currentUser={currentUser} 
-                onLoginRequired={() => {}}
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-              />
-            )}
-            {state === AppState.SVGA_BATCH_COMPRESSOR && (
-              <SvgaBatchCompressor 
-                onCancel={handleReset} 
-                currentUser={currentUser} 
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-              />
-            )}
-            {state === AppState.BATCH_SVGA_CONVERTER && (
-              <Suspense fallback={<div className="text-white text-center py-20 font-black">جاري تحميل المحول الجماعي...</div>}>
-                <BatchSvgaConverter 
+              <ErrorBoundary fallbackTitle="حدث خطأ في ضاغط الملفات الجماعي" onReset={handleReset}>
+                <BatchCompressor 
                   onCancel={handleReset} 
                   currentUser={currentUser} 
-                  settings={settings}
                   onLoginRequired={() => {}}
                   onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                  initialFiles={initialSvgaFiles}
                 />
-              </Suspense>
+              </ErrorBoundary>
+            )}
+            {state === AppState.SVGA_BATCH_COMPRESSOR && (
+              <ErrorBoundary fallbackTitle="حدث خطأ في ضاغط دفعات SVGA و VAP" onReset={handleReset}>
+                <SvgaBatchCompressor 
+                  onCancel={handleReset} 
+                  currentUser={currentUser} 
+                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                />
+              </ErrorBoundary>
+            )}
+            {state === AppState.BATCH_SVGA_CONVERTER && (
+              <ErrorBoundary fallbackTitle="حدث خطأ في محول دفعات SVGA" onReset={handleReset}>
+                <Suspense fallback={<div className="text-white text-center py-20 font-black">جاري تحميل المحول الجماعي...</div>}>
+                  <BatchSvgaConverter 
+                    onCancel={handleReset} 
+                    currentUser={currentUser} 
+                    settings={settings}
+                    onLoginRequired={() => {}}
+                    onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                    initialFiles={initialSvgaFiles}
+                  />
+                </Suspense>
+              </ErrorBoundary>
             )}
             {state === AppState.SVGA_LAYER_EDITOR && (
               <ErrorBoundary fallbackTitle="حدث خطأ في محرر طبقات SVGA" onReset={handleReset}>
@@ -1336,20 +1464,22 @@ const App: React.FC = () => {
             )}
             
             {state === AppState.VIDEO_CONVERTER && (
-              <VideoConverter 
-                currentUser={currentUser} 
-                onCancel={handleReset} 
-                onLoginRequired={() => {}}
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                globalQuality={globalQuality}
-                initialFiles={initialVideoFiles}
-                onOpenLayerEditor={(params) => {
-                  setLayerEditorInitialFile(params.file || null);
-                  setLayerEditorInitialProject(params.project || null);
-                  setLayerEditorInitialLayers(params.layers || null);
-                  handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
-                }}
-              />
+              <ErrorBoundary fallbackTitle="حدث خطأ في محول الفيديو" onReset={handleReset}>
+                <VideoConverter 
+                  currentUser={currentUser} 
+                  onCancel={handleReset} 
+                  onLoginRequired={() => {}}
+                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                  globalQuality={globalQuality}
+                  initialFiles={initialVideoFiles}
+                  onOpenLayerEditor={(params) => {
+                    setLayerEditorInitialFile(params.file || null);
+                    setLayerEditorInitialProject(params.project || null);
+                    setLayerEditorInitialLayers(params.layers || null);
+                    handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
+                  }}
+                />
+              </ErrorBoundary>
             )}
             {state === AppState.UNIVERSAL_CONVERTER && (
               <ErrorBoundary fallbackTitle="حدث خطأ في محول الحركة الشامل" onReset={handleReset}>
@@ -1367,65 +1497,81 @@ const App: React.FC = () => {
               </ErrorBoundary>
             )}
             {state === AppState.IMAGE_CONVERTER && (
-              <ImageToSvga 
-                currentUser={currentUser} 
-                onCancel={handleReset} 
-                onLoginRequired={() => {}}
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                globalQuality={globalQuality}
-                initialFile={initialLottieFile}
-              />
+              <ErrorBoundary fallbackTitle="حدث خطأ في محول الصور إلى SVGA" onReset={handleReset}>
+                <ImageToSvga 
+                  currentUser={currentUser} 
+                  onCancel={handleReset} 
+                  onLoginRequired={() => {}}
+                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                  globalQuality={globalQuality}
+                  initialFile={initialLottieFile}
+                />
+              </ErrorBoundary>
             )}
             {state === AppState.IMAGE_PROCESSOR && (
-              <ImageProcessor 
-                currentUser={currentUser} 
-                onCancel={handleReset} 
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-              />
+              <ErrorBoundary fallbackTitle="حدث خطأ في معالج الصور" onReset={handleReset}>
+                <ImageProcessor 
+                  currentUser={currentUser} 
+                  onCancel={handleReset} 
+                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                />
+              </ErrorBoundary>
             )}
             {state === AppState.IMAGE_ENHANCER && (
-              <ImageEnhancer 
-                currentUser={currentUser} 
-                onCancel={handleReset} 
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-              />
+              <ErrorBoundary fallbackTitle="حدث خطأ في محسن الصور بالذكاء الاصطناعي" onReset={handleReset}>
+                <ImageEnhancer 
+                  currentUser={currentUser} 
+                  onCancel={handleReset} 
+                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                />
+              </ErrorBoundary>
             )}
             {state === AppState.BATCH_IMAGE_PROCESSOR && (
-              <BatchImageProcessor 
-                onCancel={handleReset} 
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-              />
+              <ErrorBoundary fallbackTitle="حدث خطأ في معالج الصور الجماعي" onReset={handleReset}>
+                <BatchImageProcessor 
+                  onCancel={handleReset} 
+                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                />
+              </ErrorBoundary>
             )}
             {state === AppState.IMAGE_EDITOR && (
-              <ImageEditor 
-                currentUser={currentUser} 
-                onCancel={handleReset} 
-                onLoginRequired={() => {}}
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-              />
+              <ErrorBoundary fallbackTitle="حدث خطأ في محرر الصور" onReset={handleReset}>
+                <ImageEditor 
+                  currentUser={currentUser} 
+                  onCancel={handleReset} 
+                  onLoginRequired={() => {}}
+                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                />
+              </ErrorBoundary>
             )}
             {state === AppState.IMAGE_MATCHER && (
-              <ImageMatcher 
-                currentUser={currentUser} 
-                onCancel={handleReset} 
-                onLoginRequired={() => {}}
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-              />
+              <ErrorBoundary fallbackTitle="حدث خطأ في مطابقة الصور" onReset={handleReset}>
+                <ImageMatcher 
+                  currentUser={currentUser} 
+                  onCancel={handleReset} 
+                  onLoginRequired={() => {}}
+                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                />
+              </ErrorBoundary>
             )}
             {state === AppState.BATCH_CROPPER && (
-              <BatchCropper 
-                currentUser={currentUser} 
-                onCancel={handleReset} 
-                onLoginRequired={() => {}}
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-              />
+              <ErrorBoundary fallbackTitle="حدث خطأ في قاص الصور والمحدد الذكي" onReset={handleReset}>
+                <BatchCropper 
+                  currentUser={currentUser} 
+                  onCancel={handleReset} 
+                  onLoginRequired={() => {}}
+                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                />
+              </ErrorBoundary>
             )}
             {state === AppState.NAME_3D_EDITOR && (
-              <Name3DEditor 
-                onCancel={handleReset} 
-                currentUser={currentUser}
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-              />
+              <ErrorBoundary fallbackTitle="حدث خطأ في محرر السمات ثلاثية الأبعاد" onReset={handleReset}>
+                <Name3DEditor 
+                  onCancel={handleReset} 
+                  currentUser={currentUser}
+                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                />
+              </ErrorBoundary>
             )}
             {state === AppState.MULTI_SVGA_VIEWER && (
               <ErrorBoundary fallbackTitle="حدث خطأ في عارض ومقارن SVGA المتعدد" onReset={handleReset}>
@@ -1438,44 +1584,58 @@ const App: React.FC = () => {
               </ErrorBoundary>
             )}
             {state === AppState.AUDIO_EXTRACTOR && (
-              <AudioExtractor 
-                currentUser={currentUser}
-                onCancel={handleReset}
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-              />
+              <ErrorBoundary fallbackTitle="حدث خطأ في مستخرج الصوت" onReset={handleReset}>
+                <AudioExtractor 
+                  currentUser={currentUser}
+                  onCancel={handleReset}
+                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                />
+              </ErrorBoundary>
             )}
             {state === AppState.AI_VIDEO_MATTING && (
-              <AIVideoMattingStudio 
-                currentUser={currentUser}
-                onCancel={handleReset}
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                initialVideoFile={fileMetadata?.originalFile || null}
-              />
+              <ErrorBoundary fallbackTitle="حدث خطأ في استوديو قص الفيديو بالذكاء الاصطناعي" onReset={handleReset}>
+                <AIVideoMattingStudio 
+                  currentUser={currentUser}
+                  onCancel={handleReset}
+                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                  initialVideoFile={fileMetadata?.originalFile || null}
+                />
+              </ErrorBoundary>
             )}
             {state === AppState.IMAGE_COLLAGE_STUDIO && (
-              <ImageCollageStudio 
-                onBack={handleReset} 
-                initialFiles={fileMetadata?.originalFile ? [fileMetadata.originalFile] : null}
-              />
+              <ErrorBoundary fallbackTitle="حدث خطأ في مجمع الصور والعلامة المائية" onReset={handleReset}>
+                <ImageCollageStudio 
+                  onBack={handleReset} 
+                  initialFiles={fileMetadata?.originalFile ? [fileMetadata.originalFile] : null}
+                />
+              </ErrorBoundary>
             )}
             {state === AppState.ANIMATION_MANAGER && (
-              <AnimationManager onBack={handleReset} />
+              <ErrorBoundary fallbackTitle="حدث خطأ في مدير ملفات الأنميشن" onReset={handleReset}>
+                <AnimationManager onBack={handleReset} />
+              </ErrorBoundary>
             )}
             {state === AppState.STORE && (
-              <Store 
-                currentUser={currentUser} 
-                onLoginRequired={() => {}} 
-              />
+              <ErrorBoundary fallbackTitle="حدث خطأ في متجر أصول SVGA" onReset={handleReset}>
+                <Store 
+                  currentUser={currentUser} 
+                  onLoginRequired={() => {}} 
+                />
+              </ErrorBoundary>
             )}
             {state === AppState.EMBEDDED_PORTAL && (
-              <EmbeddedPortalViewer 
-                settings={settings || undefined}
-                initialTab={embeddedPortalTab}
-                onClose={handleReset}
-              />
+              <ErrorBoundary fallbackTitle="حدث خطأ في البوابة المضمنة" onReset={handleReset}>
+                <EmbeddedPortalViewer 
+                  settings={settings || undefined}
+                  initialTab={embeddedPortalTab}
+                  onClose={handleReset}
+                />
+              </ErrorBoundary>
             )}
             {state === AppState.VAP_HUB && (
-              <VapHub />
+              <ErrorBoundary fallbackTitle="حدث خطأ في VAP Hub" onReset={handleReset}>
+                <VapHub />
+              </ErrorBoundary>
             )}
             {state === AppState.AFTER_EFFECTS_STUDIO && (
               <ErrorBoundary fallbackTitle="حدث خطأ في تحميل استوديو ومحرر After Effects" onReset={handleReset}>

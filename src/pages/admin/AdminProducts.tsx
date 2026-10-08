@@ -107,7 +107,7 @@ export default function AdminProducts() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredProducts.map((product) => (
+              {filteredProducts.map((product, idx) => (
                 <tr key={`product-${product.id || ""}-${idx}`} className="hover:bg-slate-50 transition-colors group">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-4">

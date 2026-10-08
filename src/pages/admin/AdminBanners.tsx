@@ -57,7 +57,7 @@ export default function AdminBanners() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {banners.map(banner => (
+        {banners.map((banner, idx) => (
            <div key={`banner-${banner.id || ""}-${idx}`} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow group">
              <div className="aspect-[21/9] bg-slate-100 relative">
                <img src={banner.imageUrl} alt="Banner" className="w-full h-full object-cover" />

@@ -30,7 +30,7 @@ export interface UniversalWatermarkSettings {
   opacity?: number;
   fontSize?: number;
   shape?: 'pill' | 'glass_card' | 'neon_glow' | 'futuristic_hud' | 'stamp_seal' | 'ribbon_badge' | 'golden_vip' | 'minimal_clean';
-  pattern?: 'smooth_right_glide' | 'wave_3d' | 'diagonal_repeat' | 'horizontal_bands' | 'floating' | 'pulse' | 'orbit' | 'circular_orbit' | 'cube_rotation' | 'single' | 'custom_drag' | 'waterfall' | 'perimeter_frame' | 'matrix_stream';
+  pattern?: 'smooth_right_glide' | 'wave_3d' | 'wave_sine' | 'diagonal_repeat' | 'horizontal_bands' | 'floating' | 'pulse' | 'orbit' | 'circular_orbit' | 'cube_rotation' | 'cube_3d' | 'diagonal_scroll' | 'tiled' | 'bouncing' | 'single' | 'custom_drag' | 'waterfall' | 'perimeter_frame' | 'matrix_stream' | (string & {});
   position?: string;
   customX?: number; // 0 to 100 percentage
   customY?: number; // 0 to 100 percentage

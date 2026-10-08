@@ -1373,22 +1373,29 @@ export const Header: React.FC<HeaderProps> = (props) => {
                             return (
                               <div
                                 key={tool.id}
-                                className={`text-right p-4 rounded-2xl border transition-all duration-300 flex flex-col gap-2.5 group relative ${
+                                className={`text-right p-4 rounded-3xl border transition-all duration-300 flex flex-col gap-3 group hover:-translate-y-1 relative backdrop-blur-xl ${
                                   isActive
-                                    ? 'bg-gradient-to-br from-amber-500/30 to-purple-600/30 border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.25)]'
-                                    : 'bg-amber-500/5 hover:bg-amber-500/10 border-amber-500/30 hover:border-amber-400/60 shadow-sm'
+                                    ? 'bg-gradient-to-br from-amber-500/30 to-purple-600/30 border-amber-400 shadow-[0_10px_35px_rgba(245,158,11,0.3)] ring-1 ring-amber-400/50'
+                                    : 'bg-gradient-to-br from-amber-950/25 to-slate-950/90 hover:from-amber-950/45 border-amber-500/35 hover:border-amber-400 shadow-md shadow-amber-950/20'
                                 }`}
                               >
                                 <div className="flex items-center justify-between w-full">
-                                  <div className="flex items-center gap-2.5">
-                                    <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 shadow-inner">
+                                  <div className="flex items-center gap-3">
+                                    <div className="p-2.5 rounded-2xl bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-inner group-hover:scale-105 transition-transform">
                                       {React.cloneElement(tool.icon as React.ReactElement<any>, { className: 'w-5 h-5' })}
                                     </div>
                                     <div>
-                                      <h4 className="font-black text-sm text-white group-hover:text-amber-300 transition-colors">
-                                        {tool.label}
-                                      </h4>
-                                      <span className="text-[10px] text-amber-400/80 font-mono">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <h4 className="font-black text-sm text-white group-hover:text-amber-300 transition-colors">
+                                          {tool.label}
+                                        </h4>
+                                        {tool.isVip && (
+                                          <span className="px-1.5 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[9px] font-black">
+                                            {tool.vipBadge || 'VIP 👑'}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <span className="text-[10px] text-amber-400/80 font-mono mt-0.5 block">
                                         {tool.categoryNameAr}
                                       </span>
                                     </div>
@@ -1397,23 +1404,24 @@ export const Header: React.FC<HeaderProps> = (props) => {
                                   <button
                                     type="button"
                                     onClick={(e) => handleToggleStar(tool, e)}
-                                    className="p-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 hover:scale-110 transition-transform cursor-pointer"
+                                    className="p-2 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 hover:scale-110 transition-transform cursor-pointer"
                                     title="أداة مثبتة بنجمة في البداية (اضغط لإلغاء التثبيت)"
                                   >
                                     <Star className="w-4 h-4 fill-amber-400" />
                                   </button>
                                 </div>
 
-                                <p className="text-xs text-slate-300 leading-relaxed line-clamp-2">
+                                <p className="text-xs text-slate-300/90 leading-relaxed line-clamp-2 font-normal">
                                   {tool.descAr}
                                 </p>
 
                                 <button
                                   onClick={() => handleToolClick(tool)}
-                                  className="w-full mt-2 py-2 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-bold text-xs hover:brightness-110 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                                  className="w-full mt-auto py-2.5 px-3 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-black text-xs hover:brightness-110 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
                                 >
-                                  <span>فتح الأداة</span>
-                                  {isActive && <span className="text-[10px] bg-black/20 px-1.5 py-0.5 rounded-md">نشطة</span>}
+                                  <span>تشغيل الأداة مباشرة</span>
+                                  {isActive && <span className="text-[10px] bg-black/25 px-1.5 py-0.5 rounded-md font-bold text-white">نشطة</span>}
+                                  <ChevronLeft className="w-3.5 h-3.5 transition-transform group-hover:-translate-x-1" />
                                 </button>
                               </div>
                             );
@@ -1445,34 +1453,41 @@ export const Header: React.FC<HeaderProps> = (props) => {
                             const isActive = props.currentTab === tool.id;
                             const starred = isStarred(tool.id);
                             return (
-                              <div
+                                <div
                                 key={tool.id}
-                                className={`text-right p-4 rounded-2xl border transition-all duration-300 flex flex-col gap-2.5 group hover:-translate-y-1 ${
+                                className={`text-right p-4 rounded-3xl border transition-all duration-300 flex flex-col gap-3 group hover:-translate-y-1 relative backdrop-blur-xl ${
                                   isActive
-                                    ? 'bg-gradient-to-br from-indigo-600/40 to-purple-600/40 border-indigo-400 shadow-[0_0_20px_rgba(99,102,241,0.3)]'
+                                    ? 'bg-gradient-to-br from-indigo-900/60 via-purple-950/60 to-slate-950/90 border-indigo-400 shadow-[0_10px_35px_rgba(99,102,241,0.35)] ring-1 ring-indigo-400/50'
                                     : starred
-                                      ? 'bg-amber-500/5 hover:bg-amber-500/10 border-amber-500/30 hover:border-amber-400/60 shadow-sm'
+                                      ? 'bg-gradient-to-br from-amber-950/30 to-slate-950/80 hover:from-amber-950/50 border-amber-500/40 hover:border-amber-400 shadow-md shadow-amber-950/20'
                                       : tool.highlight
-                                        ? 'bg-[#0d1428]/80 hover:bg-[#121c38] border-indigo-500/30 hover:border-indigo-400/60 shadow-sm'
-                                        : 'bg-white/5 hover:bg-white/10 border-white/10 hover:border-white/20'
+                                        ? 'bg-gradient-to-br from-[#0c142c]/90 via-[#0d1734]/80 to-[#070b18]/95 hover:from-[#111c40] border-indigo-500/30 hover:border-indigo-400/70 shadow-lg shadow-indigo-950/30'
+                                        : 'bg-[#090e1e]/80 hover:bg-[#0e1630] border-white/10 hover:border-white/25 shadow-md'
                                 }`}
                               >
                                 <div className="flex items-center justify-between w-full">
-                                  <div className="flex items-center gap-2.5">
-                                    <div className={`p-2.5 rounded-xl ${
+                                  <div className="flex items-center gap-3">
+                                    <div className={`p-2.5 rounded-2xl transition-transform group-hover:scale-105 ${
                                       starred
-                                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-inner'
                                         : isActive || tool.highlight 
-                                          ? 'bg-indigo-500/30 text-cyan-300 border border-indigo-500/40 shadow-inner' 
+                                          ? 'bg-indigo-500/25 text-cyan-300 border border-indigo-500/40 shadow-inner shadow-indigo-500/20' 
                                           : 'bg-white/5 text-slate-300 border border-white/10'
                                     }`}>
                                       {React.cloneElement(tool.icon as React.ReactElement<any>, { className: 'w-5 h-5' })}
                                     </div>
                                     <div>
-                                      <h4 className="font-black text-sm text-white group-hover:text-cyan-300 transition-colors">
-                                        {tool.label}
-                                      </h4>
-                                      <span className="text-[10px] text-slate-400 font-mono">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <h4 className="font-black text-sm text-white group-hover:text-cyan-300 transition-colors">
+                                          {tool.label}
+                                        </h4>
+                                        {tool.isVip && (
+                                          <span className="px-1.5 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[9px] font-black tracking-wider">
+                                            {tool.vipBadge || 'VIP 👑'}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <span className="text-[10px] text-slate-400 font-mono mt-0.5 block">
                                         {tool.categoryNameAr}
                                       </span>
                                     </div>
@@ -1480,8 +1495,8 @@ export const Header: React.FC<HeaderProps> = (props) => {
 
                                   <div className="flex items-center gap-1.5">
                                     {isActive && (
-                                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold">
-                                        نشط
+                                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 border border-emerald-500/50 font-black shadow-sm">
+                                        نشط الآن
                                       </span>
                                     )}
 
@@ -1489,27 +1504,32 @@ export const Header: React.FC<HeaderProps> = (props) => {
                                     <button
                                       type="button"
                                       onClick={(e) => handleToggleStar(tool, e)}
-                                      className={`p-1.5 rounded-xl border transition-all cursor-pointer ${
+                                      className={`p-2 rounded-xl border transition-all cursor-pointer ${
                                         starred
-                                          ? 'bg-amber-500/20 border-amber-500/40 text-amber-400'
-                                          : 'bg-white/5 border-white/10 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10'
+                                          ? 'bg-amber-500/25 border-amber-500/50 text-amber-400 shadow-sm'
+                                          : 'bg-white/5 border-white/10 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/30'
                                       }`}
                                       title={starred ? 'أداة مثبتة بنجمة في البداية (اضغط لإلغاء التثبيت)' : 'تثبيت الأداة بنجمة في البداية'}
                                     >
-                                      <Star className={`w-4 h-4 ${starred ? 'fill-amber-400 text-amber-400' : ''}`} />
+                                      <Star className={`w-3.5 h-3.5 ${starred ? 'fill-amber-400 text-amber-400' : ''}`} />
                                     </button>
                                   </div>
                                 </div>
 
-                                <p className="text-xs text-slate-300 leading-relaxed line-clamp-2">
+                                <p className="text-xs text-slate-300/90 leading-relaxed line-clamp-2 font-normal">
                                   {tool.descAr}
                                 </p>
 
                                 <button
                                   onClick={() => handleToolClick(tool)}
-                                  className="w-full mt-auto py-2 px-3 rounded-xl bg-white/5 hover:bg-indigo-600/30 border border-white/10 hover:border-indigo-500/40 text-xs font-bold text-slate-200 hover:text-white transition-all text-center cursor-pointer"
+                                  className={`w-full mt-auto py-2.5 px-3 rounded-2xl text-xs font-black transition-all text-center cursor-pointer flex items-center justify-center gap-2 shadow-md ${
+                                    isActive
+                                      ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/30'
+                                      : 'bg-white/5 hover:bg-indigo-600 text-slate-200 hover:text-white border border-white/10 hover:border-indigo-400 shadow-sm'
+                                  }`}
                                 >
-                                  فتح الأداة
+                                  <span>تشغيل الأداة مباشرة</span>
+                                  <ChevronLeft className="w-3.5 h-3.5 transition-transform group-hover:-translate-x-1" />
                                 </button>
                               </div>
                             );

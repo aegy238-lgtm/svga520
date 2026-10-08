@@ -147,7 +147,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 key={tool.id}
                 onClick={() => onOpenTool(tool.label)}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs text-slate-300 hover:bg-slate-800/50 hover:text-white transition-colors text-left"
+                className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs text-slate-300 hover:bg-slate-800/80 hover:text-white transition-all text-left border border-transparent hover:border-slate-700/60 shadow-sm"
               >
                 <div className="flex items-center gap-2">
                   <Icon className="w-3.5 h-3.5 text-slate-400" />

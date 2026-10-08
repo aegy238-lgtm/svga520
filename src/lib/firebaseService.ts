@@ -482,7 +482,7 @@ export async function toggleEmployeeStatus(id: string, status: 'active' | 'inact
   }
 }
 
-export async function updateEmployeePermissions(id: string, permissions: Partial<UserPermissions>, role: UserRole = 'employee') {
+export async function updateEmployeePermissions(id: string, permissions: Partial<UserPermissions>, role: UserRole | 'designer' | 'employee' = 'employee') {
   try {
     await ensureFirebaseAuth();
     const colName = (role === 'designer' || role === 'admin' || role === 'employee') 
@@ -498,7 +498,7 @@ export async function updateEmployeePermissions(id: string, permissions: Partial
   }
 }
 
-export async function toggleEmployeeGiftPermission(id: string, canUpload: boolean, role: UserRole = 'employee') {
+export async function toggleEmployeeGiftPermission(id: string, canUpload: boolean, role: UserRole | 'designer' | 'employee' = 'employee') {
   try {
     await ensureFirebaseAuth();
     const colName = (role === 'designer' || role === 'admin' || role === 'employee') 
@@ -512,7 +512,7 @@ export async function toggleEmployeeGiftPermission(id: string, canUpload: boolea
     } catch {
       await setDoc(empRef, { 
         permissions: { 
-          giftUploadAndPublish: canUpload 
+            giftUploadAndPublish: canUpload 
         } 
       }, { merge: true });
     }
@@ -522,7 +522,7 @@ export async function toggleEmployeeGiftPermission(id: string, canUpload: boolea
   }
 }
 
-export async function deleteEmployee(id: string, role: UserRole = 'employee') {
+export async function deleteEmployee(id: string, role: UserRole | 'designer' | 'employee' = 'employee') {
   try {
     await ensureFirebaseAuth();
     const colName = (role === 'designer' || role === 'admin' || role === 'employee') 

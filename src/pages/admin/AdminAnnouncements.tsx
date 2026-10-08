@@ -62,7 +62,7 @@ export default function AdminAnnouncements() {
 
       {/* List */}
       <div className="grid grid-cols-1 gap-4">
-        {announcements.map(a => (
+        {announcements.map((a, idx) => (
           <div key={`announcement-${a.id || ""}-${idx}`} className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm flex items-center justify-between gap-6 group">
             <div className="flex-1">
               {editingId === a.id ? (
