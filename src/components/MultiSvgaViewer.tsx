@@ -6231,6 +6231,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                           onUpdateItem={(updates) => setItems(prev => prev.map(i => i.id === item.id ? { ...i, ...updates } : i))}
                           updateAndSaveWmSettings={updateAndSaveWmSettings}
                           globalPausedRef={globalPausedRef}
+                          isGlobalPaused={globalPaused}
                         />
                       ))}
                     </AnimatePresence>
@@ -6266,6 +6267,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                       onUpdateItem={(updates) => setItems(prev => prev.map(i => i.id === item.id ? { ...i, ...updates } : i))}
                       updateAndSaveWmSettings={updateAndSaveWmSettings}
                       globalPausedRef={globalPausedRef}
+                      isGlobalPaused={globalPaused}
                     />
                   ))}
                 </AnimatePresence>
@@ -6284,7 +6286,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                       عرض {paginatedItems.length} من أصل {(items as any[]).length} ملف
                     </span>
                     <span className="text-[10px] text-emerald-400 font-medium">
-                      وضع السرعة الفائقة والحماية مفعّل • صفر تعليق واستهلاك خفيف للرام والمعالج
+                      تشغيل متزامن لجميع ملفات المعاينة نشط ({pageSize > 0 ? `كل ${paginatedItems.length} ملف بالصفحة` : 'جميع الملفات معاً'}) • سلاسة كاملة وتأثيرات مستمرة
                     </span>
                   </div>
                 </div>
@@ -6307,7 +6309,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                             : 'text-slate-400 hover:text-white hover:bg-white/5'
                         }`}
                       >
-                        {size === 0 ? 'الكل' : size}
+                        {size === 0 ? 'الكل (عام)' : size}
                       </button>
                     ))}
                   </div>
@@ -7001,8 +7003,7 @@ const SvgaPlayer: React.FC<{ item: any }> = ({ item }) => {
   );
 };
 
-// Global Concurrent Active Animation Pool (Keeps CPU < 5% and RAM lean regardless of file count)
-const MAX_ACTIVE_CONCURRENT_ANIMATIONS = 6;
+// Global Concurrent Active Animation Pool (Allows all visible/paginated items to play smoothly)
 const activeRunningAnimationIds = new Set<string>();
 const animationSlotListeners = new Set<() => void>();
 
@@ -7031,7 +7032,8 @@ const SvgaCard: React.FC<{
   onUpdateItem?: (updates: Partial<MultiSvgaItem>) => void;
   updateAndSaveWmSettings: (updater: any) => void;
   globalPausedRef: React.MutableRefObject<boolean>;
-}> = ({ item, customDimensions, gridCols, onRemove, onMaximize, onDownload, onDownloadSvga, onDownloadGiftBundle, onExportVideo, previewBg, watermark, wmSettings, onUpdatePreset, isSelected, onToggleSelect, onUpdateItem, updateAndSaveWmSettings, globalPausedRef }) => {
+  isGlobalPaused?: boolean;
+}> = ({ item, customDimensions, gridCols, onRemove, onMaximize, onDownload, onDownloadSvga, onDownloadGiftBundle, onExportVideo, previewBg, watermark, wmSettings, onUpdatePreset, isSelected, onToggleSelect, onUpdateItem, updateAndSaveWmSettings, globalPausedRef, isGlobalPaused }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
@@ -7058,7 +7060,7 @@ const SvgaCard: React.FC<{
   const isPortrait = itemHeight > itemWidth;
   const selectedPreset = useMemo(() => DEVICE_PRESETS.find(p => p.id === item.presetId), [item.presetId]);
 
-    const [isVisible, setIsVisible] = useState(false);
+  const [isVisible, setIsVisible] = useState(true);
 
   const isPlayingRef = useRef(isPlaying);
   const pagSurfaceRef = useRef<any>(null);
@@ -7067,7 +7069,6 @@ const SvgaCard: React.FC<{
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
 
-  const [hasActiveSlot, setHasActiveSlot] = useState(false);
   const [isCardHovered, setIsCardHovered] = useState(false);
 
   useEffect(() => {
@@ -7075,44 +7076,13 @@ const SvgaCard: React.FC<{
       entries.forEach(entry => {
         setIsVisible(entry.isIntersecting);
       });
-    }, { threshold: 0, rootMargin: '120px' });
+    }, { threshold: 0, rootMargin: '1200px' });
     if (wrapperRef.current) observer.observe(wrapperRef.current);
     return () => observer.disconnect();
   }, []);
 
-  // Concurrent slot coordinator
-  useEffect(() => {
-    if (!isVisible) {
-      if (hasActiveSlot) {
-        activeRunningAnimationIds.delete(item.id);
-        setHasActiveSlot(false);
-        notifyAnimationSlotFreed();
-      }
-      return;
-    }
-
-    const checkSlot = () => {
-      if (activeRunningAnimationIds.has(item.id)) {
-        setHasActiveSlot(true);
-        return;
-      }
-      if (isCardHovered || activeRunningAnimationIds.size < MAX_ACTIVE_CONCURRENT_ANIMATIONS) {
-        activeRunningAnimationIds.add(item.id);
-        setHasActiveSlot(true);
-      } else {
-        setHasActiveSlot(false);
-      }
-    };
-
-    checkSlot();
-    animationSlotListeners.add(checkSlot);
-    return () => {
-      animationSlotListeners.delete(checkSlot);
-      if (activeRunningAnimationIds.delete(item.id)) {
-        notifyAnimationSlotFreed();
-      }
-    };
-  }, [isVisible, isCardHovered, item.id]);
+  // Concurrent slot: all mounted cards on active page or 'All' play simultaneously
+  const hasActiveSlot = true;
 
   useEffect(() => {
     let isCanceled = false;
@@ -7120,17 +7090,16 @@ const SvgaCard: React.FC<{
     const loadAndPlay = async () => {
       if (!isVisible) {
         if (playerRef.current) {
-          if (item.type === "pag") {
-            try { playerRef.current.destroy?.(); } catch (e) {}
-            try { pagSurfaceRef.current?.destroy?.(); } catch (e) {}
-          } else if (item.type === "vap") {
-            try { playerRef.current.stopAnimation?.(); } catch (e) {}
-          }
-          else playerRef.current.stopAnimation();
-          playerRef.current = null;
-          pagSurfaceRef.current = null;
+          try { playerRef.current.pauseAnimation?.(); } catch (e) {}
         }
-        if (containerRef.current) containerRef.current.innerHTML = "";
+        return;
+      }
+
+      // If player is already constructed, resume smoothly without re-rendering
+      if (playerRef.current) {
+        if (isPlayingRef.current && !globalPausedRef.current) {
+          try { playerRef.current.startAnimation?.(); } catch (e) {}
+        }
         return;
       }
 
@@ -7351,8 +7320,11 @@ const SvgaCard: React.FC<{
         player.setVideoItem(videoItem);
       }
       
-      if (hasActiveSlot && isPlayingRef.current && !globalPausedRef.current) playerRef.current.startAnimation();
-      else playerRef.current.pauseAnimation();
+      if (isPlayingRef.current && !globalPausedRef.current && !isGlobalPaused) {
+        playerRef.current.startAnimation();
+      } else {
+        playerRef.current.pauseAnimation();
+      }
     };
 
     loadAndPlay();
@@ -7368,22 +7340,22 @@ const SvgaCard: React.FC<{
       playerRef.current = null;
       pagSurfaceRef.current = null;
     };
-  }, [item.url, item.type, isVisible, hasActiveSlot]);
+  }, [item.url, item.type, isVisible]);
 
-  // Update animation state when globalPaused changes or hasActiveSlot changes
+  // Update animation state when globalPaused changes or isVisible changes or isPlaying changes
   useEffect(() => {
     if (playerRef.current) {
       if (item.type === "pag") {
         // PAG handling is manual in a render loop
       } else {
-        if (hasActiveSlot && !globalPausedRef.current && isPlayingRef.current) {
-          playerRef.current.startAnimation();
+        if (isVisible && !isGlobalPaused && !globalPausedRef.current && isPlaying) {
+          try { playerRef.current.startAnimation?.(); } catch (e) {}
         } else {
-          playerRef.current.pauseAnimation();
+          try { playerRef.current.pauseAnimation?.(); } catch (e) {}
         }
       }
     }
-  }, [globalPausedRef.current, hasActiveSlot]);
+  }, [isGlobalPaused, isVisible, isPlaying]);
 
     // Separate effect for Zoom and Preset style updates - much faster and smoother
     useEffect(() => {
