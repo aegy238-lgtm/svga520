@@ -116,20 +116,77 @@ export const ImageShapeEditorModal: React.FC<ImageShapeEditorModalProps> = ({
     // 3. Apply Edge Feather / Soft Fade Transparency
     if (feather > 0) {
       ctx.globalCompositeOperation = 'destination-in';
-      const featherGrad = ctx.createRadialGradient(
-        size / 2,
-        size / 2,
-        Math.max(0, size / 2 - (feather * size) / 100),
-        size / 2,
-        size / 2,
-        size / 2
-      );
-      featherGrad.addColorStop(0, 'rgba(0,0,0,1)');
-      featherGrad.addColorStop(0.7, 'rgba(0,0,0,0.85)');
-      featherGrad.addColorStop(1, 'rgba(0,0,0,0)');
+      if (shape === 'circle') {
+        const featherGrad = ctx.createRadialGradient(
+          size / 2,
+          size / 2,
+          Math.max(0, size / 2 - (feather * size) / 100),
+          size / 2,
+          size / 2,
+          size / 2
+        );
+        featherGrad.addColorStop(0, 'rgba(0,0,0,1)');
+        featherGrad.addColorStop(0.7, 'rgba(0,0,0,0.85)');
+        featherGrad.addColorStop(1, 'rgba(0,0,0,0)');
 
-      ctx.fillStyle = featherGrad;
-      ctx.fillRect(0, 0, size, size);
+        ctx.fillStyle = featherGrad;
+        ctx.fillRect(0, 0, size, size);
+      } else {
+        // True Square / Rounded Inward Feather
+        const featherPx = Math.max(1, (feather / 100) * (size / 2));
+        const cr = shape === 'square' ? 0 : Math.min((cornerRadius / 100) * (size / 2), size / 2);
+
+        const featherCanvas = document.createElement('canvas');
+        featherCanvas.width = size;
+        featherCanvas.height = size;
+        const fCtx = featherCanvas.getContext('2d');
+        if (fCtx) {
+          const imgData = fCtx.createImageData(size, size);
+          const data = imgData.data;
+          const hw = size / 2;
+          const hh = size / 2;
+          const bx = hw - cr;
+          const by = hh - cr;
+          const cx = size / 2;
+          const cy = size / 2;
+
+          for (let y = 0; y < size; y++) {
+            const py = Math.abs(y + 0.5 - cy);
+            const rowOffset = y * size * 4;
+
+            for (let x = 0; x < size; x++) {
+              const px = Math.abs(x + 0.5 - cx);
+              let distFromEdge: number;
+
+              if (px <= bx && py <= by) {
+                distFromEdge = Math.min(hw - px, hh - py);
+              } else if (px > bx && py > by) {
+                const cdx = px - bx;
+                const cdy = py - by;
+                distFromEdge = cr - Math.sqrt(cdx * cdx + cdy * cdy);
+              } else if (px > bx) {
+                distFromEdge = hw - px;
+              } else {
+                distFromEdge = hh - py;
+              }
+
+              const idx = rowOffset + x * 4;
+              if (distFromEdge <= 0) {
+                data[idx + 3] = 0;
+              } else if (distFromEdge >= featherPx) {
+                data[idx + 3] = 255;
+              } else {
+                const t = distFromEdge / featherPx;
+                const alpha = t * t * (3 - 2 * t);
+                data[idx + 3] = Math.round(alpha * 255);
+              }
+            }
+          }
+
+          fCtx.putImageData(imgData, 0, 0);
+          ctx.drawImage(featherCanvas, 0, 0);
+        }
+      }
     }
 
     ctx.restore();

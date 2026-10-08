@@ -62,9 +62,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ onCancel }) => {
   const [lockAspect, setLockAspect] = useState<boolean>(false);
   
   // Shape & Edge Styling (Applied to all)
-  const [borderRadius, setBorderRadius] = useState<number>(30); // %
-  const [edgeSoftness, setEdgeSoftness] = useState<number>(0);   // px blur
+  const [shape, setShape] = useState<'square' | 'rounded' | 'circle'>('circle');
+  const [borderRadius, setBorderRadius] = useState<number>(100); // %
+  const [edgeSoftness, setEdgeSoftness] = useState<number>(0);   // % inward feather fade
   const [autoTransparent, setAutoTransparent] = useState<boolean>(false);
+  const [previewBg, setPreviewBg] = useState<'checker' | 'dark' | 'black' | 'white'>('checker');
   
   // Default / Global Image Positioning
   const [globalScale, setGlobalScale] = useState<number>(100);
@@ -137,46 +139,47 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ onCancel }) => {
       sourceImage = tCanvas;
     }
 
-    // 2. Prepare Mask for Border Radius & Edge Softness
+    // 2. Prepare Mask Canvas for Shape, Border Radius & Inward Feathering
     const maskCanvas = document.createElement('canvas');
     maskCanvas.width = targetWidth;
     maskCanvas.height = targetHeight;
     const mCtx = maskCanvas.getContext('2d')!;
-    
-    mCtx.fillStyle = 'white';
+
+    const cx = targetWidth / 2;
+    const cy = targetHeight / 2;
+    const circleRadius = Math.min(targetWidth, targetHeight) / 2;
+    const isCircle = shape === 'circle' || borderRadius >= 95;
+
+    mCtx.save();
     mCtx.beginPath();
-    if (borderRadius > 0) {
+    
+    if (isCircle) {
+      // 1. True geometric circle: centered and perfectly round
+      mCtx.arc(cx, cy, circleRadius, 0, Math.PI * 2);
+    } else if (borderRadius > 0) {
+      // Rounded rectangle
       const radius = (borderRadius / 100) * (Math.min(targetWidth, targetHeight) / 2);
-      mCtx.moveTo(radius, 0);
-      mCtx.lineTo(targetWidth - radius, 0);
-      mCtx.quadraticCurveTo(targetWidth, 0, targetWidth, radius);
-      mCtx.lineTo(targetWidth, targetHeight - radius);
-      mCtx.quadraticCurveTo(targetWidth, targetHeight, targetWidth - radius, targetHeight);
-      mCtx.lineTo(radius, targetHeight);
-      mCtx.quadraticCurveTo(0, targetHeight, 0, targetHeight - radius);
-      mCtx.lineTo(0, radius);
-      mCtx.quadraticCurveTo(0, 0, radius, 0);
+      if (typeof mCtx.roundRect === 'function') {
+        mCtx.roundRect(0, 0, targetWidth, targetHeight, Math.max(0, radius));
+      } else {
+        mCtx.moveTo(radius, 0);
+        mCtx.lineTo(targetWidth - radius, 0);
+        mCtx.quadraticCurveTo(targetWidth, 0, targetWidth, radius);
+        mCtx.lineTo(targetWidth, targetHeight - radius);
+        mCtx.quadraticCurveTo(targetWidth, targetHeight, targetWidth - radius, targetHeight);
+        mCtx.lineTo(radius, targetHeight);
+        mCtx.quadraticCurveTo(0, targetHeight, 0, targetHeight - radius);
+        mCtx.lineTo(0, radius);
+        mCtx.quadraticCurveTo(0, 0, radius, 0);
+      }
     } else {
+      // Square
       mCtx.rect(0, 0, targetWidth, targetHeight);
     }
     mCtx.closePath();
-    mCtx.fill();
+    mCtx.clip();
 
-    if (edgeSoftness > 0) {
-      const blurCanvas = document.createElement('canvas');
-      blurCanvas.width = targetWidth;
-      blurCanvas.height = targetHeight;
-      const bCtx = blurCanvas.getContext('2d')!;
-      bCtx.filter = `blur(${edgeSoftness}px)`;
-      bCtx.drawImage(maskCanvas, 0, 0);
-      
-      mCtx.clearRect(0, 0, targetWidth, targetHeight);
-      mCtx.drawImage(blurCanvas, 0, 0);
-    }
-
-    // Clip Image to Mask
-    mCtx.globalCompositeOperation = 'source-in';
-    
+    // Draw Image with zoom and pan inside the clipped boundary
     const iw = imgElem.width || 500;
     const ih = imgElem.height || 500;
     
@@ -191,7 +194,92 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ onCancel }) => {
     
     mCtx.drawImage(sourceImage, px, py, swo, sho);
 
-    // 3. Final Composition Canvas
+    // 3. Apply Edge Feather / Inward Fade Transparency (سحب الشفافية للداخل لجميع الأشكال: مربع، منحني، دائري)
+    if (edgeSoftness > 0) {
+      mCtx.globalCompositeOperation = 'destination-in';
+      
+      if (isCircle) {
+        // True Circle Inward Radial Feather:
+        // Outer rim (circleRadius) is 100% transparent.
+        // Inner boundary (innerRadius) is 100% solid.
+        // Smooth feather transition pulls inward towards the center.
+        const innerRadius = Math.max(0, circleRadius - (edgeSoftness * (circleRadius * 2)) / 100);
+        const featherGrad = mCtx.createRadialGradient(
+          cx,
+          cy,
+          innerRadius,
+          cx,
+          cy,
+          circleRadius
+        );
+        featherGrad.addColorStop(0, 'rgba(0, 0, 0, 1)');
+        featherGrad.addColorStop(0.7, 'rgba(0, 0, 0, 0.85)');
+        featherGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+        mCtx.fillStyle = featherGrad;
+        mCtx.fillRect(0, 0, targetWidth, targetHeight);
+      } else {
+        // True Square / Rounded Rectangle Inward Feather:
+        // Pulls transparency smoothly INWARD from all 4 borders (and rounded corners) into the interior!
+        const featherPx = Math.max(1, (edgeSoftness / 100) * (Math.min(targetWidth, targetHeight) / 2));
+        const cr = shape === 'square' 
+          ? 0 
+          : Math.min((borderRadius / 100) * (Math.min(targetWidth, targetHeight) / 2), targetWidth / 2, targetHeight / 2);
+
+        const featherCanvas = document.createElement('canvas');
+        featherCanvas.width = targetWidth;
+        featherCanvas.height = targetHeight;
+        const fCtx = featherCanvas.getContext('2d');
+        if (fCtx) {
+          const imgData = fCtx.createImageData(targetWidth, targetHeight);
+          const data = imgData.data;
+          const hw = targetWidth / 2;
+          const hh = targetHeight / 2;
+          const bx = hw - cr;
+          const by = hh - cr;
+
+          for (let y = 0; y < targetHeight; y++) {
+            const py = Math.abs(y + 0.5 - cy);
+            const rowOffset = y * targetWidth * 4;
+
+            for (let x = 0; x < targetWidth; x++) {
+              const px = Math.abs(x + 0.5 - cx);
+              let distFromEdge: number;
+
+              if (px <= bx && py <= by) {
+                distFromEdge = Math.min(hw - px, hh - py);
+              } else if (px > bx && py > by) {
+                const cdx = px - bx;
+                const cdy = py - by;
+                distFromEdge = cr - Math.sqrt(cdx * cdx + cdy * cdy);
+              } else if (px > bx) {
+                distFromEdge = hw - px;
+              } else {
+                distFromEdge = hh - py;
+              }
+
+              const idx = rowOffset + x * 4;
+              if (distFromEdge <= 0) {
+                data[idx + 3] = 0; // outside shape boundary
+              } else if (distFromEdge >= featherPx) {
+                data[idx + 3] = 255; // solid interior
+              } else {
+                const t = distFromEdge / featherPx;
+                const alpha = t * t * (3 - 2 * t);
+                data[idx + 3] = Math.round(alpha * 255);
+              }
+            }
+          }
+
+          fCtx.putImageData(imgData, 0, 0);
+          mCtx.drawImage(featherCanvas, 0, 0);
+        }
+      }
+    }
+
+    mCtx.restore();
+
+    // 4. Final Composition Canvas
     const finalCanvas = document.createElement('canvas');
     finalCanvas.width = targetWidth;
     finalCanvas.height = targetHeight;
@@ -211,7 +299,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ onCancel }) => {
     ctx.drawImage(maskCanvas, 0, 0);
     ctx.restore();
 
-    // 4. Overlay if loaded
+    // 5. Overlay if loaded
     if (overlayImage) {
       ctx.save();
       ctx.globalAlpha = overlayOpacity / 100;
@@ -229,6 +317,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ onCancel }) => {
     return finalCanvas;
   }, [
     autoTransparent,
+    shape,
     borderRadius,
     edgeSoftness,
     globalScale,
@@ -730,81 +819,140 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ onCancel }) => {
               {/* Shape Presets */}
               <div className="grid grid-cols-4 gap-2">
                 <button 
-                  onClick={() => { setBorderRadius(0); setEdgeSoftness(0); }} 
+                  type="button"
+                  onClick={() => { setShape('square'); setBorderRadius(0); }} 
                   className={`py-2 flex flex-col items-center justify-center gap-1 rounded-xl border transition-all cursor-pointer ${
-                    borderRadius === 0 && edgeSoftness === 0
-                      ? 'bg-pink-500/20 border-pink-500/50 text-white font-black'
+                    shape === 'square'
+                      ? 'bg-pink-500/20 border-pink-500/50 text-white font-black shadow-md shadow-pink-500/20'
                       : 'bg-[#0a0f1c] hover:bg-[#1a233a] border-white/5 text-slate-400 hover:text-white'
                   }`}
                 >
                   <Square className="w-4 h-4" /> 
                   <span className="text-[9px] font-bold">مربع (Square)</span>
                 </button>
+
                 <button 
-                  onClick={() => { setBorderRadius(25); setEdgeSoftness(0); }} 
+                  type="button"
+                  onClick={() => { setShape('rounded'); if (borderRadius === 0 || borderRadius >= 95) setBorderRadius(25); }} 
                   className={`py-2 flex flex-col items-center justify-center gap-1 rounded-xl border transition-all cursor-pointer ${
-                    borderRadius === 25 && edgeSoftness === 0
-                      ? 'bg-pink-500/20 border-pink-500/50 text-white font-black'
+                    shape === 'rounded'
+                      ? 'bg-pink-500/20 border-pink-500/50 text-white font-black shadow-md shadow-pink-500/20'
                       : 'bg-[#0a0f1c] hover:bg-[#1a233a] border-white/5 text-slate-400 hover:text-white'
                   }`}
                 >
                   <div className="w-4 h-4 border-2 border-current rounded-md"></div> 
                   <span className="text-[9px] font-bold">منحني (Rounded)</span>
                 </button>
+
                 <button 
-                  onClick={() => { setBorderRadius(100); setEdgeSoftness(0); }} 
+                  type="button"
+                  onClick={() => { setShape('circle'); setBorderRadius(100); setEdgeSoftness(0); }} 
                   className={`py-2 flex flex-col items-center justify-center gap-1 rounded-xl border transition-all cursor-pointer ${
-                    borderRadius === 100 && edgeSoftness === 0
-                      ? 'bg-pink-500/20 border-pink-500/50 text-white font-black'
+                    (shape === 'circle' || borderRadius >= 95) && edgeSoftness === 0
+                      ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300 font-black shadow-md shadow-cyan-500/20'
                       : 'bg-[#0a0f1c] hover:bg-[#1a233a] border-white/5 text-slate-400 hover:text-white'
                   }`}
                 >
-                  <Circle className="w-4 h-4" /> 
+                  <Circle className="w-4 h-4 text-cyan-400" /> 
                   <span className="text-[9px] font-bold">دائري (Circle)</span>
                 </button>
+
                 <button 
-                  onClick={() => { setBorderRadius(100); setEdgeSoftness(15); }} 
+                  type="button"
+                  onClick={() => { setShape('circle'); setBorderRadius(100); if (edgeSoftness === 0) setEdgeSoftness(20); }} 
                   className={`py-2 flex flex-col items-center justify-center gap-1 rounded-xl border transition-all cursor-pointer ${
-                    edgeSoftness > 0
-                      ? 'bg-pink-500/20 border-pink-500/50 text-white font-black'
+                    (shape === 'circle' || borderRadius >= 95) && edgeSoftness > 0
+                      ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 font-black shadow-md shadow-emerald-500/20'
                       : 'bg-[#0a0f1c] hover:bg-[#1a233a] border-white/5 text-slate-400 hover:text-white'
                   }`}
                 >
-                  <Wand2 className="w-4 h-4" /> 
+                  <Wand2 className="w-4 h-4 text-emerald-400" /> 
                   <span className="text-[9px] font-bold">ناعم (Soft)</span>
                 </button>
               </div>
 
-              {/* Border Radius Slider */}
-              <div>
-                <div className="flex justify-between text-[11px] font-bold mb-1.5">
-                  <span className="text-slate-200">تدوير الحواف (Border Radius)</span>
-                  <span className="text-pink-400 font-mono">{borderRadius}%</span>
+              {/* Square Info Badge */}
+              {shape === 'square' && (
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-pink-500/10 border border-pink-500/20 text-[11px]">
+                  <span className="text-pink-300 font-bold flex items-center gap-1.5">
+                    <Square className="w-3.5 h-3.5 text-pink-400" />
+                    <span>شكل مربع / مستطيل بحواف مستقيمة</span>
+                  </span>
+                  <span className="text-[10px] text-pink-300/80 font-medium">
+                    تلاشي الشفافية يسحب لجوه من كل الأضلاع
+                  </span>
                 </div>
-                <input 
-                  type="range" 
-                  min="0" 
-                  max="100" 
-                  value={borderRadius} 
-                  onChange={(e) => setBorderRadius(Number(e.target.value))} 
-                  className="w-full h-1.5 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:bg-pink-500 [&::-webkit-slider-thumb]:rounded-full cursor-pointer accent-pink-500" 
-                />
-              </div>
+              )}
+
+              {/* Circle Info Badge & 1:1 Aspect ratio helper */}
+              {(shape === 'circle' || borderRadius >= 95) && (
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-[11px]">
+                  <span className="text-cyan-300 font-bold flex items-center gap-1.5">
+                    <Circle className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>دائري هندسي متطابق (True Circle)</span>
+                  </span>
+                  {width !== height && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const minDim = Math.min(width, height);
+                        setWidth(minDim);
+                        setHeight(minDim);
+                      }}
+                      className="px-2 py-0.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 text-[10px] font-bold border border-cyan-500/30 transition-colors cursor-pointer"
+                      title="جعل الأبعاد متساوية (1:1)"
+                    >
+                      مربع متناسق ({Math.min(width, height)}px)
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Border Radius Slider (If Rounded) */}
+              {(shape === 'rounded' || (borderRadius > 0 && borderRadius < 95)) && (
+                <div>
+                  <div className="flex justify-between text-[11px] font-bold mb-1.5">
+                    <span className="text-slate-200">تدوير الحواف (Border Radius)</span>
+                    <span className="text-pink-400 font-mono">{borderRadius}%</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="4" 
+                    max="90" 
+                    value={borderRadius} 
+                    onChange={(e) => {
+                      setBorderRadius(Number(e.target.value));
+                      if (shape !== 'rounded') setShape('rounded');
+                    }} 
+                    className="w-full h-1.5 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:bg-pink-500 [&::-webkit-slider-thumb]:rounded-full cursor-pointer accent-pink-500" 
+                  />
+                </div>
+              )}
               
-              {/* Edge Softness / Feathering Blur */}
-              <div>
-                <div className="flex justify-between text-[11px] font-bold mb-1.5">
-                  <span className="text-slate-200">تنعيم وتلاشي الأطراف (Edge Softness)</span>
-                  <span className="text-pink-400 font-mono">{edgeSoftness}px</span>
+              {/* Edge Feather / Inward Softness Slider (Identical to Video) */}
+              <div className="space-y-1.5 p-3 rounded-2xl bg-slate-950/70 border border-slate-800">
+                <div className="flex justify-between text-xs font-semibold text-slate-300">
+                  <span className="flex items-center gap-1.5 text-emerald-300 font-bold">
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>شفافية وتلاشي الحواف (Feather Edge):</span>
+                  </span>
+                  <span className="font-mono text-emerald-400 font-bold">{edgeSoftness}%</span>
                 </div>
                 <input 
                   type="range" 
                   min="0" 
-                  max="100" 
+                  max="45" 
                   value={edgeSoftness} 
                   onChange={(e) => setEdgeSoftness(Number(e.target.value))} 
-                  className="w-full h-1.5 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:bg-pink-500 [&::-webkit-slider-thumb]:rounded-full cursor-pointer accent-pink-500" 
+                  className="w-full h-1.5 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full cursor-pointer accent-emerald-400" 
                 />
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  {shape === 'square'
+                    ? 'يمنح أطراف المربع الأربعة تدرجاً شفافاً ناعماً يمتزج للداخل بشكل جذاب (سحب الشفافية لجوه)'
+                    : shape === 'rounded'
+                    ? 'يمنح أطراف وزوايا المستطيل المنحنية تدرجاً شفافاً ناعماً يمتزج للداخل بشكل جذاب'
+                    : 'يمنح أطراف الصورة تدرجاً شفافاً ناعماً يمتزج بشكل جذاب داخل المتجر (سحب الشفافية لجوه)'}
+                </p>
               </div>
             </div>
 
@@ -1056,9 +1204,9 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ onCancel }) => {
         <div className="flex-1 bg-[#0d1425] rounded-3xl border border-white/5 overflow-hidden relative flex flex-col items-center justify-between shadow-2xl p-6 h-[calc(100vh-100px)]">
           
           {/* Top Canvas Toolbar */}
-          <div className="w-full flex items-center justify-between z-20 mb-2">
+          <div className="w-full flex items-center justify-between z-20 mb-2 gap-2 flex-wrap">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-400">
+              <span className="text-xs font-bold text-slate-300">
                 {activeImage ? activeImage.name : 'مساحة المعاينة'}
               </span>
               {activeImage?.hasCustomPosition && (
@@ -1068,7 +1216,26 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ onCancel }) => {
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              {/* Preview Backdrop Selector (مثل الفيديو تماماً لمعاينة الشفافية والدمج) */}
+              <div className="flex items-center gap-1 bg-[#0a0f1c] px-2 py-1 rounded-xl border border-white/5 text-[11px]">
+                <span className="text-slate-400 text-[10px] px-1">الخلفية:</span>
+                {(['checker', 'dark', 'black', 'white'] as const).map((bg) => (
+                  <button
+                    key={bg}
+                    type="button"
+                    onClick={() => setPreviewBg(bg)}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                      previewBg === bg
+                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {bg === 'checker' ? 'شفاف' : bg === 'dark' ? 'داكن' : bg === 'black' ? 'أسود' : 'أبيض'}
+                  </button>
+                ))}
+              </div>
+
               <span className="text-[11px] font-mono text-slate-400 px-3 py-1 bg-white/5 rounded-xl border border-white/5">
                 📐 {width} × {height} px
               </span>
@@ -1103,10 +1270,21 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ onCancel }) => {
             
             {previewUrl && (
               <div 
-                className="relative max-w-[92%] max-h-[92%] object-contain rounded-2xl drop-shadow-[0_25px_50px_rgba(0,0,0,0.6)] z-20 checker-bg-div flex items-center justify-center" 
-                style={{
-                  backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' viewBox=\'0 0 20 20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M0 0h10v10H0zm10 10h10v10H10z\' fill=\'%231a233a\'/%3E%3Cpath d=\'M10 0h10v10H10zM0 10h10v10H0z\' fill=\'%230f172a\'/%3E%3C/svg%3E")'
-                }}
+                className={`relative max-w-[92%] max-h-[92%] object-contain rounded-2xl drop-shadow-[0_25px_50px_rgba(0,0,0,0.6)] z-20 flex items-center justify-center transition-colors p-1.5 ${
+                  previewBg === 'checker' ? 'checker-bg-div' : ''
+                }`}
+                style={
+                  previewBg === 'checker'
+                    ? {
+                        backgroundImage:
+                          'url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' viewBox=\'0 0 20 20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M0 0h10v10H0zm10 10h10v10H10z\' fill=\'%231a233a\'/%3E%3Cpath d=\'M10 0h10v10H10zM0 10h10v10H0z\' fill=\'%230f172a\'/%3E%3C/svg%3E")'
+                      }
+                    : previewBg === 'dark'
+                    ? { backgroundColor: '#090d16' }
+                    : previewBg === 'black'
+                    ? { backgroundColor: '#000000' }
+                    : { backgroundColor: '#ffffff' }
+                }
               >
                 <img 
                   src={previewUrl} 
