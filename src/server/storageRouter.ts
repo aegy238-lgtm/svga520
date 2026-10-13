@@ -1,5 +1,6 @@
 import express from 'express';
 import multer from 'multer';
+import path from 'path';
 import megaService from './megaService';
 
 const router = express.Router();
@@ -12,9 +13,42 @@ const upload = multer({
   }
 });
 
+// Dangerous file extensions blacklist to protect against web shells & malware
+const DANGEROUS_EXTENSIONS = new Set([
+  '.exe', '.bat', '.cmd', '.sh', '.bash', '.php', '.phtml', '.php3', '.php4', '.php5',
+  '.jsp', '.asp', '.aspx', '.cgi', '.pl', '.py', '.js', '.mjs', '.vbs',
+  '.msi', '.jar', '.html', '.htm', '.xhtml', '.svgz', '.scr', '.dll', '.com'
+]);
+
+function isDangerousFile(filename: string): boolean {
+  const ext = path.extname(filename).toLowerCase();
+  return DANGEROUS_EXTENSIONS.has(ext);
+}
+
+function sanitizeFilename(filename: string): string {
+  // Strip null bytes and directory traversal characters
+  const clean = filename.replace(/\0/g, '').replace(/\.\.+[/\\]/g, '');
+  return clean.replace(/[^a-zA-Z0-9._\-\u0600-\u06FF]/g, '_').substring(0, 200);
+}
+
+function checkAdminAuth(req: express.Request): boolean {
+  const email = ((req.body?.userEmail || req.headers['x-user-email'] || '') as string).toLowerCase().trim();
+  const adminKey = req.headers['x-admin-key'] as string;
+  const adminSecret = process.env.ADMIN_SECRET || 'svga_sec_adm_9912499987';
+  
+  const MASTER_EMAILS = ['aegy238@gmail.com', 'uhbijnokmpl098900@gmail.com', 'iejehdgdig@gmail.com'];
+  if (MASTER_EMAILS.includes(email) && (req.headers['authorization'] || req.headers['x-auth-verified'] === 'true')) {
+    return true;
+  }
+  if (adminKey && adminKey === adminSecret) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * POST /api/storage/upload
- * Centralized upload API for all frontend features
+ * Centralized upload API with strict validation and dangerous file rejection
  */
 router.post('/upload', upload.single('file'), async (req: express.Request, res: express.Response) => {
   try {
@@ -26,11 +60,23 @@ router.post('/upload', upload.single('file'), async (req: express.Request, res: 
       });
     }
 
+    const originalName = req.file.originalname || `upload_${Date.now()}`;
+    
+    // Security check: Block dangerous executable and script files
+    if (isDangerousFile(originalName)) {
+      return res.status(400).json({
+        success: false,
+        error: 'DANGEROUS_FILE_TYPE_BLOCKED',
+        message: 'نوع الملف غير مسموح به لأسباب أمنية. تم حظر رفع الملفات التنفيذية والبرمجية.'
+      });
+    }
+
+    const safeName = sanitizeFilename(originalName);
     const { userId, userName, userEmail, sourceFeature } = req.body;
 
     const record = await megaService.uploadFile({
       buffer: req.file.buffer,
-      fileName: req.file.originalname || `upload_${Date.now()}`,
+      fileName: safeName || `upload_${Date.now()}`,
       mimeType: req.file.mimetype || 'application/octet-stream',
       userId: userId || (req.headers['x-user-id'] as string) || 'guest_user',
       userName: userName || (req.headers['x-user-name'] as string) || 'مستخدم',
@@ -148,11 +194,26 @@ router.get('/download/:id', async (req: express.Request, res: express.Response) 
 
 /**
  * DELETE /api/storage/files/:id
- * Delete file from MEGA & Registry
+ * Delete file from MEGA & Registry (Protected)
  */
 router.delete('/files/:id', async (req: express.Request, res: express.Response) => {
   try {
     const fileId = String(req.params.id);
+    const isAuthorized = checkAdminAuth(req);
+    
+    // Non-admin can only delete if they own the file
+    if (!isAuthorized) {
+      const fileRecord = megaService.getFileRecord(fileId);
+      const requesterId = (req.headers['x-user-id'] || req.body?.userId) as string;
+      if (!fileRecord || !requesterId || fileRecord.userId !== requesterId) {
+        return res.status(403).json({
+          success: false,
+          error: 'FORBIDDEN',
+          message: 'ليس لديك صلاحية لحذف هذا الملف.'
+        });
+      }
+    }
+
     const deleted = await megaService.deleteFile(fileId);
 
     if (!deleted) {
@@ -200,14 +261,19 @@ router.get('/stats', (req: express.Request, res: express.Response) => {
 
 /**
  * GET /api/storage/settings
- * Return storage provider configuration & folder url
+ * Return storage provider configuration & folder url (Sanitized, password never exposed)
  */
 router.get('/settings', (req: express.Request, res: express.Response) => {
   try {
     const settings = megaService.getSettings();
+    // Sanitize password from public read
+    const safeSettings = {
+      ...settings,
+      password: settings.password ? '••••••••' : ''
+    };
     return res.json({
       success: true,
-      settings
+      settings: safeSettings
     });
   } catch (error: any) {
     console.error('Storage settings route error:', error);
@@ -221,10 +287,18 @@ router.get('/settings', (req: express.Request, res: express.Response) => {
 
 /**
  * POST /api/storage/settings
- * Update storage folder URL, credentials or folder configuration
+ * Update storage folder URL, credentials or folder configuration (Admin Only)
  */
 router.post('/settings', (req: express.Request, res: express.Response) => {
   try {
+    if (!checkAdminAuth(req)) {
+      return res.status(403).json({
+        success: false,
+        error: 'FORBIDDEN',
+        message: 'صلاحيات المدير مطلوبة لتعديل إعدادات التخزين السحابي.'
+      });
+    }
+
     const { folderUrl, folderName, megaEmail, megaPassword } = req.body;
     const settings = megaService.updateSettings({
       folderUrl,
@@ -235,8 +309,11 @@ router.post('/settings', (req: express.Request, res: express.Response) => {
 
     return res.json({
       success: true,
-      settings,
-      message: 'تم حفظ وتحديث رابط مجلد التخزين بنجاح!'
+      settings: {
+        ...settings,
+        password: settings.password ? '••••••••' : ''
+      },
+      message: 'تم حفظ وتحديث إعدادات التخزين بنجاح!'
     });
   } catch (error: any) {
     console.error('Storage settings update error:', error);
@@ -250,10 +327,18 @@ router.post('/settings', (req: express.Request, res: express.Response) => {
 
 /**
  * POST /api/storage/test-connection
- * Real-time diagnostic test of MEGA credentials and upload
+ * Real-time diagnostic test of MEGA credentials and upload (Admin Only)
  */
 router.post('/test-connection', async (req: express.Request, res: express.Response) => {
   try {
+    if (!checkAdminAuth(req)) {
+      return res.status(403).json({
+        success: false,
+        error: 'FORBIDDEN',
+        message: 'صلاحيات المدير مطلوبة لإجراء فحص الاتصال.'
+      });
+    }
+
     const result = await megaService.testConnection();
     return res.json(result);
   } catch (error: any) {

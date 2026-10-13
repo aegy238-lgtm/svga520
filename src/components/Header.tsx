@@ -70,6 +70,7 @@ export interface HeaderProps {
   onLoginClick: () => void;
   onProfileClick: () => void;
   onVipClick?: () => void;
+  onBatchSvgaConverterOpen?: () => void;
   currentTab: string;
   onOpenFile?: (files: File[]) => void;
 }

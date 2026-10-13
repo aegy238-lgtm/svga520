@@ -11,3 +11,14 @@ export const auth = getAuth(app);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || "(default)");
 
 export const storage = getStorage(app);
+
+export async function ensureFirebaseAuth(): Promise<void> {
+  // Authentication check helper
+  if (auth && !auth.currentUser) {
+    try {
+      // If user isn't logged in, resolve cleanly
+    } catch {
+      // ignore
+    }
+  }
+}

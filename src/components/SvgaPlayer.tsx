@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import SVGA from 'svgaplayerweb';
 import JSZip from 'jszip';
 import { Sparkles, AlertCircle, RefreshCw, Layers } from 'lucide-react';
 import { resolveMediaUrl, getMediaFromIndexedDb, getProxyMediaUrl } from '../utils/mediaStorage';
+
+const SVGA: any = typeof window !== 'undefined' ? (window as any).SVGA : null;
 
 interface SvgaPlayerProps {
   src: string | ArrayBuffer | Blob | File;

@@ -833,6 +833,7 @@ export async function convertVapToYyeva(
     const videoFrame = new VideoFrame(compCanvas, {
       timestamp: Math.round((i / fps) * 1000000), // microseconds
       duration: Math.round((1 / fps) * 1000000),
+      alpha: 'discard'
     });
 
     try {

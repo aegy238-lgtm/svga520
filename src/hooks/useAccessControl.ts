@@ -53,8 +53,8 @@ export const useAccessControl = () => {
       vibs.some(v => v && normalizedFeature.includes(v.toLowerCase()));
 
     const isUserVip = !!(
-      currentUser.role === 'admin' ||
-      currentUser.role === 'moderator' ||
+      (currentUser.role as string) === 'admin' ||
+      (currentUser.role as string) === 'moderator' ||
       currentUser.isSuperAdmin ||
       (currentUser.isVIP === true && isSubscribed)
     );

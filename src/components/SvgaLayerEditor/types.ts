@@ -119,7 +119,6 @@ export interface EditableLayer {
   originalSpriteFrames?: any[];
   originalKeyframes?: LayerKeyframe[];
   isDuplicate?: boolean;
-  sourceLayerId?: string;
   linkedMirroredLayerId?: string;
   isMirroredLayer?: boolean;
   autoSyncMirroredAsset?: boolean;

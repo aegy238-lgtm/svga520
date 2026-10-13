@@ -257,7 +257,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // 2. Strict Ban Verification:
     // If the user's account in `users` collection is ACTIVE, they are NOT banned!
     if (firestoreUser) {
-      const isSuper = firestoreUser.isSuperAdmin || firestoreUser.role === 'admin' || cleanEmail === 'uhbijnokmpl098900@gmail.com' || cleanEmail === 'iejehdgdig@gmail.com';
+      const isSuper = firestoreUser.isSuperAdmin || firestoreUser.role === 'admin' || cleanEmail === 'aegy238@gmail.com' || cleanEmail === 'uhbijnokmpl098900@gmail.com' || cleanEmail === 'iejehdgdig@gmail.com';
       if (!isSuper && firestoreUser.status === 'banned') {
         throw new Error('تم حظر هذا الحساب من قبل الإدارة. يرجى التواصل مع الدعم الفني.');
       }

@@ -32,7 +32,7 @@ import { SvgaAudioEditorModal } from './SvgaAudioEditorModal';
 import { SvgaExportModal } from './SvgaExportModal';
 import { SvgaMp4ImportModal } from './SvgaMp4ImportModal';
 import { SvgaMergeCanvasModal } from './SvgaMergeCanvasModal';
-import { SvgaChromaPenStudio } from './SvgaChromaPenStudio';
+import { SvgaChromaPenStudio, ChromaPenSubMode, PenMaskToolType } from './SvgaChromaPenStudio';
 import { SvgaProjectsTabBar } from './SvgaProjectsTabBar';
 import { SvgaMultiProjectOverview } from './SvgaMultiProjectOverview';
 import { SvgaMultiCanvasStage } from './SvgaMultiCanvasStage';

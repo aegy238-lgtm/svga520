@@ -481,6 +481,7 @@ export async function replaceVapAudioClientSide(
     const frame = new VideoFrame(canvas, {
       timestamp: frameTimestamp,
       duration: frameDuration,
+      alpha: 'discard'
     });
 
     const isKeyFrame = i === 0 || i % Math.max(10, Math.min(30, Math.round(fps))) === 0;

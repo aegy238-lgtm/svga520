@@ -537,7 +537,8 @@ export const convertVapToYYEVA = async (
     // @ts-ignore
     const frame = new VideoFrame(outCanvas, {
       timestamp: frameTimestamp,
-      duration: frameDuration
+      duration: frameDuration,
+      alpha: 'discard'
     });
 
     const isKeyFrame = i % 30 === 0 || i === 0;

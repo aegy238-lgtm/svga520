@@ -96,7 +96,8 @@ export const AeExportModal: React.FC<AeExportModalProps> = ({
     } else if (file.name.toLowerCase().endsWith('.svga')) {
       try {
         const { parseSvgaToProject } = await import('./SvgaLayerEditor/svgaParserEngine');
-        const proj = await parseSvgaToProject(file);
+        const res = await parseSvgaToProject(file);
+        const proj = res?.project;
         if (proj) {
           setCompWidth(proj.width || 500);
           setCompHeight(proj.height || 500);
@@ -1133,7 +1134,7 @@ export const AeExportModal: React.FC<AeExportModalProps> = ({
 
           {!exportResult ? (
             <button
-              onClick={handleStartExport}
+              onClick={() => handleStartExport()}
               disabled={isExporting}
               className="px-7 py-3 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-500 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-black rounded-xl shadow-glow-indigo flex items-center gap-2 transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:pointer-events-none"
             >

@@ -806,11 +806,12 @@ export const SVGAViewer: React.FC<SVGAViewerProps> = ({
         await new Promise(r => setTimeout(r, 30));
         const canvas = tempContainer.querySelector('canvas');
         if (canvas) {
-          const bitmap = await createImageBitmap(canvas);
-          const frame = new VideoFrame(bitmap, { timestamp: (i / fps) * 1_000_000 });
+          const frame = new VideoFrame(canvas, {
+            timestamp: (i / fps) * 1_000_000,
+            alpha: 'discard'
+          });
           videoEncoder.encode(frame, { keyFrame: i % 30 === 0 });
           frame.close();
-          bitmap.close();
         }
         setExportProgress(Math.round(((i + 1) / totalFrames) * 85));
       }

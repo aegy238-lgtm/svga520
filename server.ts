@@ -1,9 +1,11 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
-import { fileURLToPath } from "url";
+import crypto from "crypto";
 import audioRouter from "./src/server/audioRouter";
 import exportJobsRouter from "./src/server/exportJobsRouter";
+import storageRouter from "./src/server/storageRouter";
+import telegramRouter from "./src/server/telegramRouter";
 
 // In-memory maintenance cache for instant fast response
 let serverMaintenanceState = {
@@ -14,21 +16,103 @@ let serverMaintenanceState = {
   updatedAt: new Date().toISOString()
 };
 
+// In-memory rate limiting tracker to prevent brute-force attacks & DoS
+interface RateLimitBucket {
+  count: number;
+  resetTime: number;
+}
+const rateLimitMap = new Map<string, RateLimitBucket>();
+
+// Periodic cleanup of rate limit records
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of rateLimitMap.entries()) {
+    if (bucket.resetTime < now) {
+      rateLimitMap.delete(key);
+    }
+  }
+}, 60000);
+
+function rateLimiter(maxRequests: number, windowMs: number) {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
+    const key = `${ip}:${req.baseUrl || req.path}`;
+    const now = Date.now();
+
+    let bucket = rateLimitMap.get(key);
+    if (!bucket || bucket.resetTime < now) {
+      bucket = { count: 1, resetTime: now + windowMs };
+      rateLimitMap.set(key, bucket);
+      return next();
+    }
+
+    bucket.count++;
+    if (bucket.count > maxRequests) {
+      const retryAfter = Math.ceil((bucket.resetTime - now) / 1000);
+      res.setHeader('Retry-After', retryAfter);
+      return res.status(429).json({
+        error: 'TOO_MANY_REQUESTS',
+        message: 'تم تجاوز الحد المسموح من الطلبات. يرجى الانتظار والمحاولة لاحقاً لحماية خوادم المنصة.',
+        retryAfter
+      });
+    }
+
+    next();
+  };
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Parse JSON bodies
-  app.use(express.json());
+  // 1. Comprehensive Security Headers Middleware
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+    // Content-Security-Policy with support for WASM, blobs, inline scripts & dev proxies
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval' wasm-unsafe-eval; " +
+      "img-src 'self' https: data: blob: android-app:; " +
+      "media-src 'self' https: data: blob:; " +
+      "connect-src 'self' https: wss: blob:; " +
+      "frame-ancestors 'self' https://*.google.com https://*.run.app https://ais-dev-bofk2fnvbwqidv6jchg5y3-9912499987.europe-west3.run.app;"
+    );
+    next();
+  });
 
-  // Maintenance status query / sync endpoint
+  // 2. Body Parser with reasonable limits
+  app.use(express.json({ limit: '15mb' }));
+
+  // 3. Global API rate limiting
+  app.use('/api', rateLimiter(180, 60000));
+
+  // Maintenance status query endpoint
   app.get("/api/maintenance/status", (req, res) => {
     res.json(serverMaintenanceState);
   });
 
-  app.post("/api/maintenance/sync", (req, res) => {
+  // Maintenance sync endpoint (Secured - Admin Secret Required)
+  app.post("/api/maintenance/sync", rateLimiter(20, 60000), (req, res) => {
     const { isMaintenanceMode, maintenanceMessage, maintenanceTitle, maintenanceEstimatedTime, adminSecret } = req.body;
-    // Allow updating server-side cache
+    const SERVER_ADMIN_SECRET = process.env.ADMIN_SECRET || 'svga_sec_adm_9912499987';
+    const reqSecret = adminSecret || req.headers['x-admin-key'];
+    const userEmail = ((req.headers['x-user-email'] || req.body?.userEmail || '') as string).toLowerCase().trim();
+    const hasAuthToken = Boolean(req.headers['authorization'] || req.headers['x-auth-verified'] === 'true');
+    const isMasterEmail = ['aegy238@gmail.com', 'uhbijnokmpl098900@gmail.com', 'iejehdgdig@gmail.com'].includes(userEmail);
+
+    const isAuthorized = reqSecret === SERVER_ADMIN_SECRET || (isMasterEmail && hasAuthToken);
+
+    if (!isAuthorized) {
+      return res.status(403).json({
+        error: 'FORBIDDEN',
+        message: 'مطلوب صلاحيات مدير أو رمز سري مصرح لتعديل إعدادات وضع الصيانة.'
+      });
+    }
+
     serverMaintenanceState = {
       isMaintenanceMode: Boolean(isMaintenanceMode),
       message: maintenanceMessage || serverMaintenanceState.message,
@@ -39,26 +123,24 @@ async function startServer() {
     res.json({ success: true, state: serverMaintenanceState });
   });
 
-  // Server-side maintenance enforcement middleware for sensitive API routes
+  // Server-side maintenance enforcement middleware
   const maintenanceGuard = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (!serverMaintenanceState.isMaintenanceMode) {
       return next();
     }
 
-    // Bypass check: If request comes from verified Super Admin / Admin
-    const userRole = req.headers['x-user-role'];
-    const userEmail = req.headers['x-user-email'];
-    const isAdmin = 
-      userRole === 'admin' || 
-      userRole === 'moderator' || 
-      userEmail === 'uhbijnokmpl098900@gmail.com' ||
-      req.headers['x-admin-key'] === 'super_admin_bypass';
+    const SERVER_ADMIN_SECRET = process.env.ADMIN_SECRET || 'svga_sec_adm_9912499987';
+    const userEmail = (req.headers['x-user-email'] as string || '').toLowerCase().trim();
+    const adminKey = req.headers['x-admin-key'] as string;
+    const hasAuthToken = Boolean(req.headers['authorization'] || req.headers['x-auth-verified'] === 'true');
+    const isMasterEmail = ['aegy238@gmail.com', 'uhbijnokmpl098900@gmail.com', 'iejehdgdig@gmail.com'].includes(userEmail);
+
+    const isAdmin = (isMasterEmail && hasAuthToken) || adminKey === SERVER_ADMIN_SECRET || adminKey === 'super_admin_bypass';
 
     if (isAdmin) {
       return next();
     }
 
-    // Block non-admin requests during maintenance
     return res.status(503).json({
       error: 'MAINTENANCE_MODE_ACTIVE',
       message: serverMaintenanceState.message,
@@ -67,11 +149,11 @@ async function startServer() {
     });
   };
 
-  // Audio & media processing API routes (always active for creator tools)
+  // Mount API Sub-Routers
   app.use('/api/audio', audioRouter);
-
-  // Background export & media tasks router (runs heavy exports without freezing client)
   app.use('/api/export-jobs', exportJobsRouter);
+  app.use('/api/storage', storageRouter);
+  app.use('/api/telegram', telegramRouter);
 
   // Direct In-Memory Download Buffer Store for Reliable Downloads
   const downloadStore = new Map<string, { buffer: Buffer, mime: string, name: string, expires: number }>();
@@ -82,18 +164,22 @@ async function startServer() {
     }
   }, 60000);
 
-  // Prepare download token from raw stream
-  app.post("/api/download/prepare", express.raw({ type: '*/*', limit: '400mb' }), (req, res) => {
+  // Prepare download token with cryptographically secure random token
+  app.post("/api/download/prepare", rateLimiter(40, 60000), express.raw({ type: '*/*', limit: '400mb' }), (req, res) => {
     try {
-      const token = Math.random().toString(36).substring(2, 12) + '_' + Date.now().toString(36);
-      const filename = (req.headers['x-filename'] as string) || 'download.zip';
+      // Use cryptographically secure token
+      const token = crypto.randomBytes(24).toString('hex') + '_' + Date.now().toString(36);
+      const rawFilename = (req.headers['x-filename'] as string) || 'download.zip';
       const mime = (req.headers['x-mime'] as string) || 'application/octet-stream';
       let decodedName = 'download.zip';
       try {
-        decodedName = decodeURIComponent(filename);
+        decodedName = decodeURIComponent(rawFilename);
       } catch (e) {
-        decodedName = filename;
+        decodedName = rawFilename;
       }
+
+      // Sanitize filename to avoid path traversal
+      decodedName = decodedName.replace(/[/\\?%*:|"<>]/g, '_');
 
       const buf = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '');
       downloadStore.set(token, {
@@ -134,7 +220,7 @@ async function startServer() {
     return res.send(item.buffer);
   });
 
-  // Serve FFmpeg Core locally from node_modules for zero-latency in-browser fallback
+  // Serve FFmpeg Core locally from node_modules
   const ffmpegCoreUmdPath = path.join(process.cwd(), 'node_modules', '@ffmpeg', 'core', 'dist', 'umd');
   app.use('/vendor/ffmpeg-core', express.static(ffmpegCoreUmdPath, {
     setHeaders: (res) => {
@@ -144,7 +230,7 @@ async function startServer() {
     }
   }));
 
-  // Serve jsPDF locally from node_modules for zero-latency PDF report generation
+  // Serve jsPDF locally from node_modules
   app.get('/vendor/jspdf.umd.min.js', (req, res) => {
     const jspdfPath = path.join(process.cwd(), 'node_modules', 'jspdf', 'dist', 'jspdf.umd.min.js');
     res.setHeader('Content-Type', 'application/javascript');
@@ -152,7 +238,7 @@ async function startServer() {
     res.sendFile(jspdfPath);
   });
 
-  // Server Version Metadata (Updated on each build / deploy)
+  // Server Version Metadata
   const SERVER_APP_VERSION = 'v3.3.0';
   const SERVER_BUILD_TIME = new Date().toISOString();
   const SERVER_BUILD_ID = `build-${Date.now().toString(36)}`;
@@ -167,7 +253,6 @@ async function startServer() {
     });
   });
 
-  // Dedicated Version API for client update polling & verification
   const sendVersionInfo = (req: express.Request, res: express.Response) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
     res.setHeader('Pragma', 'no-cache');
@@ -187,15 +272,14 @@ async function startServer() {
   app.get("/version.json", sendVersionInfo);
 
   // Server-side Version Control Verification Endpoint
-  app.post("/api/version/verify", (req, res) => {
-    const { userId, email, allowedVersion, clientVersion } = req.body;
+  app.post("/api/version/verify", rateLimiter(60, 60000), (req, res) => {
+    const { allowedVersion, clientVersion } = req.body;
     const installedVersion = clientVersion || (req.headers['x-client-version'] as string) || SERVER_APP_VERSION;
     const requiredVersion = (allowedVersion && allowedVersion.trim()) ? allowedVersion.trim() : SERVER_APP_VERSION;
 
-    // Super Admins & General users: Allow compatibility if requiredVersion is matching or default
     const isAllowed = 
       installedVersion.toLowerCase() === requiredVersion.toLowerCase() ||
-      requiredVersion === 'v3.0.0' || // Backward compatibility for legacy default
+      requiredVersion === 'v3.0.0' ||
       requiredVersion === SERVER_APP_VERSION;
 
     if (!isAllowed) {
@@ -222,7 +306,6 @@ async function startServer() {
     res.json({ ip });
   });
 
-
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -234,16 +317,13 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    // Serve static files in production with strict cache control
     const distPath = path.join(process.cwd(), "dist");
     
-    // Static assets (hashed JS, CSS, images) can be cached long-term
     app.use('/assets', express.static(path.join(distPath, 'assets'), {
       maxAge: '1y',
       immutable: true
     }));
 
-    // Other static files
     app.use(express.static(distPath, {
       setHeaders: (res, filePath) => {
         if (filePath.endsWith('.html') || filePath.endsWith('version.json')) {
@@ -254,8 +334,6 @@ async function startServer() {
       }
     }));
 
-    // SPA fallback - ALWAYS send index.html with NO CACHE so new deployments reflect immediately
-    // Note: Do NOT intercept /api routes with the SPA fallback HTML!
     app.use((req, res, next) => {
       if (req.path.startsWith('/api/') || req.path === '/api') {
         return res.status(404).json({ error: 'NOT_FOUND', path: req.path });

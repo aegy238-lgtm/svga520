@@ -66,8 +66,10 @@ export interface TableState {
   timerTotal: number;
   roundNumber: number;
   winningSpot?: SpotId;
-  winningHand?: HandEvaluation;
   isGameActive: boolean;
+  evaluations?: any;
+  currentWinnerIds?: string[];
+  [key: string]: any;
 }
 
 export interface GameHistoryEntry {
@@ -138,12 +140,14 @@ export interface UserProfile {
   customId: string;
   email: string;
   displayName: string;
+  name?: string;
   role: 'admin' | 'player' | 'agency';
   balance: number;
   totalWinnings?: number;
   totalBets?: number;
   createdAt?: string;
   updatedAt?: string;
+  [key: string]: any;
 }
 
 export interface WithdrawalRequest {

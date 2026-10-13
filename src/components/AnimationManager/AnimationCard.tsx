@@ -14,6 +14,7 @@ interface AnimationCardProps {
   onRename: (id: string, newName: string) => void;
   onInspect: (item: AnimationItem) => void;
   onQuickExport: (item: AnimationItem, format: ExportFormat) => void;
+  onOpenLayerEditor?: (item: AnimationItem) => void;
 }
 
 const FORMAT_CONFIG: Record<
@@ -27,7 +28,11 @@ const FORMAT_CONFIG: Record<
   lottie: { label: 'Lottie', bg: 'bg-cyan-500/15', text: 'text-cyan-400', border: 'border-cyan-500/30' },
   dotlottie: { label: 'DotLottie', bg: 'bg-pink-500/15', text: 'text-pink-400', border: 'border-pink-500/30' },
   svga: { label: 'SVGA', bg: 'bg-indigo-500/15', text: 'text-indigo-400', border: 'border-indigo-500/30' },
-  pag: { label: 'PAG', bg: 'bg-rose-500/15', text: 'text-rose-400', border: 'border-rose-500/30' }
+  pag: { label: 'PAG', bg: 'bg-rose-500/15', text: 'text-rose-400', border: 'border-rose-500/30' },
+  vap: { label: 'VAP', bg: 'bg-cyan-500/15', text: 'text-cyan-400', border: 'border-cyan-500/30' },
+  yyeva: { label: 'YYEVA', bg: 'bg-amber-500/15', text: 'text-amber-400', border: 'border-amber-500/30' },
+  mp4: { label: 'MP4', bg: 'bg-emerald-500/15', text: 'text-emerald-400', border: 'border-emerald-500/30' },
+  webm: { label: 'WebM', bg: 'bg-purple-500/15', text: 'text-purple-400', border: 'border-purple-500/30' }
 };
 
 export const AnimationCard: React.FC<AnimationCardProps> = ({
@@ -37,7 +42,8 @@ export const AnimationCard: React.FC<AnimationCardProps> = ({
   onDelete,
   onRename,
   onInspect,
-  onQuickExport
+  onQuickExport,
+  onOpenLayerEditor
 }) => {
   const [isPlaying, setIsPlaying] = useState(true);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
@@ -246,6 +252,18 @@ export const AnimationCard: React.FC<AnimationCardProps> = ({
 
           <button
             type="button"
+            title="محرر وإدارة طبقات الملف"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenLayerEditor?.(item);
+            }}
+            className="p-1.5 rounded-lg text-purple-300 hover:text-white bg-purple-500/20 hover:bg-purple-500/40 border border-purple-500/40 transition-colors"
+          >
+            <Layers className="w-4 h-4" />
+          </button>
+
+          <button
+            type="button"
             title="معاينة وفحص تفصيلي"
             onClick={(e) => {
               e.stopPropagation();
@@ -341,8 +359,19 @@ export const AnimationCard: React.FC<AnimationCardProps> = ({
             </button>
           </div>
 
-          {/* Three Dedicated Export/Convert Buttons */}
-          <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+          {/* Dedicated Export/Convert/Layer Buttons */}
+          <div className="flex items-center gap-1.5 flex-wrap" onClick={(e) => e.stopPropagation()}>
+            {/* Layer Editor Button */}
+            <button
+              type="button"
+              onClick={() => onOpenLayerEditor?.(item)}
+              className="px-2 py-1 rounded-lg bg-purple-600/30 hover:bg-purple-600/60 text-purple-200 text-xs font-bold flex items-center gap-1 border border-purple-400/40 transition-all cursor-pointer shadow-sm"
+              title="الدخول على جميع طبقات الملف وحذف/إخفاء أي طبقة وتحديد صيغة التصدير"
+            >
+              <Layers className="w-3 h-3 text-purple-300 animate-pulse" />
+              <span>طبقات الملف</span>
+            </button>
+
             {/* Button 1: Export VAP */}
             <button
               type="button"

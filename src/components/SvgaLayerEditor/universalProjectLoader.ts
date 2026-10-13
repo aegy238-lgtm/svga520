@@ -259,7 +259,8 @@ async function renderLottieViaCanvas(
   if (!ctx) throw new Error('Could not get canvas 2d context');
 
   // Load Lottie with attached canvas context
-  const anim = lottie.loadAnimation({
+  const anim = (lottie.loadAnimation as any)({
+    container: canvas,
     renderer: 'canvas' as any,
     loop: false,
     autoplay: false,

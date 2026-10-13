@@ -556,6 +556,9 @@ export async function computeCacheStats(allUsers: UserRecord[] = []): Promise<Ca
       animation: 0,
       pag: 0,
       json: 0,
+      lottie: 0,
+      mp4: 0,
+      gif: 0,
       other: 0
     };
 

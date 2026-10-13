@@ -854,11 +854,12 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({
               vCtx.drawImage(tempAlphaCanvas, alphaX, 0, width, height);
               
               // 7. Encode frame with KeyFrame on frame 0 and every 30 frames
-              const bitmap = await createImageBitmap(vapCanvas);
-              const frame = new VideoFrame(bitmap, { timestamp: Math.round((i * 1000000) / fps) });
+              const frame = new VideoFrame(vapCanvas, {
+                timestamp: Math.round((i * 1000000) / fps),
+                alpha: 'discard'
+              });
               videoEncoder.encode(frame, { keyFrame: i % 30 === 0 || i === 0 });
               frame.close();
-              bitmap.close();
             } else {
               // Standard MP4: Composited cleanly on black background or custom background
               const ctx = canvas.getContext('2d');
@@ -873,11 +874,12 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({
                   drawAnimatedWatermark(ctx, width, height, i, totalFrames, watermarkConfig);
                 }
                 
-                const bitmap = await createImageBitmap(canvas);
-                const frame = new VideoFrame(bitmap, { timestamp: Math.round((i * 1000000) / fps) });
+                const frame = new VideoFrame(canvas, {
+                  timestamp: Math.round((i * 1000000) / fps),
+                  alpha: 'discard'
+                });
                 videoEncoder.encode(frame, { keyFrame: i % 30 === 0 || i === 0 });
                 frame.close();
-                bitmap.close();
               }
             }
           }

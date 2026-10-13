@@ -90,8 +90,8 @@ const Store = lazyWithRetry(() => import('./components/Store').then(m => ({ defa
 const VapHub = lazyWithRetry(() => import('./components/VapHub').then(m => ({ default: m.VapHub })));
 const EmbeddedPortalViewer = lazyWithRetry(() => import('./components/EmbeddedPortalViewer').then(m => ({ default: m.EmbeddedPortalViewer })));
 const UniversalMultiFormatPlayerModal = lazyWithRetry(() => import('./components/UniversalMultiFormatPlayerModal').then(m => ({ default: m.UniversalMultiFormatPlayerModal || m.default })));
-const AfterEffectsStudio = lazyWithRetry(() => import('./components/AfterEffectsStudio').then(m => ({ default: m.AfterEffectsStudio || m.default })));
-const ApkAssetExtractor = lazyWithRetry(() => import('./components/ApkAssetExtractor').then(m => ({ default: m.ApkAssetExtractor || m.default })));
+const AfterEffectsStudio = lazyWithRetry(() => import('./components/AfterEffectsStudio').then(m => ({ default: m.AfterEffectsStudio || (m as any).default })));
+const ApkAssetExtractor = lazyWithRetry(() => import('./components/ApkAssetExtractor').then(m => ({ default: m.ApkAssetExtractor })));
 
 import { LanguageTranslatorWidget } from './components/LanguageTranslatorWidget';
 
@@ -105,7 +105,7 @@ import { VideoDurationSpeedModal } from './components/VideoDurationSpeedModal';
 import { VipSubscriptionModal } from './components/VipSubscriptionModal';
 import { ScreenProtectionOverlay } from './components/ScreenProtectionOverlay';
 import { useAuth } from './contexts/AuthContext';
-import { AppState, FileMetadata, AppSettings } from './types';
+import { AppState, FileMetadata, AppSettings, UserRecord } from './types';
 import { useAccessControl } from './hooks/useAccessControl';
 import { doc, getDoc, onSnapshot, updateDoc, setDoc } from 'firebase/firestore';
 import { db } from './lib/firebase';
@@ -953,7 +953,14 @@ const App: React.FC = () => {
     name: 'زائر المنصة',
     email: 'guest@svga.app',
     role: 'user',
+    isApproved: true,
     isVIP: false,
+    subscriptionExpiry: null,
+    subscriptionType: 'none',
+    status: 'active',
+    coins: 999,
+    freeAttempts: 999,
+    lastLogin: null,
     points: 999,
     createdAt: new Date().toISOString()
   };

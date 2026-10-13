@@ -1019,5 +1019,48 @@ export function subscribeToOptimizerSettings(callback: (settings: any) => void):
   }
 }
 
+// ----------------- VIP BUNDLES -----------------
+export async function saveVipBundle(bundle: any) {
+  try {
+    const local = JSON.parse(localStorage.getItem('jiawei_vip_bundles_v1') || '[]');
+    const idx = local.findIndex((b: any) => b.id === bundle.id);
+    if (idx >= 0) local[idx] = bundle;
+    else local.push(bundle);
+    localStorage.setItem('jiawei_vip_bundles_v1', JSON.stringify(local));
+  } catch (e) {}
+}
+
+export async function deleteVipBundle(id: string) {
+  try {
+    const local = JSON.parse(localStorage.getItem('jiawei_vip_bundles_v1') || '[]');
+    const updated = local.filter((b: any) => b.id !== id);
+    localStorage.setItem('jiawei_vip_bundles_v1', JSON.stringify(updated));
+  } catch (e) {}
+}
+
+export async function toggleVipBundleVisibility(id: string, isVisible: boolean) {
+  try {
+    const local = JSON.parse(localStorage.getItem('jiawei_vip_bundles_v1') || '[]');
+    const idx = local.findIndex((b: any) => b.id === id);
+    if (idx >= 0) {
+      local[idx].isVisible = isVisible;
+      localStorage.setItem('jiawei_vip_bundles_v1', JSON.stringify(local));
+    }
+  } catch (e) {}
+}
+
+export async function reorderVipBundles(bundles: any[]) {
+  try {
+    localStorage.setItem('jiawei_vip_bundles_v1', JSON.stringify(bundles));
+  } catch (e) {}
+}
+
+export async function saveGameOdds(config: any) {
+  try {
+    localStorage.setItem('jiawei_game_odds_v1', JSON.stringify(config));
+  } catch (e) {}
+}
+
+
 
 

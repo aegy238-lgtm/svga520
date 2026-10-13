@@ -9,6 +9,7 @@ import { AnimationItem, ExportFormat, SupportedFormat } from './types';
 import { UploadZone } from './UploadZone';
 import { AnimationCard } from './AnimationCard';
 import { AnimationPreviewModal } from './AnimationPreviewModal';
+import { AnimationLayerModal } from './AnimationLayerModal';
 import { BatchExportModal } from './BatchExportModal';
 import { UnifiedVideoModal } from './UnifiedVideoModal';
 import { UniversalConvertModal } from './UniversalConvertModal';
@@ -57,6 +58,7 @@ export const AnimationManager: React.FC<AnimationManagerProps> = ({ onBack }) =>
 
   // Modals state
   const [inspectingItem, setInspectingItem] = useState<AnimationItem | null>(null);
+  const [editingLayersItem, setEditingLayersItem] = useState<AnimationItem | null>(null);
   const [isBatchExportOpen, setIsBatchExportOpen] = useState(false);
   const [isUnifiedVideoOpen, setIsUnifiedVideoOpen] = useState(false);
   const [isUniversalConvertOpen, setIsUniversalConvertOpen] = useState(false);
@@ -541,6 +543,7 @@ export const AnimationManager: React.FC<AnimationManagerProps> = ({ onBack }) =>
                 onRename={handleRenameItem}
                 onInspect={(itm) => setInspectingItem(itm)}
                 onQuickExport={handleQuickExport}
+                onOpenLayerEditor={(itm) => setEditingLayersItem(itm)}
               />
             ))}
           </div>
@@ -561,6 +564,15 @@ export const AnimationManager: React.FC<AnimationManagerProps> = ({ onBack }) =>
             item={inspectingItem}
             onClose={() => setInspectingItem(null)}
             onExport={handleQuickExport}
+          />
+        )}
+
+        {/* Animation Layer Inspector & Editor Modal */}
+        {editingLayersItem && (
+          <AnimationLayerModal
+            item={editingLayersItem}
+            isOpen={Boolean(editingLayersItem)}
+            onClose={() => setEditingLayersItem(null)}
           />
         )}
 

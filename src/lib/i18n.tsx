@@ -22,6 +22,7 @@ export const translations = {
     pot: 'المجموع',
     my: 'رهاني',
     win: 'فوز',
+    chair: 'كرسي',
     chairA: 'كرسي A',
     chairB: 'كرسي B',
     chairC: 'كرسي C',
@@ -182,6 +183,15 @@ export const translations = {
     fastPayout: 'سحب وإيداع فوري',
     fairGaming: 'لعب آمن وسحابي',
     threeSeatsLive: '3 كراسي للمراهنة المباشرة',
+    gameHistorySubtitle: 'سجل الجولات والنتائج السابقة',
+    noRoundsYet: 'لا توجد جولات مسجلة حتى الآن',
+    placeChipsPrompt: 'ضع رقاقاتك للمشاركة في الجولة القادمة',
+    winningChair: 'المقعد الفائز',
+    rechargeSuccessful: 'تم الشحن بنجاح',
+    chips: 'الرقاقات والعملات',
+    coinStore: 'متجر العملات',
+    coinStoreSubtitle: 'متجر العملات الافتراضية وشحن الرصيد',
+    addCoins: 'إضافة عملات للحساب',
   },
 
   en: {
@@ -203,6 +213,7 @@ export const translations = {
     pot: 'Pot',
     my: 'My Bet',
     win: 'WIN',
+    chair: 'Chair',
     chairA: 'Chair A',
     chairB: 'Chair B',
     chairC: 'Chair C',
@@ -363,6 +374,15 @@ export const translations = {
     fastPayout: 'Instant Cloud Cashier',
     fairGaming: 'Fair & Secure Cloud',
     threeSeatsLive: '3 Live Betting Chairs',
+    gameHistorySubtitle: 'Round & Results History',
+    noRoundsYet: 'No recorded rounds yet',
+    placeChipsPrompt: 'Place your chips to join the next round',
+    winningChair: 'Winning Chair',
+    rechargeSuccessful: 'Recharge Successful',
+    chips: 'Chips & Coins',
+    coinStore: 'Coin Store',
+    coinStoreSubtitle: 'Virtual Currency Store & Refill',
+    addCoins: 'Add Coins',
   }
 };
 

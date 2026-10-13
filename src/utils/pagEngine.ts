@@ -16,6 +16,39 @@ export async function getPAG() {
         return file;
       }
     });
+
+    if (pagModule) {
+      const wrapSafe = (proto: any, methodNames: string[]) => {
+        if (!proto) return;
+        methodNames.forEach((m) => {
+          if (typeof proto[m] === 'function') {
+            const orig = proto[m];
+            proto[m] = function (...args: any[]) {
+              if (this.isDestroyed) return;
+              try {
+                return orig.apply(this, args);
+              } catch (e: any) {
+                if (
+                  e?.message?.includes('deleted object') ||
+                  e?.message?.includes('BindingError') ||
+                  e?.message?.includes('destroyed')
+                ) {
+                  return;
+                }
+                throw e;
+              }
+            };
+          }
+        });
+      };
+
+      if (pagModule.PAGPlayer && pagModule.PAGPlayer.prototype) {
+        wrapSafe(pagModule.PAGPlayer.prototype, ['flush', 'play', 'pause', 'stop', 'setProgress', 'setRepeatCount']);
+      }
+      if (pagModule.PAGView && pagModule.PAGView.prototype) {
+        wrapSafe(pagModule.PAGView.prototype, ['flush', 'play', 'pause', 'stop', 'setProgress', 'setRepeatCount']);
+      }
+    }
   }
   return pagModule;
 }

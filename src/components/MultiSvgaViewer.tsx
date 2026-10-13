@@ -6676,8 +6676,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           onClose={() => setIsAeExportModalOpen(false)}
           metadata={{
             name: aeExportItem.name ? aeExportItem.name.replace(/\.[^/.]+$/, '') : 'SVGA_Project',
-            width: aeExportItem.width || 500,
-            height: aeExportItem.height || 500,
+            width: aeExportItem.dimensions?.width || (aeExportItem as any).width || 500,
+            height: aeExportItem.dimensions?.height || (aeExportItem as any).height || 500,
             fps: aeExportItem.fps || 30,
             frames: aeExportItem.frames || 60,
             version: '2.0'
@@ -6763,7 +6763,7 @@ const SvgaPlayer: React.FC<{ item: any }> = ({ item }) => {
             webgl.canvas.style.objectFit = 'contain';
             containerRef.current?.appendChild(webgl.canvas);
           } catch (e) {
-            console.error("WebGL VAP error", e);
+            console.warn("[VAP] Renderer notice:", e);
           }
 
           const rawVideoW = vapConfig?.info?.videoW || vw;
@@ -7157,7 +7157,7 @@ const SvgaCard: React.FC<{
               webgl.canvas.style.objectFit = 'contain';
               containerRef.current?.appendChild(webgl.canvas);
             } catch (e) {
-              console.error("WebGL VAP error", e);
+              console.warn("[VAP] Renderer notice:", e);
             }
 
             const rawVideoW = vapConfig?.info?.videoW || vw;
@@ -7516,7 +7516,7 @@ const SvgaCard: React.FC<{
             watermark={watermark} 
             settings={wmSettings} 
             onUpdateSettings={(newSettings) => updateAndSaveWmSettings(prev => ({ ...prev, ...newSettings }))}
-            onOpenModal={() => setIsWatermarkModalOpen(true)}
+            onOpenModal={() => {}}
           />
         )}
         

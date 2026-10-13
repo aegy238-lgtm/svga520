@@ -164,6 +164,8 @@ export const GiftMediaOptimizer: React.FC<GiftMediaOptimizerProps> = ({
       id: `TASK_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       file,
       name: file.name,
+      fileName: file.name,
+      fileSize: file.size,
       originalSize: file.size,
       type: file.name.split('.').pop()?.toLowerCase() || 'unknown',
       progress: 0,
@@ -195,24 +197,24 @@ export const GiftMediaOptimizer: React.FC<GiftMediaOptimizerProps> = ({
       let isDeduplicated = false;
 
       if (isSvga) {
-        const result = await optimizeSvgaFile(file, options, assets, (prog, step, speed) => {
+        const result = await optimizeSvgaFile(file, options as any, assets, (prog, step, speed) => {
           updateTaskState(task.id, {
             progress: prog,
             statusText: step,
             speedMBs: speed || 14.5
           });
         });
-        resultAsset = result.asset;
+        resultAsset = result.asset as any;
         isDeduplicated = result.isDeduplicated;
       } else {
-        const result = await optimizeMediaFile(file, options, assets, (prog, step, speed) => {
+        const result = await optimizeMediaFile(file, options as any, assets, (prog, step, speed) => {
           updateTaskState(task.id, {
             progress: prog,
             statusText: step,
             speedMBs: speed || 18.0
           });
         });
-        resultAsset = result.asset;
+        resultAsset = result.asset as any;
         isDeduplicated = result.isDeduplicated;
       }
 

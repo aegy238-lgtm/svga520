@@ -59,8 +59,9 @@ export default function UsersTab() {
   };
 
   const handleToggleBanUser = async (user: any) => {
-    if (user.role === 'admin' || user.email === 'iejehdgdig@gmail.com' || user.email === 'uhbijnokmpl098900@gmail.com') {
-      return alert('لا يمكن حظر حساب المدير العام');
+    const emailLower = (user.email || '').toLowerCase();
+    if (user.role === 'admin' || emailLower === 'aegy238@gmail.com' || emailLower === 'iejehdgdig@gmail.com' || emailLower === 'uhbijnokmpl098900@gmail.com') {
+      return alert('لا يمكن حظر حساب المدير العام والمالك');
     }
     const newStatus = user.status === 'banned' ? 'active' : 'banned';
     if (!confirm(`هل أنت متأكد من ${newStatus === 'banned' ? 'حظر' : 'فك حظر'} هذا المستخدم (${user.email || user.name})؟`)) return;

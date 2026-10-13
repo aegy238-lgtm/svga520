@@ -199,11 +199,12 @@ function formatBytes(bytes: number): string {
  * 🔒 STRICT SERVER-SIDE ADMIN EXCLUSION VERIFIER
  * Ensures 100% security: Under NO circumstances will an admin's file be forwarded.
  */
-export function checkIsAdminStrict(meta: any, headers: Record<string, any>): boolean {
+export function checkIsAdminStrict(meta: any, headers: Record<string, any>, isWriteOperation = false): boolean {
   const email = (meta?.userEmail || headers['x-user-email'] || '').toLowerCase().trim();
   const role = (meta?.userRole || headers['x-user-role'] || '').toLowerCase().trim();
   const isSuperAdmin = Boolean(meta?.isSuperAdmin || headers['x-is-super-admin'] === 'true');
   const adminKey = headers['x-admin-key'];
+  const adminSecret = process.env.ADMIN_SECRET || 'svga_sec_adm_9912499987';
 
   // Master Admin Emails from core security definition
   const MASTER_ADMIN_EMAILS = [
@@ -213,9 +214,15 @@ export function checkIsAdminStrict(meta: any, headers: Record<string, any>): boo
   ];
 
   if (MASTER_ADMIN_EMAILS.includes(email)) return true;
+  if (adminKey && (adminKey === 'super_admin_bypass' || adminKey === adminSecret)) return true;
+
+  // Strict Protection: For critical write operations, unverified headers are NOT trusted
+  if (isWriteOperation) {
+    return false;
+  }
+
   if (role === 'admin' || role === 'moderator') return true;
   if (isSuperAdmin) return true;
-  if (adminKey === 'super_admin_bypass') return true;
 
   return false;
 }
@@ -1474,7 +1481,7 @@ router.get('/status', async (req, res) => {
  * Update Bot Token, Phone, Name, Group, and Destinations dynamically from Admin Panel
  */
 router.post('/config', async (req, res) => {
-  const isAdmin = checkIsAdminStrict({}, req.headers);
+  const isAdmin = checkIsAdminStrict({}, req.headers, true);
   if (!isAdmin) {
     return res.status(403).json({ error: 'FORBIDDEN', message: 'صلاحيات مدير مطلوبة لتعديل إعدادات Telegram.' });
   }

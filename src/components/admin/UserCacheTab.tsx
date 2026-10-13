@@ -171,7 +171,7 @@ export const UserCacheTab: React.FC<UserCacheTabProps> = ({ currentUser, users, 
         const matchesId = (f.id || '').toLowerCase().includes(queryLower);
         const matchesUser = (f.userName || '').toLowerCase().includes(queryLower);
         const matchesEmail = (f.userEmail || '').toLowerCase().includes(queryLower);
-        const matchesNumeric = (f.userNumericId || '').toLowerCase().includes(queryLower);
+        const matchesNumeric = String(f.userNumericId || '').toLowerCase().includes(queryLower);
         const matchesHash = (f.sha256 || '').toLowerCase().includes(queryLower);
 
         if (!matchesName && !matchesOriginal && !matchesId && !matchesUser && !matchesEmail && !matchesNumeric && !matchesHash) {

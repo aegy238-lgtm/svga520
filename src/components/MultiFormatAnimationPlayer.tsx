@@ -532,15 +532,15 @@ export const MultiFormatAnimationPlayer: React.FC<MultiFormatAnimationPlayerProp
 
       const player = new SvgaPlayer(canvas);
       await player.mount(videoItem);
-      player.set({ loop: isLooping ? 0 : 1, fillMode: 'forwards' });
+      (player as any).set({ loop: isLooping ? 0 : 1, fillMode: 'forwards' });
       
-      player.onProcess = (process: number) => {
+      (player as any).onProcess = (process: number) => {
         const frame = Math.min(tf - 1, Math.floor(process * tf));
         setCurrentFrame(frame);
         setCurrentTime(frame / f);
       };
 
-      player.onEnd = () => {
+      (player as any).onEnd = () => {
         if (!isLooping) setIsPlaying(false);
       };
 

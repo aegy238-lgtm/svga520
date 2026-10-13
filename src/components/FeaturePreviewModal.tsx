@@ -10,7 +10,7 @@ import { db } from '../lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { ErrorBoundary } from './ErrorBoundary';
 
-const safeLazy = (importFn: () => Promise<any>, namedExport?: string) => {
+const safeLazy = (importFn: () => Promise<any>, namedExport?: string): React.ComponentType<any> => {
   return lazy(() =>
     importFn().then(m => {
       const comp = (namedExport && m[namedExport]) || m.default || (namedExport ? undefined : Object.values(m).find(v => typeof v === 'function'));
@@ -316,14 +316,14 @@ export const FeaturePreviewModal: React.FC<FeaturePreviewModalProps> = ({
       case 'batch-compressor':
         return (
           <BatchCompressor 
-            {...commonProps} 
+            {...(commonProps as any)} 
           />
         );
 
       default:
         return (
           <UniversalMotionTools 
-            {...commonProps} 
+            {...(commonProps as any)} 
           />
         );
     }

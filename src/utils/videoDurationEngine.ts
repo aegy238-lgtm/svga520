@@ -616,15 +616,14 @@ export async function processVideoSpeedInBrowser(
       ctx.clearRect(0, 0, safeWidth, safeHeight);
       ctx.drawImage(video, 0, 0, safeWidth, safeHeight);
 
-      const frameBitmap = await createImageBitmap(canvas);
-      const videoFrame = new VideoFrame(frameBitmap, {
+      const videoFrame = new VideoFrame(canvas, {
         timestamp: i * frameIntervalUs,
         duration: frameIntervalUs,
+        alpha: 'discard'
       });
 
       videoEncoder.encode(videoFrame, { keyFrame: i % (fps * 2) === 0 });
       videoFrame.close();
-      frameBitmap.close();
 
       if (onProgress) {
         onProgress(Math.round(((i + 1) / totalFrames) * 100), i + 1, totalFrames);

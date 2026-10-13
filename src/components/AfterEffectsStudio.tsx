@@ -350,7 +350,9 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
             return;
           }
 
-          const project = await parseSvgaToProject(initialFile);
+          const res = await parseSvgaToProject(initialFile);
+          const project = res?.project;
+          const parsedLayers = res?.layers || [];
           if (!isMounted || !project) return;
           
           setCompSettings({
@@ -364,8 +366,8 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
 
           // Map layers
           const loadedLayers: AELayer[] = [];
-          for (let idx = 0; idx < (project.layers || []).length; idx++) {
-            const l = project.layers[idx];
+          for (let idx = 0; idx < parsedLayers.length; idx++) {
+            const l = parsedLayers[idx];
             const src = l.thumbnailUrl || (l.imageKey && project.imagesMap ? project.imagesMap[l.imageKey] : undefined);
             let imgEl: HTMLImageElement | null = null;
             if (src) {
@@ -381,18 +383,24 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
               kind: src ? 'image' : 'shape',
               visible: l.visible !== false,
               locked: !!l.locked,
+              colorLabel: '#6366f1',
+              expanded: false,
               position: { x: l.transform?.x || 0, y: l.transform?.y || 0 },
               scale: (l.transform?.scaleX || 1) * 100,
               rotation: l.transform?.rotation || 0,
               opacity: l.transform?.opacity !== undefined ? l.transform.opacity : 100,
+              animatingPosition: Boolean(l.keyframes && l.keyframes.length > 0),
+              positionKeyframes: l.keyframes?.map(k => ({ frame: k.frame, value: { x: k.x ?? 0, y: k.y ?? 0 } })) || [],
+              animatingScale: Boolean(l.keyframes && l.keyframes.length > 0),
+              scaleKeyframes: l.keyframes?.map(k => ({ frame: k.frame, value: (k.scaleX ?? 1) * 100 })) || [],
+              animatingRotation: Boolean(l.keyframes && l.keyframes.length > 0),
+              rotationKeyframes: l.keyframes?.map(k => ({ frame: k.frame, value: k.rotation ?? 0 })) || [],
+              animatingOpacity: Boolean(l.keyframes && l.keyframes.length > 0),
+              opacityKeyframes: l.keyframes?.map(k => ({ frame: k.frame, value: k.opacity ?? 100 })) || [],
               width: l.transform?.width || imgEl?.naturalWidth || 200,
               height: l.transform?.height || imgEl?.naturalHeight || 200,
               imageSrc: src,
-              imageElement: imgEl,
-              positionKeyframes: l.keyframes?.map(k => ({ frame: k.frame, value: { x: k.x ?? 0, y: k.y ?? 0 } })),
-              scaleKeyframes: l.keyframes?.map(k => ({ frame: k.frame, value: (k.scaleX ?? 1) * 100 })),
-              rotationKeyframes: l.keyframes?.map(k => ({ frame: k.frame, value: k.rotation ?? 0 })),
-              opacityKeyframes: l.keyframes?.map(k => ({ frame: k.frame, value: k.opacity ?? 100 }))
+              imageElement: imgEl
             });
           }
 
@@ -451,7 +459,8 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
       img.src = url;
     } else if (file.name.toLowerCase().endsWith('.svga')) {
       try {
-        const proj = await parseSvgaToProject(file);
+        const res = await parseSvgaToProject(file);
+        const proj = res?.project;
         if (proj) {
           setModalWidth(proj.width || 500);
           setModalHeight(proj.height || 500);
@@ -538,6 +547,10 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
     startCanvasX: number;
     startCanvasY: number;
     startLayerPos: { x: number; y: number };
+    resizeHandle?: string;
+    startWidth?: number;
+    startHeight?: number;
+    startScale?: number;
   } | null>(null);
 
   const handleStageMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -930,7 +943,7 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
     if (modalDurationMode === 'seconds') {
       setModalTotalFrames(Math.round(modalDurationSec * newFps));
     } else {
-      setModalDurationSec(Number((modalTotalFrames / newFps).toFixed(2)));
+      setModalDurationSec(Number(((Number(modalTotalFrames) || 90) / newFps).toFixed(2)));
     }
   };
 
@@ -5055,7 +5068,7 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
 
                     {/* VAP 1.0 Option */}
                     <button
-                      onClick={exportAsVap10}
+                      onClick={exportAsVAP10}
                       className="p-3 rounded-xl bg-cyan-950/40 hover:bg-cyan-600/20 border border-cyan-500/40 hover:border-cyan-400 flex items-center justify-between text-left transition-all group shadow-[0_0_12px_rgba(6,182,212,0.15)]"
                     >
                       <div className="flex flex-col">

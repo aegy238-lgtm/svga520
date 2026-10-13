@@ -229,7 +229,7 @@ export const StorageCenterTab: React.FC<StorageCenterTabProps> = ({ currentUser 
     setCleanupResult(null);
     try {
       if (type === 'purge_all') {
-        const res = await purgeAllFirestoreDatabaseFiles(currentUser);
+        const res = await purgeAllFirestoreDatabaseFiles();
         setCleanupResult({
           ok: true,
           deletedCount: res.deletedCount,
@@ -626,7 +626,7 @@ export const StorageCenterTab: React.FC<StorageCenterTabProps> = ({ currentUser 
                       deletedCount: res.deletedCount,
                       message: res.message
                     });
-                    loadData();
+                    loadAllData();
                   } catch (e: any) {
                     alert('خطأ: ' + (e.message || 'فشل تنظيف قاعدة البيانات'));
                   } finally {

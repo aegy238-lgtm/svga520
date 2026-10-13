@@ -104,50 +104,59 @@ export async function extractPagFrames(
   file: File | Blob,
   bgColor: string = 'transparent'
 ): Promise<{ canvases: HTMLCanvasElement[]; delays: number[]; fps: number }> {
-  const buffer = await file.arrayBuffer();
-  const { getPAG } = await import('../../../utils/pagEngine');
-  const PAG = await getPAG();
-  const pagFile = await PAG.PAGFile.load(buffer);
+  try {
+    const buffer = await file.arrayBuffer();
+    const { getPAG } = await import('../../../utils/pagEngine');
+    const PAG = await getPAG();
+    const pagFile = await PAG.PAGFile.load(buffer);
 
-  const width = pagFile.width() || 512;
-  const height = pagFile.height() || 512;
-  const fps = pagFile.frameRate() || 30;
-  const durationSec = pagFile.duration() / 1000000;
-  const totalFrames = Math.max(1, Math.round(durationSec * fps));
-  const delayMs = Math.max(16, Math.round(1000 / fps));
+    const width = Math.max(1, Math.round(pagFile.width() || 512));
+    const height = Math.max(1, Math.round(pagFile.height() || 512));
+    const fps = Math.max(1, Math.round(pagFile.frameRate() || 30));
+    const durationSec = (pagFile.duration() || 0) / 1000000;
+    const totalFrames = Math.max(1, Math.round(durationSec * fps));
+    const delayMs = Math.max(16, Math.round(1000 / fps));
 
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
 
-  const pagView = await PAG.PAGView.init(pagFile, canvas);
+    const pagView = await PAG.PAGView.init(pagFile, canvas);
 
-  const canvases: HTMLCanvasElement[] = [];
-  const delays: number[] = [];
+    const canvases: HTMLCanvasElement[] = [];
+    const delays: number[] = [];
 
-  for (let i = 0; i < totalFrames; i++) {
-    await pagView.setProgress(i / (totalFrames > 1 ? totalFrames - 1 : 1));
-    await pagView.flush();
+    for (let i = 0; i < totalFrames; i++) {
+      await pagView.setProgress(i / (totalFrames > 1 ? totalFrames - 1 : 1));
+      await pagView.flush();
 
-    const frameCanvas = document.createElement('canvas');
-    frameCanvas.width = width;
-    frameCanvas.height = height;
-    const ctx = frameCanvas.getContext('2d');
-    if (ctx) {
-      if (bgColor && bgColor !== 'transparent') {
-        ctx.fillStyle = bgColor;
-        ctx.fillRect(0, 0, width, height);
+      const frameCanvas = document.createElement('canvas');
+      frameCanvas.width = width;
+      frameCanvas.height = height;
+      const ctx = frameCanvas.getContext('2d');
+      if (ctx) {
+        if (bgColor && bgColor !== 'transparent') {
+          ctx.fillStyle = bgColor;
+          ctx.fillRect(0, 0, width, height);
+        }
+        if (canvas.width > 0 && canvas.height > 0) {
+          ctx.drawImage(canvas, 0, 0, width, height);
+        }
+        canvases.push(frameCanvas);
+        delays.push(delayMs);
       }
-      ctx.drawImage(canvas, 0, 0, width, height);
-      canvases.push(frameCanvas);
-      delays.push(delayMs);
     }
+
+    try {
+      if (pagView && !pagView.isDestroyed) pagView.destroy();
+      if (pagFile && !pagFile.isDestroyed) pagFile.destroy();
+    } catch {}
+
+    return { canvases, delays, fps };
+  } catch (err) {
+    console.warn('extractPagFrames error:', err);
+    return { canvases: [], delays: [], fps: 30 };
   }
-
-  pagView.destroy();
-  pagFile.destroy();
-
-  return { canvases, delays, fps };
 }
 
 /**
@@ -1872,9 +1881,13 @@ export async function exportItem(
     fps?: number;
     quality?: number;
     compressionLevel?: number;
-  } = {}
+    onProgress?: (pct: number, status?: string) => void;
+  } = {},
+  onProgressCallback?: (pct: number, status?: string) => void
 ): Promise<{ blob: Blob; extension: string; filename: string }> {
-  const { backgroundColor = 'transparent', fps = item.fps || 30, quality = 90, compressionLevel = 80 } = options;
+  const { backgroundColor = 'transparent', fps = item.fps || 30, quality = 90, compressionLevel = 80, onProgress } = options;
+  const notifyProgress = onProgress || onProgressCallback;
+  if (notifyProgress) notifyProgress(10, 'جاري إعداد التصدير...');
   const cleanName = item.name.trim() || 'animation';
 
   if (format === 'original') {

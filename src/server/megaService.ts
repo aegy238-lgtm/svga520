@@ -115,11 +115,11 @@ class MegaService {
 
   private recalculateStats() {
     let totalSize = 0;
-    const catCounts: Record<MegaFileCategory, number> = {
-      svga: 0, vap: 0, video: 0, image: 0, audio: 0, animation: 0, other: 0
+    const catCounts: Record<string, number> = {
+      svga: 0, vap: 0, video: 0, image: 0, audio: 0, animation: 0, yyeva: 0, lottie: 0, pag: 0, mp4: 0, images: 0, backup: 0, other: 0
     };
-    const catSizes: Record<MegaFileCategory, number> = {
-      svga: 0, vap: 0, video: 0, image: 0, audio: 0, animation: 0, other: 0
+    const catSizes: Record<string, number> = {
+      svga: 0, vap: 0, video: 0, image: 0, audio: 0, animation: 0, yyeva: 0, lottie: 0, pag: 0, mp4: 0, images: 0, backup: 0, other: 0
     };
 
     const todayStr = new Date().toISOString().split('T')[0];
@@ -457,8 +457,9 @@ class MegaService {
         f.originalName.toLowerCase().includes(q) ||
         f.id.toLowerCase().includes(q) ||
         f.hash.toLowerCase().includes(q) ||
-        (f.uploadedBy.userName && f.uploadedBy.userName.toLowerCase().includes(q)) ||
-        (f.uploadedBy.userEmail && f.uploadedBy.userEmail.toLowerCase().includes(q))
+        (typeof f.uploadedBy === 'object' && f.uploadedBy?.userName && f.uploadedBy.userName.toLowerCase().includes(q)) ||
+        (typeof f.uploadedBy === 'object' && f.uploadedBy?.userEmail && f.uploadedBy.userEmail.toLowerCase().includes(q)) ||
+        (typeof f.uploadedBy === 'string' && f.uploadedBy.toLowerCase().includes(q))
       );
     }
 
@@ -469,7 +470,12 @@ class MegaService {
 
     // Filter by userId
     if (userId.trim()) {
-      list = list.filter(f => f.uploadedBy.userId === userId);
+      list = list.filter(f => {
+        if (typeof f.uploadedBy === 'object' && f.uploadedBy?.userId) {
+          return f.uploadedBy.userId === userId;
+        }
+        return f.uploadedBy === userId || f.userId === userId;
+      });
     }
 
     // Sort
