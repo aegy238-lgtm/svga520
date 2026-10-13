@@ -447,6 +447,9 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
     const baseName = file.name.replace(/\.[^/.]+$/, "").replace(/\s+/g, "_");
     setModalName(baseName);
 
+    const fileNameLower = file.name.toLowerCase();
+    const isVideo = fileNameLower.endsWith('.avi') || fileNameLower.endsWith('.mp4') || fileNameLower.endsWith('.mov') || fileNameLower.endsWith('.webm') || file.type.startsWith('video/') || file.type === 'video/x-msvideo';
+
     if (file.type.startsWith('image/')) {
       const url = URL.createObjectURL(file);
       const img = new Image();
@@ -457,6 +460,21 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
         URL.revokeObjectURL(url);
       };
       img.src = url;
+    } else if (isVideo) {
+      try {
+        const { probeMp4Video } = await import('./SvgaLayerEditor/mp4SvgaEngine');
+        const probe = await probeMp4Video(file);
+        setModalWidth(probe.width || 750);
+        setModalHeight(probe.height || 1334);
+        setModalFps(probe.fps || 30);
+        const totalF = Math.max(1, Math.round((probe.duration || 3) * (probe.fps || 30)));
+        setModalTotalFrames(totalF);
+        setModalDurationSec(Number(probe.duration.toFixed(2)));
+      } catch (err) {
+        console.warn("Failed to probe video in After Effects Studio Settings:", err);
+      } finally {
+        setIsReadingFile(false);
+      }
     } else if (file.name.toLowerCase().endsWith('.svga')) {
       try {
         const res = await parseSvgaToProject(file);
@@ -2122,6 +2140,46 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
   const handleUploadAsset = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+      const fileNameLower = file.name.toLowerCase();
+      const isVideo = fileNameLower.endsWith('.avi') || fileNameLower.endsWith('.mp4') || fileNameLower.endsWith('.mov') || fileNameLower.endsWith('.webm') || file.type.startsWith('video/') || file.type === 'video/x-msvideo';
+
+      if (isVideo) {
+        import('./SvgaLayerEditor/mp4SvgaEngine').then(async ({ probeMp4Video }) => {
+          try {
+            const probe = await probeMp4Video(file);
+            const activeFile = probe.transcodedFile || file;
+            const videoUrl = probe.transcodedUrl || URL.createObjectURL(activeFile);
+            const v = document.createElement('video');
+            v.src = videoUrl;
+            v.muted = true;
+            v.playsInline = true;
+            v.onloadeddata = () => {
+              const cvs = document.createElement('canvas');
+              cvs.width = probe.width || 720;
+              cvs.height = probe.height || 1280;
+              cvs.getContext('2d')?.drawImage(v, 0, 0);
+              const poster = cvs.toDataURL('image/png');
+              const img = new Image();
+              img.src = poster;
+              img.onload = () => {
+                setImageImportPending({
+                  file: activeFile,
+                  url: poster,
+                  naturalWidth: img.naturalWidth || img.width,
+                  naturalHeight: img.naturalHeight || img.height,
+                  img
+                });
+                setImageImportWidth(String(img.naturalWidth || img.width));
+                setImageImportHeight(String(img.naturalHeight || img.height));
+              };
+            };
+          } catch (err) {
+            console.error('Failed loading video asset in AE Studio:', err);
+          }
+        });
+        return;
+      }
+
       const url = URL.createObjectURL(file);
       const img = new Image();
       img.src = url;
@@ -3314,7 +3372,7 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
         <div className="p-4 bg-purple-950/20 hover:bg-purple-950/30 border-2 border-dashed border-purple-500/40 hover:border-purple-400 rounded-2xl flex flex-col items-center justify-center text-center gap-2 transition-all group relative cursor-pointer min-h-[90px]">
           <input
             type="file"
-            accept=".svga,image/*"
+            accept=".svga,.avi,.AVI,.mp4,.mov,.webm,image/*,video/*"
             onChange={handleFileImport}
             className="absolute inset-0 opacity-0 cursor-pointer z-10"
             title=""
@@ -3605,7 +3663,7 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
           <input 
             ref={importGeneralLayerInputRef}
             type="file" 
-            accept="image/*,.svga" 
+            accept="image/*,.svga,.avi,.AVI,.mp4,.mov,.webm,video/*" 
             onChange={handleUploadAsset} 
             className="hidden" 
           />
@@ -3701,15 +3759,15 @@ export const AfterEffectsStudio: React.FC<AfterEffectsStudioProps> = ({
               >
                 <Upload size={11} className="text-violet-300" />
                 <span>استدعاء طبقات</span>
-                <input type="file" accept="image/*,.svga" onChange={handleUploadAsset} className="hidden" />
+                <input type="file" accept="image/*,.svga,.avi,.AVI,.mp4,.mov,.webm,video/*" onChange={handleUploadAsset} className="hidden" />
               </label>
               <label
-                title="استيراد صورة كطبقة"
+                title="استيراد صورة أو فيديو كطبقة"
                 className="p-1 px-2 rounded bg-slate-800/60 hover:bg-slate-700/60 text-slate-300 hover:text-white cursor-pointer flex items-center gap-1 text-[10px]"
               >
                 <Upload size={11} className="text-emerald-400" />
-                <span>صورة</span>
-                <input type="file" accept="image/*" onChange={handleUploadAsset} className="hidden" />
+                <span>أصل / ميديا</span>
+                <input type="file" accept="image/*,.svga,.avi,.AVI,.mp4,.mov,.webm,video/*" onChange={handleUploadAsset} className="hidden" />
               </label>
             </div>
           </div>

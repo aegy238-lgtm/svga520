@@ -1096,19 +1096,19 @@ export const StorageCenterTab: React.FC<StorageCenterTabProps> = ({ currentUser 
             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex items-center justify-center min-h-[220px]">
               {previewFile.mimeType.startsWith('image/') ? (
                 <img 
-                  src={previewFile.downloadUrl || ''} 
+                  src={previewFile.downloadUrl || undefined} 
                   alt={previewFile.originalName}
                   className="max-h-[350px] object-contain rounded-lg"
                 />
               ) : previewFile.mimeType.startsWith('video/') ? (
                 <video 
-                  src={previewFile.downloadUrl || ''} 
+                  src={previewFile.downloadUrl || undefined} 
                   controls 
                   className="max-h-[350px] w-full rounded-lg"
                 />
               ) : previewFile.mimeType.startsWith('audio/') ? (
                 <audio 
-                  src={previewFile.downloadUrl || ''} 
+                  src={previewFile.downloadUrl || undefined} 
                   controls 
                   className="w-full"
                 />

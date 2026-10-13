@@ -35,10 +35,23 @@ const diskStorage = multer.diskStorage({
   }
 });
 
+const DANGEROUS_EXTENSIONS = new Set([
+  '.exe', '.bat', '.cmd', '.sh', '.bash', '.php', '.phtml', '.php3', '.php4', '.php5',
+  '.jsp', '.asp', '.aspx', '.cgi', '.pl', '.py', '.js', '.mjs', '.vbs',
+  '.msi', '.jar', '.html', '.htm', '.xhtml', '.scr', '.dll', '.com'
+]);
+
 const upload = multer({
   storage: diskStorage,
   limits: {
     fileSize: 500 * 1024 * 1024 // 500MB max upload
+  },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (DANGEROUS_EXTENSIONS.has(ext)) {
+      return cb(new Error('نوع الملف محظور لأسباب أمنية.'));
+    }
+    cb(null, true);
   }
 });
 
@@ -149,8 +162,10 @@ router.post('/create', upload.fields([
     } = req.body;
 
     const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    const originalBaseName = mainFile ? path.parse(mainFile.originalname).name : 'export';
-    const outputFileName = `${originalBaseName}_exported.${targetFormat}`;
+    const rawBaseName = mainFile ? path.parse(mainFile.originalname).name : 'export';
+    const originalBaseName = rawBaseName.replace(/[^a-zA-Z0-9._\-\u0600-\u06FF]/g, '_').substring(0, 100);
+    const safeFormat = (targetFormat || 'mp4').replace(/[^a-zA-Z0-9]/g, '').substring(0, 10);
+    const outputFileName = `${originalBaseName}_exported.${safeFormat}`;
     const outputPath = path.join(OUTPUTS_DIR, `${jobId}_${outputFileName}`);
 
     const jobRecord: ExportJobRecord = {
@@ -422,7 +437,9 @@ router.post('/submit-result', upload.single('file'), (req: express.Request, res:
     } = req.body;
 
     const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    const outputFileName = fileName || file.originalname || `export_${Date.now()}.${targetFormat}`;
+    const rawFileName = fileName || file.originalname || `export_${Date.now()}.${targetFormat || 'mp4'}`;
+    const cleanFileName = path.basename(rawFileName).replace(/[^a-zA-Z0-9._\-\u0600-\u06FF]/g, '_').substring(0, 150);
+    const outputFileName = cleanFileName || `export_${Date.now()}.mp4`;
     const targetPath = path.join(OUTPUTS_DIR, `${jobId}_${outputFileName}`);
 
     // Move uploaded file to outputs directory

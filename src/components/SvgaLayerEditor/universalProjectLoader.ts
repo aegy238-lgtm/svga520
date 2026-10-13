@@ -55,24 +55,34 @@ export async function loadUniversalProject(
     }
   }
 
-  // 2. Video / VAP / MOV / WebM / YYEVA
-  if (
+  // 2. Video / VAP / MOV / WebM / YYEVA / AVI / MKV / FLV
+  const isVideoFormat = 
     fileExt === 'mp4' || 
     fileExt === 'mov' || 
     fileExt === 'webm' || 
     fileExt === 'vap' || 
-    file.type.startsWith('video/')
-  ) {
-    onProgress?.('جاري استدعاء وتشغيل الفيديو بألوانه الطبيعية الكاملة وبأعلى دقة...', 25);
+    fileExt === 'avi' || 
+    fileExt === 'mkv' || 
+    fileExt === 'flv' || 
+    fileExt === 'wmv' || 
+    fileExt === 'm4v' || 
+    fileExt === '3gp' || 
+    fileExt === 'ts' || 
+    file.type.startsWith('video/') ||
+    file.type === 'video/x-msvideo' ||
+    file.type === 'video/avi';
+
+  if (isVideoFormat) {
+    onProgress?.('جاري استدعاء وتشغيل وتحويل فيديو AVI / MP4 وقنوات الشفافية بالكامل وبأعلى دقة...', 25);
     const fastRes = await createFastMp4Project(file, {
-      quality: 'fast',
+      quality: 'high',
       onProgress: (phase, percent) => onProgress?.(phase, percent)
     });
     return {
       project: fastRes.project,
       layers: fastRes.layers,
       videoUrl: fastRes.videoUrl,
-      videoFile: file,
+      videoFile: fastRes.videoFile || file,
       fileType: 'mp4'
     };
   }

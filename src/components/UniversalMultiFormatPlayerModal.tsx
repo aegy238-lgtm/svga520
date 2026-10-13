@@ -28,6 +28,7 @@ export type SupportedFormatType =
   | 'MP4'
   | 'MOV'
   | 'WEBM'
+  | 'AVI'
   | 'VAP'
   | 'YYEVA'
   | 'DUAL_CHANNEL_VIDEO'
@@ -144,6 +145,15 @@ export const FORMAT_SPECS: Record<SupportedFormatType, UniversalFormatDetails> =
     badgeColor: 'bg-sky-500/20 text-sky-300 border-sky-500/40',
     icon: 'FileVideo'
   },
+  AVI: {
+    type: 'AVI',
+    label: 'فيديو AVI (After Effects)',
+    category: 'video',
+    categoryLabel: 'ملفات الفيديو والشفافية',
+    mimeType: 'video/x-msvideo',
+    badgeColor: 'bg-violet-500/20 text-violet-300 border-violet-500/40',
+    icon: 'FileVideo'
+  },
   VAP: {
     type: 'VAP',
     label: 'VAP Video (Tencent VAP)',
@@ -239,6 +249,10 @@ export async function detectFormat(file: File): Promise<SupportedFormatType> {
     } catch {
       // ignore
     }
+  }
+
+  if (ext === 'avi' || name.endsWith('.avi') || file.type === 'video/x-msvideo' || file.type === 'video/avi') {
+    return 'AVI';
   }
 
   if (ext === 'mp4' || ext === 'mov' || ext === 'webm') {
@@ -358,6 +372,14 @@ export const UniversalMultiFormatPlayerModal: React.FC<UniversalMultiFormatPlaye
           await initDualChannelVideo(file);
         } else if (detected === 'MP4' || detected === 'MOV' || detected === 'WEBM') {
           await initStandardVideo(file);
+        } else if (detected === 'AVI') {
+          const { transcodeToWebCompatible } = await import('./SvgaLayerEditor/mp4SvgaEngine');
+          const probe = await transcodeToWebCompatible(file);
+          if (probe.transcodedFile) {
+            await initStandardVideo(probe.transcodedFile);
+          } else {
+            throw new Error('فشل معالجة وتشغيل فيديو AVI');
+          }
         } else if (detected === 'SVG_SMIL') {
           await initSvg(file);
         } else {

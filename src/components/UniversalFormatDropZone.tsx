@@ -57,10 +57,10 @@ export const UniversalFormatDropZone: React.FC<UniversalFormatDropZoneProps> = (
       formats: ['GIF', 'WebP', 'APNG', 'PNG 序列帧 ZIP']
     },
     {
-      title: 'ملفات الفيديو (Video Media)',
+      title: 'ملفات الفيديو والشفافية (Video Media & AVI)',
       color: 'from-blue-500/20 to-cyan-500/20 border-blue-500/30 text-blue-300',
-      badge: 'MP4 • MOV • WebM',
-      formats: ['MP4', 'MOV', 'WebM']
+      badge: 'AVI (After Effects) • MP4 • MOV • WebM',
+      formats: ['AVI (شفاف وعادي)', 'MP4', 'MOV', 'WebM']
     },
     {
       title: 'فيديو شفاف وألفا (Transparent Alpha Video)',
@@ -83,7 +83,7 @@ export const UniversalFormatDropZone: React.FC<UniversalFormatDropZoneProps> = (
         ref={fileInputRef}
         onChange={handleFileInputChange}
         className="hidden"
-        accept=".svga,.SVGA,.json,.JSON,.lottie,.LOTTIE,.pag,.PAG,.gif,.GIF,.webp,.WEBP,.apng,.APNG,.png,.PNG,.zip,.ZIP,.mp4,.MP4,.mov,.MOV,.webm,.WEBM,.vap,.VAP,.svg,.SVG,video/*,image/*,application/json,application/zip,application/octet-stream"
+        accept=".svga,.SVGA,.json,.JSON,.lottie,.LOTTIE,.pag,.PAG,.gif,.GIF,.webp,.WEBP,.apng,.APNG,.png,.PNG,.zip,.ZIP,.mp4,.MP4,.mov,.MOV,.webm,.WEBM,.vap,.VAP,.avi,.AVI,.svg,.SVG,video/*,image/*,application/json,application/zip,application/octet-stream"
         id="universal-format-file-input"
       />
 

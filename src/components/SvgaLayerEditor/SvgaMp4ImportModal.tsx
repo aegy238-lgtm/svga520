@@ -307,6 +307,7 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
             isManualTrim: durationMode === 'trim',
             cropTop: cropTop > 0 ? (fileProbe ? Math.round((fileProbe.height * cropTop) / 100) : cropTop) : undefined,
             cropBottom: cropBottom > 0 ? (fileProbe ? Math.round((fileProbe.height * cropBottom) / 100) : cropBottom) : undefined,
+            probeResult: fileProbe || undefined,
             onProgress: (phase: string, percent: number) => {
               const overallPercent = Math.round(((i + percent / 100) / files.length) * 100);
               setProgressPhase(`[${i + 1}/${files.length}] ${currentFile.name}: ${phase}`);
@@ -314,8 +315,10 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
             }
           };
 
+          const effectiveFile = fileProbe?.transcodedFile || currentFile;
+
           const { newLayer, addedAudios } = await importMp4AsLayerIntoProject(
-            currentFile,
+            effectiveFile,
             existingProject,
             conversionOptions
           );
@@ -341,6 +344,7 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
         for (let i = 0; i < files.length; i++) {
           const currentFile = files[i];
           const fileProbe = probes[currentFile.name] || await probeMp4Video(currentFile).catch(() => null);
+          const effectiveFile = fileProbe?.transcodedFile || currentFile;
 
           // Track uploaded file automatically in background
           trackUploadedFile(currentFile, 'svga_mp4_import_project');
@@ -359,6 +363,7 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
             isManualTrim: durationMode === 'trim',
             cropTop: cropTop > 0 ? (fileProbe ? Math.round((fileProbe.height * cropTop) / 100) : cropTop) : undefined,
             cropBottom: cropBottom > 0 ? (fileProbe ? Math.round((fileProbe.height * cropBottom) / 100) : cropBottom) : undefined,
+            probeResult: fileProbe || undefined,
             onProgress: (phase: string, percent: number) => {
               const overallPercent = Math.round(((i + percent / 100) / files.length) * 100);
               setProgressPhase(`[${i + 1}/${files.length}] ${currentFile.name}: ${phase}`);
@@ -367,11 +372,11 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
           };
 
           const { project, layers } = await convertMp4ToSvgaProject(
-            currentFile,
+            effectiveFile,
             conversionOptions
           );
-          const videoUrl = URL.createObjectURL(currentFile);
-          results.push({ project, layers, file: currentFile, videoUrl });
+          const videoUrl = fileProbe?.transcodedUrl || URL.createObjectURL(effectiveFile);
+          results.push({ project, layers, file: effectiveFile, videoUrl });
         }
 
         setIsProcessing(false);
@@ -437,7 +442,7 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
           <input
             type="file"
             ref={fileInputRef}
-            accept="video/mp4,video/quicktime,video/webm"
+            accept="video/mp4,video/quicktime,video/webm,.mp4,.avi,.mov,.webm,.vap,video/*"
             multiple
             className="hidden"
             onChange={handleAddMoreFiles}
@@ -569,13 +574,27 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
                       {activeFile && (
                         <video
                           ref={videoRef}
-                          src={URL.createObjectURL(activeFile)}
+                          src={
+                            activeProbe?.transcodedUrl || 
+                            (activeFile.name.toLowerCase().endsWith('.avi') || activeFile.type === 'video/x-msvideo' || activeFile.type === 'video/avi'
+                              ? undefined
+                              : URL.createObjectURL(activeProbe?.transcodedFile || activeFile))
+                          }
                           className="w-full h-full object-contain"
                           onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
                           onEnded={() => setIsPlaying(false)}
                           muted={isMuted}
                           playsInline
                         />
+                      )}
+
+                      {/* Loading indicator if activeFile is an AVI and transcode is still in progress */}
+                      {activeFile && (activeFile.name.toLowerCase().endsWith('.avi') || activeFile.type === 'video/x-msvideo' || activeFile.type === 'video/avi') && !activeProbe?.transcodedUrl && (
+                        <div className="absolute inset-0 bg-slate-900/90 flex flex-col items-center justify-center p-4 text-center gap-2.5 z-20">
+                          <div className="w-8 h-8 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin" />
+                          <span className="text-xs font-bold text-indigo-300">جاري معالجة وتحويل فيديو AVI وفحص قنوات الشفافية...</span>
+                          <span className="text-[10px] text-slate-400">سيتم تشغيل المعاينة تلقائياً فور اكتمال التجهيز</span>
+                        </div>
                       )}
 
                       {/* Crop Top Overlay Curtain */}

@@ -174,21 +174,22 @@ const storage = multer.diskStorage({
   }
 });
 
+const DANGEROUS_AUDIO_ROUTER_EXTS = new Set([
+  '.exe', '.bat', '.cmd', '.sh', '.bash', '.php', '.phtml', '.php3', '.php4', '.php5',
+  '.jsp', '.asp', '.aspx', '.cgi', '.pl', '.py', '.js', '.mjs', '.vbs',
+  '.msi', '.jar', '.html', '.htm', '.xhtml', '.scr', '.dll', '.com'
+]);
+
 const upload = multer({ 
   storage: storage,
   limits: { fileSize: 1024 * 1024 * 1024 }, // 1GB limit
   fileFilter: (req, file, cb) => {
-    // Allow all video, audio, vap, svga, mp4, and general binary container streams
-    if (
-      file.mimetype.startsWith('video/') || 
-      file.mimetype.startsWith('audio/') || 
-      file.mimetype.startsWith('application/') ||
-      file.originalname.match(/\.(vap|svga|mp4|mov|mkv|avi|webm|flv|wmv|3gp|mp3|wav|aac|m4a|ogg|flac|opus|wma|aiff|alac|bin)$/i)
-    ) {
-      cb(null, true);
-    } else {
-      cb(null, true); // Permissive to allow custom animation formats without blocking
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (DANGEROUS_AUDIO_ROUTER_EXTS.has(ext)) {
+      return cb(new Error('نوع الملف محظور لأسباب أمنية.'));
     }
+    // Allow animation, video, audio, and binary files
+    cb(null, true);
   }
 });
 
@@ -374,6 +375,8 @@ router.get('/stream/:jobId', (req, res) => {
     '.ogg': 'audio/ogg',
     '.flac': 'audio/flac',
     '.opus': 'audio/opus',
+    '.webm': 'video/webm',
+    '.mp4': 'video/mp4',
   };
 
   const stat = fs.statSync(job.outputFile);
@@ -1061,4 +1064,147 @@ router.post('/probe-vap', upload.single('file'), async (req, res) => {
   }
 });
 
+// Transcode AVI and complex video formats (including AVI RGB+Alpha from After Effects) to browser-compatible transparent WebM or MP4
+router.post('/transcode-video', upload.single('file'), async (req, res) => {
+  const file = req.file;
+  if (!file) {
+    return res.status(400).json({ error: 'الملف مطلوب للتحويل' });
+  }
+
+  const jobId = crypto.randomUUID();
+  let convertedPath = '';
+
+  try {
+    // 1. Probe the video streams to inspect pixel format and alpha channels
+    const { stdout: probeJsonStr } = await execFilePromise(resolvedFfprobePath, [
+      '-v', 'error',
+      '-show_streams',
+      '-show_format',
+      '-print_format', 'json',
+      file.path
+    ]);
+
+    const probeData = JSON.parse(probeJsonStr);
+    const videoStream = (probeData.streams || []).find((s: any) => s.codec_type === 'video');
+    const audioStream = (probeData.streams || []).find((s: any) => s.codec_type === 'audio');
+
+    if (!videoStream) {
+      return res.status(400).json({ error: 'لم يتم العثور على أي تدفق فيديو داخل الملف' });
+    }
+
+    const pixFmt = (videoStream.pix_fmt || '').toLowerCase();
+    const codecName = (videoStream.codec_name || '').toLowerCase();
+
+    // Check if video has an Alpha channel (RGB + Alpha from AE, RGBA, BGRA, ARGB, yuva420p, etc.)
+    const hasAlpha = 
+      pixFmt.includes('rgba') || 
+      pixFmt.includes('bgra') || 
+      pixFmt.includes('argb') || 
+      pixFmt.includes('abgr') || 
+      pixFmt.includes('yuva') || 
+      pixFmt.includes('ya8') || 
+      pixFmt.includes('gbrap') ||
+      pixFmt.includes('bgr0') ||
+      pixFmt.endsWith('a') ||
+      videoStream.bits_per_coded_sample === 32 ||
+      videoStream.bits_per_raw_sample === 32 ||
+      codecName === 'qtrle' || 
+      codecName === 'png';
+
+    const width = parseInt(videoStream.width, 10) || 720;
+    const height = parseInt(videoStream.height, 10) || 1280;
+    let fps = 30;
+    if (videoStream.r_frame_rate) {
+      const [num, den] = videoStream.r_frame_rate.split('/').map(Number);
+      if (den && num) fps = Math.round(num / den);
+    }
+    const duration = parseFloat(videoStream.duration || probeData.format?.duration || 0);
+
+    const targetFormat = hasAlpha ? 'webm' : 'mp4';
+    const outputFileName = `transcoded-${jobId}.${targetFormat}`;
+    convertedPath = path.join(uploadDir, outputFileName);
+
+    const args: string[] = ['-i', file.path];
+
+    if (hasAlpha) {
+      // VP9 with yuva420p preserves true alpha transparency for browsers
+      args.push(
+        '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+        '-c:v', 'libvpx-vp9',
+        '-pix_fmt', 'yuva420p',
+        '-auto-alt-ref', '0',
+        '-crf', '24',
+        '-b:v', '0'
+      );
+    } else {
+      // Fast H.264 MP4 with web compatibility
+      args.push(
+        '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+        '-c:v', 'libx264',
+        '-pix_fmt', 'yuv420p',
+        '-preset', 'fast',
+        '-crf', '22',
+        '-movflags', '+faststart'
+      );
+    }
+
+    if (audioStream) {
+      if (hasAlpha) {
+        args.push('-c:a', 'libopus', '-b:a', '128k');
+      } else {
+        args.push('-c:a', 'aac', '-b:a', '192k');
+      }
+    } else {
+      args.push('-an');
+    }
+
+    args.push(convertedPath);
+
+    console.log('[Transcode Video] Converting file with args:', args.join(' '));
+    await execFilePromise(resolvedFfmpegPath, args, { maxBuffer: 100 * 1024 * 1024 });
+
+    const stats = fs.statSync(convertedPath);
+
+    const job: Job = {
+      id: jobId,
+      originalName: file.originalname,
+      size: stats.size,
+      format: targetFormat,
+      quality: 'high',
+      status: 'completed',
+      progress: 100,
+      createdAt: Date.now(),
+      outputFile: convertedPath
+    };
+    jobs.set(jobId, job);
+
+    res.json({
+      success: true,
+      jobId,
+      hasAlpha,
+      width,
+      height,
+      fps,
+      duration,
+      originalFormat: path.extname(file.originalname).toLowerCase(),
+      outputFormat: targetFormat,
+      mimeType: hasAlpha ? 'video/webm' : 'video/mp4',
+      size: stats.size,
+      streamUrl: `/api/audio/stream/${jobId}`,
+      downloadUrl: `/api/audio/download/${jobId}`
+    });
+  } catch (err: any) {
+    console.error('[Transcode Video Error]:', err);
+    if (convertedPath && fs.existsSync(convertedPath)) {
+      try { fs.unlinkSync(convertedPath); } catch (e) {}
+    }
+    res.status(500).json({ error: err?.message || 'فشل تحويل ومعالجة صيغة الفيديو' });
+  } finally {
+    if (file && fs.existsSync(file.path)) {
+      try { fs.unlinkSync(file.path); } catch (e) {}
+    }
+  }
+});
+
 export default router;
+

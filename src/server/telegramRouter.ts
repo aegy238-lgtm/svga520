@@ -213,8 +213,16 @@ export function checkIsAdminStrict(meta: any, headers: Record<string, any>, isWr
     'iejehdgdig@gmail.com'
   ];
 
-  if (MASTER_ADMIN_EMAILS.includes(email)) return true;
   if (adminKey && (adminKey === 'super_admin_bypass' || adminKey === adminSecret)) return true;
+
+  if (MASTER_ADMIN_EMAILS.includes(email)) {
+    // If it's a write operation or sensitive admin mutation, unverified header alone is not enough
+    if (isWriteOperation) {
+      const hasAuth = Boolean(headers['authorization'] || headers['x-auth-verified'] === 'true');
+      return hasAuth;
+    }
+    return true;
+  }
 
   // Strict Protection: For critical write operations, unverified headers are NOT trusted
   if (isWriteOperation) {

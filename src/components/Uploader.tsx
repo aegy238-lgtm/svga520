@@ -75,10 +75,10 @@ export const Uploader: React.FC<UploaderProps> = ({
   };
 
   const acceptTypes = uploadMode === 'batch-mp4'
-    ? ".mp4,.MP4,.mov,.MOV,.webm,.WEBM,.vap,.VAP,video/*"
+    ? ".mp4,.MP4,.mov,.MOV,.webm,.WEBM,.vap,.VAP,.avi,.AVI,video/*"
     : uploadMode === 'batch-svga'
     ? ".svga,.SVGA,.zip,.ZIP,.pdf,.PDF,application/pdf"
-    : ".vap,.VAP,.pag,.PAG,.svga,.SVGA,.mp4,.MP4,.webm,.WEBM,.mov,.MOV,.json,.JSON,.zip,.ZIP,.pdf,.PDF,application/pdf,*/*";
+    : ".vap,.VAP,.pag,.PAG,.svga,.SVGA,.mp4,.MP4,.webm,.WEBM,.mov,.MOV,.avi,.AVI,.json,.JSON,.zip,.ZIP,.pdf,.PDF,application/pdf,*/*";
 
   return (
     <div className="relative max-w-5xl mx-auto flex flex-col gap-5">

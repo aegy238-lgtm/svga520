@@ -717,7 +717,7 @@ const App: React.FC = () => {
       const { svgaFiles } = await batchDetectAndNormalizeFiles(currentFiles);
       const videoFiles = currentFiles.filter(f => {
         const name = (f?.name || '').toLowerCase();
-        return name.endsWith('.mp4') || name.endsWith('.vap') || name.endsWith('.webm') || name.endsWith('.mov');
+        return name.endsWith('.mp4') || name.endsWith('.vap') || name.endsWith('.webm') || name.endsWith('.mov') || name.endsWith('.avi') || name.endsWith('.mkv') || f.type.startsWith('video/') || f.type === 'video/x-msvideo' || f.type === 'video/avi';
       });
 
       if (svgaFiles.length === currentFiles.length || svgaFiles.length > 1) {
@@ -792,16 +792,21 @@ const App: React.FC = () => {
                          (file?.name || '').toLowerCase().endsWith('.mp4') || 
                          (file?.name || '').toLowerCase().endsWith('.webm') || 
                          (file?.name || '').toLowerCase().endsWith('.mov') ||
-                         file?.type?.startsWith('video/');
+                         (file?.name || '').toLowerCase().endsWith('.avi') ||
+                         (file?.name || '').toLowerCase().endsWith('.mkv') ||
+                         (file?.name || '').toLowerCase().endsWith('.flv') ||
+                         file?.type?.startsWith('video/') ||
+                         file?.type === 'video/x-msvideo' ||
+                         file?.type === 'video/avi';
 
     if (isVapOrVideo) {
-      setInitialVapFile(file);
-      handleFeatureAccess(AppState.UNIVERSAL_CONVERTER, 'Universal Motion Tools');
+      setLayerEditorInitialFile(file);
+      handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
       return;
     }
 
     if (!isDetectedAsSvga && !(file?.name || '').toLowerCase().endsWith('.svga')) {
-      alert("يرجى رفع ملف بصيغة مدعومة (.svga, .vap, .mp4, .pag, .json)");
+      alert("يرجى رفع ملف بصيغة مدعومة (.svga, .avi, .vap, .mp4, .pag, .json)");
       URL.revokeObjectURL(fileUrl);
       return;
     }
@@ -1219,7 +1224,7 @@ const App: React.FC = () => {
                         case 'universalPlayer': {
                           const input = document.createElement('input');
                           input.type = 'file';
-                          input.accept = '.svga,.SVGA,.json,.JSON,.lottie,.LOTTIE,.pag,.PAG,.gif,.GIF,.webp,.WEBP,.apng,.APNG,.png,.PNG,.zip,.ZIP,.mp4,.MP4,.mov,.MOV,.webm,.WEBM,.vap,.VAP,.svg,.SVG,video/*,image/*,*/*';
+                          input.accept = '.svga,.SVGA,.json,.JSON,.lottie,.LOTTIE,.pag,.PAG,.gif,.GIF,.webp,.WEBP,.apng,.APNG,.png,.PNG,.zip,.ZIP,.mp4,.MP4,.mov,.MOV,.webm,.WEBM,.vap,.VAP,.avi,.AVI,.svg,.SVG,video/*,image/*,*/*';
                           input.onchange = (e: any) => {
                             if (e.target.files && e.target.files.length > 0) {
                               setLayerEditorInitialFile(e.target.files[0]);
@@ -1830,7 +1835,7 @@ const App: React.FC = () => {
               if (name.endsWith('.pag')) {
                 setUploadedPagFile(f);
                 handleFeatureAccess(AppState.PAG_TO_SVGA, 'PAG to SVGA');
-              } else if (name.endsWith('.mp4') || name.endsWith('.vap') || name.endsWith('.mov') || name.endsWith('.webm')) {
+              } else if (name.endsWith('.mp4') || name.endsWith('.vap') || name.endsWith('.mov') || name.endsWith('.webm') || name.endsWith('.avi')) {
                 setInitialVideoFiles([f]);
                 handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter');
               } else {

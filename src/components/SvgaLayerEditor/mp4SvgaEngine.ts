@@ -11,6 +11,9 @@ export interface Mp4ProbeResult {
   fileSize: number;
   fps: number;
   hasAudio: boolean;
+  transcodedFile?: File;
+  transcodedUrl?: string;
+  hasAlpha?: boolean;
 }
 
 export interface Mp4ToSvgaOptions {
@@ -47,9 +50,9 @@ function base64ToUint8Array(dataUrl: string): Uint8Array {
 }
 
 /**
- * Probes an MP4 file client-side to inspect dimensions, duration, and audio track
+ * Direct client-side metadata probe for native browser video formats (MP4, WebM, MOV)
  */
-export async function probeMp4Video(file: File): Promise<Mp4ProbeResult> {
+function probeDirectVideo(file: File): Promise<Mp4ProbeResult> {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
     video.preload = 'metadata';
@@ -77,7 +80,7 @@ export async function probeMp4Video(file: File): Promise<Mp4ProbeResult> {
       } else if (typeof (video as any).webkitAudioDecodedByteCount === 'number') {
         hasAudio = (video as any).webkitAudioDecodedByteCount > 0;
       } else {
-        hasAudio = true; // Assume true so extractor attempts audio extraction
+        hasAudio = true;
       }
 
       cleanup();
@@ -94,9 +97,143 @@ export async function probeMp4Video(file: File): Promise<Mp4ProbeResult> {
 
     video.onerror = () => {
       cleanup();
-      reject(new Error('فشل قراءة بيانات ملف الفيديو MP4. يرجى التأكد من سلامة صيغة الملف.'));
+      reject(new Error('فشل قراءة بيانات ملف الفيديو بالمتصفح'));
     };
   });
+}
+
+/**
+ * Automatic Transcoding for AVI (especially transparent AVI from After Effects), MKV, FLV
+ * Converts into high-fidelity transparent WebM (VP9 + yuva420p) or MP4 (H.264).
+ */
+export async function transcodeToWebCompatible(
+  file: File,
+  onProgress?: (msg: string) => void
+): Promise<Mp4ProbeResult> {
+  onProgress?.('جاري تحويل ومعالجة فيديو AVI وفحص قنوات الشفافية...');
+
+  // Strategy 1: Server-side ultra-fast FFmpeg transcode with Alpha-channel preservation
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const resp = await fetch('/api/audio/transcode-video', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.success && data.streamUrl) {
+        onProgress?.('تم تحويل الفيديو بنجاح! جاري تحميل وتجهيز الإطارات...');
+        const streamRes = await fetch(data.streamUrl);
+        if (streamRes.ok) {
+          const blob = await streamRes.blob();
+          const ext = data.hasAlpha ? 'webm' : 'mp4';
+          const mimeType = data.hasAlpha ? 'video/webm' : 'video/mp4';
+          const baseName = file.name.replace(/\.[^/.]+$/, '');
+          const transcodedFile = new File([blob], `${baseName}.${ext}`, { type: mimeType });
+          const transcodedUrl = URL.createObjectURL(transcodedFile);
+
+          const probeRes: Mp4ProbeResult = {
+            duration: Number(data.duration) || 1,
+            width: Number(data.width) || 720,
+            height: Number(data.height) || 1280,
+            aspectRatio: (Number(data.width) || 720) / (Number(data.height) || 1280),
+            fileSize: blob.size,
+            fps: Number(data.fps) || 30,
+            hasAudio: true,
+            transcodedFile,
+            transcodedUrl,
+            hasAlpha: Boolean(data.hasAlpha)
+          };
+          (transcodedFile as any)._probeResult = probeRes;
+          (transcodedFile as any)._hasAlpha = Boolean(data.hasAlpha);
+          (file as any)._probeResult = probeRes;
+          (file as any)._hasAlpha = Boolean(data.hasAlpha);
+          return probeRes;
+        }
+      }
+    }
+  } catch (serverErr) {
+    console.warn('[mp4SvgaEngine] Server transcode attempt failed, checking client fallback:', serverErr);
+  }
+
+  // Strategy 2: Client-side FFmpeg fallback
+  try {
+    onProgress?.('جاري معالجة الفيديو محلياً عبر محرك FFmpeg المتصفح...');
+    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+    const { fetchFile } = await import('@ffmpeg/util');
+    const { loadFFmpegWithFallbacks } = await import('../../utils/ffmpegLoader');
+
+    const ffmpeg = new FFmpeg();
+    await loadFFmpegWithFallbacks(ffmpeg);
+
+    const safeId = Date.now().toString(36);
+    const inName = `input_${safeId}.avi`;
+    const outName = `output_${safeId}.mp4`;
+    await ffmpeg.writeFile(inName, await fetchFile(file));
+
+    await ffmpeg.exec(['-i', inName, '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '22', '-pix_fmt', 'yuv420p', outName]);
+    const fileData = await ffmpeg.readFile(outName);
+    const outBlob = new Blob([fileData], { type: 'video/mp4' });
+    const baseName = file.name.replace(/\.[^/.]+$/, '');
+    const transcodedFile = new File([outBlob], `${baseName}.mp4`, { type: 'video/mp4' });
+    const transcodedUrl = URL.createObjectURL(transcodedFile);
+    const directProbe = await probeDirectVideo(transcodedFile);
+
+    const fallbackRes: Mp4ProbeResult = {
+      ...directProbe,
+      transcodedFile,
+      transcodedUrl,
+      hasAlpha: false
+    };
+    (transcodedFile as any)._probeResult = fallbackRes;
+    (transcodedFile as any)._hasAlpha = false;
+    (file as any)._probeResult = fallbackRes;
+    (file as any)._hasAlpha = false;
+    return fallbackRes;
+  } catch (clientErr: any) {
+    console.error('[mp4SvgaEngine] All transcode methods failed:', clientErr);
+    throw new Error(`فشل تحويل صيغة الفيديو (${file.name}). يرجى التأكد من سلامة ملف الفيديو أو تصديره بصيغة MP4 أو WebM أو MOV.`);
+  }
+}
+
+/**
+ * Probes a video file client-side to inspect dimensions, duration, and audio track.
+ * Automatically transcodes unsupported containers like AVI (including transparent AVI from After Effects).
+ */
+export async function probeMp4Video(
+  file: File,
+  onProgress?: (msg: string) => void
+): Promise<Mp4ProbeResult> {
+  if ((file as any)._probeResult) {
+    return (file as any)._probeResult;
+  }
+
+  const fileNameLower = file.name.toLowerCase();
+  const isKnownNonBrowserVideo = 
+    fileNameLower.endsWith('.avi') || 
+    fileNameLower.endsWith('.mkv') || 
+    fileNameLower.endsWith('.flv') || 
+    fileNameLower.endsWith('.wmv') ||
+    file.type === 'video/x-msvideo' ||
+    file.type === 'video/avi';
+
+  if (isKnownNonBrowserVideo) {
+    return await transcodeToWebCompatible(file, onProgress);
+  }
+
+  try {
+    const direct = await probeDirectVideo(file);
+    if ((file as any)._hasAlpha !== undefined) {
+      direct.hasAlpha = (file as any)._hasAlpha;
+    }
+    return direct;
+  } catch (err) {
+    console.warn(`[mp4SvgaEngine] Native video probe failed for ${file.name}, trying transcode:`, err);
+    return await transcodeToWebCompatible(file, onProgress);
+  }
 }
 
 /**
@@ -105,13 +242,14 @@ export async function probeMp4Video(file: File): Promise<Mp4ProbeResult> {
  */
 export async function convertMp4ToSvgaProject(
   file: File,
-  options: Mp4ToSvgaOptions = {}
+  options: Mp4ToSvgaOptions & { probeResult?: Mp4ProbeResult } = {}
 ): Promise<{ project: SVGAProjectData; layers: EditableLayer[] }> {
   const onProgress = options.onProgress || (() => {});
   onProgress('جاري فحص وقراءة بيانات الفيديو...', 5);
 
-  const probe = await probeMp4Video(file);
-  const fps = options.fps || 30;
+  const probe = options.probeResult || ((file as any)._probeResult) || await probeMp4Video(file, (msg) => onProgress(msg, 7));
+  const activeFile = probe.transcodedFile || file;
+  const fps = options.fps || probe.fps || 30;
 
   // Trim and Duration Calculation
   const isManualTrim = Boolean(options.isManualTrim || (options.trimStart !== undefined && options.trimEnd !== undefined && options.trimEnd > 0));
@@ -138,7 +276,7 @@ export async function convertMp4ToSvgaProject(
   const srcCropH = Math.max(10, probe.height - srcCropY - cropBottom);
 
   // Extract embedded VAP / YYEVA config if present in the MP4 atoms
-  const vapConfig = await extractVapConfigFromBlob(file).catch(() => null);
+  const vapConfig = await extractVapConfigFromBlob(activeFile).catch(() => null);
 
   // ONLY detect as VAP / Dual-Channel Alpha if:
   // 1. File extension is explicitly .vap
@@ -211,7 +349,7 @@ export async function convertMp4ToSvgaProject(
   video.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:640px;height:360px;opacity:0.01;pointer-events:none;z-index:-9999;';
   document.body.appendChild(video);
 
-  const videoUrl = URL.createObjectURL(file);
+  const videoUrl = probe.transcodedUrl || URL.createObjectURL(activeFile);
   video.src = videoUrl;
 
   await new Promise<void>((resolve, reject) => {
@@ -258,8 +396,8 @@ export async function convertMp4ToSvgaProject(
   const rawImages: Record<string, Uint8Array> = {};
   const baseFileName = file.name.replace(/\.[^/.]+$/, "");
 
-  // Speed & Alpha optimization: VAP dual-channel ALWAYS uses PNG to maintain 100% alpha transparency
-  const isHighPng = isDualChannelAlpha || options.quality === 'high';
+  // Speed & Alpha optimization: VAP dual-channel or videos with true alpha (e.g. After Effects transparent AVI) ALWAYS use PNG
+  const isHighPng = isDualChannelAlpha || Boolean(probe.hasAlpha) || options.quality === 'high';
   const mimeType = isHighPng ? 'image/png' : 'image/jpeg';
   const fileExt = isHighPng ? 'png' : 'jpg';
   const qualityParam = isHighPng ? undefined : 0.88;
@@ -362,6 +500,8 @@ export async function convertMp4ToSvgaProject(
 
   // Helper to check if frame is completely transparent (alpha === 0 indicates unpainted buffer)
   const isFrameTransparent = (): boolean => {
+    // If the video naturally has an alpha channel (transparent WebM/AVI), transparency is intended!
+    if (probe.hasAlpha) return false;
     try {
       const p = ctx.getImageData(Math.floor(outWidth * 0.5), Math.floor(outHeight * 0.5), 1, 1).data;
       return p[3] === 0;
@@ -442,7 +582,7 @@ export async function convertMp4ToSvgaProject(
     try {
       const speedRatio = isManualTrim ? 1.0 : (isCropStart ? 1.0 : (probe.duration / effectiveDuration));
       const audioStartOffset = isManualTrim ? trimStart : 0;
-      const audioResult = await extractAndScaleVideoAudio(file, effectiveDuration, speedRatio, 'mp3', audioStartOffset);
+      const audioResult = await extractAndScaleVideoAudio(activeFile, effectiveDuration, speedRatio, 'mp3', audioStartOffset);
       if (audioResult && audioResult.audioBytes && audioResult.audioBytes.length > 0) {
         const audioBytesWithId3 = ensureMp3WithId3(audioResult.audioBytes);
         const audioKey = 'audio_0';
@@ -613,7 +753,8 @@ export async function importMp4AsLayerIntoProject(
   const onProgress = options.onProgress || (() => {});
   onProgress('جاري فحص وقراءة الفيديو المضاف...', 5);
 
-  const probe = await probeMp4Video(file);
+  const probe = await probeMp4Video(file, (msg) => onProgress(msg, 7));
+  const activeFile = probe.transcodedFile || file;
   const totalFrames = existingProject.totalFrames;
   const fps = existingProject.fps;
   const projectDuration = existingProject.durationSec || (totalFrames / fps);
@@ -658,7 +799,7 @@ export async function importMp4AsLayerIntoProject(
   video.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:640px;height:360px;opacity:0.01;pointer-events:none;z-index:-9999;';
   document.body.appendChild(video);
 
-  const videoUrl = URL.createObjectURL(file);
+  const videoUrl = probe.transcodedUrl || URL.createObjectURL(activeFile);
   video.src = videoUrl;
 
   await new Promise<void>((resolve, reject) => {
@@ -814,7 +955,7 @@ export async function importMp4AsLayerIntoProject(
   if (options.preserveAudio !== false) {
     try {
       const speedRatio = isLayerCropStart ? 1.0 : (probe.duration / projectDuration);
-      const audioResult = await extractAndScaleVideoAudio(file, projectDuration, speedRatio, 'mp3');
+      const audioResult = await extractAndScaleVideoAudio(activeFile, projectDuration, speedRatio, 'mp3');
       if (audioResult && audioResult.audioBytes && audioResult.audioBytes.length > 0) {
         const audioBytesWithId3 = ensureMp3WithId3(audioResult.audioBytes);
         const audioKey = `audio_mp4_${Date.now()}`;
@@ -935,126 +1076,32 @@ export async function importMp4AsLayerIntoProject(
 export async function createFastMp4Project(
   file: File,
   options: Mp4ToSvgaOptions = {}
-): Promise<{ project: SVGAProjectData; layers: EditableLayer[]; videoUrl: string }> {
+): Promise<{ project: SVGAProjectData; layers: EditableLayer[]; videoUrl: string; videoFile: File }> {
   const fileNameLower = file.name.toLowerCase();
   const isVapExt = fileNameLower.endsWith('.vap');
-  const probe = await probeMp4Video(file);
-  const vapConfig = await extractVapConfigFromBlob(file).catch(() => null);
+  const probe = await probeMp4Video(file, (msg) => options.onProgress?.(msg, 10));
+  const activeFile = probe.transcodedFile || file;
+  const vapConfig = await extractVapConfigFromBlob(activeFile).catch(() => null);
   const hasExplicitVapAtoms = !!(vapConfig?.info?.rgbFrame && vapConfig?.info?.aFrame);
   const isDualChannelAlpha = isVapExt || hasExplicitVapAtoms;
 
-  const videoUrl = URL.createObjectURL(file);
+  const videoUrl = probe.transcodedUrl || URL.createObjectURL(activeFile);
 
-  // If this is a transparent VAP / YYEVA / alpha video, run full transparent frame extraction
-  if (isDualChannelAlpha) {
-    const res = await convertMp4ToSvgaProject(file, {
-      quality: 'high',
-      fps: options.fps || (vapConfig?.info?.f || vapConfig?.info?.fps || Math.min(30, Math.round(probe.fps || 30))),
-      onProgress: options.onProgress
-    });
-    return {
-      project: res.project,
-      layers: res.layers,
-      videoUrl
-    };
-  }
+  // Always convert into a full playable SVGA project with all extracted frames
+  // so that the After Effects editor, canvas, and timeline play every single frame seamlessly!
+  // Preserves 100% full alpha transparency for transparent AVI/WebM and full audio tracks.
+  const res = await convertMp4ToSvgaProject(activeFile, {
+    quality: 'high',
+    fps: options.fps || (vapConfig?.info?.f || vapConfig?.info?.fps || Math.min(30, Math.round(probe.fps || 30))),
+    onProgress: options.onProgress,
+    probeResult: probe
+  });
 
-  const fps = probe.fps || 30;
-  const duration = Math.max(0.1, probe.duration || 1);
-  const totalFrames = Math.max(1, Math.min(2400, Math.round(duration * fps)));
-  const baseFileName = file.name.replace(/\.[^/.]+$/, "");
-
-  // Capture a representative poster frame
-  let posterDataUrl = '';
-  try {
-    const video = document.createElement('video');
-    video.playsInline = true;
-    video.muted = true;
-    video.preload = 'auto';
-    video.src = videoUrl;
-    await new Promise<void>((res) => {
-      video.onloadeddata = () => res();
-      setTimeout(res, 300);
-    });
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.min(720, probe.width || 720);
-    canvas.height = Math.min(1280, probe.height || 1280);
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      posterDataUrl = canvas.toDataURL('image/jpeg', 0.85);
-    }
-  } catch (_) {}
-
-  const imageKey = `poster_${Date.now()}`;
-  const imagesMap: Record<string, string> = {};
-  if (posterDataUrl) {
-    imagesMap[imageKey] = posterDataUrl;
-  }
-
-  const masterFrames = Array.from({ length: totalFrames }, () => ({
-    alpha: 1,
-    transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 },
-    layout: { x: 0, y: 0, width: probe.width, height: probe.height }
-  }));
-
-  const mainLayer: EditableLayer = {
-    id: `layer_mp4_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-    originalIndex: 0,
-    imageKey,
-    name: `فيديو - ${baseFileName}`,
-    type: 'image',
-    visible: true,
-    locked: false,
-    thumbnailUrl: posterDataUrl || undefined,
-    inFrame: 0,
-    outFrame: totalFrames - 1,
-    isVideoSequence: false,
-    transform: {
-      x: 0,
-      y: 0,
-      width: probe.width,
-      height: probe.height,
-      scaleX: 1,
-      scaleY: 1,
-      rotation: 0,
-      opacity: 100
-    },
-    initialBounds: {
-      x: 0,
-      y: 0,
-      width: probe.width,
-      height: probe.height
-    },
-    aspectRatioLocked: true,
-    spriteRef: {
-      imageKey,
-      frames: masterFrames
-    },
-    framesCount: totalFrames,
-    keyframeSummary: {
-      startFrame: 0,
-      endFrame: totalFrames - 1,
-      hasShapes: false,
-      hasTransform: false,
-      hasAnyExplicitAlpha: true
-    }
+  return {
+    project: res.project,
+    layers: res.layers,
+    videoUrl,
+    videoFile: activeFile
   };
-
-  const project: SVGAProjectData = {
-    width: probe.width,
-    height: probe.height,
-    fps,
-    totalFrames,
-    durationSec: duration,
-    fileSize: file.size,
-    fileName: `${baseFileName}.svga`,
-    imagesMap,
-    rawImages: {},
-    audios: [],
-    rawMovie: null
-  };
-
-  return { project, layers: [mainLayer], videoUrl };
 }
 

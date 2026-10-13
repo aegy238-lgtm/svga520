@@ -3683,7 +3683,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       <input
         type="file"
         ref={fileInputRef}
-        accept=".svga,.SVGA,.json,.JSON,.lottie,.LOTTIE,.pag,.PAG,.gif,.GIF,.webp,.WEBP,.apng,.APNG,.png,.PNG,.zip,.ZIP,.mp4,.MP4,.mov,.MOV,.webm,.WEBM,.vap,.VAP,.svg,.SVG,video/*,image/*,*/*"
+        accept=".svga,.SVGA,.json,.JSON,.lottie,.LOTTIE,.pag,.PAG,.gif,.GIF,.webp,.WEBP,.apng,.APNG,.png,.PNG,.zip,.ZIP,.mp4,.MP4,.mov,.MOV,.webm,.WEBM,.vap,.VAP,.avi,.AVI,.svg,.SVG,video/*,image/*,*/*"
         multiple
         className="hidden"
         onChange={(e) => {
@@ -3700,7 +3700,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       <input
         type="file"
         ref={multiFileInputRef}
-        accept=".svga,video/mp4,video/*,image/*,.gif,.webp,.png,.jpg,.jpeg"
+        accept=".svga,video/mp4,video/*,.avi,.mov,.webm,.vap,image/*,.gif,.webp,.png,.jpg,.jpeg"
         multiple
         className="hidden"
         onChange={(e) => {
@@ -3714,7 +3714,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       <input
         type="file"
         ref={mp4FileInputRef}
-        accept="video/mp4,video/quicktime,video/webm,.mp4"
+        accept="video/mp4,video/quicktime,video/webm,.mp4,.avi,.mov,.webm,.vap,.mkv,video/*"
         multiple
         className="hidden"
         onChange={(e) => {
@@ -3975,10 +3975,10 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               setShowMp4ImportModal(true);
             }}
             className="flex items-center gap-1.5 text-xs font-bold text-pink-300 hover:text-white bg-pink-500/10 hover:bg-pink-500/25 px-3.5 py-1.5 rounded-xl border border-pink-500/30 transition-all cursor-pointer shadow-sm hover:scale-105"
-            title="استدعاء فيديو MP4 والتحكم به كملف SVGA كامل أو كطبقة فيديو وتصديره لأي صيغة"
+            title="استدعاء فيديو AVI أو MP4 (أفتر افكت الشفاف) والتحكم به كملف SVGA كامل أو كطبقة فيديو وتصديره لأي صيغة"
           >
             <Film size={13} className="text-pink-400" />
-            <span>استدعاء MP4</span>
+            <span>استدعاء AVI / MP4</span>
           </button>
 
           {project && (
@@ -4397,18 +4397,8 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
           onDrop={(e) => {
             e.preventDefault();
             const files = e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
-            if (files.length > 1) {
+            if (files.length > 0) {
               handleLoadMultipleFiles(files);
-            } else if (files.length === 1) {
-              const f = files[0];
-              if (f.name.toLowerCase().endsWith('.mp4') || f.type.startsWith('video/')) {
-                setMp4InitialFiles([f]);
-                setShowMp4ImportModal(true);
-              } else if (f.type.startsWith('image/') || f.name.toLowerCase().endsWith('.gif') || f.name.toLowerCase().endsWith('.webp') || f.name.toLowerCase().endsWith('.png') || f.name.toLowerCase().endsWith('.jpg')) {
-                handleLoadMultipleFiles([f]);
-              } else {
-                loadSvgaFile(f);
-              }
             }
           }}
         >
@@ -4418,9 +4408,14 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             </div>
 
             <div className="space-y-2">
-              <h2 className="text-2xl font-black text-white">محرر وفك طبقات SVGA الاحترافي</h2>
+              <h2 className="text-2xl font-black text-white flex items-center justify-center gap-2">
+                <span>محرر وفك طبقات SVGA الاحترافي</span>
+                <span className="text-xs bg-violet-500/20 text-violet-300 border border-violet-500/40 px-3 py-1 rounded-full font-extrabold shadow-sm animate-pulse">
+                  مشغل وتفريغ AVI (After Effects)
+                </span>
+              </h2>
               <p className="text-slate-400 text-xs leading-relaxed max-w-xl mx-auto">
-                يمكنك رفع 3 إلى 4 مشاريع من أي صيغة (SVGA، MP4، صور) والعمل عليها في تكوينات مستقلة والتنقل بينها وتصديرها معاً دفعة واحدة بنقرة واحدة!
+                يمكنك رفع 3 إلى 4 مشاريع من أي صيغة (SVGA، AVI، MP4، صور) والعمل عليها في تكوينات مستقلة والتنقل بينها وتصديرها معاً دفعة واحدة بنقرة واحدة!
               </p>
             </div>
 
@@ -4431,7 +4426,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               </div>
             )}
 
-            {/* Quick Actions Cards: 1. Multi-Files (3-4 Projects), 2. New Project, 3. Open SVGA, 4. Import MP4 */}
+            {/* Quick Actions Cards: 1. Multi-Files (3-4 Projects), 2. New Project, 3. Open SVGA/AVI/MP4, 4. Import AVI/MP4 */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-right">
               {/* Option 1: Multi-Files (3-4 Projects) */}
               <button
@@ -4447,9 +4442,9 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                   </span>
                 </div>
                 <div>
-                  <h3 className="text-sm font-black text-white group-hover:text-emerald-300 transition-colors">رفع عدة ملفات (3-4 مشاريع)</h3>
+                  <h3 className="text-sm font-black text-white group-hover:text-emerald-300 transition-colors">رفع عدة ملفات (SVGA / AVI / MP4)</h3>
                   <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
-                    رفع ملفات متعددة (SVGA / MP4 / صور) في تبويبات مستقلة وتصديرها معاً دفعة واحدة
+                    رفع ملفات متعددة (SVGA / AVI / MP4 / صور) في تبويبات مستقلة وتصديرها معاً دفعة واحدة
                   </p>
                 </div>
               </button>
@@ -4475,7 +4470,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                 </div>
               </button>
 
-              {/* Option 3: Open / Decompress SVGA File */}
+              {/* Option 3: Open / Decompress SVGA / AVI / MP4 File */}
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="p-5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-indigo-400/40 rounded-2xl transition-all cursor-pointer group flex flex-col justify-between text-right shadow-lg hover:scale-[1.02]"
@@ -4485,37 +4480,37 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                     <Upload size={20} />
                   </div>
                   <span className="text-[10px] font-black text-slate-400 bg-white/5 px-2.5 py-1 rounded-full border border-white/10">
-                    فك ضغط وتحرير
+                    فتح مباشر
                   </span>
                 </div>
                 <div>
-                  <h3 className="text-sm font-black text-white group-hover:text-indigo-300 transition-colors">فتح ملف SVGA موجود</h3>
+                  <h3 className="text-sm font-black text-white group-hover:text-indigo-300 transition-colors">فتح ملف SVGA أو AVI أو MP4</h3>
                   <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
-                    فك ضغط ملف SVGA واستيراد جميع طبقاته وعناصره لتحريرها وتعديل مساراتها
+                    فك ضغط واستيراد ملفات SVGA أو فيديوهات AVI (After Effects الشفاف والعادي) و MP4 للتحرير المباشر
                   </p>
                 </div>
               </button>
 
-              {/* Option 4: Import MP4 Video as SVGA */}
+              {/* Option 4: Import AVI / MP4 Video as SVGA */}
               <button
                 onClick={() => {
                   setMp4InitialFiles([]);
                   setShowMp4ImportModal(true);
                 }}
-                className="p-5 bg-gradient-to-b from-pink-600/20 via-rose-600/15 to-transparent hover:from-pink-600/30 hover:via-rose-600/25 border border-pink-500/40 hover:border-pink-400 rounded-2xl transition-all cursor-pointer group flex flex-col justify-between text-right shadow-lg shadow-pink-600/10 hover:scale-[1.02]"
+                className="p-5 bg-gradient-to-b from-pink-600/20 via-purple-600/15 to-transparent hover:from-pink-600/30 hover:via-purple-600/25 border border-pink-500/40 hover:border-pink-400 rounded-2xl transition-all cursor-pointer group flex flex-col justify-between text-right shadow-lg shadow-pink-600/10 hover:scale-[1.02]"
               >
                 <div className="flex items-center justify-between mb-4">
-                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center text-white shadow-md shadow-pink-600/40 group-hover:scale-110 transition-transform">
+                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-pink-500 via-rose-600 to-purple-600 flex items-center justify-center text-white shadow-md shadow-pink-600/40 group-hover:scale-110 transition-transform">
                     <Film size={20} />
                   </div>
-                  <span className="text-[10px] font-black text-pink-300 bg-pink-500/20 px-2.5 py-1 rounded-full border border-pink-500/40">
-                    استدعاء MP4
+                  <span className="text-[10px] font-black text-purple-200 bg-purple-500/20 px-2.5 py-1 rounded-full border border-purple-500/40 flex items-center gap-1">
+                    <span>استدعاء AVI / MP4</span>
                   </span>
                 </div>
                 <div>
-                  <h3 className="text-sm font-black text-white group-hover:text-pink-300 transition-colors">استدعاء فيديو MP4</h3>
+                  <h3 className="text-sm font-black text-white group-hover:text-pink-300 transition-colors">استدعاء فيديو AVI / MP4</h3>
                   <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
-                    استدعاء أي فيديو MP4 للتحكم به كـ SVGA (تغيير الحجم والمدة والصوت) وتصديره لأي صيغة
+                    استدعاء فيديو AVI (After Effects الشفاف والعادي) أو MP4 وتفرّيغ الشفافية والتحكم بكل إطار وصوت
                   </p>
                 </div>
               </button>
@@ -4527,7 +4522,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               className="border border-dashed border-white/15 hover:border-emerald-500/40 bg-black/20 hover:bg-black/40 rounded-2xl p-4 transition-all cursor-pointer flex items-center justify-center gap-2 text-xs text-slate-400 hover:text-slate-200"
             >
               <Upload size={15} className="text-emerald-400" />
-              <span>أو اسحب وأفلت 3 إلى 4 ملفات (SVGA / MP4 / صور) هنا مباشرة للفتح المتوازي الفوري</span>
+              <span>أو اسحب وأفلت 3 إلى 4 ملفات (SVGA / AVI / MP4 / صور) هنا مباشرة للفتح والتحرير المتوازي الفوري</span>
             </div>
           </div>
         </div>

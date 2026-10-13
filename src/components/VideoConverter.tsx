@@ -781,23 +781,60 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
 
   useEffect(() => {
     if (files.length > 0) {
-      const urls = files.map((f) => URL.createObjectURL(f));
-      setVideoUrls(urls);
+      let isCancelled = false;
+      const createdUrls: string[] = [];
 
-      const video = document.createElement("video");
-      video.src = urls[currentFileIndex];
-      video.onloadedmetadata = () => {
-        setDuration(video.duration);
-        setEndTime(video.duration);
-        setTimingSettings((prev) => ({
-          ...prev,
-          endTime: prev.endTime > 0 ? prev.endTime : video.duration,
-          targetDuration: prev.targetDuration || 10,
-        }));
+      const prepareFiles = async () => {
+        const urls: string[] = [];
+
+        for (const f of files) {
+          const name = f.name.toLowerCase();
+          const isNonNative = name.endsWith('.avi') || name.endsWith('.mkv') || f.type === 'video/x-msvideo' || f.type === 'video/avi';
+          if (isNonNative) {
+            try {
+              const { probeMp4Video } = await import('./SvgaLayerEditor/mp4SvgaEngine');
+              const probe = await probeMp4Video(f);
+              const activeF = probe.transcodedFile || f;
+              const u = probe.transcodedUrl || URL.createObjectURL(activeF);
+              createdUrls.push(u);
+              urls.push(u);
+            } catch {
+              const u = URL.createObjectURL(f);
+              createdUrls.push(u);
+              urls.push(u);
+            }
+          } else {
+            const u = URL.createObjectURL(f);
+            createdUrls.push(u);
+            urls.push(u);
+          }
+        }
+
+        if (isCancelled) return;
+
+        setVideoUrls(urls);
+        const currentUrl = urls[currentFileIndex] || urls[0];
+        if (currentUrl) {
+          const video = document.createElement("video");
+          video.src = currentUrl;
+          video.onloadedmetadata = () => {
+            if (isCancelled) return;
+            setDuration(video.duration);
+            setEndTime(video.duration);
+            setTimingSettings((prev) => ({
+              ...prev,
+              endTime: prev.endTime > 0 ? prev.endTime : video.duration,
+              targetDuration: prev.targetDuration || 10,
+            }));
+          };
+        }
       };
 
+      prepareFiles();
+
       return () => {
-        urls.forEach((url) => URL.revokeObjectURL(url));
+        isCancelled = true;
+        createdUrls.forEach((url) => URL.revokeObjectURL(url));
         setVideoUrls([]);
       };
     }
@@ -2904,7 +2941,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
                 type="file"
                 ref={fileInputRef}
                 className="hidden"
-                accept="video/*,.vap"
+                accept="video/*,.vap,.avi,.AVI"
                 multiple
                 onChange={(e) => {
                   const newFiles = Array.from(e.target.files || []);

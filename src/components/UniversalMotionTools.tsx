@@ -888,20 +888,47 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   // Process File and init VAP Player
   const processFile = async (f: File) => {
     const name = f.name.toLowerCase();
-    if (!name.endsWith('.mp4') && !name.endsWith('.vap') && !f.type.startsWith('video/')) {
-      setErrorMessage("يرجى رفع ملف فيديو بصيغة MP4 أو VAP.");
+    const isVideo = 
+      name.endsWith('.mp4') || 
+      name.endsWith('.vap') || 
+      name.endsWith('.avi') || 
+      name.endsWith('.mov') || 
+      name.endsWith('.webm') || 
+      name.endsWith('.mkv') || 
+      f.type.startsWith('video/') ||
+      f.type === 'video/x-msvideo' ||
+      f.type === 'video/avi';
+
+    if (!isVideo) {
+      setErrorMessage("يرجى رفع ملف فيديو بصيغة MP4 أو VAP أو AVI.");
       return;
     }
+
+    let activeFile = f;
+    let url = '';
+
+    const isNonBrowserNative = name.endsWith('.avi') || name.endsWith('.mkv') || f.type === 'video/x-msvideo' || f.type === 'video/avi';
+    if (isNonBrowserNative) {
+      try {
+        const { probeMp4Video } = await import('./SvgaLayerEditor/mp4SvgaEngine');
+        const probe = await probeMp4Video(f);
+        activeFile = probe.transcodedFile || f;
+        url = probe.transcodedUrl || URL.createObjectURL(activeFile);
+      } catch (err) {
+        console.warn('Failed auto-transcoding AVI in UniversalMotionTools, using direct URL:', err);
+        url = URL.createObjectURL(f);
+      }
+    } else {
+      url = URL.createObjectURL(f);
+    }
     
-    setSourceFile(f);
+    setSourceFile(activeFile);
     setFileName(f.name);
     setFileSize((f.size / (1024 * 1024)).toFixed(2) + ' MB');
     setExportSuccess(false);
     setExportedBlob(null);
     setExportStats(null);
     setActiveViewMode('vap');
-
-    const url = URL.createObjectURL(f);
     setFileUrl(url);
 
     // Get duration & dimensions from video element
