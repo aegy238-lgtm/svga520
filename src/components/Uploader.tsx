@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { UploadCloud, Video, Images, LayoutGrid, Zap, Layers, Lock, Film, Gift, FileVideo, ShoppingBag, Globe, Sparkles } from 'lucide-react';
 import { DashboardExternalLinks } from '../types';
 import { UniversalFormatDropZone } from './UniversalFormatDropZone';
+import { useThemeDimensions } from '../contexts/ThemeDimensionsContext';
 
 export type UploadMode = 'single' | 'batch-mp4' | 'batch-svga' | 'universal';
 
@@ -43,6 +44,7 @@ export const Uploader: React.FC<UploaderProps> = ({
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadMode, setUploadMode] = useState<UploadMode>(initialMode);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { activeThemeConfig } = useThemeDimensions();
 
   const storeLink = externalLinksConfig?.storeLink;
   const svgaEditorLink = externalLinksConfig?.svgaEditorLink;
@@ -83,13 +85,23 @@ export const Uploader: React.FC<UploaderProps> = ({
   return (
     <div className="relative max-w-5xl mx-auto flex flex-col gap-5">
       {/* Mode Selector Tabs */}
-      <div className="flex items-center justify-center p-1.5 bg-[#080d1a]/90 border border-white/[0.08] rounded-2xl shadow-xl backdrop-blur-2xl w-full max-w-2xl mx-auto gap-1">
+      <div 
+        className="flex items-center justify-center p-1.5 rounded-2xl shadow-xl backdrop-blur-2xl w-full max-w-2xl mx-auto gap-1 border transition-all duration-400"
+        style={{
+          backgroundColor: activeThemeConfig?.cardBg || 'rgba(8, 13, 26, 0.9)',
+          borderColor: activeThemeConfig?.borderColor || 'rgba(255, 255, 255, 0.08)'
+        }}
+      >
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setUploadMode('single'); }}
+          style={uploadMode === 'single' ? {
+            background: activeThemeConfig?.previewGradient || 'linear-gradient(to right, #4f46e5, #2563eb)',
+            boxShadow: `0 4px 18px ${activeThemeConfig?.glowColor || 'rgba(99,102,241,0.35)'}`
+          } : {}}
           className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer ${
             uploadMode === 'single'
-              ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-600/30 font-extrabold'
+              ? 'text-white font-extrabold'
               : 'text-slate-400 hover:text-white hover:bg-white/[0.05]'
           }`}
         >
@@ -152,12 +164,12 @@ export const Uploader: React.FC<UploaderProps> = ({
       ) : (
       /* Main Drop Area */
       <div 
-        className={`relative w-full min-h-[300px] sm:min-h-[360px] rounded-3xl border-2 border-dashed transition-all duration-300 flex flex-col items-center justify-center gap-5 sm:gap-6 p-6 sm:p-10 cursor-pointer overflow-hidden shadow-2xl bg-[#080d1a]/85 backdrop-blur-2xl group
-          ${isDragOver 
-            ? 'border-indigo-400 bg-indigo-500/10 shadow-[0_0_50px_rgba(99,102,241,0.25)]' 
-            : 'border-white/[0.12] hover:border-indigo-500/50 hover:bg-[#0c1428]/90'
-          }
-        `}
+        className="relative w-full min-h-[300px] sm:min-h-[360px] rounded-3xl border-2 border-dashed transition-all duration-300 flex flex-col items-center justify-center gap-5 sm:gap-6 p-6 sm:p-10 cursor-pointer overflow-hidden shadow-2xl backdrop-blur-2xl group"
+        style={{
+          backgroundColor: activeThemeConfig?.cardBg || 'rgba(8, 13, 26, 0.85)',
+          borderColor: isDragOver ? (activeThemeConfig?.accentColor || '#38bdf8') : (activeThemeConfig?.borderColor || 'rgba(255,255,255,0.12)'),
+          boxShadow: isDragOver ? `0 0 50px ${activeThemeConfig?.glowColor || 'rgba(99,102,241,0.25)'}` : '0 10px 30px rgba(0,0,0,0.5)'
+        }}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}

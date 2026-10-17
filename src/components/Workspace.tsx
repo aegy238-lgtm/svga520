@@ -275,7 +275,23 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const importCompInputRef = useRef<HTMLInputElement>(null);
 
 
-  const [recordingDuration, setRecordingDuration] = useState<number>(10);
+  const [recordingDuration, setRecordingDuration] = useState<number>(() => {
+    if (metadata?.frames && metadata?.fps) {
+      const parsedFps = parseFloat(metadata.fps as any) || 30;
+      if (parsedFps > 0) return Math.round((metadata.frames / parsedFps) * 100) / 100;
+    }
+    return 5;
+  });
+
+  useEffect(() => {
+    if (metadata?.frames && metadata?.fps) {
+      const parsedFps = parseFloat(metadata.fps as any) || 30;
+      if (parsedFps > 0) {
+        const exactSec = metadata.frames / parsedFps;
+        setRecordingDuration(Math.round(exactSec * 100) / 100);
+      }
+    }
+  }, [metadata?.fileUrl, metadata?.frames, metadata?.fps]);
   const ffmpegRef = useRef(new FFmpeg());
   const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
   const [aeJsonData, setAeJsonData] = useState<any>(null);
@@ -5182,8 +5198,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             return;
         }
 
-        // Calculate target frames based on recordingDuration
-        const targetFrames = Math.ceil((recordingDuration || (totalFrames / fps)) * fps);
+        // Calculate target frames using natural file duration unless user customized recordingDuration
+        const naturalFileSec = totalFrames > 0 ? (totalFrames / fps) : 5;
+        const durationToExport = (recordingDuration && recordingDuration > 0) ? recordingDuration : naturalFileSec;
+        const targetFrames = Math.max(1, Math.ceil(durationToExport * fps));
         
         if (targetFrames <= 0) {
             alert("مدة التسجيل غير صالحة");
@@ -6300,8 +6318,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             // Use the actual FPS from the SVGA file if available to prevent frame mismatch/stuttering
             const fps = Math.round(parseFloat(metadata.fps as any)) || Math.round(parseFloat(svgaInstance.videoItem?.FPS as any)) || 30;
             const originalTotalFrames = svgaInstance.videoItem?.frames || metadata.frames || 0;
-            // Use recordingDuration if specified, otherwise fallback to original duration
-            const totalFrames = Math.ceil(recordingDuration * fps) || originalTotalFrames;
+            // Calculate total frames using natural file duration unless user customized recordingDuration
+            const naturalFileSec = originalTotalFrames > 0 ? (originalTotalFrames / fps) : 5;
+            const durationToExport = (recordingDuration && recordingDuration > 0) ? recordingDuration : naturalFileSec;
+            const totalFrames = Math.max(1, Math.ceil(durationToExport * fps));
             
             // Ensure even dimensions for video encoding using utility
             const isVap = currentFormat === 'VAP (MP4)' || (currentFormat as any) === 'VAP 1.0.5' || currentFormat === 'SVGA → YYEVA';

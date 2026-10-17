@@ -710,9 +710,12 @@ export const Header: React.FC<HeaderProps> = (props) => {
           transform: isHeaderVisible ? 'translateY(0)' : 'translateY(-140%)',
           opacity: isHeaderVisible ? 1 : 0,
           pointerEvents: isHeaderVisible ? 'auto' : 'none',
-          transition: 'all 0.35s cubic-bezier(0.16, 1, 0.3, 1)'
+          transition: 'all 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
+          backgroundColor: activeThemeConfig?.cardBg || 'rgba(9, 14, 28, 0.92)',
+          borderColor: activeThemeConfig?.borderColor || 'rgba(255, 255, 255, 0.09)',
+          boxShadow: `0 16px 45px rgba(0,0,0,0.75), 0 0 30px ${activeThemeConfig?.glowColor || 'rgba(99,102,241,0.2)'}`
         }}
-        className="fixed top-2.5 sm:top-3 left-3 sm:left-5 right-3 sm:right-5 h-16 md:h-20 bg-[#090e1c]/90 backdrop-blur-2xl rounded-2xl md:rounded-3xl z-[3500] px-2.5 sm:px-4 md:px-6 flex items-center justify-between shadow-[0_16px_45px_rgba(0,0,0,0.75)] border border-white/[0.09] gap-2 lg:gap-3"
+        className="fixed top-2.5 sm:top-3 left-3 sm:left-5 right-3 sm:right-5 h-16 md:h-20 backdrop-blur-2xl rounded-2xl md:rounded-3xl z-[3500] px-2.5 sm:px-4 md:px-6 flex items-center justify-between border gap-2 lg:gap-3 transition-colors duration-400"
       >
         
         {/* Logo */}

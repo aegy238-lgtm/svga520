@@ -86,7 +86,7 @@ const AIVideoMattingStudio = lazyWithRetry(() => import('./components/AIVideoMat
 const ImageCollageStudio = lazyWithRetry(() => import('./components/ImageCollageStudio/ImageCollageStudio').then(m => ({ default: m.ImageCollageStudio || m.default })));
 const AnimationManager = lazyWithRetry(() => import('./components/AnimationManager/AnimationManager').then(m => ({ default: m.AnimationManager })));
 const AdminPanel = lazyWithRetry(() => import('./components/AdminPanel').then(m => ({ default: m.AdminPanel })));
-const Store = lazyWithRetry(() => import('./components/Store').then(m => ({ default: m.Store })));
+const Store = lazyWithRetry(() => import('./components/Store').then(m => ({ default: m.Store || m.default })));
 const VapHub = lazyWithRetry(() => import('./components/VapHub').then(m => ({ default: m.VapHub })));
 const EmbeddedPortalViewer = lazyWithRetry(() => import('./components/EmbeddedPortalViewer').then(m => ({ default: m.EmbeddedPortalViewer })));
 const UniversalMultiFormatPlayerModal = lazyWithRetry(() => import('./components/UniversalMultiFormatPlayerModal').then(m => ({ default: m.UniversalMultiFormatPlayerModal || m.default })));
@@ -203,7 +203,7 @@ const App: React.FC = () => {
   const [showSplash, setShowSplash] = useState(true);
   const [embeddedPortalTab, setEmbeddedPortalTab] = useState<'first' | 'second' | string>('first');
   const [videoBgError, setVideoBgError] = useState(false);
-  const { activeLayoutConfig, siteMaxWidthStyle } = useThemeDimensions();
+  const { activeLayoutConfig, siteMaxWidthStyle, activeThemeConfig, bgDimOpacity, bgBlurPx } = useThemeDimensions();
 
   useEffect(() => {
     setVideoBgError(false);
@@ -942,20 +942,45 @@ const App: React.FC = () => {
 
   // 🔒 Dedicated Fullscreen Authentication Gateway
   if (!currentUser) {
-    const hasCustomBg = settings?.backgroundUrl && !settings.backgroundUrl.includes('unsplash');
+    const rawAuthBg = settings?.backgroundUrl ? settings.backgroundUrl.trim() : '';
+    const isVideoAuth = !!(rawAuthBg && isVideoUrl(rawAuthBg));
+    const hasCustomBg = !!(rawAuthBg && !rawAuthBg.includes('unsplash') && !isVideoAuth);
     return (
-      <div 
-        className="min-h-screen text-slate-200 overflow-x-hidden relative flex items-center justify-center p-4 bg-[#020617]" 
-        style={hasCustomBg ? {
-          backgroundImage: `linear-gradient(rgba(7, 10, 18, 0.85), rgba(7, 10, 18, 0.95)), url(${settings.backgroundUrl})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          backgroundAttachment: 'fixed'
-        } : {
-          backgroundColor: '#020617'
-        }}
-      >
-        <div className="w-full max-w-md my-8 animate-in zoom-in-95 duration-300">
+      <div className="min-h-screen text-slate-200 overflow-x-hidden relative flex items-center justify-center p-4 bg-[#070a12]">
+        {hasCustomBg && (
+          <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden select-none">
+            <img 
+              src={rawAuthBg} 
+              alt="Background" 
+              className="w-full h-full object-cover object-center will-change-transform"
+              style={{
+                imageRendering: '-webkit-optimize-contrast',
+                transform: 'translate3d(0, 0, 0)',
+                backfaceVisibility: 'hidden',
+              }}
+              loading="eager"
+            />
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-[1px]" />
+          </div>
+        )}
+        {isVideoAuth && (
+          <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden select-none">
+            <video 
+              src={rawAuthBg} 
+              autoPlay 
+              loop 
+              muted 
+              playsInline 
+              className="w-full h-full object-cover will-change-transform"
+              style={{
+                transform: 'translate3d(0, 0, 0)',
+                backfaceVisibility: 'hidden',
+              }}
+            />
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-[1px]" />
+          </div>
+        )}
+        <div className="w-full max-w-md my-8 animate-in zoom-in-95 duration-300 relative z-10">
           <div className="flex flex-col items-center mb-6">
             {settings?.logoUrl ? (
               <img 
@@ -1007,17 +1032,48 @@ const App: React.FC = () => {
   const isVideoBg = !!(rawBgUrl && isVideoUrl(rawBgUrl) && !videoBgError);
   const hasCustomBg = !!(rawBgUrl && !rawBgUrl.includes('unsplash') && !isVideoBg);
 
-  const dynamicBgStyle: React.CSSProperties = hasCustomBg ? {
-    backgroundImage: `linear-gradient(rgba(7, 10, 18, 0.85), rgba(7, 10, 18, 0.95)), url(${rawBgUrl})`,
-    backgroundSize: 'cover',
-    backgroundPosition: 'center',
-    backgroundAttachment: 'fixed'
+  const themeAmbientGlow = activeThemeConfig?.glowColor || 'rgba(99, 102, 241, 0.25)';
+  const themeRadialGlow = `radial-gradient(circle at 50% -10%, ${themeAmbientGlow.replace(/[\d\.]+\)$/, '0.22)')} 0%, transparent 70%)`;
+
+  // Dynamic canvas style: when custom image/video is present, keep clean background to prevent double-blending pixelation
+  const dynamicBgStyle: React.CSSProperties = (hasCustomBg || isVideoBg) ? {
+    backgroundColor: activeThemeConfig?.backgroundColor || '#070a12'
   } : {
-    backgroundColor: '#020617'
+    backgroundImage: `${themeRadialGlow}, ${activeThemeConfig?.previewGradient || 'none'}`,
+    backgroundColor: activeThemeConfig?.backgroundColor || '#070a12'
   };
 
   return (
-    <div className="min-h-screen text-slate-200 overflow-x-hidden relative bg-[#020617]" style={dynamicBgStyle}>
+    <div className="min-h-screen text-slate-200 overflow-x-hidden relative transition-colors duration-500" style={dynamicBgStyle}>
+      {/* 1. Crystal-Clear Ultra-HD Image Background (Zero Pixelation & Adjustable Shading/Blur) */}
+      {hasCustomBg && rawBgUrl && (
+        <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden select-none">
+          <img 
+            src={rawBgUrl} 
+            alt="Site Background"
+            className="w-full h-full object-cover object-center will-change-transform transition-all duration-300"
+            style={{
+              filter: bgBlurPx > 0 ? `blur(${bgBlurPx}px)` : 'none',
+              transform: bgBlurPx > 0 ? 'scale(1.05) translate3d(0, 0, 0)' : 'translate3d(0, 0, 0)',
+              imageRendering: '-webkit-optimize-contrast',
+              backfaceVisibility: 'hidden',
+            }}
+            loading="eager"
+            fetchPriority="high"
+            decoding="async"
+          />
+          {/* User & Admin Adjustable Background Shading / Dimming Overlay */}
+          <div 
+            className="absolute inset-0 transition-all duration-300 pointer-events-none"
+            style={{
+              backgroundColor: activeThemeConfig?.backgroundColor || '#070a12',
+              opacity: bgDimOpacity
+            }}
+          />
+        </div>
+      )}
+
+      {/* 2. Crystal-Clear Ultra-HD Video Background (Zero Pixelation & Adjustable Shading/Blur) */}
       {isVideoBg && rawBgUrl && (
         <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden select-none">
           <video 
@@ -1038,9 +1094,21 @@ const App: React.FC = () => {
               }
             }}
             src={rawBgUrl} 
-            className="w-full h-full object-cover opacity-45 filter brightness-90 contrast-105"
+            className="w-full h-full object-cover will-change-transform transition-all duration-300"
+            style={{
+              filter: bgBlurPx > 0 ? `blur(${bgBlurPx}px)` : 'none',
+              transform: bgBlurPx > 0 ? 'scale(1.05) translate3d(0, 0, 0)' : 'translate3d(0, 0, 0)',
+              backfaceVisibility: 'hidden',
+            }}
           />
-          <div className="absolute inset-0 bg-gradient-to-b from-[#020617]/75 via-[#020617]/50 to-[#020617]/85" />
+          {/* User & Admin Adjustable Background Shading / Dimming Overlay */}
+          <div 
+            className="absolute inset-0 transition-all duration-300 pointer-events-none"
+            style={{
+              backgroundColor: activeThemeConfig?.backgroundColor || '#070a12',
+              opacity: bgDimOpacity
+            }}
+          />
         </div>
       )}
       <ScreenProtectionOverlay currentUser={currentUser} settings={settings} />

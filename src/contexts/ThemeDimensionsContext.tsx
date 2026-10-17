@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
 export type ThemeId = 
+  | 'natural'
   | 'cyberpunk' 
   | 'royal_gold' 
   | 'dark_obsidian' 
@@ -46,6 +47,22 @@ export interface ViewportLayoutConfig {
 }
 
 export const THEMES_LIST: ThemeConfig[] = [
+  {
+    id: 'natural',
+    nameAr: 'المود الطبيعي الأصلي (بدون أي إضافات)',
+    nameEn: 'Natural Pure Clean',
+    descAr: 'المظهر الطبيعي والافتراضي النظيف للمنصة بدون أي ألوان أو تدرجات أو إضافات، مريح وهادئ وطبيعي 100%.',
+    primaryColor: '#3b82f6',
+    secondaryColor: '#6366f1',
+    accentColor: '#60a5fa',
+    backgroundColor: '#070a12',
+    cardBg: 'rgba(13, 17, 28, 0.85)',
+    borderColor: 'rgba(255, 255, 255, 0.10)',
+    glowColor: 'rgba(59, 130, 246, 0.18)',
+    previewGradient: 'linear-gradient(135deg, #070a12 0%, #0d1222 50%, #151d36 100%)',
+    badgeText: 'ORIGINAL 🌿',
+    iconSymbol: '🌿'
+  },
   {
     id: 'cyberpunk',
     nameAr: 'سايبربانك نيون مستقبلي',
@@ -332,6 +349,11 @@ interface ThemeDimensionsContextType {
   
   isModalOpen: boolean;
   setIsModalOpen: (open: boolean) => void;
+
+  bgDimOpacity: number;
+  setBgDimOpacity: (opacity: number) => void;
+  bgBlurPx: number;
+  setBgBlurPx: (blur: number) => void;
 }
 
 const ThemeDimensionsContext = createContext<ThemeDimensionsContextType | undefined>(undefined);
@@ -382,8 +404,35 @@ export const ThemeDimensionsProvider: React.FC<{ children: ReactNode }> = ({ chi
   const activeThemeConfig = THEMES_LIST.find(t => t.id === currentTheme) || THEMES_LIST[0];
   const activeLayoutConfig = LAYOUTS_LIST.find(l => l.id === viewportLayout) || LAYOUTS_LIST[0];
 
+  // Helper to synchronously and instantly apply theme variables to document & body
+  const applyThemeDirectly = (themeId: ThemeId, config: ThemeConfig, maxWidth: string) => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    const body = document.body;
+    
+    root.setAttribute('data-theme', themeId);
+    if (body) {
+      body.setAttribute('data-theme', themeId);
+      body.style.backgroundColor = config.backgroundColor;
+    }
+    
+    root.style.setProperty('--theme-bg', config.backgroundColor);
+    root.style.setProperty('--theme-card-bg', config.cardBg);
+    root.style.setProperty('--theme-primary', config.primaryColor);
+    root.style.setProperty('--theme-secondary', config.secondaryColor);
+    root.style.setProperty('--theme-accent', config.accentColor);
+    root.style.setProperty('--theme-border', config.borderColor);
+    root.style.setProperty('--theme-glow', config.glowColor);
+    root.style.setProperty('--theme-gradient', config.previewGradient);
+    root.style.setProperty('--theme-btn', `linear-gradient(135deg, ${config.primaryColor}, ${config.secondaryColor})`);
+    root.style.setProperty('--theme-glow-soft', config.glowColor.replace(/[\d\.]+\)$/, '0.20)'));
+    root.style.setProperty('--site-max-width', maxWidth);
+  };
+
   const setTheme = (theme: ThemeId) => {
     setCurrentThemeState(theme);
+    const targetConfig = THEMES_LIST.find(t => t.id === theme) || THEMES_LIST[0];
+    applyThemeDirectly(theme, targetConfig, siteMaxWidthStyle);
     try {
       localStorage.setItem('site_display_theme', theme);
     } catch {}
@@ -480,18 +529,9 @@ export const ThemeDimensionsProvider: React.FC<{ children: ReactNode }> = ({ chi
     }
   }, [siteWidthMode, customWidthPx]);
 
-  // Apply Theme CSS variables and attributes to document element
+  // Synchronize Theme and site width style immediately to document element & body
   useEffect(() => {
-    const root = document.documentElement;
-    root.setAttribute('data-theme', currentTheme);
-    root.style.setProperty('--theme-bg', activeThemeConfig.backgroundColor);
-    root.style.setProperty('--theme-card-bg', activeThemeConfig.cardBg);
-    root.style.setProperty('--theme-primary', activeThemeConfig.primaryColor);
-    root.style.setProperty('--theme-secondary', activeThemeConfig.secondaryColor);
-    root.style.setProperty('--theme-accent', activeThemeConfig.accentColor);
-    root.style.setProperty('--theme-border', activeThemeConfig.borderColor);
-    root.style.setProperty('--theme-glow', activeThemeConfig.glowColor);
-    root.style.setProperty('--site-max-width', siteMaxWidthStyle);
+    applyThemeDirectly(currentTheme, activeThemeConfig, siteMaxWidthStyle);
   }, [currentTheme, activeThemeConfig, siteMaxWidthStyle]);
 
   // Apply Zoom Scale natively to the document ONLY when not 1.0 (to maintain standard 100% browser dimensions)
@@ -521,6 +561,46 @@ export const ThemeDimensionsProvider: React.FC<{ children: ReactNode }> = ({ chi
     }
   }, [eyeComfortMode]);
 
+  // Background shading / dimming opacity (0.0 to 0.9, default 0.40)
+  const [bgDimOpacity, setBgDimOpacityState] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('site_bg_dim_opacity');
+      if (saved) {
+        const parsed = parseFloat(saved);
+        if (!isNaN(parsed) && parsed >= 0 && parsed <= 0.95) return parsed;
+      }
+    }
+    return 0.40;
+  });
+
+  // Background blur filter (0px to 30px, default 0px)
+  const [bgBlurPx, setBgBlurPxState] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('site_bg_blur_px');
+      if (saved) {
+        const parsed = parseFloat(saved);
+        if (!isNaN(parsed) && parsed >= 0 && parsed <= 30) return parsed;
+      }
+    }
+    return 0;
+  });
+
+  const setBgDimOpacity = (opacity: number) => {
+    const clamped = Math.max(0, Math.min(0.95, Math.round(opacity * 100) / 100));
+    setBgDimOpacityState(clamped);
+    try {
+      localStorage.setItem('site_bg_dim_opacity', String(clamped));
+    } catch {}
+  };
+
+  const setBgBlurPx = (blur: number) => {
+    const clamped = Math.max(0, Math.min(30, Math.round(blur)));
+    setBgBlurPxState(clamped);
+    try {
+      localStorage.setItem('site_bg_blur_px', String(clamped));
+    } catch {}
+  };
+
   return (
     <ThemeDimensionsContext.Provider
       value={{
@@ -545,6 +625,10 @@ export const ThemeDimensionsProvider: React.FC<{ children: ReactNode }> = ({ chi
         toggleEyeComfort,
         isModalOpen,
         setIsModalOpen,
+        bgDimOpacity,
+        setBgDimOpacity,
+        bgBlurPx,
+        setBgBlurPx,
       }}
     >
       {children}

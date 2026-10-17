@@ -87,11 +87,16 @@ export default defineConfig(({ mode }) => {
           'lucide-react'
         ]
       },
+      esbuild: {
+        drop: mode === 'production' ? ['console', 'debugger'] : [],
+        legalComments: 'none',
+      },
       build: {
         outDir: 'dist',
         sourcemap: false,
         minify: 'esbuild',
         cssMinify: true,
+        cssCodeSplit: true,
         target: 'es2020',
         chunkSizeWarningLimit: 1800,
         rollupOptions: {
@@ -113,9 +118,6 @@ export default defineConfig(({ mode }) => {
                 }
                 if (id.includes('lucide-react')) {
                   return 'vendor-icons';
-                }
-                if (id.includes('/node_modules/react/') || id.includes('/node_modules/react-dom/') || id.includes('/node_modules/react-router/')) {
-                  return 'vendor-react';
                 }
                 if (id.includes('pako') || id.includes('jszip') || id.includes('fflate')) {
                   return 'vendor-compression';

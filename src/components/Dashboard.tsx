@@ -8,6 +8,7 @@ import { useStarredTools } from '../utils/starredTools';
 import { useLanguage } from '../contexts/LanguageContext';
 import { calculateSubscriptionInfo } from '../utils/subscriptionUtils';
 import { FeaturePreviewModal } from './FeaturePreviewModal';
+import { useThemeDimensions } from '../contexts/ThemeDimensionsContext';
 
 interface DashboardProps {
   onUpload: (files: File[], mode?: UploadMode) => void;
@@ -33,6 +34,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const { isStarred, toggleStar } = useStarredTools();
   const { language, dir } = useLanguage();
   const [previewTool, setPreviewTool] = useState<ToolRegistryItem | null>(null);
+  const { activeThemeConfig } = useThemeDimensions();
 
   const subInfo = useMemo(() => {
     return currentUser ? calculateSubscriptionInfo(currentUser) : null;
@@ -115,16 +117,32 @@ export const Dashboard: React.FC<DashboardProps> = ({
       <div className="max-w-[1600px] w-full flex flex-col gap-12 sm:gap-18">
         
         {/* Main Hero / Uploader Section */}
-        <section className="relative w-full rounded-[2rem] sm:rounded-[2.5rem] p-1.5 sm:p-3 bg-[#080d1a]/90 border border-white/[0.09] shadow-[0_24px_60px_rgba(0,0,0,0.7)] backdrop-blur-2xl animate-fade-in overflow-hidden group">
-            {/* Subtle luxury ambient glows */}
-            <div className="absolute top-[-20%] left-[25%] w-[50%] h-[50%] bg-indigo-600/15 blur-[130px] rounded-full mix-blend-screen pointer-events-none"></div>
-            <div className="absolute bottom-[-20%] right-[25%] w-[50%] h-[50%] bg-sky-500/10 blur-[130px] rounded-full mix-blend-screen pointer-events-none"></div>
+        <section 
+          className="relative w-full rounded-[2rem] sm:rounded-[2.5rem] p-1.5 sm:p-3 border shadow-[0_24px_60px_rgba(0,0,0,0.7)] backdrop-blur-2xl animate-fade-in overflow-hidden group transition-all duration-500"
+          style={{
+            backgroundColor: activeThemeConfig?.cardBg || 'rgba(8, 13, 26, 0.92)',
+            borderColor: activeThemeConfig?.borderColor || 'rgba(255, 255, 255, 0.09)',
+            boxShadow: `0 24px 60px rgba(0,0,0,0.7), 0 0 45px ${activeThemeConfig?.glowColor || 'rgba(99,102,241,0.2)'}`
+          }}
+        >
+            {/* Dynamic luxury ambient glows matching active theme */}
+            <div 
+              className="absolute top-[-20%] left-[25%] w-[55%] h-[55%] blur-[130px] rounded-full mix-blend-screen pointer-events-none opacity-40 transition-colors duration-500"
+              style={{ backgroundColor: activeThemeConfig?.primaryColor || '#6366f1' }}
+            />
+            <div 
+              className="absolute bottom-[-20%] right-[25%] w-[55%] h-[55%] blur-[130px] rounded-full mix-blend-screen pointer-events-none opacity-30 transition-colors duration-500"
+              style={{ backgroundColor: activeThemeConfig?.accentColor || '#00f0ff' }}
+            />
             
             <div className="text-center mt-6 sm:mt-9 mb-7 flex flex-col items-center gap-3 relative z-10 w-full px-4">
               {/* Official Site Logo Emblem */}
               {settings?.logoUrl ? (
                 <div className="relative flex items-center justify-center group cursor-pointer mb-1">
-                  <div className="absolute inset-0 bg-gradient-to-r from-amber-500/20 via-sky-500/20 to-indigo-500/20 rounded-full blur-2xl pointer-events-none scale-125 group-hover:scale-150 transition-transform duration-500" />
+                  <div 
+                    className="absolute inset-0 rounded-full blur-2xl pointer-events-none scale-125 group-hover:scale-150 transition-all duration-500" 
+                    style={{ background: `radial-gradient(circle, ${activeThemeConfig?.glowColor || 'rgba(234,179,8,0.3)'} 0%, transparent 70%)` }}
+                  />
                   <img 
                     src={settings.logoUrl} 
                     alt={settings?.appName || "Logo"} 
@@ -133,19 +151,37 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </div>
               ) : (
                 <div className="relative flex items-center justify-center mb-1">
-                  <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-amber-500 via-indigo-600 to-purple-700 rounded-2xl flex items-center justify-center shadow-lg border border-white/20 drop-shadow-[0_0_20px_rgba(245,158,11,0.3)]">
-                    <span className="text-white font-black text-3xl sm:text-4xl">S</span>
+                  <div 
+                    className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center shadow-lg border border-white/20 transition-all duration-400"
+                    style={{
+                      background: activeThemeConfig?.previewGradient || 'linear-gradient(to bottom right, #f59e0b, #4f46e5)',
+                      boxShadow: `0 0 25px ${activeThemeConfig?.glowColor || 'rgba(245,158,11,0.3)'}`
+                    }}
+                  >
+                    <span className="text-white font-black text-3xl sm:text-4xl">{activeThemeConfig?.iconSymbol || 'S'}</span>
                   </div>
                 </div>
               )}
 
-              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/25 text-indigo-300 text-xs font-bold shadow-sm">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
+              <div 
+                className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full border text-xs font-bold shadow-sm transition-colors duration-400"
+                style={{
+                  backgroundColor: `${activeThemeConfig?.primaryColor || '#6366f1'}18`,
+                  borderColor: `${activeThemeConfig?.borderColor || 'rgba(99,102,241,0.3)'}`,
+                  color: activeThemeConfig?.accentColor || '#38bdf8'
+                }}
+              >
+                <Sparkles className="w-3.5 h-3.5 animate-pulse" style={{ color: activeThemeConfig?.accentColor }} />
                 <span>منظومة متكاملة لمعالجة وتحويل الوسائط الرقمية</span>
               </div>
               
-              <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-white tracking-tight">
-                 SVGA AHMED STUDIO
+              <h1 
+                className="text-3xl sm:text-4xl md:text-5xl font-black text-white tracking-tight"
+                style={{
+                  textShadow: `0 0 35px ${activeThemeConfig?.glowColor || 'rgba(99,102,241,0.3)'}`
+                }}
+              >
+                 {settings?.appName?.trim() || "SVGA AHMED STUDIO"}
               </h1>
               <p className="text-slate-400 font-medium text-xs sm:text-sm tracking-wide max-w-xl">
                  استوديو احترافي فائق السرعة لمعاينة، تحرير، ضغط، وتحويل ملفات الأنيميشن والفيديو

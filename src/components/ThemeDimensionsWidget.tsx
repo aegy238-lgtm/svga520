@@ -52,11 +52,22 @@ export const ThemeDimensionsWidget: React.FC = () => {
     eyeComfortMode,
     toggleEyeComfort,
     isModalOpen,
-    setIsModalOpen
+    setIsModalOpen,
+    bgDimOpacity,
+    setBgDimOpacity,
+    bgBlurPx,
+    setBgBlurPx
   } = useThemeDimensions();
 
   const [activeTab, setActiveTab] = useState<'dimensions' | 'themes' | 'zoom' | 'comfort'>('dimensions');
   const [isHovered, setIsHovered] = useState(false);
+  const [themeToast, setThemeToast] = useState<string | null>(null);
+
+  const handleSelectTheme = (theme: any) => {
+    setTheme(theme.id);
+    setThemeToast(`تم تطبيق وحفظ تصميم "${theme.nameAr}" فوراً على كافة صفحات وأدوات الموقع بنجاح ✨`);
+    setTimeout(() => setThemeToast(null), 3500);
+  };
 
   const getPresetIcon = (iconName: string) => {
     switch (iconName) {
@@ -191,15 +202,29 @@ export const ThemeDimensionsWidget: React.FC = () => {
           onClick={() => setIsModalOpen(false)}
         >
           <div 
-            className="relative w-full max-w-5xl bg-[#090e1c]/98 border border-white/15 rounded-3xl md:rounded-[2.5rem] shadow-[0_25px_80px_rgba(0,0,0,0.9)] overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-200 text-right"
+            className="relative w-full max-w-5xl border rounded-3xl md:rounded-[2.5rem] overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-300 text-right transition-all"
+            style={{
+              backgroundColor: activeThemeConfig?.cardBg || 'rgba(9, 14, 28, 0.98)',
+              borderColor: activeThemeConfig?.borderColor || 'rgba(255, 255, 255, 0.15)',
+              boxShadow: `0 25px 80px rgba(0,0,0,0.95), 0 0 50px ${activeThemeConfig?.glowColor || 'rgba(99,102,241,0.2)'}`
+            }}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-5 sm:px-8 py-5 border-b border-white/10 bg-slate-900/60 shrink-0 gap-3">
+            <div 
+              className="flex items-center justify-between px-5 sm:px-8 py-5 border-b shrink-0 gap-3 transition-colors duration-300"
+              style={{
+                backgroundColor: `${activeThemeConfig?.primaryColor || '#6366f1'}15`,
+                borderColor: activeThemeConfig?.borderColor || 'rgba(255, 255, 255, 0.10)'
+              }}
+            >
               <div className="flex items-center gap-3.5">
                 <div 
-                  className="w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-xl text-2xl shrink-0"
-                  style={{ background: activeThemeConfig.previewGradient }}
+                  className="w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-xl text-2xl shrink-0 transition-all duration-300"
+                  style={{ 
+                    background: activeThemeConfig.previewGradient,
+                    boxShadow: `0 0 20px ${activeThemeConfig.glowColor}`
+                  }}
                 >
                   {activeThemeConfig.iconSymbol || '🎨'}
                 </div>
@@ -208,7 +233,14 @@ export const ThemeDimensionsWidget: React.FC = () => {
                     <h2 className="text-lg sm:text-xl font-black text-white tracking-tight">
                       مركز التحكم في أبعاد الموقع وتصميمه وراحة العين
                     </h2>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-gradient-to-r from-amber-400 to-orange-400 text-black shadow-sm">
+                    <span 
+                      className="px-2 py-0.5 rounded-full text-[10px] font-black shadow-sm"
+                      style={{
+                        backgroundColor: `${activeThemeConfig.primaryColor}30`,
+                        color: activeThemeConfig.accentColor,
+                        border: `1px solid ${activeThemeConfig.borderColor}`
+                      }}
+                    >
                       الدايرة الذكية ✨
                     </span>
                   </div>
@@ -228,13 +260,19 @@ export const ThemeDimensionsWidget: React.FC = () => {
             </div>
 
             {/* Navigation Tabs */}
-            <div className="flex items-center px-4 sm:px-8 pt-3 border-b border-white/10 bg-black/20 gap-2 overflow-x-auto no-scrollbar shrink-0">
+            <div 
+              className="flex items-center px-4 sm:px-8 pt-3 border-b gap-2 overflow-x-auto no-scrollbar shrink-0 transition-colors"
+              style={{
+                borderColor: activeThemeConfig?.borderColor || 'rgba(255, 255, 255, 0.10)',
+                backgroundColor: 'rgba(0, 0, 0, 0.25)'
+              }}
+            >
               <button
                 onClick={() => setActiveTab('dimensions')}
-                className={`flex items-center gap-2 px-4 py-3 border-b-2 text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
+                className={`flex items-center gap-2 px-4 py-3 border-b-2 text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap rounded-t-xl ${
                   activeTab === 'dimensions'
-                    ? 'border-cyan-400 text-white bg-cyan-500/10 rounded-t-xl'
-                    : 'border-transparent text-slate-400 hover:text-white hover:bg-white/5 rounded-t-xl'
+                    ? 'border-cyan-400 text-white bg-cyan-500/10'
+                    : 'border-transparent text-slate-400 hover:text-white hover:bg-white/5'
                 }`}
               >
                 <Monitor className="w-4 h-4 text-cyan-400" />
@@ -243,14 +281,18 @@ export const ThemeDimensionsWidget: React.FC = () => {
 
               <button
                 onClick={() => setActiveTab('themes')}
-                className={`flex items-center gap-2 px-4 py-3 border-b-2 text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
-                  activeTab === 'themes'
-                    ? 'border-indigo-400 text-white bg-indigo-500/10 rounded-t-xl'
-                    : 'border-transparent text-slate-400 hover:text-white hover:bg-white/5 rounded-t-xl'
-                }`}
+                className="flex items-center gap-2 px-4 py-3 border-b-2 text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap rounded-t-xl"
+                style={activeTab === 'themes' ? {
+                  borderColor: activeThemeConfig?.accentColor || '#a855f7',
+                  color: '#ffffff',
+                  backgroundColor: `${activeThemeConfig?.primaryColor || '#6366f1'}20`
+                } : {
+                  borderColor: 'transparent',
+                  color: '#94a3b8'
+                }}
               >
-                <Palette className="w-4 h-4 text-indigo-400" />
-                <span>تصاميم ومظاهر الموقع (8 ستايلات)</span>
+                <Palette className="w-4 h-4" style={{ color: activeThemeConfig?.accentColor || '#a855f7' }} />
+                <span>مودات وتصاميم الموقع ({THEMES_LIST.length} ستايلات)</span>
               </button>
 
               <button
@@ -434,6 +476,25 @@ export const ThemeDimensionsWidget: React.FC = () => {
               {/* TAB 2: THEMES */}
               {activeTab === 'themes' && (
                 <div className="space-y-4">
+                  {themeToast && (
+                    <div 
+                      className="p-3.5 rounded-2xl border text-sm font-bold flex items-center justify-between gap-2 shadow-xl animate-in fade-in slide-in-from-top-2 duration-300"
+                      style={{
+                        backgroundColor: `${activeThemeConfig?.primaryColor || '#6366f1'}25`,
+                        borderColor: activeThemeConfig?.accentColor || '#38bdf8',
+                        color: '#ffffff'
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 animate-spin" style={{ color: activeThemeConfig?.accentColor }} />
+                        <span>{themeToast}</span>
+                      </div>
+                      <span className="text-xs px-2.5 py-1 rounded-full bg-black/40 font-mono">
+                        تم الحفظ
+                      </span>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className="text-base font-bold text-white">اختر الستايل والتصميم المناسب لك</h3>
@@ -441,7 +502,14 @@ export const ThemeDimensionsWidget: React.FC = () => {
                         يتم تطبيق الألوان والتدرجات والتأثيرات فوراً على كافة صفحات وأدوات الموقع مع الحفظ التلقائي.
                       </p>
                     </div>
-                    <span className="text-xs font-mono text-indigo-300 bg-indigo-500/10 px-3 py-1 rounded-xl border border-indigo-500/20">
+                    <span 
+                      className="text-xs font-mono px-3 py-1 rounded-xl border font-bold"
+                      style={{
+                        backgroundColor: `${activeThemeConfig?.primaryColor || '#6366f1'}20`,
+                        borderColor: `${activeThemeConfig?.borderColor || 'rgba(99,102,241,0.3)'}`,
+                        color: activeThemeConfig?.accentColor || '#38bdf8'
+                      }}
+                    >
                       التصميم النشط: {activeThemeConfig.nameAr}
                     </span>
                   </div>
@@ -452,10 +520,15 @@ export const ThemeDimensionsWidget: React.FC = () => {
                       return (
                         <div
                           key={theme.id}
-                          onClick={() => setTheme(theme.id)}
+                          onClick={() => handleSelectTheme(theme)}
+                          style={isSelected ? {
+                            borderColor: theme.accentColor,
+                            boxShadow: `0 0 30px ${theme.glowColor}`,
+                            backgroundColor: `${theme.primaryColor}22`
+                          } : {}}
                           className={`relative p-4 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between gap-3 text-right group ${
                             isSelected
-                              ? 'bg-white/10 border-white/60 shadow-[0_0_25px_rgba(255,255,255,0.2)] scale-[1.02]'
+                              ? 'scale-[1.02]'
                               : 'bg-white/[0.03] hover:bg-white/[0.07] border-white/10 hover:border-white/30'
                           }`}
                         >
@@ -513,6 +586,125 @@ export const ThemeDimensionsWidget: React.FC = () => {
                         </div>
                       );
                     })}
+                  </div>
+
+                  {/* Section: Live Background Dimming & Blur Sliders */}
+                  <div 
+                    className="p-5 sm:p-6 rounded-3xl border mt-6 space-y-5 transition-colors"
+                    style={{
+                      backgroundColor: `${activeThemeConfig?.primaryColor || '#6366f1'}10`,
+                      borderColor: activeThemeConfig?.borderColor || 'rgba(255,255,255,0.12)'
+                    }}
+                  >
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <h4 className="text-sm sm:text-base font-black text-white flex items-center gap-2">
+                          <span>التحكم في تظليل وإضاءة وضبابية الخلفية</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold">
+                            مستقل وحي ✨
+                          </span>
+                        </h4>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          زيادة أو تقليل تعتيم وتظليل الصورة/الفيديو وإضافة ضبابية خفيفة لموازنة الإضاءة وراحة العين.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 font-mono text-xs text-indigo-300 bg-black/40 px-3 py-1.5 rounded-xl border border-white/10">
+                        <span>تظليل: {Math.round(bgDimOpacity * 100)}%</span>
+                        <span>•</span>
+                        <span>ضبابية: {bgBlurPx}px</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                      {/* 1. Background Dimming / Shading Opacity Slider */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs font-bold text-slate-200">
+                          <span>تظليل وتعتيم الخلفية (Shading)</span>
+                          <span className="text-cyan-400 font-mono">{Math.round(bgDimOpacity * 100)}%</span>
+                        </div>
+                        <input 
+                          type="range"
+                          min="0"
+                          max="0.90"
+                          step="0.05"
+                          value={bgDimOpacity}
+                          onChange={(e) => setBgDimOpacity(parseFloat(e.target.value))}
+                          className="w-full h-2.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-400 shadow-inner"
+                        />
+                        <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                          <span>0% (بدون تظليل)</span>
+                          <span>40% (متوازن)</span>
+                          <span>90% (داكن داكن)</span>
+                        </div>
+
+                        {/* Quick Dimming Preset Buttons */}
+                        <div className="flex items-center gap-1.5 pt-1 flex-wrap">
+                          {[
+                            { label: 'بدون تظليل 0%', val: 0 },
+                            { label: 'تظليل خفيف 25%', val: 0.25 },
+                            { label: 'تظليل افتراضي 40%', val: 0.40 },
+                            { label: 'تظليل عميق 75%', val: 0.75 }
+                          ].map(btn => (
+                            <button
+                              key={btn.label}
+                              onClick={() => setBgDimOpacity(btn.val)}
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
+                                Math.abs(bgDimOpacity - btn.val) < 0.03
+                                  ? 'bg-indigo-500 text-white border-indigo-300 font-black shadow-md'
+                                  : 'bg-white/5 hover:bg-white/10 text-slate-400 border-white/10'
+                              }`}
+                            >
+                              {btn.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* 2. Background Blur Filter Slider */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs font-bold text-slate-200">
+                          <span>ضبابية الخلفية (Blur Filter)</span>
+                          <span className="text-purple-400 font-mono">{bgBlurPx}px</span>
+                        </div>
+                        <input 
+                          type="range"
+                          min="0"
+                          max="20"
+                          step="1"
+                          value={bgBlurPx}
+                          onChange={(e) => setBgBlurPx(parseInt(e.target.value, 10))}
+                          className="w-full h-2.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-purple-400 shadow-inner"
+                        />
+                        <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                          <span>0px (حادة ونقية)</span>
+                          <span>5px (ضبابية خفيفة)</span>
+                          <span>20px (ضبابية عالية)</span>
+                        </div>
+
+                        {/* Quick Blur Preset Buttons */}
+                        <div className="flex items-center gap-1.5 pt-1 flex-wrap">
+                          {[
+                            { label: 'بدون ضبابية 0px', val: 0 },
+                            { label: 'ضبابية خفيفة 3px', val: 3 },
+                            { label: 'ضبابية متوسطة 8px', val: 8 },
+                            { label: 'ضبابية عالية 15px', val: 15 }
+                          ].map(btn => (
+                            <button
+                              key={btn.label}
+                              onClick={() => setBgBlurPx(btn.val)}
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
+                                bgBlurPx === btn.val
+                                  ? 'bg-purple-600 text-white border-purple-300 font-black shadow-md'
+                                  : 'bg-white/5 hover:bg-white/10 text-slate-400 border-white/10'
+                              }`}
+                            >
+                              {btn.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

@@ -128,3 +128,6 @@ export const Store: React.FC<StoreProps> = ({ currentUser, onLoginRequired }) =>
     </div>
   );
 };
+
+export default Store;
+
