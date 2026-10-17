@@ -756,8 +756,10 @@ export const MultiFormatAnimationPlayer: React.FC<MultiFormatAnimationPlayerProp
           }
         }
 
-        setCurrentTime(vid.currentTime);
-        setCurrentFrame(Math.round(vid.currentTime * (fps || 30)));
+        const newTime = vid.currentTime;
+        const newFrame = Math.round(newTime * (fps || 30));
+        setCurrentTime(prev => Math.abs(prev - newTime) > 0.05 ? newTime : prev);
+        setCurrentFrame(prev => prev === newFrame ? prev : newFrame);
       }
 
       animationFrameRef.current = requestAnimationFrame(renderLoop);

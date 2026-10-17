@@ -64,10 +64,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (featureAccessKey === 'afterEffectsStudio' || featureAccessKey === 'after-effects-studio') return true;
     if (featureAccessKey === 'svgaLayerEditor' || featureAccessKey === 'svga-layer-editor') return true;
     if (featureAccessKey === 'apkExtractor' || featureAccessKey === 'apk-extractor') return true;
+    if (featureAccessKey === 'smartMp4Studio' || featureAccessKey === 'smart-mp4-studio') return true;
     if (!currentUser) return true;
     if (currentUser.allFeaturesEnabled !== false) return true;
     const allowed = currentUser.allowedFeatures || [];
-    return allowed.includes(featureAccessKey) || featureAccessKey === 'afterEffectsStudio' || featureAccessKey === 'svgaLayerEditor' || featureAccessKey === 'apkExtractor';
+    return allowed.includes(featureAccessKey) || featureAccessKey === 'afterEffectsStudio' || featureAccessKey === 'svgaLayerEditor' || featureAccessKey === 'apkExtractor' || featureAccessKey === 'smartMp4Studio';
   };
 
   // Filter tools based on user access from central TOOLS_REGISTRY

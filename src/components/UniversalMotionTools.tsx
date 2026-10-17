@@ -449,7 +449,10 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
           watermarkSpeed,
           watermarkPosition
         );
-        setPreviewWmCoords(coords);
+        setPreviewWmCoords(prev => {
+          if (prev.x === coords.x && prev.y === coords.y && prev.side === coords.side) return prev;
+          return coords;
+        });
       }
 
       animId = requestAnimationFrame(loop);
@@ -1037,8 +1040,10 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   };
 
   // Auto-process initialFile when passed from external upload/redirect
+  const initialFileProcessedRef = useRef<File | null>(null);
   useEffect(() => {
-    if (initialFile) {
+    if (initialFile && initialFileProcessedRef.current !== initialFile) {
+      initialFileProcessedRef.current = initialFile;
       processFile(initialFile);
     }
   }, [initialFile]);

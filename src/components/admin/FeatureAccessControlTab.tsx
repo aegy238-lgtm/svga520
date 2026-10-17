@@ -5,6 +5,7 @@ import { UserRecord } from '../../types';
 import { Search, Save, CheckSquare, Square, Star, Lock, ShieldCheck, X } from 'lucide-react';
 
 export const AVAILABLE_FEATURES = [
+  { id: 'smartMp4Studio', name: 'Smart MP4 Studio — AI + SVGA', desc: 'فصل عناصر الفيديو تلقائياً ويدوياً وإزالة الكروما وتصدير SVGA 2.0' },
   { id: 'aiVideoMatting', name: 'AI Video Matting Studio', desc: 'عزل الأشخاص والخلفيات بالذكاء الاصطناعي' },
   { id: 'name3DEditor', name: '3D Name Editor', desc: 'محرر وتصميم الأسماء ثلاثية الأبعاد' },
   { id: 'imageEnhancer', name: 'AI Image Enhancer', desc: 'تحسين جودة الصور بالذكاء الاصطناعي' },

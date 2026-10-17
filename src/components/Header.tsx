@@ -64,6 +64,7 @@ export interface HeaderProps {
   onStoreOpen?: () => void;
   onAfterEffectsStudioOpen?: () => void;
   onApkExtractorOpen?: () => void;
+  onSmartMp4StudioOpen?: () => void;
   onVapHubOpen?: () => void;
   onVideoDurationSpeedOpen?: () => void;
   onBatchImageOpen: () => void;
@@ -187,11 +188,12 @@ export const Header: React.FC<HeaderProps> = (props) => {
     if (toolId === 'after-effects-studio' || toolId === 'afterEffectsStudio') return true;
     if (toolId === 'svga-layer-editor' || toolId === 'svgaLayerEditor') return true;
     if (toolId === 'apk-extractor' || toolId === 'apkExtractor') return true;
+    if (toolId === 'smart-mp4-studio' || toolId === 'smartMp4Studio') return true;
     if (!props.currentUser) return true;
     if (props.currentUser.allFeaturesEnabled !== false) return true;
     const allowed = props.currentUser.allowedFeatures || [];
     const featureKey = TOOL_FEATURE_MAP[toolId] || toolId;
-    return allowed.includes(featureKey) || featureKey === 'afterEffectsStudio' || featureKey === 'svgaLayerEditor' || featureKey === 'apkExtractor';
+    return allowed.includes(featureKey) || featureKey === 'afterEffectsStudio' || featureKey === 'svgaLayerEditor' || featureKey === 'apkExtractor' || featureKey === 'smartMp4Studio';
   };
 
   // Dynamic allowed tools from unified TOOLS_REGISTRY
@@ -403,6 +405,18 @@ export const Header: React.FC<HeaderProps> = (props) => {
     const targetTool = direction === 'next' ? nextTool : prevTool;
     if (targetTool) {
       handleToolClick(targetTool);
+      if (scrollRef.current) {
+        const el = scrollRef.current.querySelector<HTMLElement>(`[data-tool-id="${targetTool.id}"]`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        }
+        setTimeout(() => {
+          const updatedEl = scrollRef.current?.querySelector<HTMLElement>(`[data-tool-id="${targetTool.id}"]`);
+          if (updatedEl) {
+            updatedEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+          }
+        }, 50);
+      }
     }
   };
 
@@ -420,6 +434,7 @@ export const Header: React.FC<HeaderProps> = (props) => {
         <button
           type="button"
           data-active={isToolActive}
+          data-tool-id={tool.id}
           onClick={(e) => {
             e.stopPropagation();
             if (isNavDragging && dragDistance.current > 10) return;
@@ -534,15 +549,15 @@ export const Header: React.FC<HeaderProps> = (props) => {
 
       {/* 2. Scrollable Secondary Tools Track (الأدوات الإضافية) - Hidden on medium laptops/tablets */}
       <div className="hidden xl:flex items-center flex-1 min-w-0 overflow-hidden relative mx-1">
-        {/* Previous Scroll Step Button */}
+        {/* Next / Step Forward Button (الزر المشروح في الصورة لتقليب وفتح المزايا) */}
         <button
           type="button"
-          onClick={() => handleNavScroll('left')}
-          className="w-8 h-8 rounded-xl bg-slate-900/90 hover:bg-indigo-600 text-slate-300 hover:text-white border border-white/10 hover:border-indigo-400/50 shadow-md transition-all shrink-0 flex items-center justify-center active:scale-95 cursor-pointer ml-0.5"
-          title="الأدوات السابقة"
-          aria-label="الأدوات السابقة"
+          onClick={() => handleNavToolStep('next')}
+          className="w-8 h-8 rounded-xl bg-slate-900/90 hover:bg-indigo-600 text-slate-300 hover:text-white border border-white/10 hover:border-indigo-400/50 shadow-md transition-all shrink-0 flex items-center justify-center active:scale-95 cursor-pointer ml-0.5 group"
+          title={nextTool ? `الانتقال إلى ${nextTool.label} وفتحها` : "الميزة التالية"}
+          aria-label={nextTool ? `الانتقال إلى ${nextTool.label} وفتحها` : "الميزة التالية"}
         >
-          <ChevronRight className="w-4 h-4 shrink-0" />
+          <ChevronRight className="w-4 h-4 shrink-0 transition-transform group-hover:scale-110" />
         </button>
 
         <nav 
@@ -561,15 +576,15 @@ export const Header: React.FC<HeaderProps> = (props) => {
           </div>
         </nav>
 
-        {/* Next Scroll Step Button */}
+        {/* Previous / Step Backward Button (الانتقال للميزة السابقة وفتحها) */}
         <button
           type="button"
-          onClick={() => handleNavScroll('right')}
-          className="w-8 h-8 rounded-xl bg-slate-900/90 hover:bg-indigo-600 text-slate-300 hover:text-white border border-white/10 hover:border-indigo-400/50 shadow-md transition-all shrink-0 flex items-center justify-center active:scale-95 cursor-pointer mr-0.5"
-          title="الأدوات التالية"
-          aria-label="الأدوات التالية"
+          onClick={() => handleNavToolStep('prev')}
+          className="w-8 h-8 rounded-xl bg-slate-900/90 hover:bg-indigo-600 text-slate-300 hover:text-white border border-white/10 hover:border-indigo-400/50 shadow-md transition-all shrink-0 flex items-center justify-center active:scale-95 cursor-pointer mr-0.5 group"
+          title={prevTool ? `الانتقال إلى ${prevTool.label} وفتحها` : "الميزة السابقة"}
+          aria-label={prevTool ? `الانتقال إلى ${prevTool.label} وفتحها` : "الميزة السابقة"}
         >
-          <ChevronLeft className="w-4 h-4 shrink-0" />
+          <ChevronLeft className="w-4 h-4 shrink-0 transition-transform group-hover:scale-110" />
         </button>
       </div>
 

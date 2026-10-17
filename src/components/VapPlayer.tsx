@@ -422,7 +422,7 @@ export const VapPlayer: React.FC<VapPlayerProps> = ({
             */}
             <video 
                 ref={videoRef} 
-                src={src} 
+                src={src || undefined} 
                 style={{
                     position: 'absolute',
                     top: 0,

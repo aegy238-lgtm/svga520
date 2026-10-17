@@ -237,7 +237,7 @@ export const MultiSvgaWatermarkModal: React.FC<MultiSvgaWatermarkModalProps> = (
     onLogoChange(null);
   };
 
-  const activeLogo = localSettings.logoUrl || watermarkLogo;
+  const activeLogo = (localSettings.logoUrl || watermarkLogo || '').trim() || undefined;
   const currentSpeed = localSettings.animationSpeed || localSettings.speed || 4;
 
   const getShapeClasses = (shapeType: ViewerWatermarkShape) => {

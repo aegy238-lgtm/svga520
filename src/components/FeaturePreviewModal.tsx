@@ -50,6 +50,7 @@ const Store = safeLazy(() => import('./Store'), 'Store');
 const VapHub = safeLazy(() => import('./VapHub'), 'VapHub');
 const VideoConverter = safeLazy(() => import('./VideoConverter'), 'VideoConverter');
 const BatchCompressor = safeLazy(() => import('./BatchCompressor'), 'BatchCompressor');
+const SmartMp4Studio = safeLazy(() => import('./SmartMp4Studio'), 'SmartMp4Studio');
 
 interface FeaturePreviewModalProps {
   tool: ToolRegistryItem | null;
@@ -259,6 +260,16 @@ export const FeaturePreviewModal: React.FC<FeaturePreviewModalProps> = ({
         return (
           <AudioExtractor 
             {...commonProps} 
+          />
+        );
+
+      case 'smartMp4Studio':
+      case 'smart-mp4-studio':
+        return (
+          <SmartMp4Studio
+            currentUser={currentUser || null}
+            onCancel={onClose}
+            initialFile={null}
           />
         );
 

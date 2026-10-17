@@ -870,7 +870,7 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                       >
                         <audio 
                           ref={audioPlayerRef}
-                          src={activePreviewUrl}
+                          src={activePreviewUrl || undefined}
                           onTimeUpdate={() => {
                             if (audioPlayerRef.current) {
                               setAudioCurrentTime(audioPlayerRef.current.currentTime);

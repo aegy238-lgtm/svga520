@@ -1317,10 +1317,15 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   }, [pushHistory]);
 
   // Handle Initial File or Direct Transferred Project
+  const initialLoadedRef = useRef<File | SVGAProjectData | null>(null);
   useEffect(() => {
     if (initialProject && initialLayers && initialLayers.length > 0) {
+      if (initialLoadedRef.current === initialProject) return;
+      initialLoadedRef.current = initialProject;
       handleImportMp4AsProject(initialProject, initialLayers);
     } else if (initialFile) {
+      if (initialLoadedRef.current === initialFile) return;
+      initialLoadedRef.current = initialFile;
       loadSvgaFile(initialFile);
     }
   }, [initialFile, initialProject, initialLayers, handleImportMp4AsProject, loadSvgaFile]);

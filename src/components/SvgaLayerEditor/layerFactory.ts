@@ -241,25 +241,33 @@ export async function createShapeLayer(
   if (shapeType === 'rect') {
     const pad = 20;
     ctx.fillStyle = fillColor;
-    ctx.strokeStyle = strokeColor;
-    ctx.lineWidth = 8;
     if (ctx.roundRect) {
       ctx.beginPath();
       ctx.roundRect(pad, pad, size - pad * 2, size - pad * 2, 24);
       ctx.fill();
-      ctx.stroke();
+      if (strokeColor && strokeColor !== 'transparent') {
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = 4;
+        ctx.stroke();
+      }
     } else {
       ctx.fillRect(pad, pad, size - pad * 2, size - pad * 2);
-      ctx.strokeRect(pad, pad, size - pad * 2, size - pad * 2);
+      if (strokeColor && strokeColor !== 'transparent') {
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = 4;
+        ctx.strokeRect(pad, pad, size - pad * 2, size - pad * 2);
+      }
     }
   } else if (shapeType === 'circle') {
     ctx.fillStyle = fillColor;
-    ctx.strokeStyle = strokeColor;
-    ctx.lineWidth = 8;
     ctx.beginPath();
     ctx.arc(size / 2, size / 2, (size - 40) / 2, 0, Math.PI * 2);
     ctx.fill();
-    ctx.stroke();
+    if (strokeColor && strokeColor !== 'transparent') {
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 4;
+      ctx.stroke();
+    }
   } else if (shapeType === 'star') {
     const cx = size / 2;
     const cy = size / 2;

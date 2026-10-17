@@ -136,7 +136,7 @@ export const SelectedDesignViewer: React.FC<SelectedDesignViewerProps> = ({
         {isSvga && gift.videoUrl ? (
           <div className="relative w-full h-full flex items-center justify-center z-10">
             <SvgaPlayer
-              src={videoSrc || gift.videoUrl}
+              src={videoSrc || gift.videoUrl || undefined}
               autoPlay={isPlaying}
               loop={true}
               isMuted={isMuted}
@@ -148,7 +148,7 @@ export const SelectedDesignViewer: React.FC<SelectedDesignViewerProps> = ({
           <div className="relative w-full h-full flex items-center justify-center z-10">
             <video
               ref={videoRef}
-              src={videoSrc}
+              src={videoSrc || undefined}
               autoPlay={isPlaying}
               loop
               muted={isMuted}
@@ -159,7 +159,7 @@ export const SelectedDesignViewer: React.FC<SelectedDesignViewerProps> = ({
         ) : finalImageSource ? (
           <div className="relative w-full h-full flex items-center justify-center z-10">
             <img
-              src={finalImageSource}
+              src={finalImageSource || undefined}
               alt={displayTitle}
               className="max-h-full max-w-full object-contain opacity-100 filter-none select-none drop-shadow-2xl"
               onError={(e) => {

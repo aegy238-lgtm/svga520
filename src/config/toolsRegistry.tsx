@@ -86,6 +86,21 @@ export const CATEGORIES_CONFIG: Record<ToolCategory, CategoryInfo> = {
 
 export const TOOLS_REGISTRY: ToolRegistryItem[] = [
   {
+    id: 'smart-mp4-studio',
+    label: 'Smart MP4 Studio — AI + SVGA (استوديو فصل الفيديو الذكي)',
+    shortLabel: 'Smart MP4 Studio',
+    icon: <Sparkles className="w-4 h-4 text-emerald-400" />,
+    category: 'svga',
+    categoryNameAr: 'أنيميشن و SVGA',
+    actionKey: 'onSmartMp4StudioOpen',
+    dashboardActionKey: 'smartMp4Studio',
+    featureAccessKey: 'smartMp4Studio',
+    descAr: 'منظومة احترافية متكاملة لتحويل فيديوهات MP4 إلى عناصر منفصلة بالذكاء الاصطناعي ويدوياً، وإزالة الكروما الخضراء بدون هالة، وتصدير العناصر إلى SVGA 2.0 مع الضغط الذكي.',
+    descEn: 'Smart MP4 Studio — AI + SVGA: Multi-character/gift AI & manual video segmentation, professional chroma removal, and compressed SVGA 2.0 export.',
+    highlight: true,
+    pinnedTop: true
+  },
+  {
     id: 'apk-extractor',
     label: 'مُستخرِج أصول التطبيقات ومشاريع السيارات (APK Extractor)',
     shortLabel: 'مستخرج APK',

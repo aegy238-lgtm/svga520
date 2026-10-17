@@ -919,7 +919,7 @@ export const VideoTrimmerModal: React.FC<VideoTrimmerModalProps> = ({
 
               <video
                 ref={videoRef}
-                src={videoUrl}
+                src={videoUrl || undefined}
                 className="w-full h-full object-contain transition-transform duration-75"
                 style={{
                   transform: `scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${panOffset.y / zoomLevel}px)`,

@@ -92,6 +92,7 @@ const EmbeddedPortalViewer = lazyWithRetry(() => import('./components/EmbeddedPo
 const UniversalMultiFormatPlayerModal = lazyWithRetry(() => import('./components/UniversalMultiFormatPlayerModal').then(m => ({ default: m.UniversalMultiFormatPlayerModal || m.default })));
 const AfterEffectsStudio = lazyWithRetry(() => import('./components/AfterEffectsStudio').then(m => ({ default: m.AfterEffectsStudio || (m as any).default })));
 const ApkAssetExtractor = lazyWithRetry(() => import('./components/ApkAssetExtractor').then(m => ({ default: m.ApkAssetExtractor })));
+const SmartMp4Studio = lazyWithRetry(() => import('./components/SmartMp4Studio').then(m => ({ default: m.SmartMp4Studio || m.default })));
 
 import { LanguageTranslatorWidget } from './components/LanguageTranslatorWidget';
 
@@ -217,6 +218,7 @@ const App: React.FC = () => {
       setShowVipModal(true);
       return;
     }
+    setState(AppState.VIDEO_DURATION_SPEED);
     setShowDurationSpeedModal(true);
   }, [currentUser]);
 
@@ -229,6 +231,9 @@ const App: React.FC = () => {
         onApkExtractorOpen: AppState.APK_EXTRACTOR,
         apkExtractor: AppState.APK_EXTRACTOR,
         'apk-extractor': AppState.APK_EXTRACTOR,
+        onSmartMp4StudioOpen: AppState.SMART_MP4_STUDIO,
+        smartMp4Studio: AppState.SMART_MP4_STUDIO,
+        'smart-mp4-studio': AppState.SMART_MP4_STUDIO,
         onVideoDurationSpeedOpen: AppState.VIDEO_DURATION_SPEED,
         videoDurationSpeed: AppState.VIDEO_DURATION_SPEED,
         onSvgaLayerEditorOpen: AppState.SVGA_LAYER_EDITOR,
@@ -317,6 +322,7 @@ const App: React.FC = () => {
         () => import('./components/ImageMatcher'),
         () => import('./components/AudioExtractor'),
         () => import('./components/AIVideoMattingStudio'),
+        () => import('./components/SmartMp4Studio'),
         () => import('./components/AnimationManager/AnimationManager'),
         () => import('./components/AdminPanel')
       ];
@@ -527,6 +533,7 @@ const App: React.FC = () => {
         [AppState.MULTI_SVGA_VIEWER]: ['multi-svga', 'multiSvga', 'multi_svga'],
         [AppState.IMAGE_CONVERTER]: ['image-converter', 'imageConverter'],
         [AppState.IMAGE_COLLAGE_STUDIO]: ['image-collage-studio', 'imageCollageStudio'],
+        [AppState.SMART_MP4_STUDIO]: ['smart-mp4-studio', 'smartMp4Studio'],
         [AppState.AI_VIDEO_MATTING]: ['ai-video-matting', 'aiVideoMatting'],
         [AppState.NAME_3D_EDITOR]: ['name-3d', 'name3DEditor'],
         [AppState.IMAGE_ENHANCER]: ['image-enhancer', 'imageEnhancer'],
@@ -576,6 +583,7 @@ const App: React.FC = () => {
       [AppState.MULTI_SVGA_VIEWER]: ['multi-svga', 'multiSvga', 'multi_svga'],
       [AppState.IMAGE_CONVERTER]: ['image-converter', 'imageConverter'],
       [AppState.IMAGE_COLLAGE_STUDIO]: ['image-collage-studio', 'imageCollageStudio'],
+      [AppState.SMART_MP4_STUDIO]: ['smart-mp4-studio', 'smartMp4Studio'],
       [AppState.AI_VIDEO_MATTING]: ['ai-video-matting', 'aiVideoMatting'],
       [AppState.NAME_3D_EDITOR]: ['name-3d', 'name3DEditor'],
       [AppState.IMAGE_ENHANCER]: ['image-enhancer', 'imageEnhancer'],
@@ -613,6 +621,7 @@ const App: React.FC = () => {
     // 1. Check Feature Access Control (تحديد الوظائف)
     if (currentUser) {
       const stateToActionKey: Record<string, string> = {
+        [AppState.SMART_MP4_STUDIO]: 'smartMp4Studio',
         [AppState.AI_VIDEO_MATTING]: 'aiVideoMatting',
         [AppState.ANIMATION_MANAGER]: 'animationManager',
         [AppState.VIDEO_CONVERTER]: 'videoConverter',
@@ -876,6 +885,7 @@ const App: React.FC = () => {
     setAeStudioInitialDimensions(null);
     setPendingImageFile(null);
     setShowImageDimensionModal(false);
+    setShowDurationSpeedModal(false);
   }, [fileMetadata]);
 
   const handleImageDimensionsConfirm = (result: ImageDimensionsResult) => {
@@ -1135,6 +1145,7 @@ const App: React.FC = () => {
         onStoreOpen={() => handleFeatureAccess(AppState.STORE, 'SVGA Store & Library')}
         onAfterEffectsStudioOpen={() => handleFeatureAccess(AppState.AFTER_EFFECTS_STUDIO, 'استوديو ومحرر After Effects الاحترافي')}
         onApkExtractorOpen={() => handleFeatureAccess(AppState.APK_EXTRACTOR, 'مستخرج أصول التطبيقات ومشاريع السيارات')}
+        onSmartMp4StudioOpen={() => handleFeatureAccess(AppState.SMART_MP4_STUDIO, 'Smart MP4 Studio — AI + SVGA')}
         onVapHubOpen={() => handleFeatureAccess(AppState.VAP_HUB, 'VAP Hub')}
         onSvgaLayerEditorOpen={() => {
           setLayerEditorInitialFile(fileMetadata?.originalFile || null);
@@ -1147,6 +1158,7 @@ const App: React.FC = () => {
         onProfileClick={() => setShowProfileModal(true)}
         onVipClick={() => setShowVipModal(true)}
         currentTab={
+          state === AppState.SMART_MP4_STUDIO ? 'smart-mp4-studio' :
           state === AppState.AFTER_EFFECTS_STUDIO ? 'after-effects-studio' :
           state === AppState.APK_EXTRACTOR ? 'apk-extractor' :
           state === AppState.VIDEO_DURATION_SPEED ? 'video-duration-speed' :
@@ -1243,6 +1255,11 @@ const App: React.FC = () => {
                         case 'onApkExtractorOpen':
                         case 'apk-extractor':
                           handleFeatureAccess(AppState.APK_EXTRACTOR, 'مستخرج أصول التطبيقات ومشاريع السيارات');
+                          break;
+                        case 'smartMp4Studio':
+                        case 'onSmartMp4StudioOpen':
+                        case 'smart-mp4-studio':
+                          handleFeatureAccess(AppState.SMART_MP4_STUDIO, 'Smart MP4 Studio — AI + SVGA');
                           break;
                         case 'animationManager':
                         case 'onAnimationManagerOpen':
@@ -1604,6 +1621,15 @@ const App: React.FC = () => {
                 />
               </ErrorBoundary>
             )}
+            {state === AppState.SMART_MP4_STUDIO && (
+              <ErrorBoundary fallbackTitle="حدث خطأ في Smart MP4 Studio — AI + SVGA" onReset={handleReset}>
+                <SmartMp4Studio
+                  currentUser={currentUser}
+                  onCancel={handleReset}
+                  initialFile={fileMetadata?.originalFile || null}
+                />
+              </ErrorBoundary>
+            )}
             {state === AppState.AI_VIDEO_MATTING && (
               <ErrorBoundary fallbackTitle="حدث خطأ في استوديو قص الفيديو بالذكاء الاصطناعي" onReset={handleReset}>
                 <AIVideoMattingStudio 
@@ -1693,6 +1719,10 @@ const App: React.FC = () => {
                     onApkExtractorOpen: AppState.APK_EXTRACTOR,
                     apkExtractor: AppState.APK_EXTRACTOR,
                     'apk-extractor': AppState.APK_EXTRACTOR,
+
+                    onSmartMp4StudioOpen: AppState.SMART_MP4_STUDIO,
+                    smartMp4Studio: AppState.SMART_MP4_STUDIO,
+                    'smart-mp4-studio': AppState.SMART_MP4_STUDIO,
 
                     onVideoDurationSpeedOpen: AppState.VIDEO_DURATION_SPEED,
                     videoDurationSpeed: AppState.VIDEO_DURATION_SPEED,
