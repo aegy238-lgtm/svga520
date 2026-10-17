@@ -363,20 +363,14 @@ export const VideoDurationSpeedModal: React.FC<VideoDurationSpeedModalProps> = (
     onClose();
   };
 
-  if (!isOpen) return null;
-
   return (
-    <AnimatePresence>
+    <div
+      className={isOpen ? "fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-xl p-2 sm:p-4 md:p-6 overflow-y-auto pt-24 sm:pt-28" : "hidden"}
+      dir="rtl"
+    >
       <div
-        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-xl p-2 sm:p-4 md:p-6 overflow-y-auto pt-24 sm:pt-28"
-        dir="rtl"
+        className="relative w-full max-w-6xl bg-slate-950 border border-amber-500/30 rounded-2xl md:rounded-[2.5rem] shadow-2xl shadow-amber-500/10 flex flex-col max-h-[96vh] md:max-h-[92vh] overflow-hidden text-right"
       >
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="relative w-full max-w-6xl bg-slate-950 border border-amber-500/30 rounded-2xl md:rounded-[2.5rem] shadow-2xl shadow-amber-500/10 flex flex-col max-h-[96vh] md:max-h-[92vh] overflow-hidden text-right"
-        >
           {/* Header */}
           <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-white/10 bg-slate-900/60 shrink-0 gap-2">
             <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
@@ -971,9 +965,8 @@ export const VideoDurationSpeedModal: React.FC<VideoDurationSpeedModalProps> = (
               </button>
             </div>
           </div>
-        </motion.div>
+        </div>
       </div>
-    </AnimatePresence>
   );
 };
 

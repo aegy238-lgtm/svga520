@@ -128,6 +128,8 @@ import { OnboardingModal } from './components/OnboardingModal';
 import { HelpCircle, BookOpen, Wrench, AlertTriangle, ShieldAlert, ShoppingBag, Film, Layers, X } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ImageDimensionModal, ImageDimensionsResult } from './components/ImageDimensionModal';
+import { ThemeDimensionsWidget } from './components/ThemeDimensionsWidget';
+import { useThemeDimensions } from './contexts/ThemeDimensionsContext';
 
 const videoWidth = 1334;
 const videoHeight = 750;
@@ -201,6 +203,7 @@ const App: React.FC = () => {
   const [showSplash, setShowSplash] = useState(true);
   const [embeddedPortalTab, setEmbeddedPortalTab] = useState<'first' | 'second' | string>('first');
   const [videoBgError, setVideoBgError] = useState(false);
+  const { activeLayoutConfig, siteMaxWidthStyle } = useThemeDimensions();
 
   useEffect(() => {
     setVideoBgError(false);
@@ -1207,8 +1210,8 @@ const App: React.FC = () => {
         }
       />
       
-      <div className="flex pt-28 h-screen overflow-hidden relative">
-        <main className={`flex-1 overflow-y-auto transition-all duration-700 custom-scrollbar mr-0`}>
+      <div className="pt-24 sm:pt-28 min-h-screen relative w-full flex flex-col">
+        <main className="flex-1 w-full transition-all duration-300 mr-0">
           <style>{`
             .no-scrollbar::-webkit-scrollbar {
               display: none;
@@ -1234,10 +1237,13 @@ const App: React.FC = () => {
               to { background-position: 200% center; }
             }
           `}</style>
-          <div className={state === AppState.IDLE ? "max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10" : "w-full max-w-full px-1 sm:px-3 lg:px-6 py-2 sm:py-4 min-h-[calc(100vh-120px)] flex flex-col flex-1"}>
+          <div 
+            className="w-full mx-auto px-2 sm:px-4 lg:px-6 py-2 sm:py-4 min-h-[calc(100vh-120px)] flex flex-col flex-1 transition-all duration-300"
+            style={{ maxWidth: siteMaxWidthStyle }}
+          >
             <Suspense fallback={<Loading />}>
             {state === AppState.IDLE && (
-              <div className="py-4 sm:py-10 animate-in fade-in zoom-in duration-700 w-full relative mx-auto lg:w-[100vw] lg:left-1/2 lg:right-1/2 lg:-ml-[50vw] lg:-mr-[50vw]">
+              <div className="py-2 sm:py-6 animate-in fade-in duration-500 w-full relative mx-auto">
                 <Dashboard 
                   onUpload={handleFileUpload} 
                   onUniversalPlay={(file) => {
@@ -2041,6 +2047,9 @@ const App: React.FC = () => {
 
       {/* Persistent Background Continuous Export Center */}
       <GlobalExportWidget />
+
+      {/* Floating Smart Circle for Dimensions, Zoom & Themes ("الدايرة الذكية") */}
+      <ThemeDimensionsWidget />
     </div>
   );
 };

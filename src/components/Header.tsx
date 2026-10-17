@@ -15,6 +15,7 @@ import { SUPPORTED_LANGUAGES } from './LanguageTranslatorWidget';
 import { CURRENT_APP_VERSION, BUILD_NUMBER } from '../utils/versionControl';
 import { VersionInfoModal } from './VersionInfoModal';
 import { useStarredTools } from '../utils/starredTools';
+import { useThemeDimensions } from '../contexts/ThemeDimensionsContext';
 import { 
   TOOLS_REGISTRY, 
   TOOL_FEATURE_MAP, 
@@ -91,6 +92,7 @@ export const Header: React.FC<HeaderProps> = (props) => {
   const [isMoreToolsOpen, setIsMoreToolsOpen] = useState(false);
   const moreToolsMenuRef = useRef<HTMLDivElement>(null);
   const { language, setLanguage } = useLanguage();
+  const { activeThemeConfig, zoomScale, setIsModalOpen: setIsThemeDimensionsModalOpen } = useThemeDimensions();
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -383,8 +385,10 @@ export const Header: React.FC<HeaderProps> = (props) => {
   // Next and Previous Tool Navigation for Unstarred/Moving Tools
   const currentUnstarredIndex = useMemo(() => {
     if (!props.currentTab) return -1;
-    return unstarredNavTools.findIndex(t => t.id === props.currentTab);
-  }, [props.currentTab, unstarredNavTools]);
+    const unstarredIdx = unstarredNavTools.findIndex(t => t.id === props.currentTab);
+    if (unstarredIdx !== -1) return unstarredIdx;
+    return topNavTools.findIndex(t => t.id === props.currentTab);
+  }, [props.currentTab, unstarredNavTools, topNavTools]);
 
   const prevTool = useMemo(() => {
     const list = unstarredNavTools.length > 0 ? unstarredNavTools : topNavTools;
@@ -539,7 +543,7 @@ export const Header: React.FC<HeaderProps> = (props) => {
     <div className="flex items-center flex-1 min-w-0 max-w-full overflow-hidden mx-1 lg:mx-2.5 gap-1.5 sm:gap-2">
       {/* 1. Primary Fixed Section (Logo -> مجموعة الأزرار الرئيسية) */}
       {starredNavTools.length > 0 && (
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <div className="hidden lg:flex items-center gap-1.5 sm:gap-2 shrink-0">
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {starredNavTools.map((tool) => renderNavToolButton(tool, true))}
           </div>
@@ -548,8 +552,8 @@ export const Header: React.FC<HeaderProps> = (props) => {
         </div>
       )}
 
-      {/* 2. Scrollable Secondary Tools Track (الأدوات الإضافية) - Hidden on medium laptops/tablets */}
-      <div className="hidden xl:flex items-center flex-1 min-w-0 overflow-hidden relative mx-1">
+      {/* 2. Scrollable Secondary Tools Track (الأدوات الإضافية) - Always visible across viewports */}
+      <div className="flex items-center flex-1 min-w-0 overflow-hidden relative mx-0.5 sm:mx-1">
         {/* Next / Step Forward Button (الزر المشروح في الصورة لتقليب وفتح المزايا) */}
         <button
           type="button"
@@ -759,6 +763,22 @@ export const Header: React.FC<HeaderProps> = (props) => {
               <Command className="w-3 h-3" />
               <span>K</span>
             </div>
+          </button>
+
+          {/* Smart Circle Button for Studio Dimensions, Zoom & Themes ("الدايرة الذكية") */}
+          <button
+            onClick={() => setIsThemeDimensionsModalOpen(true)}
+            className="w-9 h-9 md:w-10 md:h-10 rounded-full transition-all duration-300 border flex items-center justify-center shrink-0 cursor-pointer relative group shadow-md hover:scale-105 active:scale-95"
+            style={{
+              background: activeThemeConfig?.previewGradient || 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+              borderColor: 'rgba(255, 255, 255, 0.25)'
+            }}
+            title="تخصيص أبعاد ومقاسات وتصميم الموقع وراحة العين (الدايرة الذكية) 🎨📐"
+          >
+            <span className="text-base select-none">{activeThemeConfig?.iconSymbol || '🎨'}</span>
+            <span className="absolute -bottom-1 -start-1 text-[8px] font-black bg-black/80 px-1 rounded-full text-white font-mono">
+              {Math.round((zoomScale || 1) * 100)}%
+            </span>
           </button>
 
           {/* Pin / Auto-hide Toggle Button */}

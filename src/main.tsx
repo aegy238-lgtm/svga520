@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { AuthProvider } from './contexts/AuthContext';
+import { ThemeDimensionsProvider } from './contexts/ThemeDimensionsContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { setupSvgaAudioPolyfill } from './utils/svgaAudio';
 import { initClientSecurityShield } from './utils/securityProtection';
@@ -63,7 +64,9 @@ root.render(
     <ErrorBoundary fallbackTitle="حدث خطأ في تحميل المنصة">
       <AuthProvider>
         <LanguageProvider>
-          <App />
+          <ThemeDimensionsProvider>
+            <App />
+          </ThemeDimensionsProvider>
         </LanguageProvider>
       </AuthProvider>
     </ErrorBoundary>

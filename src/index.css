@@ -14,9 +14,16 @@
 @layer base {
   body {
     @apply font-sans;
-    background-color: #070A12; /* Deep dark base */
+    background-color: var(--theme-bg, #070A12) !important; /* Dynamic theme background */
     color: #f8fafc;
     top: 0px !important;
+    transition: background-color 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* Eye Comfort Mode Filter (Blue light attenuation & soothing warmth for long night sessions) */
+  html.eye-comfort-active {
+    filter: sepia(0.24) contrast(0.96) brightness(0.96) !important;
+    transition: filter 0.4s ease;
   }
 
   /* Make all text, labels, numbers, titles, and codes freely selectable and copyable with mouse */
