@@ -368,7 +368,7 @@ export const VideoDurationSpeedModal: React.FC<VideoDurationSpeedModalProps> = (
   return (
     <AnimatePresence>
       <div
-        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-xl p-2 sm:p-4 md:p-6 overflow-y-auto"
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-xl p-2 sm:p-4 md:p-6 overflow-y-auto pt-24 sm:pt-28"
         dir="rtl"
       >
         <motion.div

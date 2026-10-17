@@ -3684,7 +3684,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#070b14] text-white flex flex-col font-sans overflow-hidden" dir="ltr">
+    <div className="fixed inset-0 z-50 bg-[#070b14] text-white flex flex-col font-sans overflow-hidden pt-20 sm:pt-24" dir="ltr">
       <input
         type="file"
         ref={fileInputRef}

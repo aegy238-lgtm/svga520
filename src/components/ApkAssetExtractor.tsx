@@ -131,7 +131,7 @@ export const ApkAssetExtractor: React.FC<ApkAssetExtractorProps> = ({
   return (
     <div 
       ref={containerRef}
-      className="fixed inset-0 z-[1200] bg-[#070b16] flex flex-col overflow-hidden text-slate-100 select-none animate-in fade-in duration-200"
+      className="fixed inset-0 z-[1200] bg-[#070b16] flex flex-col overflow-hidden text-slate-100 select-none animate-in fade-in duration-200 pt-20 sm:pt-24"
       dir="rtl"
     >
       {/* Top Professional Header Bar */}

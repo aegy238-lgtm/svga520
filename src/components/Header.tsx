@@ -174,7 +174,8 @@ export const Header: React.FC<HeaderProps> = (props) => {
     localStorage.setItem('header_pinned', String(next));
   };
 
-  const isHeaderVisible = isPinned || isHovered || isSearchOpen || isMobileMenuOpen || isVersionModalOpen || isAllToolsOpen || isMobileScreen;
+  // Always fixed and visible across all features as requested by user
+  const isHeaderVisible = true;
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -707,7 +708,7 @@ export const Header: React.FC<HeaderProps> = (props) => {
           pointerEvents: isHeaderVisible ? 'auto' : 'none',
           transition: 'all 0.35s cubic-bezier(0.16, 1, 0.3, 1)'
         }}
-        className="fixed top-2.5 sm:top-3 left-3 sm:left-5 right-3 sm:right-5 h-16 md:h-20 bg-[#090e1c]/90 backdrop-blur-2xl rounded-2xl md:rounded-3xl z-[1000] px-2.5 sm:px-4 md:px-6 flex items-center justify-between shadow-[0_16px_45px_rgba(0,0,0,0.75)] border border-white/[0.09] gap-2 lg:gap-3"
+        className="fixed top-2.5 sm:top-3 left-3 sm:left-5 right-3 sm:right-5 h-16 md:h-20 bg-[#090e1c]/90 backdrop-blur-2xl rounded-2xl md:rounded-3xl z-[3500] px-2.5 sm:px-4 md:px-6 flex items-center justify-between shadow-[0_16px_45px_rgba(0,0,0,0.75)] border border-white/[0.09] gap-2 lg:gap-3"
       >
         
         {/* Logo */}

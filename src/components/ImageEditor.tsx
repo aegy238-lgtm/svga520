@@ -576,7 +576,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ onCancel }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#0a0f1c] flex flex-col font-sans transition-colors duration-300 select-none">
+    <div className="fixed inset-0 z-50 bg-[#0a0f1c] flex flex-col font-sans transition-colors duration-300 select-none pt-20 sm:pt-24">
       
       {/* Top Header Bar */}
       <div className="h-16 bg-[#040812] border-b border-indigo-500/10 flex items-center justify-between px-6 shrink-0 z-20">

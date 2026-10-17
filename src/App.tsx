@@ -888,6 +888,25 @@ const App: React.FC = () => {
     setShowDurationSpeedModal(false);
   }, [fileMetadata]);
 
+  // Non-destructive navigation to IDLE that preserves user work and files
+  const handleCloseFeature = useCallback(() => {
+    setState(AppState.IDLE);
+  }, []);
+
+  // Visited states tracking for keep-alive component preservation
+  const [visitedStates, setVisitedStates] = useState<Set<AppState>>(() => new Set([AppState.IDLE]));
+
+  useEffect(() => {
+    if (state && state !== AppState.IDLE) {
+      setVisitedStates(prev => {
+        if (prev.has(state)) return prev;
+        const next = new Set(prev);
+        next.add(state);
+        return next;
+      });
+    }
+  }, [state]);
+
   const handleImageDimensionsConfirm = (result: ImageDimensionsResult) => {
     if (!pendingImageFile) return;
     setAeStudioInitialDimensions({ width: result.width, height: result.height });
@@ -1215,7 +1234,7 @@ const App: React.FC = () => {
               to { background-position: 200% center; }
             }
           `}</style>
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+          <div className={state === AppState.IDLE ? "max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10" : "w-full max-w-full px-1 sm:px-3 lg:px-6 py-2 sm:py-4 min-h-[calc(100vh-120px)] flex flex-col flex-1"}>
             <Suspense fallback={<Loading />}>
             {state === AppState.IDLE && (
               <div className="py-4 sm:py-10 animate-in fade-in zoom-in duration-700 w-full relative mx-auto lg:w-[100vw] lg:left-1/2 lg:right-1/2 lg:-ml-[50vw] lg:-mr-[50vw]">
@@ -1438,273 +1457,322 @@ const App: React.FC = () => {
                 </div>
               </div>
             )}
-            {state === AppState.BATCH_COMPRESSOR && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في ضاغط الملفات الجماعي" onReset={handleReset}>
-                <BatchCompressor 
-                  onCancel={handleReset} 
-                  currentUser={currentUser} 
-                  onLoginRequired={() => {}}
-                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                />
-              </ErrorBoundary>
-            )}
-            {state === AppState.SVGA_BATCH_COMPRESSOR && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في ضاغط دفعات SVGA و VAP" onReset={handleReset}>
-                <SvgaBatchCompressor 
-                  onCancel={handleReset} 
-                  currentUser={currentUser} 
-                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                />
-              </ErrorBoundary>
-            )}
-            {state === AppState.BATCH_SVGA_CONVERTER && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في محول دفعات SVGA" onReset={handleReset}>
-                <Suspense fallback={<div className="text-white text-center py-20 font-black">جاري تحميل المحول الجماعي...</div>}>
-                  <BatchSvgaConverter 
-                    onCancel={handleReset} 
+            {visitedStates.has(AppState.BATCH_COMPRESSOR) && (
+              <div className={state === AppState.BATCH_COMPRESSOR ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في ضاغط الملفات الجماعي" onReset={handleCloseFeature}>
+                  <BatchCompressor 
+                    onCancel={handleCloseFeature} 
                     currentUser={currentUser} 
-                    settings={settings}
                     onLoginRequired={() => {}}
+                    onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                  />
+                </ErrorBoundary>
+              </div>
+            )}
+            {visitedStates.has(AppState.SVGA_BATCH_COMPRESSOR) && (
+              <div className={state === AppState.SVGA_BATCH_COMPRESSOR ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في ضاغط دفعات SVGA و VAP" onReset={handleCloseFeature}>
+                  <SvgaBatchCompressor 
+                    onCancel={handleCloseFeature} 
+                    currentUser={currentUser} 
+                    onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                  />
+                </ErrorBoundary>
+              </div>
+            )}
+            {visitedStates.has(AppState.BATCH_SVGA_CONVERTER) && (
+              <div className={state === AppState.BATCH_SVGA_CONVERTER ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في محول دفعات SVGA" onReset={handleCloseFeature}>
+                  <Suspense fallback={<div className="text-white text-center py-20 font-black">جاري تحميل المحول الجماعي...</div>}>
+                    <BatchSvgaConverter 
+                      onCancel={handleCloseFeature} 
+                      currentUser={currentUser} 
+                      settings={settings}
+                      onLoginRequired={() => {}}
+                      onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                      initialFiles={initialSvgaFiles}
+                    />
+                  </Suspense>
+                </ErrorBoundary>
+              </div>
+            )}
+            {visitedStates.has(AppState.SVGA_LAYER_EDITOR) && (
+              <div className={state === AppState.SVGA_LAYER_EDITOR ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في محرر طبقات SVGA" onReset={handleCloseFeature}>
+                  <SvgaLayerEditor 
+                    initialFile={layerEditorInitialFile || fileMetadata?.originalFile || undefined}
+                    initialProject={layerEditorInitialProject || undefined}
+                    initialLayers={layerEditorInitialLayers || undefined}
+                    onClose={() => {
+                      if (fileMetadata) {
+                        setState(AppState.PROCESSING);
+                      } else {
+                        handleCloseFeature();
+                      }
+                    }}
+                    onOpenViewer={(exportedFile) => handleFileUpload([exportedFile])}
+                  />
+                </ErrorBoundary>
+              </div>
+            )}
+            
+            {visitedStates.has(AppState.VIDEO_CONVERTER) && (
+              <div className={state === AppState.VIDEO_CONVERTER ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في محول الفيديو" onReset={handleCloseFeature}>
+                  <VideoConverter 
+                    currentUser={currentUser} 
+                    onCancel={handleCloseFeature} 
+                    onLoginRequired={() => {}}
+                    onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                    globalQuality={globalQuality}
+                    initialFiles={initialVideoFiles}
+                    onOpenLayerEditor={(params) => {
+                      setLayerEditorInitialFile(params.file || null);
+                      setLayerEditorInitialProject(params.project || null);
+                      setLayerEditorInitialLayers(params.layers || null);
+                      handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
+                    }}
+                  />
+                </ErrorBoundary>
+              </div>
+            )}
+            {visitedStates.has(AppState.UNIVERSAL_CONVERTER) && (
+              <div className={state === AppState.UNIVERSAL_CONVERTER ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في محول الحركة الشامل" onReset={handleCloseFeature}>
+                  <UniversalMotionTools 
+                    currentUser={currentUser} 
+                    onCancel={handleCloseFeature} 
+                    onLoginRequired={() => {}}
+                    onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                    initialFile={initialVapFile}
+                    onOpenInWorkspace={(meta) => {
+                      setFileMetadata(meta);
+                      setState(AppState.PROCESSING);
+                    }}
+                  />
+                </ErrorBoundary>
+              </div>
+            )}
+            {visitedStates.has(AppState.IMAGE_CONVERTER) && (
+              <div className={state === AppState.IMAGE_CONVERTER ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في محول الصور إلى SVGA" onReset={handleCloseFeature}>
+                  <ImageToSvga 
+                    currentUser={currentUser} 
+                    onCancel={handleCloseFeature} 
+                    onLoginRequired={() => {}}
+                    onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                    globalQuality={globalQuality}
+                    initialFile={initialLottieFile}
+                  />
+                </ErrorBoundary>
+              </div>
+            )}
+            {visitedStates.has(AppState.IMAGE_PROCESSOR) && (
+              <div className={state === AppState.IMAGE_PROCESSOR ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في معالج الصور" onReset={handleCloseFeature}>
+                  <ImageProcessor 
+                    currentUser={currentUser} 
+                    onCancel={handleCloseFeature} 
+                    onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                  />
+                </ErrorBoundary>
+              </div>
+            )}
+            {visitedStates.has(AppState.IMAGE_ENHANCER) && (
+              <div className={state === AppState.IMAGE_ENHANCER ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في محسن الصور بالذكاء الاصطناعي" onReset={handleCloseFeature}>
+                  <ImageEnhancer 
+                    currentUser={currentUser} 
+                    onCancel={handleCloseFeature} 
+                    onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                  />
+                </ErrorBoundary>
+              </div>
+            )}
+            {visitedStates.has(AppState.BATCH_IMAGE_PROCESSOR) && (
+              <div className={state === AppState.BATCH_IMAGE_PROCESSOR ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في معالج الصور الجماعي" onReset={handleCloseFeature}>
+                  <BatchImageProcessor 
+                    onCancel={handleCloseFeature} 
+                    onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                  />
+                </ErrorBoundary>
+              </div>
+            )}
+            {visitedStates.has(AppState.IMAGE_EDITOR) && (
+              <div className={state === AppState.IMAGE_EDITOR ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في محرر الصور" onReset={handleCloseFeature}>
+                  <ImageEditor 
+                    currentUser={currentUser} 
+                    onCancel={handleCloseFeature} 
+                    onLoginRequired={() => {}}
+                    onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                  />
+                </ErrorBoundary>
+              </div>
+            )}
+            {visitedStates.has(AppState.IMAGE_MATCHER) && (
+              <div className={state === AppState.IMAGE_MATCHER ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في مطابقة الصور" onReset={handleCloseFeature}>
+                  <ImageMatcher 
+                    currentUser={currentUser} 
+                    onCancel={handleCloseFeature} 
+                    onLoginRequired={() => {}}
+                    onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                  />
+                </ErrorBoundary>
+              </div>
+            )}
+            {visitedStates.has(AppState.BATCH_CROPPER) && (
+              <div className={state === AppState.BATCH_CROPPER ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في قاص الصور والمحدد الذكي" onReset={handleCloseFeature}>
+                  <BatchCropper 
+                    currentUser={currentUser} 
+                    onCancel={handleCloseFeature} 
+                    onLoginRequired={() => {}}
+                    onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                  />
+                </ErrorBoundary>
+              </div>
+            )}
+            {visitedStates.has(AppState.NAME_3D_EDITOR) && (
+              <div className={state === AppState.NAME_3D_EDITOR ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في محرر السمات ثلاثية الأبعاد" onReset={handleCloseFeature}>
+                  <Name3DEditor 
+                    onCancel={handleCloseFeature} 
+                    currentUser={currentUser}
+                    onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                  />
+                </ErrorBoundary>
+              </div>
+            )}
+            {visitedStates.has(AppState.MULTI_SVGA_VIEWER) && (
+              <div className={state === AppState.MULTI_SVGA_VIEWER ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في عارض ومقارن SVGA المتعدد" onReset={handleCloseFeature}>
+                  <MultiSvgaViewer 
+                    onCancel={handleCloseFeature} 
+                    currentUser={currentUser}
                     onSubscriptionRequired={() => setShowSubscriptionModal(true)}
                     initialFiles={initialSvgaFiles}
                   />
-                </Suspense>
-              </ErrorBoundary>
+                </ErrorBoundary>
+              </div>
             )}
-            {state === AppState.SVGA_LAYER_EDITOR && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في محرر طبقات SVGA" onReset={handleReset}>
-                <SvgaLayerEditor 
-                  initialFile={layerEditorInitialFile || fileMetadata?.originalFile || undefined}
-                  initialProject={layerEditorInitialProject || undefined}
-                  initialLayers={layerEditorInitialLayers || undefined}
-                  onClose={() => {
-                    setLayerEditorInitialFile(null);
-                    setLayerEditorInitialProject(null);
-                    setLayerEditorInitialLayers(null);
-                    if (fileMetadata) {
-                      setState(AppState.PROCESSING);
-                    } else {
-                      handleReset();
-                    }
-                  }}
-                  onOpenViewer={(exportedFile) => handleFileUpload([exportedFile])}
-                />
-              </ErrorBoundary>
+            {visitedStates.has(AppState.AUDIO_EXTRACTOR) && (
+              <div className={state === AppState.AUDIO_EXTRACTOR ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في مستخرج الصوت" onReset={handleCloseFeature}>
+                  <AudioExtractor 
+                    currentUser={currentUser}
+                    onCancel={handleCloseFeature}
+                    onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                  />
+                </ErrorBoundary>
+              </div>
             )}
-            
-            {state === AppState.VIDEO_CONVERTER && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في محول الفيديو" onReset={handleReset}>
-                <VideoConverter 
-                  currentUser={currentUser} 
-                  onCancel={handleReset} 
-                  onLoginRequired={() => {}}
-                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                  globalQuality={globalQuality}
-                  initialFiles={initialVideoFiles}
-                  onOpenLayerEditor={(params) => {
-                    setLayerEditorInitialFile(params.file || null);
-                    setLayerEditorInitialProject(params.project || null);
-                    setLayerEditorInitialLayers(params.layers || null);
-                    handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
-                  }}
-                />
-              </ErrorBoundary>
+            {visitedStates.has(AppState.SMART_MP4_STUDIO) && (
+              <div className={state === AppState.SMART_MP4_STUDIO ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في Smart MP4 Studio — AI + SVGA" onReset={handleCloseFeature}>
+                  <SmartMp4Studio
+                    currentUser={currentUser}
+                    onCancel={handleCloseFeature}
+                    initialFile={fileMetadata?.originalFile || null}
+                  />
+                </ErrorBoundary>
+              </div>
             )}
-            {state === AppState.UNIVERSAL_CONVERTER && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في محول الحركة الشامل" onReset={handleReset}>
-                <UniversalMotionTools 
-                  currentUser={currentUser} 
-                  onCancel={handleReset} 
-                  onLoginRequired={() => {}}
-                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                  initialFile={initialVapFile}
-                  onOpenInWorkspace={(meta) => {
-                    setFileMetadata(meta);
-                    setState(AppState.PROCESSING);
-                  }}
-                />
-              </ErrorBoundary>
+            {visitedStates.has(AppState.AI_VIDEO_MATTING) && (
+              <div className={state === AppState.AI_VIDEO_MATTING ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في استوديو قص الفيديو بالذكاء الاصطناعي" onReset={handleCloseFeature}>
+                  <AIVideoMattingStudio 
+                    currentUser={currentUser}
+                    onCancel={handleCloseFeature}
+                    onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                    initialVideoFile={fileMetadata?.originalFile || null}
+                  />
+                </ErrorBoundary>
+              </div>
             )}
-            {state === AppState.IMAGE_CONVERTER && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في محول الصور إلى SVGA" onReset={handleReset}>
-                <ImageToSvga 
-                  currentUser={currentUser} 
-                  onCancel={handleReset} 
-                  onLoginRequired={() => {}}
-                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                  globalQuality={globalQuality}
-                  initialFile={initialLottieFile}
-                />
-              </ErrorBoundary>
+            {visitedStates.has(AppState.IMAGE_COLLAGE_STUDIO) && (
+              <div className={state === AppState.IMAGE_COLLAGE_STUDIO ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في مجمع الصور والعلامة المائية" onReset={handleCloseFeature}>
+                  <ImageCollageStudio 
+                    onBack={handleCloseFeature} 
+                    initialFiles={fileMetadata?.originalFile ? [fileMetadata.originalFile] : null}
+                  />
+                </ErrorBoundary>
+              </div>
             )}
-            {state === AppState.IMAGE_PROCESSOR && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في معالج الصور" onReset={handleReset}>
-                <ImageProcessor 
-                  currentUser={currentUser} 
-                  onCancel={handleReset} 
-                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                />
-              </ErrorBoundary>
+            {visitedStates.has(AppState.ANIMATION_MANAGER) && (
+              <div className={state === AppState.ANIMATION_MANAGER ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في مدير ملفات الأنميشن" onReset={handleCloseFeature}>
+                  <AnimationManager onBack={handleCloseFeature} />
+                </ErrorBoundary>
+              </div>
             )}
-            {state === AppState.IMAGE_ENHANCER && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في محسن الصور بالذكاء الاصطناعي" onReset={handleReset}>
-                <ImageEnhancer 
-                  currentUser={currentUser} 
-                  onCancel={handleReset} 
-                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                />
-              </ErrorBoundary>
+            {visitedStates.has(AppState.STORE) && (
+              <div className={state === AppState.STORE ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في متجر أصول SVGA" onReset={handleCloseFeature}>
+                  <Store 
+                    currentUser={currentUser} 
+                    onLoginRequired={() => {}} 
+                  />
+                </ErrorBoundary>
+              </div>
             )}
-            {state === AppState.BATCH_IMAGE_PROCESSOR && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في معالج الصور الجماعي" onReset={handleReset}>
-                <BatchImageProcessor 
-                  onCancel={handleReset} 
-                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                />
-              </ErrorBoundary>
+            {visitedStates.has(AppState.EMBEDDED_PORTAL) && (
+              <div className={state === AppState.EMBEDDED_PORTAL ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في البوابة المضمنة" onReset={handleCloseFeature}>
+                  <EmbeddedPortalViewer 
+                    settings={settings || undefined}
+                    initialTab={embeddedPortalTab}
+                    onClose={handleCloseFeature}
+                  />
+                </ErrorBoundary>
+              </div>
             )}
-            {state === AppState.IMAGE_EDITOR && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في محرر الصور" onReset={handleReset}>
-                <ImageEditor 
-                  currentUser={currentUser} 
-                  onCancel={handleReset} 
-                  onLoginRequired={() => {}}
-                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                />
-              </ErrorBoundary>
+            {visitedStates.has(AppState.VAP_HUB) && (
+              <div className={state === AppState.VAP_HUB ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في VAP Hub" onReset={handleCloseFeature}>
+                  <VapHub />
+                </ErrorBoundary>
+              </div>
             )}
-            {state === AppState.IMAGE_MATCHER && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في مطابقة الصور" onReset={handleReset}>
-                <ImageMatcher 
-                  currentUser={currentUser} 
-                  onCancel={handleReset} 
-                  onLoginRequired={() => {}}
-                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                />
-              </ErrorBoundary>
+            {visitedStates.has(AppState.AFTER_EFFECTS_STUDIO) && (
+              <div className={state === AppState.AFTER_EFFECTS_STUDIO ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في تحميل استوديو ومحرر After Effects" onReset={handleCloseFeature}>
+                  <AfterEffectsStudio 
+                    initialFile={aeStudioInitialFile || fileMetadata?.originalFile || null}
+                    initialMetadata={fileMetadata || null}
+                    initialDimensions={aeStudioInitialDimensions}
+                    onCancel={handleCloseFeature}
+                    onClose={handleCloseFeature}
+                    onOpenInViewer={(file) => {
+                      if (file?.originalFile) {
+                        handleFileUpload([file.originalFile]);
+                      }
+                    }}
+                  />
+                </ErrorBoundary>
+              </div>
             )}
-            {state === AppState.BATCH_CROPPER && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في قاص الصور والمحدد الذكي" onReset={handleReset}>
-                <BatchCropper 
-                  currentUser={currentUser} 
-                  onCancel={handleReset} 
-                  onLoginRequired={() => {}}
-                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                />
-              </ErrorBoundary>
+            {visitedStates.has(AppState.APK_EXTRACTOR) && (
+              <div className={state === AppState.APK_EXTRACTOR ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في تحميل مستخرج أصول التطبيقات ومشاريع السيارات" onReset={handleCloseFeature}>
+                  <Suspense fallback={<Loading message="جارٍ تجهيز مستخرج أصول التطبيقات ومشاريع السيارات..." />}>
+                    <ApkAssetExtractor onClose={handleCloseFeature} />
+                  </Suspense>
+                </ErrorBoundary>
+              </div>
             )}
-            {state === AppState.NAME_3D_EDITOR && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في محرر السمات ثلاثية الأبعاد" onReset={handleReset}>
-                <Name3DEditor 
-                  onCancel={handleReset} 
-                  currentUser={currentUser}
-                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                />
-              </ErrorBoundary>
-            )}
-            {state === AppState.MULTI_SVGA_VIEWER && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في عارض ومقارن SVGA المتعدد" onReset={handleReset}>
-                <MultiSvgaViewer 
-                  onCancel={handleReset} 
-                  currentUser={currentUser}
-                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                  initialFiles={initialSvgaFiles}
-                />
-              </ErrorBoundary>
-            )}
-            {state === AppState.AUDIO_EXTRACTOR && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في مستخرج الصوت" onReset={handleReset}>
-                <AudioExtractor 
-                  currentUser={currentUser}
-                  onCancel={handleReset}
-                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                />
-              </ErrorBoundary>
-            )}
-            {state === AppState.SMART_MP4_STUDIO && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في Smart MP4 Studio — AI + SVGA" onReset={handleReset}>
-                <SmartMp4Studio
-                  currentUser={currentUser}
-                  onCancel={handleReset}
-                  initialFile={fileMetadata?.originalFile || null}
-                />
-              </ErrorBoundary>
-            )}
-            {state === AppState.AI_VIDEO_MATTING && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في استوديو قص الفيديو بالذكاء الاصطناعي" onReset={handleReset}>
-                <AIVideoMattingStudio 
-                  currentUser={currentUser}
-                  onCancel={handleReset}
-                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-                  initialVideoFile={fileMetadata?.originalFile || null}
-                />
-              </ErrorBoundary>
-            )}
-            {state === AppState.IMAGE_COLLAGE_STUDIO && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في مجمع الصور والعلامة المائية" onReset={handleReset}>
-                <ImageCollageStudio 
-                  onBack={handleReset} 
-                  initialFiles={fileMetadata?.originalFile ? [fileMetadata.originalFile] : null}
-                />
-              </ErrorBoundary>
-            )}
-            {state === AppState.ANIMATION_MANAGER && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في مدير ملفات الأنميشن" onReset={handleReset}>
-                <AnimationManager onBack={handleReset} />
-              </ErrorBoundary>
-            )}
-            {state === AppState.STORE && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في متجر أصول SVGA" onReset={handleReset}>
-                <Store 
-                  currentUser={currentUser} 
-                  onLoginRequired={() => {}} 
-                />
-              </ErrorBoundary>
-            )}
-            {state === AppState.EMBEDDED_PORTAL && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في البوابة المضمنة" onReset={handleReset}>
-                <EmbeddedPortalViewer 
-                  settings={settings || undefined}
-                  initialTab={embeddedPortalTab}
-                  onClose={handleReset}
-                />
-              </ErrorBoundary>
-            )}
-            {state === AppState.VAP_HUB && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في VAP Hub" onReset={handleReset}>
-                <VapHub />
-              </ErrorBoundary>
-            )}
-            {state === AppState.AFTER_EFFECTS_STUDIO && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في تحميل استوديو ومحرر After Effects" onReset={handleReset}>
-                <AfterEffectsStudio 
-                  initialFile={aeStudioInitialFile || fileMetadata?.originalFile || null}
-                  initialMetadata={fileMetadata || null}
-                  initialDimensions={aeStudioInitialDimensions}
-                  onCancel={handleReset}
-                  onClose={handleReset}
-                  onOpenInViewer={(file) => {
-                    if (file?.originalFile) {
-                      handleFileUpload([file.originalFile]);
-                    }
-                  }}
-                />
-              </ErrorBoundary>
-            )}
-            {state === AppState.APK_EXTRACTOR && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في تحميل مستخرج أصول التطبيقات ومشاريع السيارات" onReset={handleReset}>
-                <Suspense fallback={<Loading message="جارٍ تجهيز مستخرج أصول التطبيقات ومشاريع السيارات..." />}>
-                  <ApkAssetExtractor onClose={handleReset} />
-                </Suspense>
-              </ErrorBoundary>
-            )}
-            {state === AppState.VIDEO_DURATION_SPEED && (
-              <ErrorBoundary fallbackTitle="حدث خطأ في أداة التحكم في سرعة ومدة الفيديو" onReset={handleReset}>
-                <VideoDurationSpeedModal
-                  isOpen={true}
-                  onClose={handleReset}
-                />
-              </ErrorBoundary>
+            {visitedStates.has(AppState.VIDEO_DURATION_SPEED) && (
+              <div className={state === AppState.VIDEO_DURATION_SPEED ? "w-full h-full flex-1 flex flex-col" : "hidden"}>
+                <ErrorBoundary fallbackTitle="حدث خطأ في أداة التحكم في سرعة ومدة الفيديو" onReset={handleCloseFeature}>
+                  <VideoDurationSpeedModal
+                    isOpen={state === AppState.VIDEO_DURATION_SPEED || showDurationSpeedModal}
+                    onClose={handleCloseFeature}
+                  />
+                </ErrorBoundary>
+              </div>
             )}
             {state === AppState.ADMIN_PANEL && (currentUser?.role === 'admin' || currentUser?.role === 'moderator') && (
               <AdminPanel 
