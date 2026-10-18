@@ -33,6 +33,11 @@ import {
   PenTool,
   Brush,
   Crop,
+  Play,
+  Pause,
+  RotateCcw,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { logActivity } from "../utils/logger";
 import { trackUploadedFile } from "../services/centralUploadService";
@@ -144,6 +149,83 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState<boolean>(true);
+  const [previewCurrentTime, setPreviewCurrentTime] = useState<number>(0);
+  const [isPreviewMuted, setIsPreviewMuted] = useState<boolean>(true);
+
+  const realDuration = previewVideoRef.current?.duration || duration || 0;
+  const effectiveStart = isAutoDuration || durationMode === "auto" ? 0 : startTime;
+  const effectiveEnd = (isAutoDuration || durationMode === "auto")
+    ? (realDuration > 0 ? realDuration : duration)
+    : (endTime && endTime > startTime ? endTime : (realDuration > 0 ? realDuration : duration));
+
+  // Speed multiplier for speed_fit mode
+  const currentSpeedMultiplier = React.useMemo(() => {
+    if (durationMode === "speed_fit" || timingSettings.mode === "fit_duration") {
+      const target = targetSpeedDuration || timingSettings.targetDuration || 10;
+      return Math.max(0.05, (duration || 10) / Math.max(0.1, target));
+    }
+    return 1.0;
+  }, [durationMode, timingSettings, targetSpeedDuration, duration]);
+
+  // Sync playbackRate on previewVideo
+  useEffect(() => {
+    if (previewVideoRef.current) {
+      previewVideoRef.current.playbackRate = Math.min(16, Math.max(0.1, currentSpeedMultiplier));
+    }
+  }, [currentSpeedMultiplier, currentFileIndex]);
+
+  // Sync seek to start point when start time changes or durationMode changes
+  useEffect(() => {
+    if (previewVideoRef.current) {
+      previewVideoRef.current.currentTime = effectiveStart;
+      setPreviewCurrentTime(effectiveStart);
+    }
+  }, [effectiveStart, durationMode]);
+
+  const togglePreviewPlayback = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const v = previewVideoRef.current;
+    if (!v) return;
+
+    const vDur = v.duration || duration || 0;
+    const start = (isAutoDuration || durationMode === "auto") ? 0 : startTime;
+    let end = (isAutoDuration || durationMode === "auto")
+      ? vDur
+      : (endTime && endTime > start ? endTime : vDur);
+
+    if (end <= start) end = vDur > 0 ? vDur : 9999;
+
+    if (v.paused) {
+      if (v.currentTime < start || v.currentTime >= (end > 0 ? end - 0.05 : 9999)) {
+        v.currentTime = start;
+      }
+      v.play()
+        .then(() => setIsPreviewPlaying(true))
+        .catch((err) => console.warn("Preview play error:", err));
+    } else {
+      v.pause();
+      setIsPreviewPlaying(false);
+    }
+  };
+
+  const restartPreviewPlayback = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const v = previewVideoRef.current;
+    if (!v) return;
+    v.currentTime = effectiveStart;
+    setPreviewCurrentTime(effectiveStart);
+    v.play().then(() => setIsPreviewPlaying(true)).catch(() => {});
+  };
+
+  const togglePreviewMute = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const v = previewVideoRef.current;
+    if (!v) return;
+    v.muted = !v.muted;
+    setIsPreviewMuted(v.muted);
+  };
 
   // States for transferring edits to After Effects / SVGA Layer Editor
   const [isTransferringToAe, setIsTransferringToAe] = useState(false);
@@ -2933,10 +3015,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-10">
           {/* Left Column: Upload & Formats */}
           <div className="xl:col-span-4 space-y-6">
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className={`h-64 rounded-[2.5rem] border-2 border-dashed transition-all flex flex-col items-center justify-center cursor-pointer group relative overflow-hidden ${files.length > 0 ? "border-sky-500 bg-sky-500/5" : "border-white/10 hover:border-sky-500/50 hover:bg-white/5"}`}
-            >
+            {/* Video Upload & Interactive Live Player Station */}
+            <div className="relative rounded-[2.5rem] overflow-hidden border border-white/10 bg-slate-950/60 p-4 shadow-2xl">
               <input
                 type="file"
                 ref={fileInputRef}
@@ -2951,62 +3031,260 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
                   }
                 }}
               />
-              {file ? (
-                <div className="text-center p-6 relative z-10 w-full h-full flex flex-col items-center justify-center">
-                  {videoUrl ? (
+
+              {file && videoUrl ? (
+                <div className="space-y-4">
+                  {/* Interactive Video Player Canvas */}
+                  <div
+                    onClick={togglePreviewPlayback}
+                    className="relative aspect-video w-full rounded-2xl bg-black border border-white/10 overflow-hidden cursor-pointer group shadow-inner flex items-center justify-center select-none"
+                    title={isPreviewPlaying ? "اضغط للإيقاف المؤقت" : "اضغط للتشغيل والمعاينة"}
+                  >
                     <video
-                      src={videoUrl}
-                      className="max-h-40 rounded-xl mb-2 border border-white/10"
+                      ref={previewVideoRef}
+                      src={videoUrl || undefined}
+                      className="w-full h-full object-contain pointer-events-none"
+                      onLoadedMetadata={(e) => {
+                        const v = e.currentTarget;
+                        const d = v.duration;
+                        if (d && !isNaN(d) && d > 0) {
+                          setDuration(d);
+                          if (!endTime || endTime === 0) setEndTime(d);
+                          setTimingSettings((prev) => ({
+                            ...prev,
+                            endTime: prev.endTime > 0 ? prev.endTime : d,
+                          }));
+                        }
+                      }}
                       onTimeUpdate={(e) => {
                         const v = e.currentTarget;
-                        const effectiveStart = isAutoDuration ? 0 : startTime;
-                        const effectiveEnd = isAutoDuration
-                          ? v.duration
-                          : endTime;
-                        if (v.currentTime > effectiveEnd)
-                          v.currentTime = effectiveStart;
-                        if (v.currentTime < effectiveStart)
-                          v.currentTime = effectiveStart;
+                        setPreviewCurrentTime(v.currentTime);
+                        const vDur = v.duration || duration || 0;
+                        if (vDur <= 0) return;
+
+                        const start = isAutoDuration || durationMode === "auto" ? 0 : startTime;
+                        let end = isAutoDuration || durationMode === "auto"
+                          ? vDur
+                          : (endTime && endTime > start ? endTime : vDur);
+
+                        if (end <= start) end = vDur;
+
+                        if (v.currentTime >= end - 0.05) {
+                          v.currentTime = start;
+                          if (!v.paused && !v.ended) {
+                            v.play().catch(() => {});
+                          }
+                        } else if (v.currentTime < start) {
+                          v.currentTime = start;
+                        }
                       }}
+                      onPlay={() => setIsPreviewPlaying(true)}
+                      onPause={() => setIsPreviewPlaying(false)}
                       autoPlay
-                      loop
-                      muted
+                      muted={isPreviewMuted}
                       playsInline
                     />
-                  ) : (
-                    <div className="w-20 h-20 bg-sky-500/20 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-sky-500/30">
-                      <Film className="w-10 h-10 text-sky-400" />
+
+                    {/* Spatial Crop Visual Overlay Curtains (Top & Bottom) */}
+                    {((timingSettings?.cropTop || 0) > 0) && (
+                      <div
+                        className="absolute top-0 left-0 right-0 bg-rose-950/70 border-b border-rose-500/80 pointer-events-none z-10 flex items-center justify-center"
+                        style={{ height: `${timingSettings.cropTop}%` }}
+                      >
+                        <span className="text-[9px] font-mono font-black text-rose-300 px-2 py-0.5 rounded bg-black/60 border border-rose-500/30">
+                          ✂️ قص علوي ({timingSettings.cropTop}%)
+                        </span>
+                      </div>
+                    )}
+                    {((timingSettings?.cropBottom || 0) > 0) && (
+                      <div
+                        className="absolute bottom-0 left-0 right-0 bg-rose-950/70 border-t border-rose-500/80 pointer-events-none z-10 flex items-center justify-center"
+                        style={{ height: `${timingSettings.cropBottom}%` }}
+                      >
+                        <span className="text-[9px] font-mono font-black text-rose-300 px-2 py-0.5 rounded bg-black/60 border border-rose-500/30">
+                          ✂️ قص سفلي ({timingSettings.cropBottom}%)
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Top Floating Badges */}
+                    <div className="absolute top-2.5 inset-x-2.5 flex items-center justify-between pointer-events-none z-20">
+                      <div className="flex items-center gap-1.5">
+                        {durationMode === "trim" ? (
+                          <span className="px-2.5 py-1 rounded-xl bg-amber-500/90 text-slate-950 font-black text-[10px] shadow-lg flex items-center gap-1">
+                            <Scissors className="w-3 h-3 stroke-[2.5]" />
+                            <span>مقطع محدد: [{effectiveStart.toFixed(1)}s ← {effectiveEnd.toFixed(1)}s]</span>
+                          </span>
+                        ) : durationMode === "speed_fit" ? (
+                          <span className="px-2.5 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-black text-[10px] shadow-lg flex items-center gap-1">
+                            <FastForward className="w-3 h-3" />
+                            <span>تسريع كامل: {targetSpeedDuration.toFixed(1)}s ({currentSpeedMultiplier.toFixed(2)}×)</span>
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-1 rounded-xl bg-slate-900/85 backdrop-blur-md text-sky-400 font-bold text-[10px] border border-white/10 flex items-center gap-1">
+                            <Film className="w-3 h-3" />
+                            <span>كامل الفيديو: {duration.toFixed(2)}s</span>
+                          </span>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={togglePreviewMute}
+                        className="pointer-events-auto p-1.5 rounded-lg bg-black/70 hover:bg-black/90 text-slate-300 hover:text-white border border-white/10 transition-colors shadow-md"
+                        title={isPreviewMuted ? "تشغيل الصوت" : "كتم الصوت"}
+                      >
+                        {isPreviewMuted ? <VolumeX className="w-3.5 h-3.5 text-red-400" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
+                      </button>
                     </div>
-                  )}
-                  <div className="flex items-center gap-2 justify-center">
-                    <div className="text-white font-black truncate max-w-[200px] text-sm">
-                      {file.name}
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        extractAudio();
-                      }}
-                      className="p-1.5 bg-white/10 hover:bg-sky-500/20 rounded-lg transition-all text-slate-400 hover:text-sky-400"
-                      title="تحميل الصوت فقط"
+
+                    {/* Central Play/Pause Action Icon Overlay */}
+                    <div
+                      className={`absolute inset-0 m-auto w-12 h-12 rounded-2xl bg-black/70 backdrop-blur-md border border-white/20 text-white flex items-center justify-center transition-all duration-200 pointer-events-none shadow-2xl ${
+                        isPreviewPlaying ? "opacity-0 group-hover:opacity-85 scale-90 group-hover:scale-100" : "opacity-100 scale-105"
+                      }`}
                     >
-                      <Download className="w-3.5 h-3.5" />
-                    </button>
+                      {isPreviewPlaying ? (
+                        <Pause className="w-6 h-6 text-white" />
+                      ) : (
+                        <Play className="w-6 h-6 fill-white text-white mr-0.5" />
+                      )}
+                    </div>
+
+                    {/* Video Bottom Progress Bar & Scrubber */}
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute bottom-0 inset-x-0 p-2.5 bg-gradient-to-t from-black/95 via-black/70 to-transparent flex flex-col gap-1.5 z-20"
+                    >
+                      <input
+                        type="range"
+                        min="0"
+                        max={duration || 1}
+                        step="0.05"
+                        value={previewCurrentTime}
+                        onChange={(e) => {
+                          const t = parseFloat(e.target.value) || 0;
+                          if (previewVideoRef.current) {
+                            previewVideoRef.current.currentTime = t;
+                            setPreviewCurrentTime(t);
+                          }
+                        }}
+                        className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-amber-500 hover:h-2 transition-all"
+                      />
+
+                      <div className="flex items-center justify-between text-[11px] text-white font-mono">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={togglePreviewPlayback}
+                            className="p-1 rounded-md bg-white/10 hover:bg-amber-500 hover:text-slate-950 transition-colors"
+                          >
+                            {isPreviewPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={restartPreviewPlayback}
+                            className="p-1 rounded-md bg-white/10 hover:bg-white/20 transition-colors"
+                            title="إعادة للبداية المحددة"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                          </button>
+                          <span className="text-amber-300 font-bold ml-1">
+                            {previewCurrentTime.toFixed(2)}s
+                          </span>
+                          <span className="text-slate-400">/</span>
+                          <span className="text-slate-300">
+                            {duration.toFixed(2)}s
+                          </span>
+                        </div>
+
+                        <div className="text-[10px] text-slate-300 font-sans font-bold flex items-center gap-1">
+                          <span>المدة المعروضة:</span>
+                          <span className="font-mono text-amber-400">
+                            {durationMode === "speed_fit"
+                              ? `${targetSpeedDuration.toFixed(1)}s`
+                              : `${(effectiveEnd - effectiveStart).toFixed(2)}s`}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-sky-400 text-[10px] font-black mt-2 uppercase tracking-widest">
-                    {(file.size / 1024 / 1024).toFixed(2)} MB
+
+                  {/* Range & Timing Badges Bar */}
+                  <div className="grid grid-cols-3 gap-2 text-center text-[10px] font-bold">
+                    <div className="p-2 rounded-xl bg-white/5 border border-white/5">
+                      <div className="text-slate-400">البداية</div>
+                      <div className="text-emerald-400 font-mono text-xs font-black mt-0.5">
+                        {effectiveStart.toFixed(2)}s
+                      </div>
+                    </div>
+                    <div className="p-2 rounded-xl bg-white/5 border border-white/5">
+                      <div className="text-slate-400">النهاية</div>
+                      <div className="text-amber-400 font-mono text-xs font-black mt-0.5">
+                        {effectiveEnd.toFixed(2)}s
+                      </div>
+                    </div>
+                    <div className="p-2 rounded-xl bg-white/5 border border-white/5">
+                      <div className="text-slate-400">مدة التحويل</div>
+                      <div className="text-sky-400 font-mono text-xs font-black mt-0.5">
+                        {calculateOutputDuration(duration, timingSettings).toFixed(2)}s
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* File Metadata & Replacement Action */}
+                  <div className="flex items-center justify-between pt-1 border-t border-white/5">
+                    <div className="min-w-0 pr-1">
+                      <div className="text-white font-bold text-xs truncate max-w-[170px]" title={file.name}>
+                        {file.name}
+                      </div>
+                      <div className="text-slate-400 text-[10px] mt-0.5">
+                        {(file.size / 1024 / 1024).toFixed(2)} MB
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          extractAudio();
+                        }}
+                        className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-sky-500/20 text-slate-300 hover:text-sky-400 text-[11px] font-bold border border-white/5 transition-all flex items-center gap-1"
+                        title="تحميل الصوت فقط"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>الصوت</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          fileInputRef.current?.click();
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-sky-500/10 hover:bg-sky-500/25 text-sky-400 hover:text-sky-300 text-[11px] font-black border border-sky-500/30 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+                      >
+                        <Video className="w-3 h-3" />
+                        <span>تغيير الفيديو</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : (
-                <div className="text-center p-6 relative z-10">
-                  <div className="w-20 h-20 bg-white/5 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-white/5 group-hover:scale-110 transition-transform">
-                    <Video className="w-10 h-10 text-slate-400" />
+                /* Empty Upload State */
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="h-56 border-2 border-dashed border-white/10 hover:border-sky-500/50 hover:bg-white/5 rounded-2xl transition-all flex flex-col items-center justify-center cursor-pointer group p-6 text-center"
+                >
+                  <div className="w-16 h-16 bg-white/5 group-hover:bg-sky-500/20 rounded-3xl flex items-center justify-center mx-auto mb-3 border border-white/5 group-hover:scale-110 transition-all text-slate-400 group-hover:text-sky-400">
+                    <Video className="w-8 h-8" />
                   </div>
                   <div className="text-white font-black text-sm">
-                    اضغط لرفع الفيديوهات
+                    اضغط لاختيار أو رفع مقطع فيديو
                   </div>
-                  <div className="text-slate-500 text-[10px] font-bold mt-2 uppercase tracking-widest">
-                    MP4 فقط
+                  <div className="text-slate-500 text-[10px] font-bold mt-1.5 uppercase tracking-widest">
+                    يدعم MP4, VAP, AVI
                   </div>
                 </div>
               )}
@@ -3414,7 +3692,10 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
                       onClick={() => {
                         setDurationMode("auto");
                         setIsAutoDuration(true);
-                        setTimingSettings(DEFAULT_TIMING_SETTINGS);
+                        setTimingSettings((prev) => ({
+                          ...prev,
+                          mode: "full",
+                        }));
                       }}
                       className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase transition-all ${
                         durationMode === "auto" && isAutoDuration
@@ -3428,11 +3709,11 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
                       onClick={() => {
                         setDurationMode("speed_fit");
                         setIsAutoDuration(false);
-                        setTimingSettings({
-                          ...DEFAULT_TIMING_SETTINGS,
+                        setTimingSettings((prev) => ({
+                          ...prev,
                           mode: "fit_duration",
                           targetDuration: targetSpeedDuration,
-                        });
+                        }));
                       }}
                       className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase transition-all ${
                         durationMode === "speed_fit"
@@ -3446,12 +3727,12 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
                       onClick={() => {
                         setDurationMode("trim");
                         setIsAutoDuration(false);
-                        setTimingSettings({
-                          ...DEFAULT_TIMING_SETTINGS,
+                        setTimingSettings((prev) => ({
+                          ...prev,
                           mode: "trim",
                           startTime: startTime,
                           endTime: endTime || duration,
-                        });
+                        }));
                       }}
                       className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase transition-all ${
                         durationMode === "trim"
@@ -4288,14 +4569,14 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
           setTargetSpeedDuration(targetDur);
           setDurationMode("speed_fit");
           setIsAutoDuration(false);
-          setTimingSettings({
-            ...DEFAULT_TIMING_SETTINGS,
+          setTimingSettings((prev) => ({
+            ...prev,
             mode: "fit_duration",
             targetDuration: targetDur,
             speedMultiplier: speedMult,
             startTime: 0,
             endTime: duration,
-          });
+          }));
         }}
       />
 
@@ -4313,7 +4594,17 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
             setTimingSettings(newSettings);
             setStartTime(newSettings.startTime);
             setEndTime(newSettings.endTime);
-            setIsAutoDuration(newSettings.mode === "full");
+            if (newSettings.mode === "trim") {
+              setDurationMode("trim");
+              setIsAutoDuration(false);
+            } else if (newSettings.mode === "fit_duration") {
+              setDurationMode("speed_fit");
+              setIsAutoDuration(false);
+              setTargetSpeedDuration(newSettings.targetDuration);
+            } else if (newSettings.mode === "full") {
+              setDurationMode("auto");
+              setIsAutoDuration(true);
+            }
           }}
         />
       )}

@@ -89,6 +89,19 @@ export const VideoDurationSpeedModal: React.FC<VideoDurationSpeedModalProps> = (
 
   const activeItem = items[selectedIndex] || null;
 
+  const activeVideoUrl = useMemo(() => {
+    if (!activeItem?.file) return '';
+    return URL.createObjectURL(activeItem.file);
+  }, [activeItem?.file]);
+
+  useEffect(() => {
+    return () => {
+      if (activeVideoUrl) {
+        URL.revokeObjectURL(activeVideoUrl);
+      }
+    };
+  }, [activeVideoUrl]);
+
   // Initialize items when modal opens or initialFiles change
   useEffect(() => {
     if (!isOpen) return;
@@ -436,7 +449,7 @@ export const VideoDurationSpeedModal: React.FC<VideoDurationSpeedModalProps> = (
                     <>
                       <video
                         ref={videoRef}
-                        src={URL.createObjectURL(activeItem.file)}
+                        src={activeVideoUrl}
                         onTimeUpdate={handleTimeUpdate}
                         onEnded={() => setIsPlaying(false)}
                         muted={isMuted}

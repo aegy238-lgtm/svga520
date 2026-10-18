@@ -73,7 +73,7 @@ export const PlayerSeat: React.FC<PlayerSeatProps> = ({
             }`}
           >
             <img
-              src={player.avatar}
+              src={player.avatar || undefined}
               alt={player.name}
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"

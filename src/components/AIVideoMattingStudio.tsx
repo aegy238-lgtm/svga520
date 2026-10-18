@@ -410,7 +410,7 @@ export const AIVideoMattingStudio: React.FC<AIVideoMattingStudioProps> = ({
       {videoUrl && (
         <video
           ref={videoRef}
-          src={videoUrl}
+          src={videoUrl || undefined}
           playsInline
           muted
           crossOrigin="anonymous"

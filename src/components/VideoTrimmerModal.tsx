@@ -67,14 +67,11 @@ export function calculateOutputDuration(
 ): number {
   if (!duration || duration <= 0) return 0;
 
-  if (settings.mode === "full") {
-    return duration;
+  if (settings.mode === "fit_duration") {
+    return Math.max(0.1, settings.targetDuration || 10);
   }
   if (settings.mode === "trim") {
     return Math.max(0.05, (settings.endTime || duration) - (settings.startTime || 0));
-  }
-  if (settings.mode === "fit_duration") {
-    return Math.max(0.1, settings.targetDuration || 10);
   }
   if (settings.mode === "speed_multiplier") {
     const end = settings.endTime > settings.startTime ? settings.endTime : duration;
@@ -91,6 +88,12 @@ export function calculateOutputDuration(
     const part3 = Math.max(0, duration - segEnd);
     return Math.max(0.1, part1 + part2 + part3);
   }
+  if (settings.mode === "crop_spatial" || settings.mode === "full") {
+    if (settings.startTime > 0 || (settings.endTime > 0 && settings.endTime < duration)) {
+      return Math.max(0.05, settings.endTime - settings.startTime);
+    }
+    return duration;
+  }
   return duration;
 }
 
@@ -102,7 +105,13 @@ export function getTimeForFrame(
 ): number {
   if (totalFrames <= 1) return settings.startTime || 0;
 
-  if (settings.mode === "full") {
+  if (settings.mode === "full" || settings.mode === "crop_spatial") {
+    const start = settings.startTime || 0;
+    const end = settings.endTime > start && settings.endTime <= duration ? settings.endTime : duration;
+    if (start > 0 || end < duration) {
+      const range = Math.max(0.01, end - start);
+      return Math.min(end, Math.max(start, start + (i / (totalFrames - 1)) * range));
+    }
     return Math.min(duration, Math.max(0, (i / (totalFrames - 1)) * duration));
   }
 
@@ -212,15 +221,19 @@ export const VideoTrimmerModal: React.FC<VideoTrimmerModalProps> = ({
 
   // Initialize duration and settings
   useEffect(() => {
-    if (initialDuration > 0) {
-      setDuration(initialDuration);
+    if (isOpen) {
+      if (initialDuration > 0) {
+        setDuration(initialDuration);
+      }
       setSettings((prev) => ({
         ...prev,
-        endTime: prev.endTime > 0 ? prev.endTime : initialDuration,
-        segmentEnd: prev.segmentEnd > 0 ? prev.segmentEnd : initialDuration,
+        ...initialSettings,
+        endTime: initialSettings.endTime > 0 ? initialSettings.endTime : (prev.endTime > 0 ? prev.endTime : initialDuration),
+        targetDuration: initialSettings.targetDuration || prev.targetDuration || 10,
+        segmentEnd: initialSettings.segmentEnd > 0 ? initialSettings.segmentEnd : (prev.segmentEnd > 0 ? prev.segmentEnd : initialDuration),
       }));
     }
-  }, [initialDuration]);
+  }, [isOpen, initialDuration, initialSettings]);
 
   // Extract High-Density Filmstrip Thumbnails
   useEffect(() => {

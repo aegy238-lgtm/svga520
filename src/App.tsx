@@ -950,7 +950,7 @@ const App: React.FC = () => {
         {hasCustomBg && (
           <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden select-none">
             <img 
-              src={rawAuthBg} 
+              src={rawAuthBg || undefined} 
               alt="Background" 
               className="w-full h-full object-cover object-center will-change-transform"
               style={{
@@ -966,7 +966,7 @@ const App: React.FC = () => {
         {isVideoAuth && (
           <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden select-none">
             <video 
-              src={rawAuthBg} 
+              src={rawAuthBg || undefined} 
               autoPlay 
               loop 
               muted 
@@ -1049,7 +1049,7 @@ const App: React.FC = () => {
       {hasCustomBg && rawBgUrl && (
         <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden select-none">
           <img 
-            src={rawBgUrl} 
+            src={rawBgUrl || undefined} 
             alt="Site Background"
             className="w-full h-full object-cover object-center will-change-transform transition-all duration-300"
             style={{
@@ -1093,7 +1093,7 @@ const App: React.FC = () => {
                 setVideoBgError(true);
               }
             }}
-            src={rawBgUrl} 
+            src={rawBgUrl || undefined} 
             className="w-full h-full object-cover will-change-transform transition-all duration-300"
             style={{
               filter: bgBlurPx > 0 ? `blur(${bgBlurPx}px)` : 'none',

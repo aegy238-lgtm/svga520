@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -76,6 +76,7 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
 
   // Settings - Defaulted to user's requested 750 × 1334 and original video duration
   const [fps, setFps] = useState<number>(15);
+  const [durationPreset, setDurationPreset] = useState<'original' | 'turbo' | 'custom'>('original');
   const [durationMode, setDurationMode] = useState<'original' | 'custom' | 'trim'>('original');
   const [durationStrategy, setDurationStrategy] = useState<'crop_start' | 'compress_full'>('crop_start');
   const [customDuration, setCustomDuration] = useState<number>(18.0);
@@ -147,6 +148,7 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
 
     if (fileList.length > 0 && newProbes[fileList[0].name]) {
       const p = newProbes[fileList[0].name];
+      setDurationPreset('original');
       setDurationMode('original');
       setCustomDuration(parseFloat(p.duration.toFixed(1)));
       setMaxFramesLimit(0);
@@ -166,12 +168,12 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
   const activeFile = files[selectedIndex] || null;
   const activeProbe = activeFile ? probes[activeFile.name] : null;
 
-  // Sync duration with active video's original duration
+  // Sync duration with active video's original duration when in original mode
   useEffect(() => {
-    if (activeProbe) {
+    if (activeProbe && durationPreset === 'original') {
       setCustomDuration(parseFloat(activeProbe.duration.toFixed(1)));
     }
-  }, [selectedIndex, activeProbe?.duration]);
+  }, [selectedIndex, activeProbe?.duration, durationPreset]);
 
   // Complete user freedom: changing width only changes width unless user explicitly locked ratio
   const handleWidthChange = (valStr: string) => {
@@ -221,6 +223,7 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
   };
 
   const stepDuration = (delta: number) => {
+    setDurationPreset('custom');
     setDurationMode('custom');
     setCustomDuration(prev => {
       const maxSec = activeProbe ? Math.max(60, Math.ceil(activeProbe.duration * 1.5)) : 60;
@@ -230,6 +233,7 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
   };
 
   const setOriginalDurationMode = () => {
+    setDurationPreset('original');
     setDurationMode('original');
     if (activeProbe) {
       setCustomDuration(parseFloat(activeProbe.duration.toFixed(1)));
@@ -238,6 +242,7 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
   };
 
   const setQuickDuration = (seconds: number, targetFps = 15) => {
+    setDurationPreset('custom');
     setDurationMode('custom');
     setCustomDuration(seconds);
     setFps(targetFps);
@@ -246,28 +251,145 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
 
   const applyTurboSpeedPreset = () => {
     setFps(15);
+    setDurationPreset('turbo');
     setDurationMode('custom');
     setCustomDuration(2.0);
     setMaxFramesLimit(30);
     setQualityMode('fast');
   };
 
+  const selectCustomDuration = () => {
+    setDurationPreset('custom');
+    setDurationMode('custom');
+    setMaxFramesLimit(0);
+  };
+
+  const selectCustomDurationPreset = () => {
+    setDurationPreset('custom');
+    setDurationMode('custom');
+    setDurationStrategy('compress_full');
+    setMaxFramesLimit(0);
+  };
+
   // Active file duration
   const activeDuration = activeProbe?.duration || 5;
-  const targetDurationSeconds = durationMode === 'custom' ? customDuration : activeDuration;
+
+  const targetDurationSeconds = useMemo(() => {
+    if (durationMode === 'trim' && trimEnd > trimStart) {
+      return parseFloat((trimEnd - trimStart).toFixed(1));
+    }
+    if (durationPreset === 'original') {
+      return activeDuration;
+    }
+    if (durationPreset === 'turbo') {
+      return 2.0;
+    }
+    return customDuration;
+  }, [durationMode, durationPreset, trimStart, trimEnd, activeDuration, customDuration]);
+
   let estimatedFrames = Math.max(1, Math.round(targetDurationSeconds * fps));
   if (maxFramesLimit > 0 && estimatedFrames > maxFramesLimit) {
     estimatedFrames = maxFramesLimit;
   }
 
-  // Toggle Video Playback
-  const togglePlay = () => {
+  // Segment Bounds for video preview playback (where it starts and where it ends)
+  const previewStartTime = useMemo(() => {
+    if (durationMode === 'trim') return Math.max(0, trimStart);
+    return 0;
+  }, [durationMode, trimStart]);
+
+  const previewEndTime = useMemo(() => {
+    if (durationMode === 'trim') {
+      return trimEnd > trimStart ? trimEnd : activeDuration;
+    }
+    if (durationPreset === 'turbo' || durationPreset === 'custom' || durationStrategy === 'compress_full' || durationPreset === 'original') {
+      return activeDuration;
+    }
+    return Math.min(activeDuration, targetDurationSeconds);
+  }, [durationMode, trimEnd, trimStart, activeDuration, durationStrategy, durationPreset, targetDurationSeconds]);
+
+  const currentPlaybackRate = useMemo(() => {
+    if (durationPreset === 'original') return 1.0;
+    if (durationPreset === 'turbo') {
+      return activeDuration > 0 ? parseFloat((activeDuration / 2.0).toFixed(2)) : 1.0;
+    }
+    if (durationPreset === 'custom') {
+      return (activeDuration > 0 && customDuration > 0)
+        ? parseFloat((activeDuration / customDuration).toFixed(2))
+        : 1.0;
+    }
+    return 1.0;
+  }, [durationPreset, activeDuration, customDuration]);
+
+  // Stable video URL with cleanup
+  const [activeVideoSrc, setActiveVideoSrc] = useState<string>('');
+  useEffect(() => {
+    if (!activeFile) {
+      setActiveVideoSrc('');
+      return;
+    }
+    if (activeProbe?.transcodedUrl) {
+      setActiveVideoSrc(activeProbe.transcodedUrl);
+      return;
+    }
+    const isAvi = activeFile.name.toLowerCase().endsWith('.avi') || activeFile.type === 'video/x-msvideo' || activeFile.type === 'video/avi';
+    if (isAvi && !activeProbe?.transcodedFile) {
+      setActiveVideoSrc('');
+      return;
+    }
+    const url = URL.createObjectURL(activeProbe?.transcodedFile || activeFile);
+    setActiveVideoSrc(url);
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [activeFile, activeProbe?.transcodedUrl, activeProbe?.transcodedFile]);
+
+  // Keep video playbackRate in sync when changing settings
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.playbackRate = Math.min(16, Math.max(0.1, currentPlaybackRate));
+    }
+  }, [currentPlaybackRate]);
+
+  // Toggle Video Playback with segment bounds and rate awareness
+  const togglePlay = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     if (!videoRef.current) return;
     if (isPlaying) {
       videoRef.current.pause();
       setIsPlaying(false);
     } else {
-      videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+      try {
+        videoRef.current.playbackRate = Math.min(16, Math.max(0.1, currentPlaybackRate));
+        const startT = previewStartTime;
+        const endT = previewEndTime > startT ? previewEndTime : (videoRef.current.duration || 9999);
+        if (videoRef.current.currentTime < startT || videoRef.current.currentTime >= endT - 0.08) {
+          videoRef.current.currentTime = startT;
+          setCurrentTime(startT);
+        }
+        videoRef.current.play().then(() => setIsPlaying(true)).catch((err) => {
+          console.warn("Video play notice:", err);
+        });
+      } catch (err) {
+        console.warn("Playback error:", err);
+      }
+    }
+  };
+
+  const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const v = e.currentTarget;
+    const t = v.currentTime;
+    setCurrentTime(t);
+    const startT = previewStartTime;
+    const endT = previewEndTime > startT ? previewEndTime : (v.duration || 9999);
+    if (t >= endT) {
+      v.currentTime = startT;
+      setCurrentTime(startT);
+      if (!v.paused && !v.ended) {
+        v.play().catch(() => {});
+      }
+    } else if (t < startT) {
+      v.currentTime = startT;
     }
   };
 
@@ -570,18 +692,25 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
                   {/* Left Column: Video Preview Player */}
                   <div className="md:col-span-5 flex flex-col gap-3">
-                    <div className="relative aspect-[9/16] max-h-[300px] w-full mx-auto bg-black rounded-2xl overflow-hidden border border-white/15 flex items-center justify-center shadow-lg group">
+                    <div 
+                      onClick={togglePlay}
+                      className="relative aspect-[9/16] max-h-[300px] w-full mx-auto bg-black rounded-2xl overflow-hidden border border-white/15 flex items-center justify-center shadow-lg group cursor-pointer select-none"
+                      title={isPlaying ? "اضغط للإيقاف المؤقت" : "اضغط للتشغيل والمعاينة"}
+                    >
                       {activeFile && (
                         <video
                           ref={videoRef}
-                          src={
-                            activeProbe?.transcodedUrl || 
-                            (activeFile.name.toLowerCase().endsWith('.avi') || activeFile.type === 'video/x-msvideo' || activeFile.type === 'video/avi'
-                              ? undefined
-                              : URL.createObjectURL(activeProbe?.transcodedFile || activeFile))
-                          }
-                          className="w-full h-full object-contain"
-                          onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                          src={activeVideoSrc || undefined}
+                          className="w-full h-full object-contain pointer-events-none"
+                          onLoadedMetadata={(e) => {
+                            const d = e.currentTarget.duration;
+                            if (d && !isNaN(d) && d > 0 && durationPreset === 'original') {
+                              setCustomDuration(parseFloat(d.toFixed(1)));
+                            }
+                          }}
+                          onTimeUpdate={handleTimeUpdate}
+                          onPlay={() => setIsPlaying(true)}
+                          onPause={() => setIsPlaying(false)}
                           onEnded={() => setIsPlaying(false)}
                           muted={isMuted}
                           playsInline
@@ -625,7 +754,7 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
                       <button
                         type="button"
                         onClick={togglePlay}
-                        className="absolute inset-0 m-auto w-12 h-12 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-sm border border-white/20 flex items-center justify-center text-white transition-all transform hover:scale-110 active:scale-95 cursor-pointer opacity-80 group-hover:opacity-100"
+                        className="absolute inset-0 m-auto w-12 h-12 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-sm border border-white/20 flex items-center justify-center text-white transition-all transform hover:scale-110 active:scale-95 cursor-pointer opacity-80 group-hover:opacity-100 z-20"
                       >
                         {isPlaying ? <Pause size={20} /> : <Play size={20} className="mr-0.5" />}
                       </button>
@@ -856,7 +985,7 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
                               type="button"
                               onClick={setOriginalDurationMode}
                               className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex flex-col justify-between ${
-                                durationMode === 'original'
+                                durationPreset === 'original'
                                   ? 'bg-amber-500/20 border-amber-400/80 text-white shadow-sm ring-1 ring-amber-400/40'
                                   : 'bg-white/5 border-white/5 text-slate-300 hover:bg-white/10'
                               }`}
@@ -873,9 +1002,9 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
                             {/* Option 2: 2.0s Turbo */}
                             <button
                               type="button"
-                              onClick={() => setQuickDuration(2.0, 15)}
+                              onClick={applyTurboSpeedPreset}
                               className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex flex-col justify-between ${
-                                durationMode === 'custom' && Math.abs(customDuration - 2.0) < 0.1
+                                durationPreset === 'turbo'
                                   ? 'bg-amber-500/20 border-amber-400/80 text-white shadow-sm ring-1 ring-amber-400/40'
                                   : 'bg-white/5 border-white/5 text-slate-300 hover:bg-white/10'
                               }`}
@@ -892,15 +1021,15 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
                             {/* Option 3: Custom Duration */}
                             <button
                               type="button"
-                              onClick={() => setDurationMode('custom')}
+                              onClick={selectCustomDurationPreset}
                               className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex flex-col justify-between ${
-                                durationMode === 'custom' && Math.abs(customDuration - 2.0) >= 0.1
+                                durationPreset === 'custom'
                                   ? 'bg-indigo-500/20 border-indigo-400/80 text-white shadow-sm ring-1 ring-indigo-400/40'
                                   : 'bg-white/5 border-white/5 text-slate-300 hover:bg-white/10'
                               }`}
                             >
                               <div className="flex items-center justify-between w-full mb-1">
-                                <span className="text-xs font-bold text-indigo-300">تخصيص مدة</span>
+                                <span className="text-xs font-bold text-indigo-300">تخصيص مدة بالسرعة</span>
                                 <span className="text-[10px] font-mono font-black bg-indigo-400/20 text-indigo-200 px-1.5 py-0.5 rounded">
                                   {customDuration.toFixed(1)}ث
                                 </span>
@@ -910,7 +1039,7 @@ export const SvgaMp4ImportModal: React.FC<SvgaMp4ImportModalProps> = ({
                           </div>
 
                           {/* If Custom Duration is Active */}
-                          {durationMode === 'custom' && (
+                          {durationPreset === 'custom' && (
                             <div className="p-2.5 rounded-xl bg-black/40 border border-white/5 space-y-2 mt-1 animate-in fade-in">
                               <div className="flex items-center justify-between text-xs">
                                 <span className="text-[11px] text-slate-300 font-bold">شريط ضبط الثواني:</span>

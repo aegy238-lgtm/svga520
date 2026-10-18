@@ -56,7 +56,7 @@ export const GiftCard: React.FC<GiftCardProps> = ({
 
         {/* Background Poster Image - Centered and nicely proportioned */}
         <img
-          src={gift.posterUrl}
+          src={gift.posterUrl || undefined}
           alt={displayTitle}
           className={`w-full h-full object-contain p-2 transition-all duration-300 ${
             isHovered ? 'opacity-20 scale-95' : 'opacity-100 scale-100'
@@ -65,16 +65,18 @@ export const GiftCard: React.FC<GiftCardProps> = ({
         />
 
         {/* Hovering Live Video Stream Preview */}
-        <video
-          ref={videoRef}
-          src={gift.videoUrl}
-          loop
-          muted
-          playsInline
-          className={`absolute inset-0 w-full h-full object-contain p-2 transition-opacity duration-300 ${
-            isHovered ? 'opacity-100' : 'opacity-0 pointer-events-none'
-          }`}
-        />
+        {gift.videoUrl ? (
+          <video
+            ref={videoRef}
+            src={gift.videoUrl}
+            loop
+            muted
+            playsInline
+            className={`absolute inset-0 w-full h-full object-contain p-2 transition-opacity duration-300 ${
+              isHovered ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            }`}
+          />
+        ) : null}
 
         {/* Top Badges Row: Status on start, VIP & Format on end - completely separated with ample spacing */}
         <div className="absolute top-3 inset-x-3 flex items-center justify-between pointer-events-none z-10 gap-3">
@@ -174,7 +176,7 @@ export const GiftCard: React.FC<GiftCardProps> = ({
         <div className="pt-2 border-t border-slate-800/70 flex items-center justify-between text-[11px]">
           <div className="flex items-center gap-1.5 min-w-0">
             <img
-              src={gift.author.avatar}
+              src={gift.author.avatar || undefined}
               alt={gift.author.name}
               className="w-4 h-4 rounded-full object-cover shrink-0"
             />
